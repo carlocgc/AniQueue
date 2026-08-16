@@ -160,6 +160,30 @@ entries the migration carried over were removed — this solution only ever buil
 Minimum tooling this implies: VS 2026 (or VS 2022 17.14+) and the .NET 10 SDK. Both are
 already the baseline in §0, so nothing is lost.
 
+### D10 — Franchise grouping waits for authoritative relation data
+
+A MyAnimeList export carries no relationship data at all. Its 23 fields per entry are
+catalogue basics and the user's own tracking; there is no sequel, prequel, parent or
+franchise field. Franchises therefore cannot be derived from an import, only curated.
+
+That is a problem at realistic scale. Measured against a genuine 752-title export, a
+title-similarity heuristic proposed **138 candidate franchises covering 447 titles (59%)**.
+Curating that by hand is data entry, not curation — but the same run also produced a
+confident group named "Re" containing seven entries, which is `Re:Zero` split on its colon.
+
+The brief permits detection "as an optional suggestion" (§4), and that option was considered
+and **declined**: a suggestion engine that is confidently wrong leaves the user unpicking
+mis-grouped franchises, which is worse than having none yet. Franchise grouping instead
+waits for MAL/AniList relation data, which is authoritative rather than inferred.
+
+**Consequence, accepted knowingly:** until that integration lands, users with large libraries
+have manual franchise management only, and will realistically group a handful of franchises
+rather than all of them. Phase 5 ships manual tools; the post-MVP API work in §10 is what
+makes franchises practical at scale.
+
+Do not re-propose title-similarity detection without new evidence that it can be made
+accurate — the 59% coverage figure is not the interesting number, the false positives are.
+
 ---
 
 ## 3. Solution structure
@@ -267,17 +291,26 @@ carries `ProfileId` so multi-user (Phase 5 post-MVP) stays possible. Settings pe
 | `IFranchiseService` | Infrastructure | membership, ordering, dissolve, next-unwatched |
 | `IImportService` | Infrastructure | orchestrates the import pipeline |
 | `IRecommendationService` | Infrastructure | build request, validate/apply result, run history |
-| `IAnimeListProvider` | Core (impl Infra) | `MalXmlProvider`, `AniQueueJsonProvider` |
+| `IAnimeListParser` | **Core** (incl. impls) | `MyAnimeListXmlParser`, `AniQueueJsonParser` — pure, no database |
 | `IAiRecommendationProvider` | Core | `ManualJsonRecommendationProvider` only in MVP |
 | `IRankingCalculator` | **Core** | hybrid ranking formula — pure, testable |
 | `IRuntimeCalculator` | **Core** | episode×duration maths, franchise sums, formatting |
 | `ICoverImageResolver` | Core | URL passthrough now; local caching later |
 
-Import is a pipeline of distinct types, not one `ImportManager`:
+Import splits at the point where a database is first needed:
 
 ```
-IImportParser → IImportNormaliser → IImportValidator → IImportMatcher → ImportPreview → IImportCommitter
+IAnimeListParser  (Core, pure)      file bytes  → ParseResult (entries + problems)
+IImportService    (Infrastructure)  ParseResult → ImportPreview → commit
 ```
+
+**D9 — parsing lives in Core, and the parser does not build the preview.** The brief's
+`IAnimeListProvider.ImportAsync` returns an `ImportPreview` directly. But deciding whether
+an entry is new, an update or a conflict requires reading the existing library, so such a
+provider would need database access — which would drag every format parser into
+Infrastructure and out of reach of fast, fixture-free tests. Splitting at this seam keeps
+all format-specific logic pure, and leaves matching in exactly one place however many
+formats exist. Adding AniList later means writing one parser, not a second pipeline.
 
 `ImportPreview` is a pure in-memory object. **Nothing touches the database until the user
 explicitly confirms.** Imports are idempotent where reasonable.
@@ -373,6 +406,10 @@ Create, rename, add/remove titles, reorder, dissolve. Collapsed card showing ent
 watched, remaining runtime, first entry, AI score, queue position; expanding shows viewing
 order. `OptionalWithinFranchise` respected in completion and runtime maths.
 
+Manual tools only, by decision (D10). Imports cannot supply relationships, and grouping is
+not inferred from titles — it waits for the authoritative relation data in §10. Expect large
+libraries to have few franchises until then.
+
 ### Phase 6 — Watching workflow
 Start Watching (status → Watching, set `DateStarted` if absent, dequeue as appropriate).
 `+1 episode`. Mark Completed at the known final episode, with an **optional** 1–10 score
@@ -450,6 +487,35 @@ database file in a host directory owned by root. Named volumes are fine — Dock
 ownership from the image — bind mounts are not. Plan: pin a known UID/GID in the image,
 default compose to a **named volume**, and document `chown` for bind-mount users (the
 common Unraid case).
+
+**Privacy-hardened browsers break Blazor Server's DOM contract.** Narrowed by bisect: the
+circuit dies with `Cannot read properties of null (reading 'insertBefore')` followed by
+`No element is currently associated with component 1` in **Brave**, while Firefox and Edge
+are clean. Edge is also Chromium, so this is Brave's Shields layer, not the engine.
+
+**It is intermittent.** Toggling Shields off and back on for the site stopped it recurring,
+which points at cached per-site Shields state or a stale cosmetic-filter list rather than a
+deterministic rule. Do not expect to reproduce it on demand — an attempt that comes up clean
+does not mean it is gone.
+
+Blazor Server patches the live DOM through direct node references. Shields' cosmetic
+filtering hides and sometimes removes nodes, and its fingerprinting protection patches
+native DOM APIs — either can invalidate a reference the renderer still holds, after which
+the next render batch fails and the circuit tears down.
+
+This matters beyond development. A self-hosted anime backlog manager skews heavily toward
+the home-server audience, which skews heavily toward Brave; those users would see only
+"An unhandled error has occurred" with no explanation.
+
+Not yet mitigated. Options, in increasing order of cost:
+
+- Document it, and tell users to drop Shields for their AniQueue host.
+- Rename any CSS classes that generic cosmetic-filter lists target.
+- Disable prerendering on the root components, removing the phase where the client adopts
+  server-rendered markup. Only a partial fix — a node removed later still breaks a
+  subsequent patch — and it costs a blank first paint.
+
+Reassess once it is known *which* element Shields is acting on.
 
 **SQLite single-writer.** Adequate for one user, but a concurrent import and queue write
 can hit `SQLITE_BUSY`. WAL plus a `busy_timeout` at startup; keep write transactions short.

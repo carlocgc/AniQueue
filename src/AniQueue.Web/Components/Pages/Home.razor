@@ -1,7 +1,76 @@
-﻿@page "/"
+@page "/"
+@inject ILibraryService LibraryService
 
-<PageTitle>Home</PageTitle>
+<PageTitle>AniQueue</PageTitle>
 
-<h1>Hello, world!</h1>
+<div class="page-header">
+    <h1>Dashboard</h1>
+    <p>What to watch next, decided deliberately rather than by scrolling.</p>
+</div>
 
-Welcome to your new app.
+@if (Summary is null)
+{
+    <div class="empty-state" aria-live="polite">Loading…</div>
+}
+else if (Summary.Total == 0)
+{
+    <div class="card">
+        <div class="empty-state">
+            <p>Nothing here yet. Import your existing library to get started.</p>
+            <a class="button" href="import">Import a MyAnimeList export</a>
+        </div>
+    </div>
+}
+else
+{
+    <div class="stat-row">
+        <div class="stat">
+            <div class="value">@Summary.Total</div>
+            <div class="label">In library</div>
+        </div>
+        <div class="stat">
+            <div class="value">@Summary.Of(LibraryStatus.Watching)</div>
+            <div class="label">Watching</div>
+        </div>
+        <div class="stat">
+            <div class="value">@Summary.Of(LibraryStatus.Planning)</div>
+            <div class="label">Backlog</div>
+        </div>
+        <div class="stat">
+            <div class="value">@Summary.Of(LibraryStatus.Completed)</div>
+            <div class="label">Completed</div>
+        </div>
+        <div class="stat">
+            <div class="value">@Summary.Of(LibraryStatus.OnHold)</div>
+            <div class="label">On hold</div>
+        </div>
+        <div class="stat">
+            <div class="value">@Summary.Of(LibraryStatus.Dropped)</div>
+            <div class="label">Dropped</div>
+        </div>
+    </div>
+
+    @* Currently Watching, Up Next and Suggested Next arrive with Phases 4, 6 and 7.
+       Stating that is more useful than showing empty placeholder panels. *@
+    <div class="card">
+        <h2>Coming next</h2>
+        <p class="muted">
+            The Up Next queue, watching progress and recommendations are being built
+            in later phases. For now, the
+            <a href="backlog">backlog</a> shows everything you have imported.
+        </p>
+    </div>
+}
+
+@code {
+    // Carried from the prerender into the interactive render (see Backlog.razor for
+    // the full reasoning). Without it, OnInitializedAsync runs a second time when
+    // the circuit attaches, and the component briefly renders "Loading…" — replacing
+    // the prerendered markup with a structurally different tree at the exact moment
+    // the client is binding to it.
+    [PersistentState]
+    public LibrarySummary? Summary { get; set; }
+
+    protected override async Task OnInitializedAsync() =>
+        Summary ??= await LibraryService.GetSummaryAsync(Profile.DefaultProfileId);
+}
