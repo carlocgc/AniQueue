@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    EF Core, SQLite, migrations, and the implementations of the service
+    interfaces declared in Core. Everything that touches data lives here.
+  -->
+
+  <ItemGroup>
+    <ProjectReference Include="..\AniQueue.Core\AniQueue.Core.csproj" />
+  </ItemGroup>
+
+</Project>

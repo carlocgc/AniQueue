@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Integration tests against real EF Core and real SQLite. The EF InMemory
+       provider is deliberately not used anywhere: it does not enforce the
+       constraints these tests exist to verify. -->
+
+  <ItemGroup>
+    <PackageReference Include="coverlet.collector" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="xunit" />
+    <PackageReference Include="xunit.runner.visualstudio" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Using Include="Xunit" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\AniQueue.Core\AniQueue.Core.csproj" />
+    <ProjectReference Include="..\..\src\AniQueue.Infrastructure\AniQueue.Infrastructure.csproj" />
+  </ItemGroup>
+
+</Project>

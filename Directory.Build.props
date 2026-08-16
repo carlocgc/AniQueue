@@ -1,0 +1,31 @@
+<Project>
+
+  <!--
+    Shared compiler settings for every project in the solution (D6).
+    Individual .csproj files should stay nearly empty so that a setting cannot
+    drift between projects without anyone noticing.
+  -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AnalysisLevel>latest-recommended</AnalysisLevel>
+    <EnforceCodeStyleInBuild>true</EnforceCodeStyleInBuild>
+  </PropertyGroup>
+
+  <!--
+    Nullability is a correctness tool, not a suggestion. Promoting the nullable
+    diagnostics to errors keeps the reference-type annotations trustworthy; if
+    they can be ignored they stop meaning anything. Other warnings stay warnings
+    so that an in-progress phase can still be built and run.
+  -->
+  <PropertyGroup>
+    <WarningsAsErrors>$(WarningsAsErrors);nullable</WarningsAsErrors>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(Configuration)' == 'Release'">
+    <ContinuousIntegrationBuild Condition="'$(CI)' == 'true'">true</ContinuousIntegrationBuild>
+  </PropertyGroup>
+
+</Project>

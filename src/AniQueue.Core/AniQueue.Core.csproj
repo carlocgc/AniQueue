@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Domain entities, enums, DTOs, service interfaces and pure logic.
+
+    This project deliberately references nothing. No EF Core, no Blazor, no
+    ASP.NET. That is not architectural purity for its own sake: it is what lets
+    the bulk of the test suite (parsing, runtime maths, ranking, AI-result
+    validation) run in milliseconds with no database and no fixtures.
+
+    Adding a dependency here should require a paragraph of justification.
+  -->
+
+</Project>
