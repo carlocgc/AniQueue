@@ -1,6 +1,7 @@
 using System.Text;
 using AniQueue.Core.Domain;
 using AniQueue.Core.Import;
+using AniQueue.Core.Progress;
 using AniQueue.Infrastructure.Import;
 using AniQueue.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
@@ -35,6 +36,67 @@ public class ImportServiceTests
            <my_status>{status}</my_status>
          </anime>
          """;
+
+    private sealed class ProgressRecorder : IProgress<OperationProgress>
+    {
+        public List<OperationProgress> Reports { get; } = [];
+
+        public void Report(OperationProgress value) => Reports.Add(value);
+    }
+
+    [Fact]
+    public async Task Preview_reports_its_stages()
+    {
+        // The dialog shows real stages rather than an indeterminate spinner, which
+        // only works if the service actually reports them.
+        await using var fixture = await ImportFixture.CreateAsync();
+        var progress = new ProgressRecorder();
+
+        await fixture.Service.PreviewAsync(
+            Export(Entry("268", "Golden Boy"), Entry("1953", "Gunbuster")),
+            Parser,
+            Profile.DefaultProfileId,
+            progress);
+
+        Assert.NotEmpty(progress.Reports);
+        Assert.Contains(progress.Reports, r => r.Message.Contains("Reading", StringComparison.Ordinal));
+        Assert.Contains(progress.Reports, r => r.Message.Contains("Comparing", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task Commit_reports_a_count_that_reaches_the_total()
+    {
+        // A progress bar that stops short of the end reads as a stall.
+        await using var fixture = await ImportFixture.CreateAsync();
+        var progress = new ProgressRecorder();
+
+        var preview = await fixture.Service.PreviewAsync(
+            Export(Entry("1", "A"), Entry("2", "B"), Entry("3", "C")),
+            Parser,
+            Profile.DefaultProfileId);
+
+        await fixture.Service.CommitAsync(preview, Profile.DefaultProfileId, progress);
+
+        var counted = progress.Reports.Where(r => r.HasCount).ToList();
+        Assert.NotEmpty(counted);
+        Assert.Equal(counted[^1].Total, counted[^1].Current);
+        Assert.Equal(1.0, counted[^1].Fraction);
+    }
+
+    [Fact]
+    public async Task Progress_is_optional()
+    {
+        // Nothing may depend on a reporter being supplied — the services are used
+        // from tests and, later, from non-interactive paths.
+        await using var fixture = await ImportFixture.CreateAsync();
+
+        var preview = await fixture.Service.PreviewAsync(
+            Export(Entry("268", "Golden Boy")), Parser, Profile.DefaultProfileId);
+
+        var result = await fixture.Service.CommitAsync(preview, Profile.DefaultProfileId);
+
+        Assert.Equal(1, result.Created);
+    }
 
     [Fact]
     public async Task Preview_reports_new_titles_without_writing_anything()

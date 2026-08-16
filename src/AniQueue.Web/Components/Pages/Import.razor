@@ -18,6 +18,20 @@
     <div class="notice error" role="alert">@_error</div>
 }
 
+@* The outcome and what to do next sit above the detail rather than below it. A
+   finished import leaves several screens of preview tables on the page, and the
+   result is what the user came back for — it should not require scrolling past
+   the thing it describes. *@
+@if (_commitResult is { } result)
+{
+    <div class="notice success" role="status">@SummaryText(result)</div>
+
+    <div class="toolbar">
+        <a class="button primary" href="backlog">View backlog</a>
+        <button @onclick="Reset">Import another file</button>
+    </div>
+}
+
 @if (_commitResult is null)
 {
     <div class="card">
@@ -32,15 +46,10 @@
            instead keeps a single button and keeps its built-in keyboard and
            screen-reader behaviour. *@
         <InputFile id="import-file" class="file-input" OnChange="OnFileSelectedAsync"
-                   accept=".xml" disabled="@_busy" aria-label="Select MyAnimeList export file" />
+                   accept=".xml" disabled="@_busy.IsRunning" aria-label="Select MyAnimeList export file" />
 
-        @* The native control already renders the chosen file name — and truncates
-           it to fit. Echoing it underneath showed the same name twice, in two
-           different forms. Only the reading status is added here. *@
-        @if (_busy)
-        {
-            <p class="muted" aria-live="polite">Reading the file…</p>
-        }
+        @* The native control renders the chosen file name itself, and reading
+           status now lives in the busy dialog, so nothing is added here. *@
     </div>
 }
 
@@ -64,11 +73,11 @@
         @if (_commitResult is null)
         {
             <div class="toolbar">
-                <button class="primary" disabled="@(_busy || !preview.HasApplicableChanges)"
+                <button class="primary" disabled="@(_busy.IsRunning || !preview.HasApplicableChanges)"
                         @onclick="CommitAsync">
                     @ImportButtonText(preview)
                 </button>
-                <button @onclick="Reset" disabled="@_busy">Cancel</button>
+                <button @onclick="Reset" disabled="@_busy.IsRunning">Cancel</button>
             </div>
 
             @if (!preview.HasApplicableChanges && preview.UnchangedCount > 0)
@@ -83,7 +92,9 @@
 
     @if (preview.ConflictCount > 0)
     {
-        <div class="card">
+        @* Tinted because this is the only section that needs a decision; everything
+           else on the page is a report. *@
+        <div class="card needs-decision">
             <h2>Conflicts — @preview.ConflictCount needing a decision</h2>
             <p class="muted">
                 AniQueue will not merge entries it cannot confidently identify, because an
@@ -95,10 +106,16 @@
             {
                 <div class="toolbar">
                     <span class="muted">Set all to:</span>
-                    <button @onclick="() => SetAllConflicts(ConflictResolution.Skip)">Skip</button>
-                    <button @onclick="() => SetAllConflicts(ConflictResolution.LinkToExisting)">Link to existing</button>
-                    <button @onclick="() => SetAllConflicts(ConflictResolution.ImportAsNew)">Import as new</button>
+                    <button class="choice skip" @onclick="() => SetAllConflicts(ConflictResolution.Skip)">Skip</button>
+                    <button class="choice link" @onclick="() => SetAllConflicts(ConflictResolution.LinkToExisting)">Link to existing</button>
+                    <button class="choice new" @onclick="() => SetAllConflicts(ConflictResolution.ImportAsNew)">Import as new</button>
                 </div>
+
+                @* Says what confirming will actually do, so the decision does not have
+                   to be reconstructed by reading down the Action column. *@
+                <p class="muted">
+                    <strong>@ConflictPlanText(preview)</strong>
+                </p>
             }
 
             <div class="table-wrap">
@@ -121,20 +138,27 @@
                                 <td>
                                     @if (_commitResult is null)
                                     {
-                                        <select value="@item.Resolution"
+                                        @* Coloured by what the choice does, using the same
+                                           language as the action badges: green adds, amber
+                                           modifies something that already exists, neutral
+                                           changes nothing. Amber on "link" is deliberate —
+                                           it rewrites an existing record and is the hardest
+                                           of the three to undo. *@
+                                        <select class="resolution @ResolutionClass(item.Resolution)"
+                                                value="@item.Resolution"
                                                 @onchange="e => SetResolution(item, e)"
                                                 aria-label="@($"How to handle {item.Entry.Title}")">
-                                            <option value="@ConflictResolution.Skip">Skip</option>
+                                            <option value="@ConflictResolution.Skip">Skip — no change</option>
                                             @if (item.ExistingAnimeId is not null)
                                             {
-                                                <option value="@ConflictResolution.LinkToExisting">Link to existing</option>
+                                                <option value="@ConflictResolution.LinkToExisting">Link to existing — rewrites it</option>
                                             }
-                                            <option value="@ConflictResolution.ImportAsNew">Import as new</option>
+                                            <option value="@ConflictResolution.ImportAsNew">Import as new — adds a copy</option>
                                         </select>
                                     }
                                     else
                                     {
-                                        <span class="badge">@item.Resolution</span>
+                                        <span class="badge @ResolutionClass(item.Resolution)">@item.Resolution</span>
                                     }
                                 </td>
                             </tr>
@@ -229,18 +253,9 @@
     </div>
 }
 
-@if (_commitResult is { } result)
-{
-    @* Built as one string rather than inline expressions: Razor turns the newline
-       between an expression and following markup into a space, which puts a gap
-       before the comma. *@
-    <div class="notice success" role="status">@SummaryText(result)</div>
-
-    <div class="toolbar">
-        <a class="button" href="backlog">View backlog</a>
-        <button @onclick="Reset">Import another file</button>
-    </div>
-}
+@* Blocking rather than a disabled button: a real export takes seconds, during
+   which the page would otherwise look frozen and invite a second click. *@
+<BusyDialog State="_busy" />
 
 @code {
     private const int PageSize = 100;
@@ -248,8 +263,15 @@
     private ImportPreview? _preview;
     private ImportCommitResult? _commitResult;
     private string? _error;
-    private bool _busy;
     private int _changesPage;
+
+    // Progress arrives off the render thread, so updates are marshalled back onto
+    // it with InvokeAsync before touching component state.
+    private BusyScope _busy = null!;
+
+    protected override void OnInitialized() =>
+        _busy = new BusyScope(() => InvokeAsync(StateHasChanged));
+
 
     private void SetResolution(ImportPreviewItem item, ChangeEventArgs e)
     {
@@ -278,16 +300,19 @@
     private async Task OnFileSelectedAsync(InputFileChangeEventArgs e)
     {
         Reset();
-        _busy = true;
 
         try
         {
-            // The default OpenReadStream cap is 512 KB, far below a real export.
-            // The parser enforces the same ceiling again on the bytes it reads, so
-            // the limit holds regardless of which entry point is used.
-            await using var stream = e.File.OpenReadStream(ImportLimits.Default.MaxBytes);
+            _preview = await _busy.RunAsync($"Reading {e.File.Name}", async progress =>
+            {
+                // The default OpenReadStream cap is 512 KB, far below a real export.
+                // The parser enforces the same ceiling again on the bytes it reads,
+                // so the limit holds regardless of which entry point is used.
+                await using var stream = e.File.OpenReadStream(ImportLimits.Default.MaxBytes);
 
-            _preview = await ImportService.PreviewAsync(stream, Parser, Profile.DefaultProfileId);
+                return await ImportService.PreviewAsync(
+                    stream, Parser, Profile.DefaultProfileId, progress);
+            });
 
             if (_preview.IsFileRejected)
             {
@@ -300,10 +325,6 @@
             Logger.LogWarning(ex, "Import upload rejected");
             _error = "That file is too large to import.";
         }
-        finally
-        {
-            _busy = false;
-        }
     }
 
     private async Task CommitAsync()
@@ -313,11 +334,13 @@
             return;
         }
 
-        _busy = true;
+        var count = _preview.CreateCount + _preview.UpdateCount + _preview.ResolvedConflictCount;
+        var title = $"Importing {count} {(count == 1 ? "entry" : "entries")}";
 
         try
         {
-            _commitResult = await ImportService.CommitAsync(_preview, Profile.DefaultProfileId);
+            _commitResult = await _busy.RunAsync(title, progress =>
+                ImportService.CommitAsync(_preview, Profile.DefaultProfileId, progress));
         }
         catch (Exception ex)
         {
@@ -326,10 +349,49 @@
             Logger.LogError(ex, "Import commit failed");
             _error = "The import could not be completed. Your library has not been changed.";
         }
-        finally
+    }
+
+    /// <summary>
+    /// Maps a resolution onto the page's existing colour language: "new" adds and is
+    /// green like Create, "link" rewrites an existing record and is amber like Update,
+    /// "skip" changes nothing and stays neutral.
+    /// </summary>
+    private static string ResolutionClass(ConflictResolution resolution) => resolution switch
+    {
+        ConflictResolution.LinkToExisting => "link",
+        ConflictResolution.ImportAsNew => "new",
+        _ => "skip"
+    };
+
+    private static string ConflictPlanText(ImportPreview preview)
+    {
+        var conflicts = preview.Items.Where(i => i.Action == ImportAction.Conflict).ToList();
+        var skip = conflicts.Count(i => i.Resolution == ConflictResolution.Skip);
+        var link = conflicts.Count(i => i.Resolution == ConflictResolution.LinkToExisting);
+        var create = conflicts.Count(i => i.Resolution == ConflictResolution.ImportAsNew);
+
+        if (skip == conflicts.Count)
         {
-            _busy = false;
+            return "All conflicts will be skipped — nothing about them changes.";
         }
+
+        var parts = new List<string>();
+        if (link > 0)
+        {
+            parts.Add($"{link} existing {(link == 1 ? "entry" : "entries")} rewritten");
+        }
+
+        if (create > 0)
+        {
+            parts.Add($"{create} added as {(create == 1 ? "a copy" : "copies")}");
+        }
+
+        if (skip > 0)
+        {
+            parts.Add($"{skip} skipped");
+        }
+
+        return $"On import: {string.Join(", ", parts)}.";
     }
 
     private static string ImportButtonText(ImportPreview preview)
