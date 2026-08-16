@@ -1,0 +1,309 @@
+@page "/up-next"
+@using AniQueue.Core.Queue
+@inject IQueueService QueueService
+
+<PageTitle>Up Next — AniQueue</PageTitle>
+
+<div class="page-header">
+    <h1>Up Next</h1>
+    <p>Your watch order, top first. This is the list AniQueue exists to keep.</p>
+</div>
+
+<BusyDialog State="_busy" />
+
+@* Outside the branches below: removing the last slot empties the queue, and the
+   message explaining what that did must survive the page becoming empty. *@
+@if (_actionMessage is not null)
+{
+    <div class="notice success" role="status">@_actionMessage</div>
+}
+
+@if (Queue is null)
+{
+    <div class="empty-state" aria-live="polite">Loading…</div>
+}
+else if (Queue.Count == 0)
+{
+    <div class="card">
+        <div class="empty-state">
+            <p>Nothing queued yet.</p>
+            <a class="button primary" href="backlog">Pick something from the backlog</a>
+        </div>
+    </div>
+}
+else
+{
+    <div class="card">
+        <div class="toolbar">
+            <span class="muted">@SummaryText()</span>
+        </div>
+
+        <div class="table-wrap">
+            <table class="queue">
+                <thead>
+                    <tr>
+                        <th class="numeric position-col">#</th>
+                        <th>Title</th>
+                        <th class="numeric">Runtime</th>
+                        <th>Progress</th>
+                        <th class="actions-col">Order</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @* Keyed by slot id, not by index. Blazor's differ otherwise
+                       matches rows by position, so a reorder makes it rewrite the
+                       contents of every row between the two — and it is the
+                       prerequisite for layering drag on top of this without the
+                       renderer and the DOM disagreeing about what moved (§9). *@
+                    @foreach (var (item, index) in Queue.Select((item, index) => (item, index)))
+                    {
+                        <tr @key="item.QueueItemId">
+                            <td class="numeric position-col">@(index + 1)</td>
+                            <td>
+                                <div class="title-cell">
+                                    <span>@item.Title</span>
+                                    @if (item.IsFranchise)
+                                    {
+                                        <span class="badge" title="A whole franchise in one slot">Franchise</span>
+                                    }
+                                </div>
+                                @* A franchise slot has neither of these: no single
+                                   status, and nothing to link to until franchises
+                                   carry relation data. The row simply omits the
+                                   line rather than printing placeholders. *@
+                                @if (!item.IsFranchise)
+                                {
+                                    <div class="row-meta">
+                                        @if (item.Status is { } status)
+                                        {
+                                            <span class="badge @status.ToString().ToLowerInvariant()">@status</span>
+                                        }
+                                        @if (item.SourceLink is { } link)
+                                        {
+                                            <a class="badge badge-link" href="@link.Url"
+                                               target="_blank" rel="noopener noreferrer"
+                                               title="@link.DescribeFor(item.Title)"
+                                               aria-label="@link.DescribeFor(item.Title)">
+                                                @link.ShortName<ExternalLinkIcon />
+                                            </a>
+                                        }
+                                    </div>
+                                }
+                            </td>
+                            <td class="numeric">@RuntimeText(item)</td>
+                            <td>@ProgressText(item)</td>
+                            <td class="actions-col">
+                                @* Every reorder has a keyboard-operable button, and
+                                   always will: §39 of the brief makes the non-drag
+                                   path a requirement rather than a fallback, so drag
+                                   will be layered over these rather than replacing
+                                   them. *@
+                                <div class="queue-actions" role="group"
+                                     aria-label="@($"Reorder {item.Title}")">
+                                    <button class="icon" disabled="@(index == 0)"
+                                            title="Move to top"
+                                            aria-label="@($"Move {item.Title} to the top")"
+                                            @onclick="() => MoveAsync(item, QueueMove.Top)">⤒</button>
+                                    <button class="icon" disabled="@(index == 0)"
+                                            title="Move up"
+                                            aria-label="@($"Move {item.Title} up")"
+                                            @onclick="() => MoveAsync(item, QueueMove.Up)">↑</button>
+                                    <button class="icon" disabled="@(index == Queue.Count - 1)"
+                                            title="Move down"
+                                            aria-label="@($"Move {item.Title} down")"
+                                            @onclick="() => MoveAsync(item, QueueMove.Down)">↓</button>
+                                    <button class="icon" disabled="@(index == Queue.Count - 1)"
+                                            title="Move to bottom"
+                                            aria-label="@($"Move {item.Title} to the bottom")"
+                                            @onclick="() => MoveAsync(item, QueueMove.Bottom)">⤓</button>
+                                    <button class="icon remove"
+                                            title="Remove from Up Next"
+                                            aria-label="@($"Remove {item.Title} from Up Next")"
+                                            @onclick="() => RemoveAsync(item)">✕</button>
+                                </div>
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    </div>
+}
+
+@* Offered only when there is something to offer. Until Phase 5 there is no
+   franchise page, so this is the one place a franchise can be queued — and D1's
+   claim that a franchise occupies a slot like anything else is worth being able to
+   exercise rather than only asserting in tests. *@
+@if (_franchises is { Count: > 0 })
+{
+    <div class="card">
+        <h2>Queue a whole franchise</h2>
+        <p class="muted">One slot for every season, film and OVA in the group.</p>
+
+        <div class="toolbar">
+            <select @bind="_selectedFranchiseId" aria-label="Franchise to queue">
+                @foreach (var franchise in _franchises)
+                {
+                    <option value="@franchise.FranchiseId">
+                        @franchise.Name (@franchise.EntryCount @(franchise.EntryCount == 1 ? "title" : "titles"))
+                    </option>
+                }
+            </select>
+            <button @onclick="AddFranchiseAsync">Add to Up Next</button>
+        </div>
+    </div>
+}
+
+@code {
+    // Not persisted across the prerender handoff, for the reason recorded on the
+    // backlog page: persisted state is serialised into the page and posted back
+    // when the circuit starts, and a long queue would push that past SignalR's
+    // default 32KB receive limit — which fails the circuit rather than the read it
+    // was avoiding.
+    private IReadOnlyList<QueueListItem>? Queue { get; set; }
+
+    private IReadOnlyList<QueueableFranchise>? _franchises;
+    private int _selectedFranchiseId;
+    private string? _actionMessage;
+    private BusyScope _busy = null!;
+
+    protected override void OnInitialized() =>
+        _busy = new BusyScope(() => InvokeAsync(StateHasChanged));
+
+    protected override Task OnInitializedAsync() => RefreshAsync();
+
+    /// <summary>
+    /// Runs a queue edit and re-reads the result.
+    /// </summary>
+    /// <remarks>
+    /// Through <see cref="BusyScope"/> rather than awaited inline. Most moves rewrite
+    /// one or two rows and finish well inside the show delay, so nothing appears —
+    /// but "move to top" from the bottom of a long queue rewrites every row, and
+    /// Microsoft.Data.Sqlite is a synchronous provider, so awaiting that on the
+    /// circuit's thread would freeze the whole application rather than this page.
+    ///
+    /// The buttons are deliberately *not* disabled while an edit is in flight. Blazor
+    /// serialises handlers on the circuit, so an impatient second click on "move up"
+    /// is applied to the already-updated queue and moves the slot a second place —
+    /// which is what the user meant.
+    /// </remarks>
+    /// <returns>
+    /// Whether anything actually changed, so a caller only announces what happened
+    /// when it did. The service reports a no-op for a move that was already at that
+    /// end, or a slot the queue no longer holds.
+    /// </returns>
+    private async Task<bool> ApplyAsync(string title, Func<Task<bool>> edit)
+    {
+        var changed = await _busy.RunAsync(title, _ => edit());
+
+        if (changed)
+        {
+            await RefreshAsync();
+        }
+
+        return changed;
+    }
+
+    private Task MoveAsync(QueueListItem item, QueueMove move)
+    {
+        // The new order is the feedback; a message saying so as well would be noise
+        // on every click.
+        _actionMessage = null;
+
+        return ApplyAsync(
+            "Reordering Up Next",
+            () => QueueService.MoveAsync(Profile.DefaultProfileId, item.QueueItemId, move));
+    }
+
+    private async Task RemoveAsync(QueueListItem item)
+    {
+        if (await ApplyAsync(
+                "Removing from Up Next",
+                () => QueueService.RemoveAsync(Profile.DefaultProfileId, item.QueueItemId)))
+        {
+            // Worth saying plainly. Removing from the queue is a decision about
+            // order, not about the library, and the row simply vanishing does not
+            // distinguish the two.
+            _actionMessage = $"Removed {item.Title} from Up Next. It is still in your library.";
+        }
+    }
+
+    private async Task AddFranchiseAsync()
+    {
+        if (_selectedFranchiseId == 0)
+        {
+            return;
+        }
+
+        // Captured before the edit: refreshing drops the franchise from the offered
+        // list, so afterwards there is no name left to report.
+        var name = _franchises?.FirstOrDefault(f => f.FranchiseId == _selectedFranchiseId)?.Name;
+
+        var added = await ApplyAsync(
+            "Adding a franchise to Up Next",
+            async () =>
+            {
+                var result = await QueueService.AddFranchisesAsync(
+                    Profile.DefaultProfileId, [_selectedFranchiseId]);
+
+                return result.Added > 0;
+            });
+
+        if (added && name is not null)
+        {
+            _actionMessage = $"Added {name} to the end of Up Next.";
+        }
+    }
+
+    private async Task RefreshAsync()
+    {
+        Queue = await QueueService.GetQueueAsync(Profile.DefaultProfileId);
+        _franchises = await QueueService.GetQueueableFranchisesAsync(Profile.DefaultProfileId);
+
+        // The select keeps its selection where it still exists; otherwise it falls
+        // back to whatever is now first, so the button never acts on a stale id.
+        if (_franchises.All(f => f.FranchiseId != _selectedFranchiseId))
+        {
+            _selectedFranchiseId = _franchises.Count > 0 ? _franchises[0].FranchiseId : 0;
+        }
+    }
+
+    /// <summary>
+    /// The queue's length and, where it can be known, how long it would take to
+    /// watch all of it. Partial totals say so rather than reading as exact.
+    /// </summary>
+    private string SummaryText()
+    {
+        if (Queue is null)
+        {
+            return string.Empty;
+        }
+
+        var count = $"{Queue.Count} {(Queue.Count == 1 ? "slot" : "slots")}";
+
+        var (minutes, isPartial) = RuntimeCalculator.Sum(Queue.Select(i => i.EstimatedRuntimeMinutes));
+
+        // Anything with an unknown length was left out of the sum by the calculator,
+        // so a partial total is a floor, not an estimate.
+        return RuntimeCalculator.Format(minutes) is { } total
+            ? $"{count} · {(isPartial ? "at least " : string.Empty)}{total} to watch"
+            : count;
+    }
+
+    private static string RuntimeText(QueueListItem item) =>
+        RuntimeCalculator.Format(item.EstimatedRuntimeMinutes) is { } formatted
+            ? item.IsRuntimePartial ? $"{formatted}+" : formatted
+            : "—";
+
+    private static string ProgressText(QueueListItem item)
+    {
+        if (item.IsFranchise)
+        {
+            return $"{item.CompletedEntryCount} / {item.EntryCount}";
+        }
+
+        return item.EpisodeCount is { } total
+            ? $"{item.EpisodesWatched} / {total}"
+            : item.EpisodesWatched > 0 ? item.EpisodesWatched.ToString() : "—";
+    }
+}

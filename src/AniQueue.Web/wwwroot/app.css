@@ -363,6 +363,43 @@ tbody tr.selected { background: var(--surface-alt); }
 
 .badge.queued { background: var(--accent); color: var(--accent-text); border-color: transparent; }
 
+/* Up Next ----------------------------------------------------------------- */
+
+/* The queue is read as an ordered list, so the number is what the eye lands on
+   first. Tabular figures stop the column jittering between 9 and 10. */
+.queue .position-col {
+    width: 1%;
+    padding-right: 1rem;
+    font-variant-numeric: tabular-nums;
+    color: var(--text-muted);
+}
+
+.queue .actions-col { width: 1%; white-space: nowrap; }
+
+.queue-actions { display: flex; gap: 0.15rem; }
+
+/* Square, so five of them fit a row without the actions column dominating the
+   table. The glyphs carry the meaning visually; each button also has an
+   aria-label naming both the action and the title, because an arrow announced on
+   its own tells a screen-reader user nothing about what it will move. */
+button.icon {
+    padding: 0.2rem 0;
+    width: 1.9rem;
+    line-height: 1.4;
+    text-align: center;
+    color: var(--text-muted);
+}
+
+button.icon:hover:not(:disabled) { color: var(--text); }
+
+/* Removal is the only irreversible-looking action here, so it is the only one
+   that colours on hover — at rest it sits with the arrows rather than shouting
+   from every row. */
+button.icon.remove:hover:not(:disabled) {
+    color: var(--danger);
+    border-color: var(--danger);
+}
+
 /* Busy overlay ------------------------------------------------------------ */
 
 .busy-overlay {
