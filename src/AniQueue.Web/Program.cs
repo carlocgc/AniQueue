@@ -18,6 +18,37 @@ if (builder.Environment.IsDevelopment())
 
 var app = builder.Build();
 
+// A self-hosted application that disappears without explanation is very hard to
+// support: the operator sees a stopped container and an empty log. These handlers
+// make the difference between the three ways it can end visible in the log.
+//
+// A graceful stop writes "shutting down". A fatal exception writes the exception.
+// Silence means the process was killed from outside — by an orchestrator, an OOM
+// killer, or an IDE ending its debug session — which is itself the diagnosis.
+{
+    var lifetimeLogger = app.Services.GetRequiredService<ILogger<Program>>();
+
+    AppDomain.CurrentDomain.UnhandledException += (_, e) =>
+        lifetimeLogger.LogCritical(
+            e.ExceptionObject as Exception,
+            "Unhandled exception; the process is terminating (runtime terminating: {IsTerminating})",
+            e.IsTerminating);
+
+    // Faulted tasks nobody awaited. Not fatal by default, but they indicate work
+    // that failed silently, which is worth knowing about.
+    TaskScheduler.UnobservedTaskException += (_, e) =>
+    {
+        lifetimeLogger.LogError(e.Exception, "A background task failed and nothing observed the result");
+        e.SetObserved();
+    };
+
+    app.Lifetime.ApplicationStopping.Register(() =>
+        lifetimeLogger.LogInformation("AniQueue is shutting down"));
+
+    app.Lifetime.ApplicationStopped.Register(() =>
+        lifetimeLogger.LogInformation("AniQueue has stopped"));
+}
+
 // Bring the schema up to date before serving traffic. A database that cannot be
 // reached is fatal: starting anyway would turn one clear startup error into an
 // endless stream of confusing request failures.
