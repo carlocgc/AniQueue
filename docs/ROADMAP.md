@@ -460,6 +460,30 @@ ownership from the image — bind mounts are not. Plan: pin a known UID/GID in t
 default compose to a **named volume**, and document `chown` for bind-mount users (the
 common Unraid case).
 
+**Privacy-hardened browsers break Blazor Server's DOM contract.** Confirmed by bisect:
+the circuit dies with `Cannot read properties of null (reading 'insertBefore')` followed by
+`No element is currently associated with component 1` in **Brave**, while Firefox and Edge
+are clean. Edge is also Chromium, so this is Brave's Shields layer, not the engine.
+
+Blazor Server patches the live DOM through direct node references. Shields' cosmetic
+filtering hides and sometimes removes nodes, and its fingerprinting protection patches
+native DOM APIs — either can invalidate a reference the renderer still holds, after which
+the next render batch fails and the circuit tears down.
+
+This matters beyond development. A self-hosted anime backlog manager skews heavily toward
+the home-server audience, which skews heavily toward Brave; those users would see only
+"An unhandled error has occurred" with no explanation.
+
+Not yet mitigated. Options, in increasing order of cost:
+
+- Document it, and tell users to drop Shields for their AniQueue host.
+- Rename any CSS classes that generic cosmetic-filter lists target.
+- Disable prerendering on the root components, removing the phase where the client adopts
+  server-rendered markup. Only a partial fix — a node removed later still breaks a
+  subsequent patch — and it costs a blank first paint.
+
+Reassess once it is known *which* element Shields is acting on.
+
 **SQLite single-writer.** Adequate for one user, but a concurrent import and queue write
 can hit `SQLITE_BUSY`. WAL plus a `busy_timeout` at startup; keep write transactions short.
 
