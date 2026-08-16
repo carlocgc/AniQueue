@@ -246,6 +246,92 @@ td.numeric, th.numeric { text-align: right; font-variant-numeric: tabular-nums; 
 .badge.update, .badge.watching { background: var(--warning-bg); color: var(--warning); border-color: transparent; }
 .badge.conflict, .badge.dropped { background: var(--danger-bg); color: var(--danger); border-color: transparent; }
 
+/* Sections that need a decision ------------------------------------------- */
+
+/* Everything else on the import page reports what happened; this one asks a
+   question. The left rule is the signal — a full amber fill would shout, and the
+   section is informative rather than an error. */
+.card.needs-decision {
+    border-color: var(--warning);
+    border-left-width: 3px;
+    background:
+        linear-gradient(var(--warning-bg), var(--warning-bg)) padding-box,
+        var(--surface);
+}
+
+/* Resolution choices reuse the action-badge colours: green adds, amber rewrites
+   something that already exists, neutral changes nothing. Amber for "link" is
+   deliberate — it is the hardest of the three to undo. */
+.resolution, .choice {
+    border-width: 1px;
+    border-style: solid;
+    font-weight: 500;
+}
+
+.resolution.skip, .choice.skip {
+    background: var(--surface-alt);
+    color: var(--text-muted);
+    border-color: var(--border);
+}
+
+.resolution.link, .choice.link {
+    background: var(--warning-bg);
+    color: var(--warning);
+    border-color: var(--warning);
+}
+
+.resolution.new, .choice.new {
+    background: var(--success-bg);
+    color: var(--success);
+    border-color: var(--success);
+}
+
+.badge.link { background: var(--warning-bg); color: var(--warning); border-color: transparent; }
+.badge.new { background: var(--success-bg); color: var(--success); border-color: transparent; }
+.badge.skip { background: var(--surface-alt); color: var(--text-muted); }
+
+/* Busy overlay ------------------------------------------------------------ */
+
+.busy-overlay {
+    position: fixed;
+    inset: 0;
+    display: grid;
+    place-items: center;
+    background: color-mix(in srgb, var(--bg) 75%, transparent);
+    backdrop-filter: blur(2px);
+    z-index: 900;
+}
+
+.busy-panel {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 1.5rem 2rem;
+    text-align: center;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+    max-width: 90vw;
+}
+
+.busy-panel p { margin: 0.5rem 0 0; }
+
+.spinner {
+    width: 28px;
+    height: 28px;
+    margin: 0 auto;
+    border-radius: 50%;
+    border: 3px solid var(--border);
+    border-top-color: var(--accent);
+    animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* A spinning element is exactly what this setting exists to suppress. */
+@media (prefers-reduced-motion: reduce) {
+    .spinner { animation: none; border-top-color: var(--accent); }
+    .busy-overlay { backdrop-filter: none; }
+}
+
 .notice {
     padding: 0.7rem 0.9rem;
     border-radius: var(--radius);
