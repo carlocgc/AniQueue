@@ -460,10 +460,15 @@ ownership from the image — bind mounts are not. Plan: pin a known UID/GID in t
 default compose to a **named volume**, and document `chown` for bind-mount users (the
 common Unraid case).
 
-**Privacy-hardened browsers break Blazor Server's DOM contract.** Confirmed by bisect:
-the circuit dies with `Cannot read properties of null (reading 'insertBefore')` followed by
+**Privacy-hardened browsers break Blazor Server's DOM contract.** Narrowed by bisect: the
+circuit dies with `Cannot read properties of null (reading 'insertBefore')` followed by
 `No element is currently associated with component 1` in **Brave**, while Firefox and Edge
 are clean. Edge is also Chromium, so this is Brave's Shields layer, not the engine.
+
+**It is intermittent.** Toggling Shields off and back on for the site stopped it recurring,
+which points at cached per-site Shields state or a stale cosmetic-filter list rather than a
+deterministic rule. Do not expect to reproduce it on demand — an attempt that comes up clean
+does not mean it is gone.
 
 Blazor Server patches the live DOM through direct node references. Shields' cosmetic
 filtering hides and sometimes removes nodes, and its fingerprinting protection patches
