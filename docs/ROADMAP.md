@@ -188,6 +188,11 @@ makes franchises practical at scale.
 Do not re-propose title-similarity detection without new evidence that it can be made
 accurate — the 59% coverage figure is not the interesting number, the false positives are.
 
+**Amended by D13.** Promoting AniList read access into the MVP supplies exactly the
+authoritative relation data this decision was waiting for, so the wait is now until Phase 5
+rather than until after the MVP. Phase 6 may propose groupings from real relations — still
+confirmed by the user, never applied silently.
+
 ### D11 — The AI orders a closed set. It does not choose what is in it.
 
 **What AniQueue is for:** a watch list whose *order* is maintained jointly by the user and
@@ -220,6 +225,99 @@ This is a constraint on the model, chosen deliberately over a broader one:
 
 Deferred until the core is done, and deliberately not designed yet: an LLM-written summary
 of the user's taste for the dashboard. Pleasant, not load-bearing.
+
+### D12 — AniQueue observes watched status. It never authors it.
+
+D11 said membership is owned elsewhere. This follows it to its conclusion, and
+**removes a phase**.
+
+The brief's watching workflow (§22) — mark as watching, add an episode, complete and
+score — assumed AniQueue was the primary tracker. It is not. A realistic setup already
+has one: media server scrobbles to AniList, scores are entered there, and other services
+mirror it. Every one of those actions in AniQueue would create a second source of truth
+that drifts from the first within a day.
+
+So watched status, episode progress and scores are **read-only here**. They arrive by
+import or sync, they display, and nothing in the application writes them.
+
+That extends to the action that looked most defensible. An explicit "start watching"
+button is unnecessary, because starting a show is already observable: the entry moves from
+Planning to Watching at the source. **The queue advances as a consequence of sync, not of a
+click** — when a queued title stops being Planning, its slot is released and the next item
+becomes next in line.
+
+This has a useful property: the rule belongs to the import and sync path, not to a button,
+so it works with file import today and needs no API to be correct.
+
+The trade, recorded honestly: the brief's acceptance criteria 13 and 14 ask for progress
+tracking and score entry, and this decision declines both. D11 and the brief disagree here;
+D11 is the later and more considered position, and the application it describes is the one
+being built.
+
+**What remains of the old watching phase:** nothing that warrants a phase. Its one surviving
+rule is queue advancement, which belongs with the queue in Phase 4.
+
+### D13 — AniList read access moves into the MVP
+
+Previously post-MVP. Two things move it.
+
+**It is the only manual step in an otherwise automatic chain.** With D11 and D12, membership
+and status both arrive from outside — so file export and upload is the single point where the
+user does work a machine should. Automating the *ordering* while leaving the *input* manual
+optimises the wrong half.
+
+**D12 depends on it to be useful.** Queue advancement works on any import, but advancing on a
+schedule rather than when the user remembers to export is what makes the queue trustworthy
+without attention.
+
+Scope is deliberately narrow: **read only.** List and status retrieval, and relation data.
+No write-back, no OAuth-gated private lists, no scheduled re-ranking. Write-back stays
+post-MVP, where it belongs — it is the direction that can damage data the user maintains
+elsewhere.
+
+Worth confirming at implementation time rather than assuming: AniList's GraphQL API serves
+public list data without authentication, which if true removes OAuth from the MVP entirely.
+Design for it, verify before relying on it.
+
+**A consequence for D10:** franchise grouping was deferred for want of authoritative relation
+data. Promoting AniList read access supplies it, so franchises can use real relations inside
+the MVP rather than waiting. The phase order below puts AniList before franchises for exactly
+this reason.
+
+### D14 — No manual priority. The queue is the user's ordering.
+
+`LibraryEntry.ManualPriority` is removed: the column, the filter, the sort, the facet and
+the bulk action.
+
+**A shared bucket is not an order.** Setting twenty titles to priority 5 says nothing about
+which of them comes first, so a bulk priority control could not produce the thing it
+appeared to produce. Ordering needs a rank, and two already exist — both real ranks:
+
+| Ordering | Held by |
+|---|---|
+| The user's | `QueueItem.Position` |
+| The AI's | `LibraryEntry.RecommendationScore` |
+
+Those two are exactly what the Manual / AI / Hybrid views need. A third axis overlapping the
+first without replacing it only blurred the distinction.
+
+The brief lists manual priority as a hybrid ranking input (§18) — but the same sentence also
+lists *"whether title is already in Up Next"*. Queue position was always an intended signal,
+and it is the better one: being third in a hand-ordered queue is a far stronger statement of
+intent than wearing a shared label.
+
+Removed rather than left unused. Keeping a column against a possibility is the speculative
+infrastructure argued against in D11, and if Phase 9 wants a user signal stronger than queue
+membership, choosing one deliberately beats inheriting one nobody picked.
+
+Two details worth keeping in mind when removing anything similar:
+
+- **The retired sort's enum value is not reused.** Sort preferences are persisted in settings
+  later, and silently changing what a stored number means is how a saved preference becomes a
+  wrong one.
+- **A tiebreak test quietly stopped testing anything.** It had sorted by priority across
+  entries sharing a value; with priority gone it sorted unique titles and would have passed
+  without exercising the tiebreak at all. It was re-pointed at a sort that genuinely collides.
 
 ---
 
@@ -398,14 +496,14 @@ onward even if later phases slip.
 | 1 | Domain + persistence | Migration applies to a fresh DB; indexes exist; dev seeder works |
 | 2 | **Vertical slice** | MAL XML → preview → confirm → SQLite → backlog list, end to end |
 | 3 | Backlog page | Search, filter, sort, page, bulk actions |
-| 4 | Up Next | Reorder correct and persistent; buttons then drag |
-| 5 | Franchises | Full manual management; collapsed card with progress + runtime |
-| 6 | Watching workflow | Start, +1 episode, complete with optional score, next-in-franchise |
+| 4 | Up Next | Reorder correct and persistent; queue advances when status changes |
+| 5 | AniList read sync | List and status retrieved by API; queue advances unattended |
+| 6 | Franchises | Management plus grouping from real relation data |
 | 7 | Dashboard + decision mode | Summary counts, Suggested Next, "What should I watch?" |
 | 8 | JSON interchange | Full library export → wipe → restore round-trip |
 | 9 | AI recommendation | Export request, import ranking, apply — manual order provably intact |
 | 10 | Settings + polish | Settings, theme, confirmations, a11y and responsive pass |
-| 11 | Docker + README | Compose up, health check, container recreated without data loss |
+| 11 | Docker + README | Migrations squashed to one baseline; compose up, health check, container recreated without data loss |
 
 ### Phase 0 — Foundation
 Repo hygiene (`.gitignore`, `.gitattributes`, `.editorconfig`), solution and five projects,
@@ -428,10 +526,12 @@ prove the data landed.
 
 ### Phase 3 — Backlog page
 Server-side search, filtering, sorting, paging/virtualisation. Filters: status, franchise/
-standalone, media type, decade, runtime, score, source, priority. Quick filters (Under 2h,
+standalone, media type, decade, runtime, score, source. Quick filters (Under 2h,
 Under 6h, Movie, OVA, TV, decades, High AI confidence, Not yet ranked) — **each rendered
-only when the backing metadata exists**. Bulk selection, bulk queue-add, bulk priority,
-bulk hide. Anime cards degrade cleanly instead of printing rows of "N/A".
+only when the backing metadata exists**. Bulk selection, bulk queue-add and bulk hide.
+Anime cards degrade cleanly instead of printing rows of "N/A".
+
+No priority filter, sort or bulk action: manual priority does not exist (D14).
 
 Defaults to **Planning**, with the status filter able to widen it. The brief defines the
 backlog as what the user intends to watch, and Watching has its own page (§26); listing
@@ -456,20 +556,32 @@ awaited inline freezes the entire circuit rather than just the page.
 position normalisation. Franchises queueable from the start (D1). Buttons first, then
 SortableJS interop (D5, §9).
 
-### Phase 5 — Franchises
+Also **queue advancement** (D12): when an import or sync reports that a queued title is no
+longer Planning, its slot is released and positions are normalised, so the next item becomes
+next in line without anyone pressing anything. This lives here rather than in the import
+because it is a queue invariant, and it works with file import immediately — the API in
+Phase 5 only changes how often it runs.
+
+### Phase 5 — AniList read sync
+Retrieve the user's list, statuses and scores over the AniList GraphQL API, and the relation
+data franchises need. Read only (D13): no write-back, no scheduled re-ranking. Runs on demand
+and on an interval, with a per-source watermark so repeated polling stays inside rate limits.
+
+Reconciliation reuses the import pipeline rather than duplicating it — matching on
+`Source + SourceAnimeId`, preserving every locally curated field, and advancing the queue via
+the Phase 4 rule. The difference is the trigger, not the logic.
+
+Unattended sync cannot show a preview and wait, so it applies the safe subset — status,
+progress, scores — and leaves anything ambiguous for review. The field-preservation rules
+proven in Phase 2 are what make that safe.
+
+### Phase 6 — Franchises
 Create, rename, add/remove titles, reorder, dissolve. Collapsed card showing entries
 watched, remaining runtime, first entry, AI score, queue position; expanding shows viewing
 order. `OptionalWithinFranchise` respected in completion and runtime maths.
 
-Manual tools only, by decision (D10). Imports cannot supply relationships, and grouping is
-not inferred from titles — it waits for the authoritative relation data in §10. Expect large
-libraries to have few franchises until then.
-
-### Phase 6 — Watching workflow
-Start Watching (status → Watching, set `DateStarted` if absent, dequeue as appropriate).
-`+1 episode`. Mark Completed at the known final episode, with an **optional** 1–10 score
-prompt — never auto-assign a score. Franchise entries start the next unfinished anime in
-franchise order; on completion offer the next entry for the queue.
+Grouping may now be proposed from the relation data Phase 5 supplies, which is what D10 was
+waiting for. Proposals are still confirmed by the user; nothing is grouped silently.
 
 ### Phase 7 — Dashboard and decision mode
 Currently Watching with progress bars, Up Next top 5–10 with a prominent Start Watching,
@@ -501,6 +613,33 @@ Multi-stage Dockerfile (SDK build → `aspnet` runtime, no SDK in the final laye
 user, `/data` persistence, configurable port defaulting to 8080, `/health` endpoint,
 compose health check, environment-variable configuration. README per brief §35, explicitly
 explaining that v1 AI recommendation works **without giving AniQueue an API key**.
+
+**Squash the migrations into a single baseline — and this is the last moment it is possible.**
+
+By this point development will have accumulated several migrations, including at least one
+that creates a column a later one drops. Collapsing them into one `InitialCreate` that
+describes the shipping schema is standard practice before a first release, and it leaves
+the operator of a self-hosted application with a migration folder that reads as a schema
+rather than as a diary.
+
+It is free **only while no database but ours exists**. After anyone else runs AniQueue their
+`__EFMigrationsHistory` names migrations that would no longer exist, and startup would try
+to apply a baseline over a populated schema and fail. There is no way back from that except
+asking users to delete their data, so the window closes the moment an image is published or
+a release is tagged.
+
+The procedure, and the reason it is low-risk:
+
+1. Delete `Persistence/Migrations/` and the development database.
+2. `dotnet ef migrations add InitialCreate`.
+3. Run the tests. `SqliteTestDatabase` applies migrations rather than calling
+   `EnsureCreated`, so a broken baseline fails the whole Infrastructure suite immediately
+   rather than at someone's first run.
+4. Start a container against an empty volume and confirm the schema is created.
+
+Skipping it costs almost nothing — a slightly longer history and one redundant column
+create-and-drop. It is a tidiness measure, not a correctness one. But it can only be done
+here, so it is listed as a gate rather than left to judgement.
 
 Final gate: Release build, full test run, image build, `docker compose up -d`, health check
 verified, **container recreated and the database confirmed intact**.
@@ -588,10 +727,16 @@ native apps, automatic metadata scraping, automatic franchise detection, streami
 integrations. `IAnimeListProvider` and `IAiRecommendationProvider` are the extension
 points; nothing speculative gets built behind them. **No fake AniList integration.**
 
-**Post-MVP** (brief §42): Phase 2 AniList GraphQL, metadata enrichment, cover art, genres/
-studios, franchise suggestions · Phase 3 optional AI providers, OpenAI-compatible
-endpoints, Ollama/LM Studio, scheduled re-ranking · Phase 4 MAL API sync, write-back,
-conflict resolution · Phase 5 multi-user, authentication, household profiles.
+**Post-MVP** (brief §42, amended by D13): metadata enrichment, cover art, genres and studios ·
+optional AI providers, OpenAI-compatible endpoints, Ollama/LM Studio, scheduled re-ranking ·
+MAL API sync · **write-back to AniList or MAL** · multi-user, authentication, household
+profiles.
+
+AniList *read* access is no longer here — D13 moved it into the MVP as Phase 5, because with
+D11 and D12 it is the only remaining manual step in the loop. **Write-back stays post-MVP**
+and should be approached carefully: it is the one direction that can damage a list the user
+maintains elsewhere, and every safeguard in the import pipeline exists to protect data
+flowing the other way.
 
 ### Stretch goals — self-hosted neighbours
 
@@ -647,13 +792,21 @@ The brief's 25 criteria, mapped so completion is measurable.
 |---|---|
 | 1–2 `docker compose up -d`, open in browser | 11 |
 | 3–7 Upload MAL XML, preview, confirm, see statuses and scores | 2 |
-| 8–9 Create/edit franchises, collapse sequels into them | 5 |
+| 8–9 Create/edit franchises, collapse sequels into them | 6 |
 | 10–12 Add to Up Next, drag to exact order, persist across restart | 4 + 11 |
-| 13–14 Track progress, complete with a score | 6 |
+| 13–14 Track progress, complete with a score | **declined — see D12** |
 | 15 Filter backlog usefully | 3 |
 | 16–22 AI request export, prompt, import, preview, apply, manual order intact | 9 |
 | 23–24 Export full library as JSON, restore from it | 8 |
 | 25 Recreate container without losing the database | 11 |
+
+**Criteria 13–14 are deliberately not met.** They ask AniQueue to record watch progress and
+accept a score, which D12 declines: those belong to the service that already tracks them, and
+a second copy here would drift within a day. Progress and scores are still *shown* — the
+importer writes them — so criteria 6 and 7, seeing statuses and historical scores, are met.
+
+This is the one place the brief and the built application deliberately part company, so it is
+stated here rather than quietly reported as done.
 
 ---
 
