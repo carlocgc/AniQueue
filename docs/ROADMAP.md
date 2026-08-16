@@ -6,6 +6,10 @@ AniQueue is a self-hosted anime watchlist and **backlog decision layer**. It is 
 MyAnimeList/AniList replacement — it assumes your library already exists somewhere and
 answers the question those tools answer badly: *what do I actually watch next?*
 
+Put precisely: **AniQueue owns the order of your watch list; the service you already use
+owns its membership** (D11). The order is maintained jointly by you and an AI, and it
+persists.
+
 Problems in scope:
 
 - Plan-to-Watch lists grow large and unordered.
@@ -183,6 +187,39 @@ makes franchises practical at scale.
 
 Do not re-propose title-similarity detection without new evidence that it can be made
 accurate — the 59% coverage figure is not the interesting number, the false positives are.
+
+### D11 — The AI orders a closed set. It does not choose what is in it.
+
+**What AniQueue is for:** a watch list whose *order* is maintained jointly by the user and
+an AI, and which persists. The list's *membership* is maintained elsewhere — principally on
+MyAnimeList or AniList — and arrives here by import or, later, sync.
+
+That division is the point. AniQueue owns the order; the external service owns the
+membership.
+
+So the model is given the user's scored history and the titles already on their list, and
+asked to rank *those*. It is never asked what to add. Entries it ranks lowest become
+removal candidates the user may act on at their discretion; removal is therefore a
+consequence of ranking rather than a separate instruction, and needs nothing in the schema.
+
+This is a constraint on the model, chosen deliberately over a broader one:
+
+- **It removes hallucination by construction, not by validation.** Every ranked item carries
+  a candidate id AniQueue issued, so a fabricated title has nowhere to appear. Asking for
+  additions would mean accepting titles the application has never seen, which would then
+  need resolving against a real catalogue before they could be trusted — work that depends
+  on the API integration, not the model.
+- **It keeps the result schema exactly as the brief specifies.** An earlier suggestion to add
+  an extensibility hook for future "suggested additions" is withdrawn: a field for a feature
+  that is not being built is speculative infrastructure, and `schemaVersion` already provides
+  the way to change shape later.
+- **It needs no new persistence.** `RecommendationRunItem` referencing an existing anime or
+  franchise holds, because every ranked item exists locally. Acting on a removal candidate
+  uses what is already modelled — `Dropped` status or `IsHidden` — so nothing has to be
+  written back to an external service.
+
+Deferred until the core is done, and deliberately not designed yet: an LLM-written summary
+of the user's taste for the dashboard. Pleasant, not load-bearing.
 
 ---
 
@@ -396,6 +433,24 @@ Under 6h, Movie, OVA, TV, decades, High AI confidence, Not yet ranked) — **eac
 only when the backing metadata exists**. Bulk selection, bulk queue-add, bulk priority,
 bulk hide. Anime cards degrade cleanly instead of printing rows of "N/A".
 
+Defaults to **Planning**, with the status filter able to widen it. The brief defines the
+backlog as what the user intends to watch, and Watching has its own page (§26); listing
+every status by default buries the couple of hundred titles that are actually a decision
+behind several hundred that are not.
+
+Also adds a **source link per row** — "View on MyAnimeList", and AniList once that source
+exists. This costs nothing: `Source` and `SourceAnimeId` are already stored by the importer,
+so the URL is pure formatting with no lookup, no configuration and no new dependency. It is
+worth having early because a backlog of several hundred titles constantly raises "what *is*
+this one?", and answering it should not mean leaving the page to search manually.
+
+It is also the first implementation of the link provider described in §10, so Plex and
+Overseerr later become configuration rather than new machinery.
+
+Bulk actions run through `BusyScope` and off the circuit thread from the start, for the
+reason recorded against the import: SQLite's provider is synchronous, so a bulk write
+awaited inline freezes the entire circuit rather than just the page.
+
 ### Phase 4 — Up Next
 `QueueService`: add, remove, move to top/up/down/bottom, transactional reorder with
 position normalisation. Franchises queueable from the start (D1). Buttons first, then
@@ -537,6 +592,50 @@ points; nothing speculative gets built behind them. **No fake AniList integratio
 studios, franchise suggestions · Phase 3 optional AI providers, OpenAI-compatible
 endpoints, Ollama/LM Studio, scheduled re-ranking · Phase 4 MAL API sync, write-back,
 conflict resolution · Phase 5 multi-user, authentication, household profiles.
+
+### Stretch goals — self-hosted neighbours
+
+A self-hosted AniQueue very likely sits beside Plex, and often beside Overseerr. Both are
+worth linking to, and neither should become an integration: **AniQueue decides what to
+watch and hands off the how.** That keeps D11 intact — no data ownership moves.
+
+These are stretch goals for after the MVP is complete, not commitments.
+
+**The cost split matters more than the feature list.** Two very different things get
+described with the same words:
+
+| | Needs | Cost |
+|---|---|---|
+| *Search* link — `/search?query={title}` | A configured base URL | Trivial |
+| *Precise* link, or an "on Plex" indicator | A Plex library sync, or an anime-ID → TMDB/TVDB mapping | Substantial |
+
+Search links are worth doing on their own. An availability indicator is the expensive half,
+and it is the half with the real product value — *"which of my planned shows can I start
+tonight?"* — so it should be judged against the AniList API work rather than bundled with
+the cheap links.
+
+Specific things a future implementer will otherwise have to rediscover:
+
+- **Overseerr is TMDB-keyed.** It knows nothing of AniList or MAL identifiers, so a precise
+  request link needs an anime-ID → TMDB mapping (the community anime-lists datasets exist
+  for this, at the cost of vendoring and refreshing them). A search link avoids the problem
+  entirely.
+- **Plex anime metadata is inconsistent.** Depending on the agent, items may carry AniList
+  or MAL identifiers, only TVDB, or nothing but a title. Where identifiers are absent this
+  becomes title matching, which is the same ambiguity that produces import conflicts and
+  deserves the same rule: never apply a match the application cannot confidently identify.
+- **Plex availability was considered as an LLM input and rejected.** Passing a library for
+  the model to recommend from is affordable — a couple of thousand titles is perhaps 10k
+  tokens — but it makes AniQueue a membership editor, which D11 rules out, and it discloses
+  what media the user holds to an external service. As a *filter* it needs no model at all.
+- **Base URLs come from user configuration and end up in an `href`.** Validate the scheme is
+  `http` or `https` at the point the link is built. A `javascript:` base URL is stored XSS,
+  and this is trivial to guard up front and awkward to retrofit.
+
+The natural shape is one small provider — given an anime, return an optional URL and label —
+with per-instance base URLs and an independent toggle each. MyAnimeList, AniList, Plex and
+Overseerr all fit it, so the Phase 3 links below are the first implementation of the same
+extension point rather than a one-off.
 
 ---
 
