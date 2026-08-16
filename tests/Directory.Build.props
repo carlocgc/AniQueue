@@ -1,0 +1,16 @@
+<Project>
+
+  <!-- Inherit the solution-wide settings, then relax the rules that only make
+       sense for production code. -->
+  <Import Project="$([MSBuild]::GetPathOfFileAbove('Directory.Build.props', '$(MSBuildThisFileDirectory)../'))" />
+
+  <PropertyGroup>
+    <IsPackable>false</IsPackable>
+
+    <!-- CA1707 forbids underscores in member names. Snake_case test names are the
+         idiom in xUnit and read far better in a failing-test report than
+         PascalCaseRunTogether, so the rule is off for test projects only. -->
+    <NoWarn>$(NoWarn);CA1707</NoWarn>
+  </PropertyGroup>
+
+</Project>

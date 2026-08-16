@@ -1,0 +1,23 @@
+<Project>
+
+  <!--
+    Central package management (D6). Versions are declared once here; .csproj
+    files reference packages by name only. Prevents the same dependency drifting
+    to different versions across the five projects.
+
+    Packages are added as the phase that needs them lands, not speculatively.
+  -->
+  <PropertyGroup>
+    <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
+    <CentralPackageTransitivePinningEnabled>true</CentralPackageTransitivePinningEnabled>
+  </PropertyGroup>
+
+  <!-- Testing. The .NET 10 xunit template emits xUnit v2, not v3. -->
+  <ItemGroup>
+    <PackageVersion Include="coverlet.collector" Version="6.0.4" />
+    <PackageVersion Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />
+    <PackageVersion Include="xunit" Version="2.9.3" />
+    <PackageVersion Include="xunit.runner.visualstudio" Version="3.1.4" />
+  </ItemGroup>
+
+</Project>

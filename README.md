@@ -20,8 +20,9 @@ architectural decisions and acceptance criteria. Nothing here is installable yet
 
 | Phase | | |
 |---|---|---|
-| 0 | Foundation | in progress |
-| 1–11 | Domain → Docker | planned |
+| 0 | Foundation — solution, projects, build settings | **complete** |
+| 1 | Domain model and EF Core persistence | next |
+| 2–11 | MAL import → backlog → queue → AI ranking → Docker | planned |
 
 ## Screenshots
 
