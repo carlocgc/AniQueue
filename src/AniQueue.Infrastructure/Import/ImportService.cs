@@ -463,7 +463,7 @@ public sealed class ImportService(
         entry.DateStarted = parsed.DateStarted ?? entry.DateStarted;
         entry.DateCompleted = parsed.DateCompleted ?? entry.DateCompleted;
 
-        // Deliberately untouched: PersonalNotes, ManualPriority, IsHidden and every
+        // Deliberately untouched: PersonalNotes, IsHidden and every
         // Recommendation* field, along with queue membership and franchise grouping
         // held on other tables. These are the user's work, not the source's.
     }

@@ -24,8 +24,6 @@ public sealed record LibraryListItem
 
     public int? UserScore { get; init; }
 
-    public int ManualPriority { get; init; }
-
     public bool IsHidden { get; init; }
 
     public string? FranchiseName { get; init; }
@@ -90,14 +88,6 @@ public interface ILibraryService
     /// match something.
     /// </summary>
     Task<LibraryFacets> GetFacetsAsync(int profileId, CancellationToken cancellationToken = default);
-
-    /// <summary>Sets manual priority on many entries at once.</summary>
-    Task<BulkActionResult> SetPriorityAsync(
-        int profileId,
-        IReadOnlyCollection<int> animeIds,
-        int priority,
-        IProgress<OperationProgress>? progress = null,
-        CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Hides or unhides many entries. Hiding keeps the entry and its history; it

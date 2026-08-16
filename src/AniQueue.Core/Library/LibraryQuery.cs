@@ -19,8 +19,9 @@ public enum LibrarySort
     /// <summary>Highest AI predicted score first. Unranked entries sort last.</summary>
     RecommendationDescending = 2,
 
-    /// <summary>Highest manual priority first.</summary>
-    PriorityDescending = 3,
+    // 3 was PriorityDescending, removed with ManualPriority (D14). The value is
+    // not reused: these are persisted in settings later, and silently changing
+    // what a stored number means is how a saved preference becomes a wrong one.
 
     /// <summary>Shortest first — the "I have an hour" sort. Unknown runtimes sort last.</summary>
     RuntimeAscending = 4,
@@ -79,8 +80,6 @@ public sealed record LibraryQuery
 
     public int? MinUserScore { get; init; }
 
-    public int? MinManualPriority { get; init; }
-
     /// <summary>Minimum AI confidence, 0–1. The "high confidence" quick filter.</summary>
     public double? MinRecommendationConfidence { get; init; }
 
@@ -105,7 +104,6 @@ public sealed record LibraryQuery
         || Source is not null
         || Franchise != FranchiseFilter.Any
         || MinUserScore is not null
-        || MinManualPriority is not null
         || MinRecommendationConfidence is not null
         || HasRecommendation is not null
         || IncludeHidden;

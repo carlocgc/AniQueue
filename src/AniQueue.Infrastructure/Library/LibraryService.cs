@@ -63,7 +63,6 @@ public sealed class LibraryService(
                 e.Status,
                 e.EpisodesWatched,
                 e.UserScore,
-                e.ManualPriority,
                 e.IsHidden,
                 FranchiseName = e.Anime.Franchise != null ? e.Anime.Franchise.Name : null,
                 e.RecommendationScore,
@@ -87,7 +86,6 @@ public sealed class LibraryService(
                 Status = i.Status,
                 EpisodesWatched = i.EpisodesWatched,
                 UserScore = i.UserScore,
-                ManualPriority = i.ManualPriority,
                 IsHidden = i.IsHidden,
                 FranchiseName = i.FranchiseName,
                 RecommendationScore = i.RecommendationScore,
@@ -155,25 +153,10 @@ public sealed class LibraryService(
             HasUnrankedEntries = await entries.AnyAsync(e => e.RecommendationScore == null, cancellationToken),
             HasFranchises = await entries.AnyAsync(e => e.Anime!.FranchiseId != null, cancellationToken),
             HasUserScores = await entries.AnyAsync(e => e.UserScore != null, cancellationToken),
-            HasManualPriorities = await entries.AnyAsync(e => e.ManualPriority != 0, cancellationToken),
             HasHiddenEntries = await entries.AnyAsync(e => e.IsHidden, cancellationToken),
             CountByStatus = countByStatus
         };
     }
-
-    public Task<BulkActionResult> SetPriorityAsync(
-        int profileId,
-        IReadOnlyCollection<int> animeIds,
-        int priority,
-        IProgress<OperationProgress>? progress = null,
-        CancellationToken cancellationToken = default) =>
-        BulkUpdateAsync(
-            profileId,
-            animeIds,
-            entry => entry.ManualPriority = priority,
-            "Updating priority",
-            progress,
-            cancellationToken);
 
     public Task<BulkActionResult> SetHiddenAsync(
         int profileId,
@@ -305,11 +288,6 @@ public sealed class LibraryService(
             filtered = filtered.Where(e => e.UserScore >= minScore);
         }
 
-        if (query.MinManualPriority is { } minPriority)
-        {
-            filtered = filtered.Where(e => e.ManualPriority >= minPriority);
-        }
-
         if (query.MinRecommendationConfidence is { } minConfidence)
         {
             filtered = filtered.Where(e => e.RecommendationConfidence >= minConfidence);
@@ -344,9 +322,6 @@ public sealed class LibraryService(
                 source.OrderBy(e => e.RecommendationScore == null)
                       .ThenByDescending(e => e.RecommendationScore)
                       .ThenBy(e => e.Anime!.Title),
-
-            LibrarySort.PriorityDescending =>
-                source.OrderByDescending(e => e.ManualPriority).ThenBy(e => e.Anime!.Title),
 
             LibrarySort.RuntimeAscending =>
                 source.OrderBy(e => e.Anime!.EpisodeCount == null || e.Anime.EpisodeDurationMinutes == null)

@@ -39,9 +39,6 @@ public sealed record LibraryFacets
     /// <summary>True when the user has scored anything.</summary>
     public required bool HasUserScores { get; init; }
 
-    /// <summary>True when any entry carries a non-default manual priority.</summary>
-    public required bool HasManualPriorities { get; init; }
-
     /// <summary>True when anything is hidden, so the "show hidden" toggle is worth offering.</summary>
     public required bool HasHiddenEntries { get; init; }
 
@@ -58,7 +55,6 @@ public sealed record LibraryFacets
         HasUnrankedEntries = false,
         HasFranchises = false,
         HasUserScores = false,
-        HasManualPriorities = false,
         HasHiddenEntries = false,
         CountByStatus = new Dictionary<LibraryStatus, int>()
     };

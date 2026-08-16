@@ -53,7 +53,6 @@ public class LibraryServiceTests
         AnimeSource source = AnimeSource.MyAnimeList,
         string? sourceId = null,
         bool hidden = false,
-        int priority = 0,
         int? franchiseId = null)
     {
         var now = DateTimeOffset.UtcNow;
@@ -82,7 +81,6 @@ public class LibraryServiceTests
             Status = status,
             UserScore = userScore,
             IsHidden = hidden,
-            ManualPriority = priority,
             RecommendationScore = recommendation,
             RecommendationConfidence = confidence,
             DateAdded = now,
@@ -233,6 +231,8 @@ public class LibraryServiceTests
     [Fact]
     public async Task Paging_is_stable_across_pages_when_sort_keys_tie()
     {
+        // Every entry here shares a release year, so the sort key alone cannot
+        // order them and the title tiebreak has to do the work.
         // Without a tiebreak, entries sharing a sort key come back in whatever
         // order SQLite produces, which can differ per query — so a title can
         // appear on two pages, or none.
@@ -242,17 +242,17 @@ public class LibraryServiceTests
         {
             for (var i = 1; i <= 10; i++)
             {
-                await AddAsync(context, $"Tied {i:00}", priority: 5);
+                await AddAsync(context, $"Tied {i:00}");
             }
         }
 
         var first = await fixture.Library.GetPageAsync(
             Profile.DefaultProfileId,
-            new LibraryQuery { Sort = LibrarySort.PriorityDescending, Skip = 0, Take = 5 });
+            new LibraryQuery { Sort = LibrarySort.YearDescending, Skip = 0, Take = 5 });
 
         var second = await fixture.Library.GetPageAsync(
             Profile.DefaultProfileId,
-            new LibraryQuery { Sort = LibrarySort.PriorityDescending, Skip = 5, Take = 5 });
+            new LibraryQuery { Sort = LibrarySort.YearDescending, Skip = 5, Take = 5 });
 
         var all = first.Items.Concat(second.Items).Select(i => i.Title).ToList();
 
@@ -314,30 +314,6 @@ public class LibraryServiceTests
     }
 
     [Fact]
-    public async Task Bulk_priority_applies_to_the_selection_only()
-    {
-        await using var fixture = await Fixture.CreateAsync();
-        int firstId, secondId, untouchedId;
-
-        await using (var context = fixture.Database.CreateContext())
-        {
-            firstId = (await AddAsync(context, "First")).Id;
-            secondId = (await AddAsync(context, "Second")).Id;
-            untouchedId = (await AddAsync(context, "Untouched")).Id;
-        }
-
-        var result = await fixture.Library.SetPriorityAsync(
-            Profile.DefaultProfileId, [firstId, secondId], priority: 7);
-
-        Assert.Equal(2, result.Affected);
-
-        await using var verify = fixture.Database.CreateContext();
-        Assert.Equal(7, (await verify.LibraryEntries.SingleAsync(e => e.AnimeId == firstId)).ManualPriority);
-        Assert.Equal(7, (await verify.LibraryEntries.SingleAsync(e => e.AnimeId == secondId)).ManualPriority);
-        Assert.Equal(0, (await verify.LibraryEntries.SingleAsync(e => e.AnimeId == untouchedId)).ManualPriority);
-    }
-
-    [Fact]
     public async Task Hiding_is_reversible_and_keeps_the_entry()
     {
         // Hiding must never be a disguised delete: the entry, its score and its
@@ -365,7 +341,7 @@ public class LibraryServiceTests
     {
         await using var fixture = await Fixture.CreateAsync();
 
-        var result = await fixture.Library.SetPriorityAsync(Profile.DefaultProfileId, [], priority: 5);
+        var result = await fixture.Library.SetHiddenAsync(Profile.DefaultProfileId, [], hidden: true);
 
         Assert.Equal(0, result.Affected);
     }
@@ -382,8 +358,8 @@ public class LibraryServiceTests
             realId = (await AddAsync(context, "Real")).Id;
         }
 
-        var result = await fixture.Library.SetPriorityAsync(
-            Profile.DefaultProfileId, [realId, 999_999], priority: 3);
+        var result = await fixture.Library.SetHiddenAsync(
+            Profile.DefaultProfileId, [realId, 999_999], hidden: true);
 
         Assert.Equal(1, result.Affected);
         Assert.Equal(1, result.Skipped);

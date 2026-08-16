@@ -43,10 +43,6 @@ else
                 {
                     <option value="@LibrarySort.RecommendationDescending">AI rank</option>
                 }
-                @if (Facets.HasManualPriorities)
-                {
-                    <option value="@LibrarySort.PriorityDescending">Priority</option>
-                }
                 @if (Facets.HasRuntimeData)
                 {
                     <option value="@LibrarySort.RuntimeAscending">Shortest first</option>
@@ -137,13 +133,6 @@ else
             <div class="toolbar">
                 <strong>@_selected.Count selected</strong>
                 <button class="primary" @onclick="AddSelectedToQueueAsync">Add to Up Next</button>
-                <select value="" @onchange="SetSelectedPriorityAsync" aria-label="Set priority">
-                    <option value="">Set priority…</option>
-                    @for (var p = 5; p >= 0; p--)
-                    {
-                        <option value="@p">@(p == 0 ? "None" : $"Priority {p}")</option>
-                    }
-                </select>
                 <button @onclick="() => SetSelectedHiddenAsync(true)">Hide</button>
                 @if (_query.IncludeHidden)
                 {
@@ -230,10 +219,6 @@ else
                                         @if (item.FranchiseName is not null)
                                         {
                                             <span class="badge">@item.FranchiseName</span>
-                                        }
-                                        @if (item.ManualPriority > 0)
-                                        {
-                                            <span class="badge">Priority @item.ManualPriority</span>
                                         }
                                         @* Free: Source and SourceAnimeId are already stored, so
                                            this is formatting rather than a lookup. *@
@@ -428,23 +413,6 @@ else
             ? $"Added {result.Added} to Up Next; {result.AlreadyQueued} were already there."
             : $"Added {result.Added} to Up Next.";
 
-        await AfterBulkActionAsync();
-    }
-
-    private async Task SetSelectedPriorityAsync(ChangeEventArgs e)
-    {
-        if (!int.TryParse(e.Value?.ToString(), out var priority))
-        {
-            return;
-        }
-
-        var ids = _selected.ToList();
-
-        var result = await _busy.RunAsync(
-            $"Setting priority on {ids.Count}",
-            progress => LibraryService.SetPriorityAsync(Profile.DefaultProfileId, ids, priority, progress));
-
-        _actionMessage = $"Priority set on {result.Affected} entries.";
         await AfterBulkActionAsync();
     }
 
