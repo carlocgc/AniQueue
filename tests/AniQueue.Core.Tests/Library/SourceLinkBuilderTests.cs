@@ -12,7 +12,8 @@ public class SourceLinkBuilderTests
 
         Assert.NotNull(link);
         Assert.Equal("https://myanimelist.net/anime/268", link.Url);
-        Assert.Equal("View on MyAnimeList", link.Label);
+        Assert.Equal("MAL", link.ShortName);
+        Assert.Equal("MyAnimeList", link.SiteName);
     }
 
     [Fact]
@@ -22,6 +23,19 @@ public class SourceLinkBuilderTests
 
         Assert.NotNull(link);
         Assert.Equal("https://anilist.co/anime/21", link.Url);
+        Assert.Equal("AniList", link.ShortName);
+    }
+
+    [Fact]
+    public void The_accessible_name_spells_the_site_out_and_names_the_title()
+    {
+        // The badge shows "MAL", which is jargon on its own. A screen reader
+        // announcing just that would tell the user nothing about where the link
+        // goes or which row it belongs to.
+        var link = SourceLinkBuilder.ForAnime(AnimeSource.MyAnimeList, "268");
+
+        Assert.NotNull(link);
+        Assert.Equal("Open Golden Boy on MyAnimeList", link.DescribeFor("Golden Boy"));
     }
 
     [Fact]
@@ -54,17 +68,22 @@ public class SourceLinkBuilderTests
         Assert.Null(SourceLinkBuilder.ForAnime(AnimeSource.MyAnimeList, id));
     }
 
+    private static readonly string[] ExpectedHosts = ["myanimelist.net", "anilist.co"];
+
+    private static readonly AnimeSource[] LinkableSources =
+        [AnimeSource.MyAnimeList, AnimeSource.AniList];
+
     [Fact]
     public void Every_produced_link_is_https_to_the_expected_host()
     {
-        foreach (var source in new[] { AnimeSource.MyAnimeList, AnimeSource.AniList })
+        foreach (var source in LinkableSources)
         {
             var link = SourceLinkBuilder.ForAnime(source, "1");
 
             Assert.NotNull(link);
             var uri = new Uri(link.Url);
             Assert.Equal(Uri.UriSchemeHttps, uri.Scheme);
-            Assert.Contains(uri.Host, new[] { "myanimelist.net", "anilist.co" });
+            Assert.Contains(uri.Host, ExpectedHosts);
         }
     }
 }

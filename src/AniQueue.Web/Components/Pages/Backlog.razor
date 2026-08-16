@@ -221,10 +221,21 @@ else
                                             <span class="badge">@item.FranchiseName</span>
                                         }
                                         @* Free: Source and SourceAnimeId are already stored, so
-                                           this is formatting rather than a lookup. *@
+                                           this is formatting rather than a lookup.
+
+                                           A badge rather than a sentence: it sits among the
+                                           other row badges, where prose reads as description
+                                           instead of as something clickable. The short name
+                                           is the label; the accessible name spells the site
+                                           out, because "MAL" announced on its own is jargon. *@
                                         @if (item.SourceLink is { } link)
                                         {
-                                            <a href="@link.Url" target="_blank" rel="noopener noreferrer">@link.Label</a>
+                                            <a class="badge badge-link" href="@link.Url"
+                                               target="_blank" rel="noopener noreferrer"
+                                               title="@link.DescribeFor(item.Title)"
+                                               aria-label="@link.DescribeFor(item.Title)">
+                                                @link.ShortName<ExternalLinkIcon />
+                                            </a>
                                         }
                                     </div>
                                 </td>

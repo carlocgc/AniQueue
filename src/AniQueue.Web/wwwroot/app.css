@@ -334,8 +334,32 @@ tbody tr.selected { background: var(--surface-alt); }
     font-size: 0.78rem;
 }
 
-.row-meta a { color: var(--text-muted); text-decoration: none; }
-.row-meta a:hover { color: var(--accent); text-decoration: underline; }
+/* A badge that happens to be a link. Shares the badge shape so it sits with the
+   franchise and status pills rather than looking like stray prose, but takes a
+   pointer and an accent on hover so it still reads as something to click. */
+.badge-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    text-decoration: none;
+    color: var(--text-muted);
+}
+
+.badge-link:hover,
+.badge-link:focus-visible {
+    color: var(--accent);
+    border-color: var(--accent);
+}
+
+/* Sized in em so it tracks the badge's font rather than needing to be retuned
+   wherever the badge is reused. */
+.ext-icon {
+    width: 0.72em;
+    height: 0.72em;
+    flex: none;
+    /* Optically centres against the cap height; the glyph's mass sits high. */
+    margin-top: -0.05em;
+}
 
 .badge.queued { background: var(--accent); color: var(--accent-text); border-color: transparent; }
 
