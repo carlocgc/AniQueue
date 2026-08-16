@@ -255,6 +255,131 @@ public class ImportServiceTests
     }
 
     [Fact]
+    public async Task Linking_a_conflict_adopts_the_source_identifier_onto_the_existing_title()
+    {
+        // The point of linking: the existing record gains the identifier, so the
+        // same entry stops conflicting on every future import.
+        await using var fixture = await ImportFixture.CreateAsync();
+
+        await using (var setup = fixture.Database.CreateContext())
+        {
+            await SeedData.CreateAnimeAsync(setup, "Golden Boy");
+        }
+
+        var preview = await fixture.Service.PreviewAsync(
+            Export(Entry("268", "Golden Boy", score: 9)), Parser, Profile.DefaultProfileId);
+
+        var item = Assert.Single(preview.Items);
+        Assert.Equal(ImportAction.Conflict, item.Action);
+        Assert.Equal("Golden Boy", item.ExistingTitle);
+
+        item.Resolution = ConflictResolution.LinkToExisting;
+        var result = await fixture.Service.CommitAsync(preview, Profile.DefaultProfileId);
+
+        Assert.Equal(1, result.Updated);
+
+        await using var context = fixture.Database.CreateContext();
+        var anime = await context.Anime.SingleAsync();
+        Assert.Equal(AnimeSource.MyAnimeList, anime.Source);
+        Assert.Equal("268", anime.SourceAnimeId);
+
+        var entry = await context.LibraryEntries.SingleAsync();
+        Assert.Equal(9, entry.UserScore);
+    }
+
+    [Fact]
+    public async Task A_linked_conflict_does_not_conflict_again_on_the_next_import()
+    {
+        // The behaviour that makes linking worth offering at all.
+        await using var fixture = await ImportFixture.CreateAsync();
+
+        await using (var setup = fixture.Database.CreateContext())
+        {
+            await SeedData.CreateAnimeAsync(setup, "Golden Boy");
+        }
+
+        var first = await fixture.Service.PreviewAsync(
+            Export(Entry("268", "Golden Boy")), Parser, Profile.DefaultProfileId);
+        first.Items[0].Resolution = ConflictResolution.LinkToExisting;
+        await fixture.Service.CommitAsync(first, Profile.DefaultProfileId);
+
+        var second = await fixture.Service.PreviewAsync(
+            Export(Entry("268", "Golden Boy")), Parser, Profile.DefaultProfileId);
+
+        Assert.Equal(0, second.ConflictCount);
+        Assert.Equal(1, second.UnchangedCount);
+    }
+
+    [Fact]
+    public async Task Importing_a_conflict_as_new_creates_a_separate_title()
+    {
+        await using var fixture = await ImportFixture.CreateAsync();
+
+        await using (var setup = fixture.Database.CreateContext())
+        {
+            await SeedData.CreateAnimeAsync(setup, "Golden Boy");
+        }
+
+        var preview = await fixture.Service.PreviewAsync(
+            Export(Entry("268", "Golden Boy")), Parser, Profile.DefaultProfileId);
+        preview.Items[0].Resolution = ConflictResolution.ImportAsNew;
+
+        var result = await fixture.Service.CommitAsync(preview, Profile.DefaultProfileId);
+
+        Assert.Equal(1, result.Created);
+
+        await using var context = fixture.Database.CreateContext();
+        Assert.Equal(2, await context.Anime.CountAsync());
+        Assert.Equal(1, await context.Anime.CountAsync(a => a.SourceAnimeId == null));
+    }
+
+    [Fact]
+    public async Task Unresolved_conflicts_leave_the_library_untouched()
+    {
+        // Skip is the default, and defaults must be the recoverable option.
+        await using var fixture = await ImportFixture.CreateAsync();
+
+        await using (var setup = fixture.Database.CreateContext())
+        {
+            await SeedData.CreateAnimeAsync(setup, "Golden Boy");
+        }
+
+        var preview = await fixture.Service.PreviewAsync(
+            Export(Entry("268", "Golden Boy")), Parser, Profile.DefaultProfileId);
+
+        Assert.Equal(ConflictResolution.Skip, preview.Items[0].Resolution);
+        Assert.False(preview.HasApplicableChanges);
+
+        await fixture.Service.CommitAsync(preview, Profile.DefaultProfileId);
+
+        await using var context = fixture.Database.CreateContext();
+        var anime = await context.Anime.SingleAsync();
+        Assert.Null(anime.SourceAnimeId);
+        Assert.Equal(0, await context.LibraryEntries.CountAsync());
+    }
+
+    [Fact]
+    public async Task Resolved_conflicts_count_towards_there_being_something_to_import()
+    {
+        await using var fixture = await ImportFixture.CreateAsync();
+
+        await using (var setup = fixture.Database.CreateContext())
+        {
+            await SeedData.CreateAnimeAsync(setup, "Golden Boy");
+        }
+
+        var preview = await fixture.Service.PreviewAsync(
+            Export(Entry("268", "Golden Boy")), Parser, Profile.DefaultProfileId);
+
+        Assert.False(preview.HasApplicableChanges);
+
+        preview.Items[0].Resolution = ConflictResolution.LinkToExisting;
+
+        Assert.True(preview.HasApplicableChanges);
+        Assert.Equal(1, preview.ResolvedConflictCount);
+    }
+
+    [Fact]
     public async Task Conflicts_are_skipped_rather_than_applied()
     {
         await using var fixture = await ImportFixture.CreateAsync();

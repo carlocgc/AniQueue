@@ -179,6 +179,25 @@ button.primary {
    where they are. */
 :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
+/* Style the native file input rather than pairing it with a styled <label>,
+   which renders two buttons. The native control keeps its keyboard and
+   screen-reader behaviour for free. */
+.file-input { font: inherit; color: var(--text-muted); }
+
+.file-input::file-selector-button {
+    font: inherit;
+    padding: 0.45rem 0.9rem;
+    margin-right: 0.75rem;
+    border-radius: var(--radius);
+    border: 1px solid var(--accent);
+    background: var(--accent);
+    color: var(--accent-text);
+    font-weight: 500;
+    cursor: pointer;
+}
+
+.file-input:disabled::file-selector-button { opacity: 0.5; cursor: not-allowed; }
+
 input[type="text"], input[type="search"], select {
     font: inherit;
     padding: 0.4rem 0.6rem;

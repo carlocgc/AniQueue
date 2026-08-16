@@ -27,8 +27,12 @@
             file may be gzipped; extract it first so it ends in <code>.xml</code>.
         </p>
 
-        <label class="button" for="import-file">Select export file</label>
-        <InputFile id="import-file" OnChange="OnFileSelectedAsync" accept=".xml" disabled="@_busy" />
+        @* A styled <label for> alongside the input produced two visible buttons —
+           the label and the input's own native one. Styling the native control
+           instead keeps a single button and keeps its built-in keyboard and
+           screen-reader behaviour. *@
+        <InputFile id="import-file" class="file-input" OnChange="OnFileSelectedAsync"
+                   accept=".xml" disabled="@_busy" aria-label="Select MyAnimeList export file" />
 
         @if (_busy)
         {
@@ -63,14 +67,7 @@
             <div class="toolbar">
                 <button class="primary" disabled="@(_busy || !preview.HasApplicableChanges)"
                         @onclick="CommitAsync">
-                    @if (preview.HasApplicableChanges)
-                    {
-                        @($"Import {preview.CreateCount + preview.UpdateCount} entries")
-                    }
-                    else
-                    {
-                        @("Nothing to import")
-                    }
+                    @ImportButtonText(preview)
                 </button>
                 <button @onclick="Reset" disabled="@_busy">Cancel</button>
             </div>
@@ -88,28 +85,70 @@
     @if (preview.ConflictCount > 0)
     {
         <div class="card">
-            <h2>Conflicts</h2>
+            <h2>Conflicts — @preview.ConflictCount needing a decision</h2>
             <p class="muted">
-                These are not imported. AniQueue will not merge entries it cannot
-                confidently identify, because an incorrect merge is much harder to
-                undo than a skipped row.
+                AniQueue will not merge entries it cannot confidently identify, because an
+                incorrect merge is much harder to undo than a skipped row. You know whether
+                these are the same title, so the choice is yours. Skipping changes nothing.
             </p>
+
+            @if (_commitResult is null)
+            {
+                <div class="toolbar">
+                    <span class="muted">Set all to:</span>
+                    <button @onclick="() => SetAllConflicts(ConflictResolution.Skip)">Skip</button>
+                    <button @onclick="() => SetAllConflicts(ConflictResolution.LinkToExisting)">Link to existing</button>
+                    <button @onclick="() => SetAllConflicts(ConflictResolution.ImportAsNew)">Import as new</button>
+                </div>
+            }
+
             <div class="table-wrap">
                 <table>
                     <thead>
-                        <tr><th>Title</th><th>Reason</th></tr>
+                        <tr>
+                            <th>Incoming title</th>
+                            <th>Already in library</th>
+                            <th>Why</th>
+                            <th>Action</th>
+                        </tr>
                     </thead>
                     <tbody>
                         @foreach (var item in preview.Items.Where(i => i.Action == ImportAction.Conflict))
                         {
                             <tr>
                                 <td>@item.Entry.Title</td>
+                                <td class="muted">@(item.ExistingTitle ?? "—")</td>
                                 <td class="muted">@item.ConflictReason</td>
+                                <td>
+                                    @if (_commitResult is null)
+                                    {
+                                        <select value="@item.Resolution"
+                                                @onchange="e => SetResolution(item, e)"
+                                                aria-label="@($"How to handle {item.Entry.Title}")">
+                                            <option value="@ConflictResolution.Skip">Skip</option>
+                                            @if (item.ExistingAnimeId is not null)
+                                            {
+                                                <option value="@ConflictResolution.LinkToExisting">Link to existing</option>
+                                            }
+                                            <option value="@ConflictResolution.ImportAsNew">Import as new</option>
+                                        </select>
+                                    }
+                                    else
+                                    {
+                                        <span class="badge">@item.Resolution</span>
+                                    }
+                                </td>
                             </tr>
                         }
                     </tbody>
                 </table>
             </div>
+
+            <p class="muted">
+                <strong>Link to existing</strong> treats them as the same title: the existing
+                entry adopts the MyAnimeList identifier and progress, so it will match cleanly
+                on every future import. <strong>Import as new</strong> adds a separate entry.
+            </p>
         </div>
     }
 
@@ -131,13 +170,16 @@
     }
 
     <div class="card">
-        <h2>Changes</h2>
         @{
             var changing = preview.Items
                 .Where(i => i.Action is ImportAction.Create or ImportAction.Update)
-                .Take(MaxRowsShown)
                 .ToList();
+            var totalPages = Math.Max(1, (changing.Count + PageSize - 1) / PageSize);
+            _changesPage = Math.Clamp(_changesPage, 0, totalPages - 1);
+            var visible = changing.Skip(_changesPage * PageSize).Take(PageSize).ToList();
         }
+
+        <h2>Changes — @changing.Count</h2>
 
         @if (changing.Count == 0)
         {
@@ -154,7 +196,7 @@
                         </tr>
                     </thead>
                     <tbody>
-                        @foreach (var item in changing)
+                        @foreach (var item in visible)
                         {
                             <tr>
                                 <td><span class="badge @item.Action.ToString().ToLowerInvariant()">@item.Action</span></td>
@@ -168,12 +210,21 @@
                 </table>
             </div>
 
-            @if (preview.CreateCount + preview.UpdateCount > MaxRowsShown)
+            @* Paged rather than truncated. A real export runs to several hundred
+               entries, and "showing the first 200" leaves the rest unreviewable
+               before confirming a change to the whole library. *@
+            @if (totalPages > 1)
             {
-                <p class="muted">
-                    Showing the first @MaxRowsShown of
-                    @(preview.CreateCount + preview.UpdateCount) changes.
-                </p>
+                <div class="toolbar">
+                    <button @onclick="() => _changesPage = 0" disabled="@(_changesPage == 0)">First</button>
+                    <button @onclick="() => _changesPage--" disabled="@(_changesPage == 0)">Previous</button>
+                    <span class="muted">
+                        @(_changesPage * PageSize + 1)–@Math.Min((_changesPage + 1) * PageSize, changing.Count)
+                        of @changing.Count
+                    </span>
+                    <button @onclick="() => _changesPage++" disabled="@(_changesPage >= totalPages - 1)">Next</button>
+                    <button @onclick="() => _changesPage = totalPages - 1" disabled="@(_changesPage >= totalPages - 1)">Last</button>
+                </div>
             }
         }
     </div>
@@ -193,13 +244,38 @@
 }
 
 @code {
-    private const int MaxRowsShown = 200;
+    private const int PageSize = 100;
 
     private ImportPreview? _preview;
     private ImportCommitResult? _commitResult;
     private string? _error;
     private string? _fileName;
     private bool _busy;
+    private int _changesPage;
+
+    private void SetResolution(ImportPreviewItem item, ChangeEventArgs e)
+    {
+        if (Enum.TryParse<ConflictResolution>(e.Value?.ToString(), out var resolution))
+        {
+            item.Resolution = resolution;
+        }
+    }
+
+    private void SetAllConflicts(ConflictResolution resolution)
+    {
+        if (_preview is null)
+        {
+            return;
+        }
+
+        foreach (var item in _preview.Items.Where(i => i.Action == ImportAction.Conflict))
+        {
+            // Only offer linking where there is something to link to.
+            item.Resolution = resolution == ConflictResolution.LinkToExisting && item.ExistingAnimeId is null
+                ? ConflictResolution.Skip
+                : resolution;
+        }
+    }
 
     private async Task OnFileSelectedAsync(InputFileChangeEventArgs e)
     {
@@ -257,6 +333,17 @@
         {
             _busy = false;
         }
+    }
+
+    private static string ImportButtonText(ImportPreview preview)
+    {
+        if (!preview.HasApplicableChanges)
+        {
+            return "Nothing to import";
+        }
+
+        var total = preview.CreateCount + preview.UpdateCount + preview.ResolvedConflictCount;
+        return $"Import {total} {(total == 1 ? "entry" : "entries")}";
     }
 
     private static string SummaryText(ImportCommitResult result)

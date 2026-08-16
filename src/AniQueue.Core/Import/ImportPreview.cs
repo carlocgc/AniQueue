@@ -20,6 +20,17 @@ public sealed record ImportPreviewItem
 
     /// <summary>Why an entry is a conflict, when it is one.</summary>
     public string? ConflictReason { get; init; }
+
+    /// <summary>
+    /// The user's decision for a conflicting entry. Settable rather than init-only
+    /// because the preview is the object the UI binds to while the user works
+    /// through the conflicts; only <see cref="ImportAction.Conflict"/> items
+    /// consult it.
+    /// </summary>
+    public ConflictResolution Resolution { get; set; } = ConflictResolution.Skip;
+
+    /// <summary>The title this entry was matched against, for display.</summary>
+    public string? ExistingTitle { get; init; }
 }
 
 /// <summary>
@@ -49,8 +60,12 @@ public sealed record ImportPreview
 
     public int InvalidCount => Problems.Count(p => p.RecordNumber is not null);
 
+    /// <summary>Conflicts the user has decided to act on rather than skip.</summary>
+    public int ResolvedConflictCount =>
+        Items.Count(i => i.Action == ImportAction.Conflict && i.Resolution != ConflictResolution.Skip);
+
     /// <summary>Whether committing would do anything at all.</summary>
-    public bool HasApplicableChanges => CreateCount > 0 || UpdateCount > 0;
+    public bool HasApplicableChanges => CreateCount > 0 || UpdateCount > 0 || ResolvedConflictCount > 0;
 
     public int CompletedCount => CountStatus(LibraryStatus.Completed);
 

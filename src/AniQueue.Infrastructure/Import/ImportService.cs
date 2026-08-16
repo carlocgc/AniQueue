@@ -88,10 +88,37 @@ public sealed class ImportService(
 
         foreach (var item in preview.Items)
         {
-            if (item.Action is ImportAction.Conflict or ImportAction.Unchanged)
+            if (item.Action == ImportAction.Unchanged)
             {
                 skipped++;
                 continue;
+            }
+
+            if (item.Action == ImportAction.Conflict)
+            {
+                if (item.Resolution == ConflictResolution.Skip)
+                {
+                    skipped++;
+                    continue;
+                }
+
+                if (item.Resolution == ConflictResolution.LinkToExisting)
+                {
+                    var linked = await LinkToExistingAsync(context, item, now, cancellationToken);
+                    if (linked is null)
+                    {
+                        // The record the user chose has since gone. Skipping is safer
+                        // than silently creating something they did not ask for.
+                        skipped++;
+                        continue;
+                    }
+
+                    await UpsertLibraryEntryAsync(context, profileId, linked.Id, item.Entry, now, cancellationToken);
+                    updated++;
+                    continue;
+                }
+
+                // ImportAsNew falls through to the ordinary create path below.
             }
 
             // Re-resolve rather than trusting the id captured during preview. The
@@ -184,6 +211,7 @@ public sealed class ImportService(
                     Entry = entry,
                     Action = ImportAction.Conflict,
                     ExistingAnimeId = manualTwin.Id,
+                    ExistingTitle = manualTwin.Title,
                     ConflictReason =
                         "An entry with this title already exists without a source identifier. "
                         + "Importing would create a duplicate."
@@ -209,6 +237,7 @@ public sealed class ImportService(
                 Entry = entry,
                 Action = ImportAction.Conflict,
                 ExistingAnimeId = titleMatches[0].Id,
+                ExistingTitle = titleMatches[0].Title,
                 ConflictReason = "Matched by title only, with no source identifier to confirm it."
             },
 
@@ -284,6 +313,39 @@ public sealed class ImportService(
             ExistingAnimeId = existing.Id,
             Changes = changes
         };
+    }
+
+    /// <summary>
+    /// Adopts the incoming source identifier and metadata onto the record the user
+    /// identified as the same title.
+    ///
+    /// Writing the identifier is the substance of the operation: it is what stops
+    /// the entry conflicting again on every subsequent import. Franchise grouping
+    /// on the existing record is left alone, as with any other import.
+    /// </summary>
+    private static async Task<Anime?> LinkToExistingAsync(
+        AniQueueDbContext context,
+        ImportPreviewItem item,
+        DateTimeOffset now,
+        CancellationToken cancellationToken)
+    {
+        if (item.ExistingAnimeId is not { } existingId)
+        {
+            return null;
+        }
+
+        var existing = await context.Anime.FirstOrDefaultAsync(a => a.Id == existingId, cancellationToken);
+        if (existing is null)
+        {
+            return null;
+        }
+
+        existing.Source = item.Entry.Source;
+        existing.SourceAnimeId = item.Entry.SourceAnimeId;
+        ApplyCatalogueFields(existing, item.Entry, now);
+
+        await context.SaveChangesAsync(cancellationToken);
+        return existing;
     }
 
     /// <summary>
