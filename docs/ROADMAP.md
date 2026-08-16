@@ -284,6 +284,41 @@ data. Promoting AniList read access supplies it, so franchises can use real rela
 the MVP rather than waiting. The phase order below puts AniList before franchises for exactly
 this reason.
 
+### D14 — No manual priority. The queue is the user's ordering.
+
+`LibraryEntry.ManualPriority` is removed: the column, the filter, the sort, the facet and
+the bulk action.
+
+**A shared bucket is not an order.** Setting twenty titles to priority 5 says nothing about
+which of them comes first, so a bulk priority control could not produce the thing it
+appeared to produce. Ordering needs a rank, and two already exist — both real ranks:
+
+| Ordering | Held by |
+|---|---|
+| The user's | `QueueItem.Position` |
+| The AI's | `LibraryEntry.RecommendationScore` |
+
+Those two are exactly what the Manual / AI / Hybrid views need. A third axis overlapping the
+first without replacing it only blurred the distinction.
+
+The brief lists manual priority as a hybrid ranking input (§18) — but the same sentence also
+lists *"whether title is already in Up Next"*. Queue position was always an intended signal,
+and it is the better one: being third in a hand-ordered queue is a far stronger statement of
+intent than wearing a shared label.
+
+Removed rather than left unused. Keeping a column against a possibility is the speculative
+infrastructure argued against in D11, and if Phase 9 wants a user signal stronger than queue
+membership, choosing one deliberately beats inheriting one nobody picked.
+
+Two details worth keeping in mind when removing anything similar:
+
+- **The retired sort's enum value is not reused.** Sort preferences are persisted in settings
+  later, and silently changing what a stored number means is how a saved preference becomes a
+  wrong one.
+- **A tiebreak test quietly stopped testing anything.** It had sorted by priority across
+  entries sharing a value; with priority gone it sorted unique titles and would have passed
+  without exercising the tiebreak at all. It was re-pointed at a sort that genuinely collides.
+
 ---
 
 ## 3. Solution structure
@@ -491,10 +526,12 @@ prove the data landed.
 
 ### Phase 3 — Backlog page
 Server-side search, filtering, sorting, paging/virtualisation. Filters: status, franchise/
-standalone, media type, decade, runtime, score, source, priority. Quick filters (Under 2h,
+standalone, media type, decade, runtime, score, source. Quick filters (Under 2h,
 Under 6h, Movie, OVA, TV, decades, High AI confidence, Not yet ranked) — **each rendered
-only when the backing metadata exists**. Bulk selection, bulk queue-add, bulk priority,
-bulk hide. Anime cards degrade cleanly instead of printing rows of "N/A".
+only when the backing metadata exists**. Bulk selection, bulk queue-add and bulk hide.
+Anime cards degrade cleanly instead of printing rows of "N/A".
+
+No priority filter, sort or bulk action: manual priority does not exist (D14).
 
 Defaults to **Planning**, with the status filter able to widen it. The brief defines the
 backlog as what the user intends to watch, and Watching has its own page (§26); listing
