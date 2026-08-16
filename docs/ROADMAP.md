@@ -6,6 +6,10 @@ AniQueue is a self-hosted anime watchlist and **backlog decision layer**. It is 
 MyAnimeList/AniList replacement — it assumes your library already exists somewhere and
 answers the question those tools answer badly: *what do I actually watch next?*
 
+Put precisely: **AniQueue owns the order of your watch list; the service you already use
+owns its membership** (D11). The order is maintained jointly by you and an AI, and it
+persists.
+
 Problems in scope:
 
 - Plan-to-Watch lists grow large and unordered.
@@ -183,6 +187,39 @@ makes franchises practical at scale.
 
 Do not re-propose title-similarity detection without new evidence that it can be made
 accurate — the 59% coverage figure is not the interesting number, the false positives are.
+
+### D11 — The AI orders a closed set. It does not choose what is in it.
+
+**What AniQueue is for:** a watch list whose *order* is maintained jointly by the user and
+an AI, and which persists. The list's *membership* is maintained elsewhere — principally on
+MyAnimeList or AniList — and arrives here by import or, later, sync.
+
+That division is the point. AniQueue owns the order; the external service owns the
+membership.
+
+So the model is given the user's scored history and the titles already on their list, and
+asked to rank *those*. It is never asked what to add. Entries it ranks lowest become
+removal candidates the user may act on at their discretion; removal is therefore a
+consequence of ranking rather than a separate instruction, and needs nothing in the schema.
+
+This is a constraint on the model, chosen deliberately over a broader one:
+
+- **It removes hallucination by construction, not by validation.** Every ranked item carries
+  a candidate id AniQueue issued, so a fabricated title has nowhere to appear. Asking for
+  additions would mean accepting titles the application has never seen, which would then
+  need resolving against a real catalogue before they could be trusted — work that depends
+  on the API integration, not the model.
+- **It keeps the result schema exactly as the brief specifies.** An earlier suggestion to add
+  an extensibility hook for future "suggested additions" is withdrawn: a field for a feature
+  that is not being built is speculative infrastructure, and `schemaVersion` already provides
+  the way to change shape later.
+- **It needs no new persistence.** `RecommendationRunItem` referencing an existing anime or
+  franchise holds, because every ranked item exists locally. Acting on a removal candidate
+  uses what is already modelled — `Dropped` status or `IsHidden` — so nothing has to be
+  written back to an external service.
+
+Deferred until the core is done, and deliberately not designed yet: an LLM-written summary
+of the user's taste for the dashboard. Pleasant, not load-bearing.
 
 ---
 
