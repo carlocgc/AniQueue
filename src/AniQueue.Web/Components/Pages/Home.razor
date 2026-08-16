@@ -8,11 +8,11 @@
     <p>What to watch next, decided deliberately rather than by scrolling.</p>
 </div>
 
-@if (_summary is null)
+@if (Summary is null)
 {
     <div class="empty-state" aria-live="polite">Loading…</div>
 }
-else if (_summary.Total == 0)
+else if (Summary.Total == 0)
 {
     <div class="card">
         <div class="empty-state">
@@ -25,27 +25,27 @@ else
 {
     <div class="stat-row">
         <div class="stat">
-            <div class="value">@_summary.Total</div>
+            <div class="value">@Summary.Total</div>
             <div class="label">In library</div>
         </div>
         <div class="stat">
-            <div class="value">@_summary.Of(LibraryStatus.Watching)</div>
+            <div class="value">@Summary.Of(LibraryStatus.Watching)</div>
             <div class="label">Watching</div>
         </div>
         <div class="stat">
-            <div class="value">@_summary.Of(LibraryStatus.Planning)</div>
+            <div class="value">@Summary.Of(LibraryStatus.Planning)</div>
             <div class="label">Backlog</div>
         </div>
         <div class="stat">
-            <div class="value">@_summary.Of(LibraryStatus.Completed)</div>
+            <div class="value">@Summary.Of(LibraryStatus.Completed)</div>
             <div class="label">Completed</div>
         </div>
         <div class="stat">
-            <div class="value">@_summary.Of(LibraryStatus.OnHold)</div>
+            <div class="value">@Summary.Of(LibraryStatus.OnHold)</div>
             <div class="label">On hold</div>
         </div>
         <div class="stat">
-            <div class="value">@_summary.Of(LibraryStatus.Dropped)</div>
+            <div class="value">@Summary.Of(LibraryStatus.Dropped)</div>
             <div class="label">Dropped</div>
         </div>
     </div>
@@ -63,8 +63,14 @@ else
 }
 
 @code {
-    private LibrarySummary? _summary;
+    // Carried from the prerender into the interactive render (see Backlog.razor for
+    // the full reasoning). Without it, OnInitializedAsync runs a second time when
+    // the circuit attaches, and the component briefly renders "Loading…" — replacing
+    // the prerendered markup with a structurally different tree at the exact moment
+    // the client is binding to it.
+    [PersistentState]
+    public LibrarySummary? Summary { get; set; }
 
     protected override async Task OnInitializedAsync() =>
-        _summary = await LibraryService.GetSummaryAsync(Profile.DefaultProfileId);
+        Summary ??= await LibraryService.GetSummaryAsync(Profile.DefaultProfileId);
 }

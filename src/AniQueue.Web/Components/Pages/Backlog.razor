@@ -20,14 +20,14 @@
         }
     </select>
 
-    <span class="muted">@_page?.TotalCount.ToString() entries</span>
+    <span class="muted">@EntryCountText()</span>
 </div>
 
-@if (_page is null)
+@if (Page is null)
 {
     <div class="empty-state" aria-live="polite">Loading…</div>
 }
-else if (_page.Items.Count == 0)
+else if (Page.Items.Count == 0)
 {
     <div class="card">
         <div class="empty-state">
@@ -59,7 +59,7 @@ else
                     </tr>
                 </thead>
                 <tbody>
-                    @foreach (var item in _page.Items)
+                    @foreach (var item in Page.Items)
                     {
                         <tr>
                             <td>
@@ -83,14 +83,14 @@ else
         </div>
     </div>
 
-    @if (_page.TotalCount > PageSize)
+    @if (Page.TotalCount > PageSize)
     {
         <div class="toolbar">
             <button @onclick="PreviousPageAsync" disabled="@(_skip == 0)">Previous</button>
             <span class="muted">
-                @(_skip + 1)–@Math.Min(_skip + PageSize, _page.TotalCount) of @_page.TotalCount
+                @(_skip + 1)–@Math.Min(_skip + PageSize, Page.TotalCount) of @Page.TotalCount
             </span>
-            <button @onclick="NextPageAsync" disabled="@(_skip + PageSize >= _page.TotalCount)">Next</button>
+            <button @onclick="NextPageAsync" disabled="@(_skip + PageSize >= Page.TotalCount)">Next</button>
         </div>
     }
 }
@@ -98,16 +98,30 @@ else
 @code {
     private const int PageSize = 50;
 
-    private LibraryPage? _page;
+    // Prerendering runs OnInitializedAsync once on the server, then the interactive
+    // circuit runs it again. Between those, the field is null and the component
+    // renders "Loading…" — swapping the prerendered table for a structurally
+    // different tree precisely as the client binds to the prerendered DOM. Carrying
+    // the first result across the handoff removes that churn, and halves the
+    // database work for a page load.
+    [PersistentState]
+    public LibraryPage? Page { get; set; }
+
     private string? _search;
     private LibraryStatus? _statusFilter;
     private int _skip;
 
-    protected override Task OnInitializedAsync() => LoadAsync();
+    protected override async Task OnInitializedAsync()
+    {
+        if (Page is null)
+        {
+            await LoadAsync();
+        }
+    }
 
     private async Task LoadAsync()
     {
-        _page = await LibraryService.GetPageAsync(
+        Page = await LibraryService.GetPageAsync(
             Profile.DefaultProfileId,
             new LibraryQuery
             {
@@ -144,6 +158,9 @@ else
         _skip = Math.Max(0, _skip - PageSize);
         await LoadAsync();
     }
+
+    private string EntryCountText() =>
+        Page is null ? string.Empty : $"{Page.TotalCount} {(Page.TotalCount == 1 ? "entry" : "entries")}";
 
     private static string ProgressText(LibraryListItem item) =>
         item.EpisodeCount is { } total
