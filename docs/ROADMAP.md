@@ -499,6 +499,13 @@ The brief's 25 criteria, mapped so completion is measurable.
 - Rebase onto `development` and resolve conflicts locally before opening a PR.
 - No new third-party dependency without explicit approval. SortableJS is the only one
   pre-approved, and only for Phase 4.
+- **LF line endings everywhere**, in the repository and in the working tree on every
+  platform, enforced by `.gitattributes` (`* text=auto eol=lf`) with `.editorconfig`
+  matching it. `.gitattributes` is the enforcement point rather than `core.autocrlf`
+  because it is committed and so applies to every clone; `core.autocrlf` is per-machine
+  and never travels. Batch files (`*.bat`, `*.cmd`) are the sole CRLF exception —
+  `cmd.exe` can mis-parse LF-only batch files. Verify with
+  `git ls-files | while read -r f; do tr -dc '\r' < "$f" | wc -c; done`.
 - Amendments to this roadmap go through a PR that updates this file, so the decision record
   and the code move together.
 - Comments explain **why**, not syntax. Decisions cite their `D`-number.
