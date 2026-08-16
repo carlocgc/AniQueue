@@ -6,6 +6,16 @@
   -->
 
   <ItemGroup>
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" />
+    <!-- Design-time only: required by `dotnet ef` to build the migration model.
+         PrivateAssets keeps it out of the published output. -->
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Design">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\AniQueue.Core\AniQueue.Core.csproj" />
   </ItemGroup>
 
