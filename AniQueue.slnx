@@ -1,0 +1,11 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/AniQueue.Core/AniQueue.Core.csproj" />
+    <Project Path="src/AniQueue.Infrastructure/AniQueue.Infrastructure.csproj" />
+    <Project Path="src/AniQueue.Web/AniQueue.Web.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/AniQueue.Core.Tests/AniQueue.Core.Tests.csproj" />
+    <Project Path="tests/AniQueue.Infrastructure.Tests/AniQueue.Infrastructure.Tests.csproj" />
+  </Folder>
+</Solution>

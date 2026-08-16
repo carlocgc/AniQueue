@@ -139,6 +139,27 @@ projects. Prevents version drift.
 Settings (§25 of the brief) are a fixed, known set. Typed columns are migratable, bindable
 straight from the Settings page, and cannot rot into stringly-typed soup.
 
+### D8 — `AniQueue.slnx`, not `AniQueue.sln`
+
+*Reverses an earlier call in this document.* The brief names `AniQueue.sln`, and the first
+attempt used the classic format on the reasoning that `.slnx`'s main benefit — no GUIDs, so
+no merge conflicts — does not apply when all five projects are added at once and no more
+are planned.
+
+That weighed one factor and missed a second. `dotnet new sln` emits a **hardcoded, already
+stale version stamp** (`# Visual Studio Version 17` — VS 2022) that has nothing to do with
+the installed toolchain, and the format carries ~100 lines of GUID bookkeeping for what is
+really a five-line list of projects. Since VS 2026 is the primary development environment
+and supports `.slnx` natively, the modern format is the better fit.
+
+**Decision:** `AniQueue.slnx`, generated via `dotnet sln migrate`. 101 lines → 12, no GUIDs,
+and no version header that can go stale. Verified: `dotnet sln list`, `dotnet build`,
+`dotnet test` and `dotnet build -c Release` all work unchanged. The `x86`/`x64` platform
+entries the migration carried over were removed — this solution only ever builds Any CPU.
+
+Minimum tooling this implies: VS 2026 (or VS 2022 17.14+) and the .NET 10 SDK. Both are
+already the baseline in §0, so nothing is lost.
+
 ---
 
 ## 3. Solution structure
@@ -146,7 +167,7 @@ straight from the Settings page, and cannot rot into stringly-typed soup.
 Follows the brief's §36. It is a sensible shape; no argument.
 
 ```
-AniQueue.sln
+AniQueue.slnx
 Directory.Build.props / Directory.Packages.props
 .editorconfig / .gitattributes / .gitignore / .dockerignore
 Dockerfile / docker-compose.yml

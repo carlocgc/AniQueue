@@ -19,7 +19,7 @@ Dockerfile      text eol=lf
 *.cs            text diff=csharp
 *.razor         text diff=html
 *.csproj        text
-*.sln           text eol=crlf
+*.slnx          text
 *.props         text
 *.targets       text
 
