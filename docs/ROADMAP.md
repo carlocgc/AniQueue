@@ -503,7 +503,7 @@ onward even if later phases slip.
 | 8 | JSON interchange | Full library export → wipe → restore round-trip |
 | 9 | AI recommendation | Export request, import ranking, apply — manual order provably intact |
 | 10 | Settings + polish | Settings, theme, confirmations, a11y and responsive pass |
-| 11 | Docker + README | Compose up, health check, container recreated without data loss |
+| 11 | Docker + README | Migrations squashed to one baseline; compose up, health check, container recreated without data loss |
 
 ### Phase 0 — Foundation
 Repo hygiene (`.gitignore`, `.gitattributes`, `.editorconfig`), solution and five projects,
@@ -613,6 +613,33 @@ Multi-stage Dockerfile (SDK build → `aspnet` runtime, no SDK in the final laye
 user, `/data` persistence, configurable port defaulting to 8080, `/health` endpoint,
 compose health check, environment-variable configuration. README per brief §35, explicitly
 explaining that v1 AI recommendation works **without giving AniQueue an API key**.
+
+**Squash the migrations into a single baseline — and this is the last moment it is possible.**
+
+By this point development will have accumulated several migrations, including at least one
+that creates a column a later one drops. Collapsing them into one `InitialCreate` that
+describes the shipping schema is standard practice before a first release, and it leaves
+the operator of a self-hosted application with a migration folder that reads as a schema
+rather than as a diary.
+
+It is free **only while no database but ours exists**. After anyone else runs AniQueue their
+`__EFMigrationsHistory` names migrations that would no longer exist, and startup would try
+to apply a baseline over a populated schema and fail. There is no way back from that except
+asking users to delete their data, so the window closes the moment an image is published or
+a release is tagged.
+
+The procedure, and the reason it is low-risk:
+
+1. Delete `Persistence/Migrations/` and the development database.
+2. `dotnet ef migrations add InitialCreate`.
+3. Run the tests. `SqliteTestDatabase` applies migrations rather than calling
+   `EnsureCreated`, so a broken baseline fails the whole Infrastructure suite immediately
+   rather than at someone's first run.
+4. Start a container against an empty volume and confirm the schema is created.
+
+Skipping it costs almost nothing — a slightly longer history and one redundant column
+create-and-drop. It is a tidiness measure, not a correctness one. But it can only be done
+here, so it is listed as a gate rather than left to judgement.
 
 Final gate: Release build, full test run, image build, `docker compose up -d`, health check
 verified, **container recreated and the database confirmed intact**.
