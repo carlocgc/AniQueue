@@ -22,8 +22,9 @@ architectural decisions and acceptance criteria. Nothing here is installable yet
 |---|---|---|
 | 0 | Foundation — solution, projects, build settings | **complete** |
 | 1 | Domain model, EF Core + SQLite, migrations, seed data | **complete** |
-| 2 | MyAnimeList XML import → preview → commit → backlog | next |
-| 3–11 | Backlog → queue → franchises → AI ranking → Docker | planned |
+| 2 | MyAnimeList XML import → preview → commit → backlog | **complete** |
+| 3 | Backlog page — filters, sorting, bulk actions | next |
+| 4–11 | Up Next queue → franchises → AI ranking → Docker | planned |
 
 ## Screenshots
 
@@ -61,6 +62,21 @@ The development database is created at `src/AniQueue.Web/data/aniqueue.db` on fi
 along with sample data covering completed, watching and planning titles, a franchise, an
 ordered queue and an applied AI ranking. Delete that directory to start clean. Production
 databases are never seeded.
+
+## Importing a MyAnimeList export
+
+1. On MyAnimeList, go to **List → Export** and download your anime list. The file arrives
+   gzipped; extract it so it ends in `.xml`.
+2. Open **Import** in AniQueue and select the file.
+3. Review the preview: how many entries are new, updated, unchanged, in conflict or
+   unusable, and exactly which fields would change.
+4. Confirm.
+
+Nothing is written until you confirm. Re-importing the same export is a no-op, and an
+import never overwrites what you curated here — personal notes, manual priority, hidden
+flag, franchise grouping, queue position and recommendation data are all left alone.
+Entries that cannot be confidently identified are reported as conflicts and skipped rather
+than merged.
 
 Installation, configuration, Docker deployment, backup/restore, MAL import and the AI
 ranking workflow will be documented here as the corresponding phases land.

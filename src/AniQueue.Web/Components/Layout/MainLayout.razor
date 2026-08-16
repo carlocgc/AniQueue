@@ -1,6 +1,23 @@
-﻿@inherits LayoutComponentBase
+@inherits LayoutComponentBase
 
-@Body
+<div class="app">
+    <header class="sidebar">
+        <a class="brand" href="">AniQueue</a>
+
+        @* Navigation grows as phases land. Links to pages that do not exist yet are
+           deliberately omitted rather than shown disabled — a dead link is worse
+           than an absent one. *@
+        <nav aria-label="Main">
+            <NavLink href="" Match="NavLinkMatch.All">Dashboard</NavLink>
+            <NavLink href="backlog">Backlog</NavLink>
+            <NavLink href="import">Import</NavLink>
+        </nav>
+    </header>
+
+    <main>
+        @Body
+    </main>
+</div>
 
 <div id="blazor-error-ui" data-nosnippet>
     An unhandled error has occurred.

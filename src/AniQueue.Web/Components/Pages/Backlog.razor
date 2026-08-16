@@ -1,0 +1,152 @@
+@page "/backlog"
+@inject ILibraryService LibraryService
+
+<PageTitle>Backlog — AniQueue</PageTitle>
+
+<div class="page-header">
+    <h1>Backlog</h1>
+    <p>Everything in your library. Filtering, sorting and bulk actions arrive in Phase 3.</p>
+</div>
+
+<div class="toolbar">
+    <input type="search" placeholder="Search titles" value="@_search"
+           @oninput="OnSearchChangedAsync" aria-label="Search titles" />
+
+    <select value="@_statusFilter" @onchange="OnStatusChangedAsync" aria-label="Filter by status">
+        <option value="">All statuses</option>
+        @foreach (var status in Enum.GetValues<LibraryStatus>())
+        {
+            <option value="@status">@status</option>
+        }
+    </select>
+
+    <span class="muted">@_page?.TotalCount.ToString() entries</span>
+</div>
+
+@if (_page is null)
+{
+    <div class="empty-state" aria-live="polite">Loading…</div>
+}
+else if (_page.Items.Count == 0)
+{
+    <div class="card">
+        <div class="empty-state">
+            @if (string.IsNullOrWhiteSpace(_search) && _statusFilter is null)
+            {
+                <p>Your library is empty.</p>
+                <a class="button" href="import">Import a MyAnimeList export</a>
+            }
+            else
+            {
+                <p>Nothing matches those filters.</p>
+            }
+        </div>
+    </div>
+}
+else
+{
+    <div class="card">
+        <div class="table-wrap">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Title</th>
+                        <th>Type</th>
+                        <th class="numeric">Year</th>
+                        <th>Status</th>
+                        <th>Progress</th>
+                        <th class="numeric">Score</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var item in _page.Items)
+                    {
+                        <tr>
+                            <td>
+                                @item.Title
+                                @if (item.FranchiseName is not null)
+                                {
+                                    <br /><span class="badge">@item.FranchiseName</span>
+                                }
+                            </td>
+                            @* Missing metadata degrades to an em dash rather than
+                               filling the table with "N/A". *@
+                            <td>@(item.MediaType == MediaType.Unknown ? "—" : item.MediaType.ToString())</td>
+                            <td class="numeric">@(item.ReleaseYear?.ToString() ?? "—")</td>
+                            <td><span class="badge @item.Status.ToString().ToLowerInvariant()">@item.Status</span></td>
+                            <td>@ProgressText(item)</td>
+                            <td class="numeric">@(item.UserScore?.ToString() ?? "—")</td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    @if (_page.TotalCount > PageSize)
+    {
+        <div class="toolbar">
+            <button @onclick="PreviousPageAsync" disabled="@(_skip == 0)">Previous</button>
+            <span class="muted">
+                @(_skip + 1)–@Math.Min(_skip + PageSize, _page.TotalCount) of @_page.TotalCount
+            </span>
+            <button @onclick="NextPageAsync" disabled="@(_skip + PageSize >= _page.TotalCount)">Next</button>
+        </div>
+    }
+}
+
+@code {
+    private const int PageSize = 50;
+
+    private LibraryPage? _page;
+    private string? _search;
+    private LibraryStatus? _statusFilter;
+    private int _skip;
+
+    protected override Task OnInitializedAsync() => LoadAsync();
+
+    private async Task LoadAsync()
+    {
+        _page = await LibraryService.GetPageAsync(
+            Profile.DefaultProfileId,
+            new LibraryQuery
+            {
+                Search = _search,
+                Status = _statusFilter,
+                Skip = _skip,
+                Take = PageSize
+            });
+    }
+
+    private async Task OnSearchChangedAsync(ChangeEventArgs e)
+    {
+        _search = e.Value?.ToString();
+        _skip = 0;   // a new search must not land on page 4 of the old results
+        await LoadAsync();
+    }
+
+    private async Task OnStatusChangedAsync(ChangeEventArgs e)
+    {
+        var raw = e.Value?.ToString();
+        _statusFilter = Enum.TryParse<LibraryStatus>(raw, out var status) ? status : null;
+        _skip = 0;
+        await LoadAsync();
+    }
+
+    private async Task NextPageAsync()
+    {
+        _skip += PageSize;
+        await LoadAsync();
+    }
+
+    private async Task PreviousPageAsync()
+    {
+        _skip = Math.Max(0, _skip - PageSize);
+        await LoadAsync();
+    }
+
+    private static string ProgressText(LibraryListItem item) =>
+        item.EpisodeCount is { } total
+            ? $"{item.EpisodesWatched} / {total}"
+            : item.EpisodesWatched > 0 ? $"{item.EpisodesWatched}" : "—";
+}

@@ -10,7 +10,10 @@
     <!-- CA1707 forbids underscores in member names. Snake_case test names are the
          idiom in xUnit and read far better in a failing-test report than
          PascalCaseRunTogether, so the rule is off for test projects only. -->
-    <NoWarn>$(NoWarn);CA1707</NoWarn>
+    <!-- CA1859 prefers concrete types over interfaces for performance. Tests
+         deliberately hold services by their interface: exercising the contract is
+         the point, and micro-optimising a test fixture is not. -->
+    <NoWarn>$(NoWarn);CA1707;CA1859</NoWarn>
   </PropertyGroup>
 
 </Project>

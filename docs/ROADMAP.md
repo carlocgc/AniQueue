@@ -267,17 +267,26 @@ carries `ProfileId` so multi-user (Phase 5 post-MVP) stays possible. Settings pe
 | `IFranchiseService` | Infrastructure | membership, ordering, dissolve, next-unwatched |
 | `IImportService` | Infrastructure | orchestrates the import pipeline |
 | `IRecommendationService` | Infrastructure | build request, validate/apply result, run history |
-| `IAnimeListProvider` | Core (impl Infra) | `MalXmlProvider`, `AniQueueJsonProvider` |
+| `IAnimeListParser` | **Core** (incl. impls) | `MyAnimeListXmlParser`, `AniQueueJsonParser` — pure, no database |
 | `IAiRecommendationProvider` | Core | `ManualJsonRecommendationProvider` only in MVP |
 | `IRankingCalculator` | **Core** | hybrid ranking formula — pure, testable |
 | `IRuntimeCalculator` | **Core** | episode×duration maths, franchise sums, formatting |
 | `ICoverImageResolver` | Core | URL passthrough now; local caching later |
 
-Import is a pipeline of distinct types, not one `ImportManager`:
+Import splits at the point where a database is first needed:
 
 ```
-IImportParser → IImportNormaliser → IImportValidator → IImportMatcher → ImportPreview → IImportCommitter
+IAnimeListParser  (Core, pure)      file bytes  → ParseResult (entries + problems)
+IImportService    (Infrastructure)  ParseResult → ImportPreview → commit
 ```
+
+**D9 — parsing lives in Core, and the parser does not build the preview.** The brief's
+`IAnimeListProvider.ImportAsync` returns an `ImportPreview` directly. But deciding whether
+an entry is new, an update or a conflict requires reading the existing library, so such a
+provider would need database access — which would drag every format parser into
+Infrastructure and out of reach of fast, fixture-free tests. Splitting at this seam keeps
+all format-specific logic pure, and leaves matching in exactly one place however many
+formats exist. Adding AniList later means writing one parser, not a second pipeline.
 
 `ImportPreview` is a pure in-memory object. **Nothing touches the database until the user
 explicitly confirms.** Imports are idempotent where reasonable.

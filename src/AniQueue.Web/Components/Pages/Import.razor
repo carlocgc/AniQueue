@@ -1,0 +1,275 @@
+@page "/import"
+@inject IImportService ImportService
+@inject IAnimeListParser Parser
+@inject ILogger<Import> Logger
+
+<PageTitle>Import — AniQueue</PageTitle>
+
+<div class="page-header">
+    <h1>Import</h1>
+    <p>
+        Upload a MyAnimeList XML export. Nothing is saved until you review the
+        preview and confirm.
+    </p>
+</div>
+
+@if (_error is not null)
+{
+    <div class="notice error" role="alert">@_error</div>
+}
+
+@if (_commitResult is null)
+{
+    <div class="card">
+        <h2>Choose a file</h2>
+        <p class="muted">
+            In MyAnimeList, go to List &rarr; Export and download the anime list. The
+            file may be gzipped; extract it first so it ends in <code>.xml</code>.
+        </p>
+
+        <label class="button" for="import-file">Select export file</label>
+        <InputFile id="import-file" OnChange="OnFileSelectedAsync" accept=".xml" disabled="@_busy" />
+
+        @if (_busy)
+        {
+            <p class="muted" aria-live="polite">Reading @_fileName…</p>
+        }
+        else if (_fileName is not null)
+        {
+            <p class="muted">@_fileName</p>
+        }
+    </div>
+}
+
+@if (_preview is { IsFileRejected: false } preview)
+{
+    <div class="stat-row">
+        <div class="stat"><div class="value">@preview.CreateCount</div><div class="label">New</div></div>
+        <div class="stat"><div class="value">@preview.UpdateCount</div><div class="label">Updated</div></div>
+        <div class="stat"><div class="value">@preview.UnchangedCount</div><div class="label">Unchanged</div></div>
+        <div class="stat"><div class="value">@preview.ConflictCount</div><div class="label">Conflicts</div></div>
+        <div class="stat"><div class="value">@preview.InvalidCount</div><div class="label">Invalid</div></div>
+    </div>
+
+    <div class="card">
+        <h2>In this file</h2>
+        <p class="muted">
+            @preview.CompletedCount completed &middot; @preview.WatchingCount watching
+            &middot; @preview.PlanningCount planning
+        </p>
+
+        @if (_commitResult is null)
+        {
+            <div class="toolbar">
+                <button class="primary" disabled="@(_busy || !preview.HasApplicableChanges)"
+                        @onclick="CommitAsync">
+                    @if (preview.HasApplicableChanges)
+                    {
+                        @($"Import {preview.CreateCount + preview.UpdateCount} entries")
+                    }
+                    else
+                    {
+                        @("Nothing to import")
+                    }
+                </button>
+                <button @onclick="Reset" disabled="@_busy">Cancel</button>
+            </div>
+
+            @if (!preview.HasApplicableChanges && preview.UnchangedCount > 0)
+            {
+                <div class="notice info">
+                    Everything in this file already matches your library, so importing
+                    would change nothing.
+                </div>
+            }
+        }
+    </div>
+
+    @if (preview.ConflictCount > 0)
+    {
+        <div class="card">
+            <h2>Conflicts</h2>
+            <p class="muted">
+                These are not imported. AniQueue will not merge entries it cannot
+                confidently identify, because an incorrect merge is much harder to
+                undo than a skipped row.
+            </p>
+            <div class="table-wrap">
+                <table>
+                    <thead>
+                        <tr><th>Title</th><th>Reason</th></tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var item in preview.Items.Where(i => i.Action == ImportAction.Conflict))
+                        {
+                            <tr>
+                                <td>@item.Entry.Title</td>
+                                <td class="muted">@item.ConflictReason</td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    }
+
+    @if (preview.Problems.Count > 0)
+    {
+        <div class="card">
+            <h2>Problems</h2>
+            <ul class="muted">
+                @foreach (var problem in preview.Problems.Take(50))
+                {
+                    <li>@problem.ToString()</li>
+                }
+            </ul>
+            @if (preview.Problems.Count > 50)
+            {
+                <p class="muted">…and @(preview.Problems.Count - 50) more.</p>
+            }
+        </div>
+    }
+
+    <div class="card">
+        <h2>Changes</h2>
+        @{
+            var changing = preview.Items
+                .Where(i => i.Action is ImportAction.Create or ImportAction.Update)
+                .Take(MaxRowsShown)
+                .ToList();
+        }
+
+        @if (changing.Count == 0)
+        {
+            <p class="empty-state">No entries would be created or updated.</p>
+        }
+        else
+        {
+            <div class="table-wrap">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Action</th><th>Title</th><th>Status</th>
+                            <th class="numeric">Score</th><th>Changes</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var item in changing)
+                        {
+                            <tr>
+                                <td><span class="badge @item.Action.ToString().ToLowerInvariant()">@item.Action</span></td>
+                                <td>@item.Entry.Title</td>
+                                <td>@item.Entry.Status</td>
+                                <td class="numeric">@(item.Entry.UserScore?.ToString() ?? "—")</td>
+                                <td class="muted">@string.Join("; ", item.Changes)</td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+
+            @if (preview.CreateCount + preview.UpdateCount > MaxRowsShown)
+            {
+                <p class="muted">
+                    Showing the first @MaxRowsShown of
+                    @(preview.CreateCount + preview.UpdateCount) changes.
+                </p>
+            }
+        }
+    </div>
+}
+
+@if (_commitResult is { } result)
+{
+    @* Built as one string rather than inline expressions: Razor turns the newline
+       between an expression and following markup into a space, which puts a gap
+       before the comma. *@
+    <div class="notice success" role="status">@SummaryText(result)</div>
+
+    <div class="toolbar">
+        <a class="button" href="backlog">View backlog</a>
+        <button @onclick="Reset">Import another file</button>
+    </div>
+}
+
+@code {
+    private const int MaxRowsShown = 200;
+
+    private ImportPreview? _preview;
+    private ImportCommitResult? _commitResult;
+    private string? _error;
+    private string? _fileName;
+    private bool _busy;
+
+    private async Task OnFileSelectedAsync(InputFileChangeEventArgs e)
+    {
+        Reset();
+        _busy = true;
+        _fileName = e.File.Name;
+
+        try
+        {
+            // The default OpenReadStream cap is 512 KB, far below a real export.
+            // The parser enforces the same ceiling again on the bytes it reads, so
+            // the limit holds regardless of which entry point is used.
+            await using var stream = e.File.OpenReadStream(ImportLimits.Default.MaxBytes);
+
+            _preview = await ImportService.PreviewAsync(stream, Parser, Profile.DefaultProfileId);
+
+            if (_preview.IsFileRejected)
+            {
+                _error = string.Join(" ", _preview.Problems.Select(p => p.Message));
+            }
+        }
+        catch (IOException ex)
+        {
+            // Thrown when the upload exceeds the stream limit.
+            Logger.LogWarning(ex, "Import upload rejected");
+            _error = "That file is too large to import.";
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private async Task CommitAsync()
+    {
+        if (_preview is null)
+        {
+            return;
+        }
+
+        _busy = true;
+
+        try
+        {
+            _commitResult = await ImportService.CommitAsync(_preview, Profile.DefaultProfileId);
+        }
+        catch (Exception ex)
+        {
+            // The transaction has already rolled back; the user needs to know the
+            // library is unchanged rather than partially written.
+            Logger.LogError(ex, "Import commit failed");
+            _error = "The import could not be completed. Your library has not been changed.";
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private static string SummaryText(ImportCommitResult result)
+    {
+        var text = $"Imported {result.Created} new and {result.Updated} updated";
+        return result.Skipped > 0 ? $"{text}, skipping {result.Skipped}." : $"{text}.";
+    }
+
+    private void Reset()
+    {
+        _preview = null;
+        _commitResult = null;
+        _error = null;
+        _fileName = null;
+    }
+}
