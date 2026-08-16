@@ -1,163 +1,497 @@
 @page "/backlog"
+@using AniQueue.Core.Queue
 @inject ILibraryService LibraryService
+@inject IQueueService QueueService
 
 <PageTitle>Backlog — AniQueue</PageTitle>
 
 <div class="page-header">
     <h1>Backlog</h1>
-    <p>Everything in your library. Filtering, sorting and bulk actions arrive in Phase 3.</p>
+    <p>What you intend to watch. Narrow it down, then send things to Up Next.</p>
 </div>
 
-<div class="toolbar">
-    <input type="search" placeholder="Search titles" value="@_search"
-           @oninput="OnSearchChangedAsync" aria-label="Search titles" />
+<BusyDialog State="_busy" />
 
-    <select value="@_statusFilter" @onchange="OnStatusChangedAsync" aria-label="Filter by status">
-        <option value="">All statuses</option>
-        @foreach (var status in Enum.GetValues<LibraryStatus>())
-        {
-            <option value="@status">@status</option>
-        }
-    </select>
-
-    <span class="muted">@EntryCountText()</span>
-</div>
-
-@if (Page is null)
+@if (Facets is null || Page is null)
 {
     <div class="empty-state" aria-live="polite">Loading…</div>
 }
-else if (Page.Items.Count == 0)
-{
-    <div class="card">
-        <div class="empty-state">
-            @if (string.IsNullOrWhiteSpace(_search) && _statusFilter is null)
-            {
-                <p>Your library is empty.</p>
-                <a class="button" href="import">Import a MyAnimeList export</a>
-            }
-            else
-            {
-                <p>Nothing matches those filters.</p>
-            }
-        </div>
-    </div>
-}
 else
 {
-    <div class="card">
-        <div class="table-wrap">
-            <table>
-                <thead>
-                    <tr>
-                        <th>Title</th>
-                        <th>Type</th>
-                        <th class="numeric">Year</th>
-                        <th>Status</th>
-                        <th>Progress</th>
-                        <th class="numeric">Score</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    @foreach (var item in Page.Items)
+    <div class="card filters">
+        <div class="toolbar">
+            <input type="search" placeholder="Search titles" value="@_query.Search"
+                   @oninput="OnSearchChangedAsync" aria-label="Search titles" />
+
+            <select value="@_statusValue" @onchange="OnStatusChangedAsync" aria-label="Status">
+                <option value="">All statuses</option>
+                @foreach (var status in Enum.GetValues<LibraryStatus>())
+                {
+                    var count = Facets.CountByStatus.GetValueOrDefault(status);
+                    @* Statuses the library does not contain are not offered. *@
+                    if (count > 0)
                     {
-                        <tr>
-                            <td>
-                                @item.Title
-                                @if (item.FranchiseName is not null)
-                                {
-                                    <br /><span class="badge">@item.FranchiseName</span>
-                                }
-                            </td>
-                            @* Missing metadata degrades to an em dash rather than
-                               filling the table with "N/A". *@
-                            <td>@(item.MediaType == MediaType.Unknown ? "—" : item.MediaType.ToString())</td>
-                            <td class="numeric">@(item.ReleaseYear?.ToString() ?? "—")</td>
-                            <td><span class="badge @item.Status.ToString().ToLowerInvariant()">@item.Status</span></td>
-                            <td>@ProgressText(item)</td>
-                            <td class="numeric">@(item.UserScore?.ToString() ?? "—")</td>
-                        </tr>
+                        <option value="@status">@status (@count)</option>
                     }
-                </tbody>
-            </table>
+                }
+            </select>
+
+            <select value="@_query.Sort" @onchange="OnSortChangedAsync" aria-label="Sort by">
+                <option value="@LibrarySort.TitleAscending">Title A–Z</option>
+                <option value="@LibrarySort.TitleDescending">Title Z–A</option>
+                @if (Facets.HasRecommendations)
+                {
+                    <option value="@LibrarySort.RecommendationDescending">AI rank</option>
+                }
+                @if (Facets.HasManualPriorities)
+                {
+                    <option value="@LibrarySort.PriorityDescending">Priority</option>
+                }
+                @if (Facets.HasRuntimeData)
+                {
+                    <option value="@LibrarySort.RuntimeAscending">Shortest first</option>
+                    <option value="@LibrarySort.RuntimeDescending">Longest first</option>
+                }
+                <option value="@LibrarySort.YearDescending">Newest</option>
+                <option value="@LibrarySort.YearAscending">Oldest</option>
+                @if (Facets.HasUserScores)
+                {
+                    <option value="@LibrarySort.UserScoreDescending">My score</option>
+                }
+                <option value="@LibrarySort.DateAddedDescending">Recently added</option>
+            </select>
+
+            <span class="muted">@EntryCountText()</span>
+
+            @if (_query.HasActiveFilters)
+            {
+                <button @onclick="ClearFiltersAsync">Clear filters</button>
+            }
+        </div>
+
+        @* Quick filters are rendered only when the metadata behind them exists. A
+           "Movie" chip in a library with no films can only ever return nothing,
+           and an empty result reads as "I own none" rather than "this control is
+           useless here". *@
+        <div class="chips" role="group" aria-label="Quick filters">
+            @if (Facets.HasRuntimeData)
+            {
+                <button class="chip @Active(_query.MaxRuntimeMinutes == 120)"
+                        @onclick="() => ToggleRuntimeAsync(120)">Under 2 hours</button>
+                <button class="chip @Active(_query.MaxRuntimeMinutes == 360)"
+                        @onclick="() => ToggleRuntimeAsync(360)">Under 6 hours</button>
+            }
+
+            @foreach (var mediaType in Facets.MediaTypes)
+            {
+                <button class="chip @Active(_query.MediaType == mediaType)"
+                        @onclick="() => ToggleMediaTypeAsync(mediaType)">@MediaTypeLabel(mediaType)</button>
+            }
+
+            @foreach (var decade in Facets.Decades)
+            {
+                <button class="chip @Active(_query.Decade == decade)"
+                        @onclick="() => ToggleDecadeAsync(decade)">@DecadeLabel(decade)</button>
+            }
+
+            @if (Facets.HasFranchises)
+            {
+                <button class="chip @Active(_query.Franchise == FranchiseFilter.InFranchise)"
+                        @onclick="() => ToggleFranchiseAsync(FranchiseFilter.InFranchise)">In a franchise</button>
+                <button class="chip @Active(_query.Franchise == FranchiseFilter.Standalone)"
+                        @onclick="() => ToggleFranchiseAsync(FranchiseFilter.Standalone)">Standalone</button>
+            }
+
+            @if (Facets.HasRecommendations)
+            {
+                <button class="chip @Active(_query.MinRecommendationConfidence is not null)"
+                        @onclick="ToggleHighConfidenceAsync">High AI confidence</button>
+            }
+
+            @if (Facets.HasUnrankedEntries && Facets.HasRecommendations)
+            {
+                <button class="chip @Active(_query.HasRecommendation == false)"
+                        @onclick="ToggleUnrankedAsync">Not yet ranked</button>
+            }
+
+            @if (Facets.Sources.Count > 1)
+            {
+                @foreach (var source in Facets.Sources)
+                {
+                    <button class="chip @Active(_query.Source == source)"
+                            @onclick="() => ToggleSourceAsync(source)">@source</button>
+                }
+            }
+
+            @if (Facets.HasHiddenEntries)
+            {
+                <button class="chip @Active(_query.IncludeHidden)"
+                        @onclick="ToggleHiddenAsync">Show hidden</button>
+            }
         </div>
     </div>
 
-    @if (Page.TotalCount > PageSize)
+    @if (_selected.Count > 0)
     {
-        <div class="toolbar">
-            <button @onclick="PreviousPageAsync" disabled="@(_skip == 0)">Previous</button>
-            <span class="muted">
-                @(_skip + 1)–@Math.Min(_skip + PageSize, Page.TotalCount) of @Page.TotalCount
-            </span>
-            <button @onclick="NextPageAsync" disabled="@(_skip + PageSize >= Page.TotalCount)">Next</button>
+        <div class="card selection-bar" role="region" aria-label="Bulk actions">
+            <div class="toolbar">
+                <strong>@_selected.Count selected</strong>
+                <button class="primary" @onclick="AddSelectedToQueueAsync">Add to Up Next</button>
+                <select value="" @onchange="SetSelectedPriorityAsync" aria-label="Set priority">
+                    <option value="">Set priority…</option>
+                    @for (var p = 5; p >= 0; p--)
+                    {
+                        <option value="@p">@(p == 0 ? "None" : $"Priority {p}")</option>
+                    }
+                </select>
+                <button @onclick="() => SetSelectedHiddenAsync(true)">Hide</button>
+                @if (_query.IncludeHidden)
+                {
+                    <button @onclick="() => SetSelectedHiddenAsync(false)">Unhide</button>
+                }
+                <button @onclick="ClearSelection">Clear selection</button>
+            </div>
+            @if (_actionMessage is not null)
+            {
+                <div class="notice success" role="status">@_actionMessage</div>
+            }
         </div>
+    }
+    else if (_actionMessage is not null)
+    {
+        <div class="notice success" role="status">@_actionMessage</div>
+    }
+
+    @if (Page.Items.Count == 0)
+    {
+        <div class="card">
+            <div class="empty-state">
+                @if (_query.HasActiveFilters || _query.Status is not null)
+                {
+                    <p>Nothing matches those filters.</p>
+                    <button @onclick="ClearFiltersAsync">Clear filters</button>
+                }
+                else
+                {
+                    <p>Your library is empty.</p>
+                    <a class="button primary" href="import">Import a MyAnimeList export</a>
+                }
+            </div>
+        </div>
+    }
+    else
+    {
+        <div class="card">
+            <div class="table-wrap">
+                <table>
+                    <thead>
+                        <tr>
+                            <th class="select-col">
+                                <input type="checkbox" aria-label="Select all on this page"
+                                       checked="@AllOnPageSelected"
+                                       @onchange="ToggleSelectAll" />
+                            </th>
+                            <th>Title</th>
+                            <th>Type</th>
+                            <th class="numeric">Year</th>
+                            <th class="numeric">Runtime</th>
+                            <th>Status</th>
+                            <th>Progress</th>
+                            <th class="numeric">Score</th>
+                            @if (Facets.HasRecommendations)
+                            {
+                                <th class="numeric">AI</th>
+                            }
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var item in Page.Items)
+                        {
+                            <tr class="@(_selected.Contains(item.AnimeId) ? "selected" : null)">
+                                <td class="select-col">
+                                    <input type="checkbox"
+                                           aria-label="@($"Select {item.Title}")"
+                                           checked="@_selected.Contains(item.AnimeId)"
+                                           @onchange="() => ToggleSelection(item.AnimeId)" />
+                                </td>
+                                <td>
+                                    <div class="title-cell">
+                                        <span>@item.Title</span>
+                                        @if (item.IsQueued)
+                                        {
+                                            <span class="badge queued" title="Already in Up Next">Queued</span>
+                                        }
+                                        @if (item.IsHidden)
+                                        {
+                                            <span class="badge">Hidden</span>
+                                        }
+                                    </div>
+                                    <div class="row-meta">
+                                        @if (item.FranchiseName is not null)
+                                        {
+                                            <span class="badge">@item.FranchiseName</span>
+                                        }
+                                        @if (item.ManualPriority > 0)
+                                        {
+                                            <span class="badge">Priority @item.ManualPriority</span>
+                                        }
+                                        @* Free: Source and SourceAnimeId are already stored, so
+                                           this is formatting rather than a lookup. *@
+                                        @if (item.SourceLink is { } link)
+                                        {
+                                            <a href="@link.Url" target="_blank" rel="noopener noreferrer">@link.Label</a>
+                                        }
+                                    </div>
+                                </td>
+                                @* Missing metadata degrades to an em dash rather than
+                                   filling the table with "N/A". *@
+                                <td>@(item.MediaType == MediaType.Unknown ? "—" : MediaTypeLabel(item.MediaType))</td>
+                                <td class="numeric">@(item.ReleaseYear?.ToString() ?? "—")</td>
+                                <td class="numeric">@(RuntimeCalculator.Format(item.EstimatedRuntimeMinutes) ?? "—")</td>
+                                <td><span class="badge @item.Status.ToString().ToLowerInvariant()">@item.Status</span></td>
+                                <td>@ProgressText(item)</td>
+                                <td class="numeric">@(item.UserScore?.ToString() ?? "—")</td>
+                                @if (Facets.HasRecommendations)
+                                {
+                                    <td class="numeric">@(item.RecommendationScore?.ToString("0.0") ?? "—")</td>
+                                }
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        @if (Page.TotalCount > PageSize)
+        {
+            <div class="toolbar">
+                <button @onclick="() => GoToPageAsync(0)" disabled="@(_query.Skip == 0)">First</button>
+                <button @onclick="() => GoToPageAsync(_query.Skip - PageSize)" disabled="@(_query.Skip == 0)">Previous</button>
+                <span class="muted">
+                    @(_query.Skip + 1)–@Math.Min(_query.Skip + PageSize, Page.TotalCount) of @Page.TotalCount
+                </span>
+                <button @onclick="() => GoToPageAsync(_query.Skip + PageSize)"
+                        disabled="@(_query.Skip + PageSize >= Page.TotalCount)">Next</button>
+                <button @onclick="() => GoToPageAsync((Page.TotalCount - 1) / PageSize * PageSize)"
+                        disabled="@(_query.Skip + PageSize >= Page.TotalCount)">Last</button>
+            </div>
+        }
     }
 }
 
 @code {
     private const int PageSize = 50;
 
-    // Prerendering runs OnInitializedAsync once on the server, then the interactive
-    // circuit runs it again. Between those, the field is null and the component
-    // renders "Loading…" — swapping the prerendered table for a structurally
-    // different tree precisely as the client binds to the prerendered DOM. Carrying
-    // the first result across the handoff removes that churn, and halves the
-    // database work for a page load.
-    [PersistentState]
+    // Deliberately NOT persisted across the prerender handoff.
+    //
+    // Persisted state is serialised into the page, sent to the browser and posted
+    // back when the circuit starts. A fifty-row page exceeds SignalR's default
+    // 32KB receive limit, and the circuit then fails to start at all — the page
+    // renders but nothing is interactive, with the failure visible only as a
+    // socket close. Raising the limit would be treating the symptom: this would be
+    // pushing tens of kilobytes through the browser to avoid one indexed query.
     public LibraryPage? Page { get; set; }
 
-    private string? _search;
-    private LibraryStatus? _statusFilter;
-    private int _skip;
+    // Facets are worth carrying: a handful of enums and counts, and they decide
+    // which controls exist, so re-querying them causes the filter bar to change
+    // shape after first paint.
+    [PersistentState]
+    public LibraryFacets? Facets { get; set; }
+
+    private LibraryQuery _query = new() { Take = PageSize };
+    private readonly HashSet<int> _selected = [];
+    private string? _actionMessage;
+    private BusyScope _busy = null!;
+
+    private string _statusValue => _query.Status?.ToString() ?? string.Empty;
+
+    private bool AllOnPageSelected =>
+        Page is { Items.Count: > 0 } && Page.Items.All(i => _selected.Contains(i.AnimeId));
+
+    protected override void OnInitialized() =>
+        _busy = new BusyScope(() => InvokeAsync(StateHasChanged));
 
     protected override async Task OnInitializedAsync()
     {
+        Facets ??= await LibraryService.GetFacetsAsync(Profile.DefaultProfileId);
+        Page ??= await LibraryService.GetPageAsync(Profile.DefaultProfileId, _query);
+    }
+
+    private async Task ApplyAsync(LibraryQuery query, bool resetPaging = true)
+    {
+        // Any change to what is being shown returns to the first page. Staying on
+        // page four of a result set that no longer exists shows an empty table.
+        _query = resetPaging ? query with { Skip = 0 } : query;
+        Page = await LibraryService.GetPageAsync(Profile.DefaultProfileId, _query);
+    }
+
+    private Task OnSearchChangedAsync(ChangeEventArgs e) =>
+        ApplyAsync(_query with { Search = e.Value?.ToString() });
+
+    private Task OnStatusChangedAsync(ChangeEventArgs e) =>
+        ApplyAsync(_query with
+        {
+            Status = Enum.TryParse<LibraryStatus>(e.Value?.ToString(), out var status) ? status : null
+        });
+
+    private Task OnSortChangedAsync(ChangeEventArgs e) =>
+        ApplyAsync(_query with
+        {
+            Sort = Enum.TryParse<LibrarySort>(e.Value?.ToString(), out var sort) ? sort : LibrarySort.TitleAscending
+        });
+
+    private Task GoToPageAsync(int skip) =>
+        ApplyAsync(_query with { Skip = Math.Max(0, skip) }, resetPaging: false);
+
+    private Task ClearFiltersAsync() =>
+        ApplyAsync(new LibraryQuery { Take = PageSize, Status = _query.Status });
+
+    // Quick filters toggle: pressing an active chip clears it, so a chip is never
+    // a trap the user has to hunt for a way out of.
+    private Task ToggleRuntimeAsync(int minutes) =>
+        ApplyAsync(_query with { MaxRuntimeMinutes = _query.MaxRuntimeMinutes == minutes ? null : minutes });
+
+    private Task ToggleMediaTypeAsync(MediaType mediaType) =>
+        ApplyAsync(_query with { MediaType = _query.MediaType == mediaType ? null : mediaType });
+
+    private Task ToggleDecadeAsync(int decade) =>
+        ApplyAsync(_query with { Decade = _query.Decade == decade ? null : decade });
+
+    private Task ToggleSourceAsync(AnimeSource source) =>
+        ApplyAsync(_query with { Source = _query.Source == source ? null : source });
+
+    private Task ToggleFranchiseAsync(FranchiseFilter filter) =>
+        ApplyAsync(_query with { Franchise = _query.Franchise == filter ? FranchiseFilter.Any : filter });
+
+    private Task ToggleHighConfidenceAsync() =>
+        ApplyAsync(_query with
+        {
+            MinRecommendationConfidence = _query.MinRecommendationConfidence is null ? 0.7 : null
+        });
+
+    private Task ToggleUnrankedAsync() =>
+        ApplyAsync(_query with { HasRecommendation = _query.HasRecommendation == false ? null : false });
+
+    private Task ToggleHiddenAsync() =>
+        ApplyAsync(_query with { IncludeHidden = !_query.IncludeHidden });
+
+    private void ToggleSelection(int animeId)
+    {
+        if (!_selected.Remove(animeId))
+        {
+            _selected.Add(animeId);
+        }
+
+        _actionMessage = null;
+    }
+
+    private void ToggleSelectAll()
+    {
         if (Page is null)
         {
-            await LoadAsync();
+            return;
         }
-    }
 
-    private async Task LoadAsync()
-    {
-        Page = await LibraryService.GetPageAsync(
-            Profile.DefaultProfileId,
-            new LibraryQuery
+        if (AllOnPageSelected)
+        {
+            foreach (var item in Page.Items)
             {
-                Search = _search,
-                Status = _statusFilter,
-                Skip = _skip,
-                Take = PageSize
-            });
+                _selected.Remove(item.AnimeId);
+            }
+        }
+        else
+        {
+            foreach (var item in Page.Items)
+            {
+                _selected.Add(item.AnimeId);
+            }
+        }
+
+        _actionMessage = null;
     }
 
-    private async Task OnSearchChangedAsync(ChangeEventArgs e)
+    private void ClearSelection()
     {
-        _search = e.Value?.ToString();
-        _skip = 0;   // a new search must not land on page 4 of the old results
-        await LoadAsync();
+        _selected.Clear();
+        _actionMessage = null;
     }
 
-    private async Task OnStatusChangedAsync(ChangeEventArgs e)
+    private async Task AddSelectedToQueueAsync()
     {
-        var raw = e.Value?.ToString();
-        _statusFilter = Enum.TryParse<LibraryStatus>(raw, out var status) ? status : null;
-        _skip = 0;
-        await LoadAsync();
+        var ids = _selected.ToList();
+
+        var result = await _busy.RunAsync(
+            $"Adding {ids.Count} to Up Next",
+            progress => QueueService.AddAnimeAsync(Profile.DefaultProfileId, ids, progress));
+
+        _actionMessage = result.AlreadyQueued > 0
+            ? $"Added {result.Added} to Up Next; {result.AlreadyQueued} were already there."
+            : $"Added {result.Added} to Up Next.";
+
+        await AfterBulkActionAsync();
     }
 
-    private async Task NextPageAsync()
+    private async Task SetSelectedPriorityAsync(ChangeEventArgs e)
     {
-        _skip += PageSize;
-        await LoadAsync();
+        if (!int.TryParse(e.Value?.ToString(), out var priority))
+        {
+            return;
+        }
+
+        var ids = _selected.ToList();
+
+        var result = await _busy.RunAsync(
+            $"Setting priority on {ids.Count}",
+            progress => LibraryService.SetPriorityAsync(Profile.DefaultProfileId, ids, priority, progress));
+
+        _actionMessage = $"Priority set on {result.Affected} entries.";
+        await AfterBulkActionAsync();
     }
 
-    private async Task PreviousPageAsync()
+    private async Task SetSelectedHiddenAsync(bool hidden)
     {
-        _skip = Math.Max(0, _skip - PageSize);
-        await LoadAsync();
+        var ids = _selected.ToList();
+
+        var result = await _busy.RunAsync(
+            hidden ? $"Hiding {ids.Count}" : $"Restoring {ids.Count}",
+            progress => LibraryService.SetHiddenAsync(Profile.DefaultProfileId, ids, hidden, progress));
+
+        _actionMessage = hidden
+            ? $"Hid {result.Affected} entries. They are still in your library."
+            : $"Restored {result.Affected} entries.";
+
+        await AfterBulkActionAsync();
     }
+
+    private async Task AfterBulkActionAsync()
+    {
+        _selected.Clear();
+
+        // Facets are refreshed too: hiding the last hidden entry, or priorities
+        // appearing for the first time, changes which controls should be offered.
+        Facets = await LibraryService.GetFacetsAsync(Profile.DefaultProfileId);
+        Page = await LibraryService.GetPageAsync(Profile.DefaultProfileId, _query);
+    }
+
+    private static string Active(bool isActive) => isActive ? "active" : string.Empty;
+
+    /// <summary>
+    /// "80s" and "90s" read naturally; "00s" and "10s" do not, and "0s" — which a
+    /// plain two-digit truncation produces for 2000 — is simply wrong. The brief
+    /// spells the intended labels out: 80s, 90s, 2000s, 2010s, 2020s.
+    /// </summary>
+    private static string DecadeLabel(int decade) =>
+        decade < 2000
+            ? $"{decade % 100:00}s"
+            : $"{decade}s";
+
+    private static string MediaTypeLabel(MediaType mediaType) => mediaType switch
+    {
+        MediaType.Tv => "TV",
+        MediaType.Ova => "OVA",
+        MediaType.Ona => "ONA",
+        _ => mediaType.ToString()
+    };
 
     private string EntryCountText() =>
         Page is null ? string.Empty : $"{Page.TotalCount} {(Page.TotalCount == 1 ? "entry" : "entries")}";
@@ -165,5 +499,5 @@ else
     private static string ProgressText(LibraryListItem item) =>
         item.EpisodeCount is { } total
             ? $"{item.EpisodesWatched} / {total}"
-            : item.EpisodesWatched > 0 ? $"{item.EpisodesWatched}" : "—";
+            : item.EpisodesWatched > 0 ? item.EpisodesWatched.ToString() : "—";
 }

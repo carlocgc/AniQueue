@@ -290,6 +290,55 @@ td.numeric, th.numeric { text-align: right; font-variant-numeric: tabular-nums; 
 .badge.new { background: var(--success-bg); color: var(--success); border-color: transparent; }
 .badge.skip { background: var(--surface-alt); color: var(--text-muted); }
 
+/* Filters and selection --------------------------------------------------- */
+
+.filters { padding-bottom: 0.75rem; }
+
+.chips { display: flex; flex-wrap: wrap; gap: 0.4rem; }
+
+.chip {
+    padding: 0.25rem 0.7rem;
+    border-radius: 999px;
+    font-size: 0.82rem;
+    background: var(--surface-alt);
+    border: 1px solid var(--border);
+    color: var(--text-muted);
+}
+
+.chip:hover { color: var(--text); }
+
+/* Active filters are stated, not merely tinted: with a dozen chips on screen a
+   subtle shade is easy to miss, and not knowing what is filtering the list is
+   how an empty result gets misread as an empty library. */
+.chip.active {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: var(--accent-text);
+    font-weight: 500;
+}
+
+.selection-bar { border-color: var(--accent); border-left-width: 3px; }
+
+.select-col { width: 1%; white-space: nowrap; }
+
+tbody tr.selected { background: var(--surface-alt); }
+
+.title-cell { display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap; }
+
+.row-meta {
+    display: flex;
+    gap: 0.5rem;
+    align-items: center;
+    flex-wrap: wrap;
+    margin-top: 0.2rem;
+    font-size: 0.78rem;
+}
+
+.row-meta a { color: var(--text-muted); text-decoration: none; }
+.row-meta a:hover { color: var(--accent); text-decoration: underline; }
+
+.badge.queued { background: var(--accent); color: var(--accent-text); border-color: transparent; }
+
 /* Busy overlay ------------------------------------------------------------ */
 
 .busy-overlay {

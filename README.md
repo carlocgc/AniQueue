@@ -23,8 +23,9 @@ architectural decisions and acceptance criteria. Nothing here is installable yet
 | 0 | Foundation — solution, projects, build settings | **complete** |
 | 1 | Domain model, EF Core + SQLite, migrations, seed data | **complete** |
 | 2 | MyAnimeList XML import → preview → commit → backlog | **complete** |
-| 3 | Backlog page — filters, sorting, bulk actions | next |
-| 4–11 | Up Next queue → franchises → AI ranking → Docker | planned |
+| 3 | Backlog page — filters, sorting, bulk actions | **complete** |
+| 4 | Up Next queue — manual ordering, drag and drop | next |
+| 5–11 | Franchises → watching → AI ranking → Docker | planned |
 
 ## Screenshots
 
