@@ -26,6 +26,14 @@
 {
     <div class="notice success" role="status">@SummaryText(result)</div>
 
+    @if (AdvancementText(result) is { } advancement)
+    {
+        <div class="notice info" role="status">
+            @advancement
+            <a href="up-next">See what is next</a>.
+        </div>
+    }
+
     <div class="toolbar">
         <a class="button primary" href="backlog">View backlog</a>
         <button @onclick="Reset">Import another file</button>
@@ -410,6 +418,23 @@
         var text = $"Imported {result.Created} new and {result.Updated} updated";
         return result.Skipped > 0 ? $"{text}, skipping {result.Skipped}." : $"{text}.";
     }
+
+    /// <summary>
+    /// Explains a queue that just got shorter (D12).
+    /// </summary>
+    /// <remarks>
+    /// Stated because it is surprising the first time. Slots leave Up Next on their
+    /// own when the import shows they have been started elsewhere, and without a
+    /// sentence saying so, an import that quietly shortens a hand-ordered queue
+    /// reads as data loss rather than as the feature it is.
+    /// </remarks>
+    private static string? AdvancementText(ImportCommitResult result) =>
+        result.QueueSlotsReleased switch
+        {
+            0 => null,
+            1 => "One title left Up Next because you have started or finished it.",
+            var n => $"{n} titles left Up Next because you have started or finished them."
+        };
 
     private void Reset()
     {

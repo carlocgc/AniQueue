@@ -145,6 +145,29 @@ public interface IQueueService
         CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Releases the slots of anything that is no longer waiting to be watched, and
+    /// closes the gaps, so that whatever is next really is next.
+    /// </summary>
+    /// <remarks>
+    /// This is D12 made mechanical. AniQueue observes watched status rather than
+    /// authoring it, so there is no "start watching" button to dequeue anything —
+    /// starting a show is instead observed, as the entry ceasing to be Planning at
+    /// the source. Advancement is what turns that observation into a queue that
+    /// stays true without anyone maintaining it.
+    ///
+    /// It lives here rather than in the importer because it is a property of the
+    /// queue, not of any one way of learning about a status change. Import calls it
+    /// today; the Phase 5 sync will call the same method, and changes only how often
+    /// it runs.
+    ///
+    /// Idempotent, and safe to call when nothing has changed.
+    /// </remarks>
+    /// <returns>How many slots were released.</returns>
+    Task<int> AdvanceAsync(
+        int profileId,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Moves a slot one step, or to either end.
     /// </summary>
     /// <returns>

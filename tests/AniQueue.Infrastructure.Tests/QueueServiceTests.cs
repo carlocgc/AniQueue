@@ -422,6 +422,176 @@ public class QueueServiceTests
         Assert.Equal(1, offered[0].EntryCount);
     }
 
+    // --- Advancement (D12) -----------------------------------------------
+
+    /// <summary>
+    /// The rule that replaces the watching workflow: there is no "start watching"
+    /// button, so a queue slot is released by observing that its title stopped
+    /// being Planning somewhere else.
+    /// </summary>
+    [Theory]
+    [InlineData(LibraryStatus.Watching)]
+    [InlineData(LibraryStatus.Completed)]
+    [InlineData(LibraryStatus.OnHold)]
+    [InlineData(LibraryStatus.Dropped)]
+    public async Task A_title_that_stops_being_planned_leaves_the_queue(LibraryStatus status)
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        await fixture.QueueTitlesAsync("A", "B", "C");
+
+        await using (var context = fixture.Database.CreateContext())
+        {
+            var entry = await context.LibraryEntries
+                .Include(e => e.Anime)
+                .SingleAsync(e => e.Anime!.Title == "B");
+
+            entry.Status = status;
+            await context.SaveChangesAsync();
+        }
+
+        Assert.Equal(1, await fixture.Queue.AdvanceAsync(fixture.ProfileId));
+
+        Assert.Equal("A C", await fixture.OrderAsync());
+        await fixture.AssertContiguousAsync();
+    }
+
+    [Fact]
+    public async Task Advancing_when_nothing_has_changed_does_nothing()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        await fixture.QueueTitlesAsync("A", "B");
+
+        Assert.Equal(0, await fixture.Queue.AdvanceAsync(fixture.ProfileId));
+        Assert.Equal("A B", await fixture.OrderAsync());
+
+        // Idempotent: the Phase 5 sync will call this on a schedule, so running it
+        // repeatedly against an unchanged library must stay a no-op.
+        Assert.Equal(0, await fixture.Queue.AdvanceAsync(fixture.ProfileId));
+        Assert.Equal("A B", await fixture.OrderAsync());
+    }
+
+    [Fact]
+    public async Task Advancing_an_empty_queue_is_harmless()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+
+        Assert.Equal(0, await fixture.Queue.AdvanceAsync(fixture.ProfileId));
+    }
+
+    /// <summary>
+    /// A slot is released on evidence that it is done, never on the absence of
+    /// evidence. A queued title with no library entry is unknown, not watched.
+    /// </summary>
+    [Fact]
+    public async Task A_queued_title_with_no_library_entry_is_left_alone()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+
+        await using (var context = fixture.Database.CreateContext())
+        {
+            var anime = await SeedData.CreateAnimeAsync(context, "Orphan");
+            await fixture.Queue.AddAnimeAsync(fixture.ProfileId, [anime.Id]);
+        }
+
+        Assert.Equal(0, await fixture.Queue.AdvanceAsync(fixture.ProfileId));
+        Assert.Equal("Orphan", await fixture.OrderAsync());
+    }
+
+    /// <summary>
+    /// Starting the first season does not release the franchise: the rest of the
+    /// group is what the slot is holding a place for.
+    /// </summary>
+    [Fact]
+    public async Task A_franchise_is_released_only_once_nothing_in_it_is_still_planned()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+
+        int firstId;
+        int secondId;
+        int franchiseId;
+
+        await using (var context = fixture.Database.CreateContext())
+        {
+            var franchise = await SeedData.CreateFranchiseAsync(context, "Slayers");
+            franchiseId = franchise.Id;
+
+            var first = await SeedData.CreateAnimeAsync(context, "Slayers");
+            var second = await SeedData.CreateAnimeAsync(context, "Slayers Next");
+            first.FranchiseId = franchiseId;
+            second.FranchiseId = franchiseId;
+            firstId = first.Id;
+            secondId = second.Id;
+
+            context.LibraryEntries.Add(SeedData.Entry(fixture.ProfileId, first.Id));
+            context.LibraryEntries.Add(SeedData.Entry(fixture.ProfileId, second.Id));
+            await context.SaveChangesAsync();
+        }
+
+        await fixture.Queue.AddFranchisesAsync(fixture.ProfileId, [franchiseId]);
+
+        await SetStatusAsync(fixture, firstId, LibraryStatus.Completed);
+        Assert.Equal(0, await fixture.Queue.AdvanceAsync(fixture.ProfileId));
+        Assert.Equal("Slayers", await fixture.OrderAsync());
+
+        await SetStatusAsync(fixture, secondId, LibraryStatus.Watching);
+        Assert.Equal(1, await fixture.Queue.AdvanceAsync(fixture.ProfileId));
+        Assert.Empty(await fixture.Queue.GetQueueAsync(fixture.ProfileId));
+    }
+
+    /// <summary>
+    /// An empty franchise has nothing left to watch only in the most literal sense.
+    /// Far more likely the grouping is mid-edit, so the slot stays.
+    /// </summary>
+    [Fact]
+    public async Task A_franchise_with_no_titles_is_left_alone()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+
+        int franchiseId;
+        await using (var context = fixture.Database.CreateContext())
+        {
+            var franchise = await SeedData.CreateFranchiseAsync(context, "Mid-edit");
+            franchiseId = franchise.Id;
+
+            var member = await SeedData.CreateAnimeAsync(context, "Temporarily grouped");
+            member.FranchiseId = franchiseId;
+            context.LibraryEntries.Add(SeedData.Entry(fixture.ProfileId, member.Id));
+            await context.SaveChangesAsync();
+
+            await fixture.Queue.AddFranchisesAsync(fixture.ProfileId, [franchiseId]);
+
+            member.FranchiseId = null;
+            await context.SaveChangesAsync();
+        }
+
+        Assert.Equal(0, await fixture.Queue.AdvanceAsync(fixture.ProfileId));
+        Assert.Equal("Mid-edit", await fixture.OrderAsync());
+    }
+
+    [Fact]
+    public async Task Advancement_leaves_another_profiles_queue_untouched()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        await fixture.QueueTitlesAsync("A");
+
+        await using var context = fixture.Database.CreateContext();
+        var other = await SeedData.CreateProfileAsync(context, "Other");
+
+        Assert.Equal(0, await fixture.Queue.AdvanceAsync(other.Id));
+        Assert.Equal("A", await fixture.OrderAsync());
+    }
+
+    private static async Task SetStatusAsync(Fixture fixture, int animeId, LibraryStatus status)
+    {
+        await using var context = fixture.Database.CreateContext();
+
+        var entry = await context.LibraryEntries
+            .SingleAsync(e => e.ProfileId == fixture.ProfileId && e.AnimeId == animeId);
+
+        entry.Status = status;
+        await context.SaveChangesAsync();
+    }
+
     // --- Reading ---------------------------------------------------------
 
     [Fact]

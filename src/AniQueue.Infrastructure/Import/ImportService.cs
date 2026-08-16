@@ -1,6 +1,7 @@
 using AniQueue.Core.Domain;
 using AniQueue.Core.Import;
 using AniQueue.Core.Progress;
+using AniQueue.Core.Queue;
 using AniQueue.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
@@ -18,9 +19,14 @@ namespace AniQueue.Infrastructure.Import;
 ///    the user curated here — notes, queue position, franchise membership, hidden
 ///    flag, recommendation data. Re-importing an export must not undo an evening
 ///    spent organising the backlog.
+///
+/// The one thing an import does change about the queue is which slots are still
+/// needed, and it does that by asking the queue rather than by editing it — see
+/// the advancement step at the end of <see cref="CommitAsync"/> (D12).
 /// </summary>
 public sealed class ImportService(
     IDbContextFactory<AniQueueDbContext> contextFactory,
+    IQueueService queueService,
     ILogger<ImportService> logger) : IImportService
 {
     public async Task<ImportPreview> PreviewAsync(
@@ -174,13 +180,33 @@ public sealed class ImportService(
         await context.SaveChangesAsync(cancellationToken);
         await transaction.CommitAsync(cancellationToken);
 
+        // Deliberately after the commit, in its own transaction rather than inside
+        // this one.
+        //
+        // The import is the user's data and must land whatever happens next;
+        // advancement is a derived tidy-up that is idempotent and recomputed from
+        // scratch every time. Folding it into the transaction above would let a
+        // failure to tidy the queue roll back an import the user had confirmed, to
+        // fix something the next import would fix anyway.
+        progress?.Report(new OperationProgress("Bringing Up Next up to date"));
+
+        var released = await queueService.AdvanceAsync(profileId, cancellationToken);
+
         logger.LogInformation(
-            "Import committed: {Created} created, {Updated} updated, {Skipped} skipped",
+            "Import committed: {Created} created, {Updated} updated, {Skipped} skipped, "
+            + "{Released} queue slots released",
             created,
             updated,
-            skipped);
+            skipped,
+            released);
 
-        return new ImportCommitResult { Created = created, Updated = updated, Skipped = skipped };
+        return new ImportCommitResult
+        {
+            Created = created,
+            Updated = updated,
+            Skipped = skipped,
+            QueueSlotsReleased = released
+        };
     }
 
     /// <summary>

@@ -175,6 +175,122 @@ public sealed class QueueService(
         return true;
     }
 
+    public async Task<int> AdvanceAsync(
+        int profileId,
+        CancellationToken cancellationToken = default)
+    {
+        await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
+        await using var transaction = await context.Database.BeginTransactionAsync(cancellationToken);
+
+        var slots = await LoadOrderedAsync(context, profileId, cancellationToken);
+
+        if (slots.Count == 0)
+        {
+            return 0;
+        }
+
+        // Franchise membership, so a franchise slot can be judged by the titles in it.
+        var franchiseIds = slots.Where(s => s.FranchiseId != null).Select(s => s.FranchiseId!.Value).ToList();
+
+        var members = franchiseIds.Count == 0
+            ? []
+            : await context.Anime
+                .AsNoTracking()
+                .Where(a => a.FranchiseId != null && franchiseIds.Contains(a.FranchiseId.Value))
+                .Select(a => new { FranchiseId = a.FranchiseId!.Value, a.Id })
+                .ToListAsync(cancellationToken);
+
+        var membersByFranchise = members.ToLookup(m => m.FranchiseId, m => m.Id);
+
+        // Statuses for everything the queue refers to, and nothing else. Narrowed to
+        // the relevant ids rather than reading the profile's whole library: this runs
+        // after every import, and the queue is small where the library is not.
+        //
+        // A status is recorded only where a library entry exists. That absence is
+        // load-bearing below — it is how "not planned" is kept distinct from "nothing
+        // is known", which are very different grounds for discarding a slot.
+        var subjects = slots
+            .Where(s => s.AnimeId != null)
+            .Select(s => s.AnimeId!.Value)
+            .Concat(members.Select(m => m.Id))
+            .Distinct()
+            .ToList();
+
+        var statuses = await context.LibraryEntries
+            .AsNoTracking()
+            .Where(e => e.ProfileId == profileId && subjects.Contains(e.AnimeId))
+            .ToDictionaryAsync(e => e.AnimeId, e => e.Status, cancellationToken);
+
+        var released = slots.Where(slot => IsFinishedWith(slot, statuses, membersByFranchise)).ToList();
+
+        if (released.Count == 0)
+        {
+            return 0;
+        }
+
+        foreach (var slot in released)
+        {
+            slots.Remove(slot);
+            context.QueueItems.Remove(slot);
+        }
+
+        RewritePositions(slots);
+
+        await context.SaveChangesAsync(cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
+
+        logger.LogInformation(
+            "Queue advanced: {Released} slots released because their titles are no longer planned, {Remaining} remaining",
+            released.Count,
+            slots.Count);
+
+        return released.Count;
+    }
+
+    /// <summary>
+    /// Whether a slot has served its purpose and should be released.
+    /// </summary>
+    /// <remarks>
+    /// Two deliberate abstentions, both on the same principle — a slot the user
+    /// created is only removed on positive evidence that it is done, never on the
+    /// absence of evidence:
+    ///
+    /// <list type="bullet">
+    /// <item>A queued title with no library entry at all. Nothing is known about its
+    /// status, and "unknown" is not "watched".</item>
+    /// <item>A franchise none of whose titles has a known status — including one
+    /// with no titles at all. Far more likely the grouping is mid-edit than that
+    /// there is nothing left to watch, and silently dropping the slot would lose a
+    /// decision the user made.</item>
+    /// </list>
+    ///
+    /// A franchise whose titles *are* known is released once none of them is still
+    /// Planning. Starting the first season does not release it — the rest of the
+    /// group is exactly what the slot is holding a place for.
+    /// </remarks>
+    private static bool IsFinishedWith(
+        QueueItem slot,
+        Dictionary<int, LibraryStatus> statuses,
+        ILookup<int, int> membersByFranchise)
+    {
+        if (slot.AnimeId is { } animeId)
+        {
+            return statuses.TryGetValue(animeId, out var status) && status != LibraryStatus.Planning;
+        }
+
+        if (slot.FranchiseId is not { } franchiseId)
+        {
+            return false;
+        }
+
+        var known = membersByFranchise[franchiseId]
+            .Where(statuses.ContainsKey)
+            .Select(id => statuses[id])
+            .ToList();
+
+        return known.Count > 0 && known.TrueForAll(status => status != LibraryStatus.Planning);
+    }
+
     public Task<bool> MoveAsync(
         int profileId,
         int queueItemId,
