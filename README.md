@@ -21,8 +21,9 @@ architectural decisions and acceptance criteria. Nothing here is installable yet
 | Phase | | |
 |---|---|---|
 | 0 | Foundation — solution, projects, build settings | **complete** |
-| 1 | Domain model and EF Core persistence | next |
-| 2–11 | MAL import → backlog → queue → AI ranking → Docker | planned |
+| 1 | Domain model, EF Core + SQLite, migrations, seed data | **complete** |
+| 2 | MyAnimeList XML import → preview → commit → backlog | next |
+| 3–11 | Backlog → queue → franchises → AI ranking → Docker | planned |
 
 ## Screenshots
 
@@ -42,13 +43,24 @@ Docker. No React, Angular, Vue, or separate frontend build system.
 
 ## Development
 
-Requires the .NET 10 SDK. Visual Studio 2026 or `dotnet` CLI.
+Requires the .NET 10 SDK. Visual Studio 2026 or the `dotnet` CLI.
 
 ```bash
-dotnet restore
+dotnet tool restore
 dotnet build
 dotnet test
 ```
+
+Run it with `F5` on `AniQueue.Web`, or:
+
+```bash
+dotnet run --project src/AniQueue.Web
+```
+
+The development database is created at `src/AniQueue.Web/data/aniqueue.db` on first run,
+along with sample data covering completed, watching and planning titles, a franchise, an
+ordered queue and an applied AI ranking. Delete that directory to start clean. Production
+databases are never seeded.
 
 Installation, configuration, Docker deployment, backup/restore, MAL import and the AI
 ranking workflow will be documented here as the corresponding phases land.

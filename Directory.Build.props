@@ -24,6 +24,21 @@
     <WarningsAsErrors>$(WarningsAsErrors);nullable</WarningsAsErrors>
   </PropertyGroup>
 
+  <!--
+    CA1848 and CA1873 push all logging through source-generated LoggerMessage
+    delegates to avoid boxing and needless argument evaluation. That is a real win
+    on hot paths, and a poor trade everywhere else: this application logs startup,
+    migrations, imports and queue edits — operation-level events, not per-item
+    ones — so the rules would buy nothing and cost a partial method plus an
+    attribute per message.
+
+    Revisit if a genuinely hot path ever needs logging; suppress narrowly there
+    rather than reinstating this globally.
+  -->
+  <PropertyGroup>
+    <NoWarn>$(NoWarn);CA1848;CA1873</NoWarn>
+  </PropertyGroup>
+
   <PropertyGroup Condition="'$(Configuration)' == 'Release'">
     <ContinuousIntegrationBuild Condition="'$(CI)' == 'true'">true</ContinuousIntegrationBuild>
   </PropertyGroup>

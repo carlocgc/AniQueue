@@ -481,8 +481,17 @@ $RECYCLE.BIN/
 # Vim temporary swap files
 *.swp
 
-# AniQueue
+# AniQueue — local development database.
+# The configured path is relative, so it resolves against the app's content root
+# and lands under the Web project rather than the repository root. Both are
+# ignored, and SQLite artefacts are additionally ignored by extension so that a
+# future path change cannot leak a database — including imported library data —
+# into the repository.
 /data/
+src/AniQueue.Web/data/
+*.db
+*.db-shm
+*.db-wal
 
 # Claude Code local (machine-specific) settings
 .claude/settings.local.json

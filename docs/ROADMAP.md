@@ -509,3 +509,36 @@ The brief's 25 criteria, mapped so completion is measurable.
 - Amendments to this roadmap go through a PR that updates this file, so the decision record
   and the code move together.
 - Comments explain **why**, not syntax. Decisions cite their `D`-number.
+
+---
+
+## 13. Local development workflow
+
+- **The inner loop is `F5` on `AniQueue.Web`, not Docker.** Container debugging in
+  Blazor Server adds a rebuild cycle per change for no diagnostic benefit. Docker is a
+  Phase 11 deliverable and a pre-release gate, not the daily loop.
+- **Do not accept Visual Studio's generated Dockerfile.** Container Tools writes a
+  debug-oriented file tuned for its fast-mode volume mount. Phase 11 writes a production
+  multi-stage one (SDK build → `aspnet` runtime, non-root, no SDK in the final layer).
+- `AniQueue.Web` is the single startup project; no multi-project startup is needed.
+- **EF tooling is a pinned local tool**, not a global install: `.config/dotnet-tools.json`
+  fixes `dotnet-ef` at the same version as the EF packages. Run `dotnet tool restore` once
+  after cloning. Using the CLI rather than the Package Manager Console means the same
+  commands work in CI and in a container build.
+
+  ```bash
+  dotnet ef migrations add <Name> -p src/AniQueue.Infrastructure -s src/AniQueue.Web -o Persistence/Migrations
+  ```
+
+  `Microsoft.EntityFrameworkCore.Design` is referenced by **both** Infrastructure and Web —
+  the tooling builds the model through the startup project's DI — with `PrivateAssets=all`
+  so it never reaches the published output.
+
+- **The development database lands under the Web project, not the repository root.**
+  `Database:Path` is `./data/aniqueue.db` in `appsettings.Development.json`, and a relative
+  path resolves against the app's *content root*, so the file appears at
+  `src/AniQueue.Web/data/aniqueue.db`. Both that directory and `*.db*` by extension are
+  git-ignored, deliberately belt-and-braces: an imported library is personal data and must
+  never reach the repository.
+- Delete that `data` directory to start from an empty database; migrations and the default
+  profile are recreated on the next run, and the development seeder refills it.

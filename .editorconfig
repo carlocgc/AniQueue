@@ -14,6 +14,13 @@ charset = utf-8
 [*.{bat,cmd}]
 end_of_line = crlf
 
+# EF Core scaffolds migrations; they are generated artefacts that get regenerated
+# by tooling, so hand-editing them to satisfy style analysers is both pointless
+# and lost on the next scaffold. Marking them generated skips analysis entirely
+# rather than suppressing individual rules solution-wide.
+[**/Migrations/*.cs]
+generated_code = true
+
 # Xml files
 [*.xml]
 indent_size = 2
