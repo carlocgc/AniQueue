@@ -4,6 +4,16 @@ root = true
 [*]
 indent_style = space
 
+# LF everywhere, matching .gitattributes. This makes the editor create files
+# correctly in the first place; .gitattributes is the backstop that corrects
+# anything which slips through. See .gitattributes for the full reasoning.
+end_of_line = lf
+charset = utf-8
+
+# cmd.exe can mis-parse LF-only batch files. The sole CRLF exception.
+[*.{bat,cmd}]
+end_of_line = crlf
+
 # Xml files
 [*.xml]
 indent_size = 2
