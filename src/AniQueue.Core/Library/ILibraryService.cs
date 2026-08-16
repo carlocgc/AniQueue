@@ -1,4 +1,5 @@
 using AniQueue.Core.Domain;
+using AniQueue.Core.Progress;
 
 namespace AniQueue.Core.Library;
 
@@ -13,6 +14,8 @@ public sealed record LibraryListItem
 
     public int? EpisodeCount { get; init; }
 
+    public int? EpisodeDurationMinutes { get; init; }
+
     public int? ReleaseYear { get; init; }
 
     public required LibraryStatus Status { get; init; }
@@ -21,9 +24,26 @@ public sealed record LibraryListItem
 
     public int? UserScore { get; init; }
 
+    public bool IsHidden { get; init; }
+
     public string? FranchiseName { get; init; }
 
     public double? RecommendationScore { get; init; }
+
+    public double? RecommendationConfidence { get; init; }
+
+    public AnimeSource Source { get; init; }
+
+    public string? SourceAnimeId { get; init; }
+
+    /// <summary>Whether this title already occupies a slot in the Up Next queue.</summary>
+    public bool IsQueued { get; init; }
+
+    /// <summary>Estimated minutes to watch, or null when it cannot be known.</summary>
+    public int? EstimatedRuntimeMinutes => RuntimeCalculator.Estimate(EpisodeCount, EpisodeDurationMinutes);
+
+    /// <summary>Link out to the site this title was imported from, if there is one.</summary>
+    public SourceLink? SourceLink => SourceLinkBuilder.ForAnime(Source, SourceAnimeId);
 }
 
 /// <summary>Counts for the library as a whole.</summary>
@@ -36,22 +56,6 @@ public sealed record LibrarySummary
     public int Of(LibraryStatus status) => ByStatus.GetValueOrDefault(status);
 }
 
-/// <summary>How to filter and page a library listing.</summary>
-public sealed record LibraryQuery
-{
-    public LibraryStatus? Status { get; init; }
-
-    /// <summary>Case-insensitive substring match on the title.</summary>
-    public string? Search { get; init; }
-
-    /// <summary>Hidden entries stay in the library but drop out of listings.</summary>
-    public bool IncludeHidden { get; init; }
-
-    public int Skip { get; init; }
-
-    public int Take { get; init; } = 50;
-}
-
 /// <summary>A page of results, with the total available for paging controls.</summary>
 public sealed record LibraryPage
 {
@@ -60,13 +64,15 @@ public sealed record LibraryPage
     public required int TotalCount { get; init; }
 }
 
+/// <summary>What a bulk action did.</summary>
+public sealed record BulkActionResult(int Affected, int Skipped);
+
 /// <summary>
-/// Reads the library for display.
+/// Reads and bulk-edits the library.
 ///
-/// Phase 2 needs only enough to prove imported data landed; the full filtering,
-/// sorting and bulk-action surface arrives with the backlog page in Phase 3.
-/// Filtering and paging happen in the database, not in memory — the application
-/// is expected to handle libraries of several thousand titles.
+/// Filtering, sorting and paging all happen in the database: the application is
+/// expected to hold several thousand titles, and doing any of it in memory would
+/// defeat the paging above it.
 /// </summary>
 public interface ILibraryService
 {
@@ -75,5 +81,22 @@ public interface ILibraryService
     Task<LibraryPage> GetPageAsync(
         int profileId,
         LibraryQuery query,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// What the library contains, so the UI can offer only filters that could
+    /// match something.
+    /// </summary>
+    Task<LibraryFacets> GetFacetsAsync(int profileId, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Hides or unhides many entries. Hiding keeps the entry and its history; it
+    /// only removes it from listings, so it is always reversible.
+    /// </summary>
+    Task<BulkActionResult> SetHiddenAsync(
+        int profileId,
+        IReadOnlyCollection<int> animeIds,
+        bool hidden,
+        IProgress<OperationProgress>? progress = null,
         CancellationToken cancellationToken = default);
 }

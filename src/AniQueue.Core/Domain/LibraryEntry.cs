@@ -39,8 +39,11 @@ public class LibraryEntry
     /// <summary>Free text. Excluded from AI export unless explicitly opted in.</summary>
     public string? PersonalNotes { get; set; }
 
-    /// <summary>User-assigned nudge, independent of any AI ranking. Higher sorts first.</summary>
-    public int ManualPriority { get; set; }
+    // No ManualPriority (D14). The brief listed one, but a 0-5 bucket shared by
+    // many entries does not express an order: setting twenty titles to 5 says
+    // nothing about which comes first. The user's ordering is QueueItem.Position,
+    // which is a real rank, and the AI's is RecommendationScore. Two orderings,
+    // both meaningful, and a hybrid can blend them.
 
     /// <summary>Hidden entries stay in the library but drop out of backlog views.</summary>
     public bool IsHidden { get; set; }

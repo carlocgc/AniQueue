@@ -41,6 +41,7 @@ public static class PersistenceServiceCollectionExtensions
         services.AddScoped<DatabaseInitializer>();
         services.AddScoped<Core.Import.IImportService, Import.ImportService>();
         services.AddScoped<Core.Library.ILibraryService, Library.LibraryService>();
+        services.AddScoped<Core.Queue.IQueueService, Queue.QueueService>();
 
         // Parsers are pure and stateless, so a singleton is sufficient (D9).
         services.AddSingleton<Core.Import.IAnimeListParser, Core.Import.MyAnimeListXmlParser>();

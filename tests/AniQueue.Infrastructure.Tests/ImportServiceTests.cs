@@ -250,7 +250,6 @@ public class ImportServiceTests
 
             var entry = await setup.LibraryEntries.SingleAsync();
             entry.PersonalNotes = "Recommended by a friend";
-            entry.ManualPriority = 5;
             entry.IsHidden = true;
             entry.RecommendationScore = 8.7;
             entry.RecommendationReason = "Matches your comedy history";
@@ -282,7 +281,6 @@ public class ImportServiceTests
 
         // ...but nothing the user curated was touched.
         Assert.Equal("Recommended by a friend", updatedEntry.PersonalNotes);
-        Assert.Equal(5, updatedEntry.ManualPriority);
         Assert.True(updatedEntry.IsHidden);
         Assert.Equal(8.7, updatedEntry.RecommendationScore);
         Assert.Equal("Matches your comedy history", updatedEntry.RecommendationReason);
