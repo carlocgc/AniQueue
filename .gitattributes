@@ -1,0 +1,40 @@
+# Development happens on Windows; the deployment target is a Linux container.
+# Normalise to LF in the repository and let Windows check out CRLF for source.
+* text=auto
+
+# Files consumed by Linux tooling must keep LF regardless of platform, or the
+# container fails at runtime with obscure "no such file or directory" errors.
+*.sh            text eol=lf
+Dockerfile      text eol=lf
+*.yml           text eol=lf
+*.yaml          text eol=lf
+.dockerignore   text eol=lf
+
+# Windows-only tooling expects CRLF.
+*.bat           text eol=crlf
+*.cmd           text eol=crlf
+*.ps1           text eol=crlf
+
+# Visual Studio / .NET source
+*.cs            text diff=csharp
+*.razor         text diff=html
+*.csproj        text
+*.sln           text eol=crlf
+*.props         text
+*.targets       text
+
+*.md            text
+*.json          text
+*.xml           text
+*.css           text
+*.js            text
+
+# Binary — never diff or normalise
+*.png           binary
+*.jpg           binary
+*.jpeg          binary
+*.gif           binary
+*.ico           binary
+*.webp          binary
+*.db            binary
+*.snk           binary
