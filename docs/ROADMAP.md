@@ -160,6 +160,30 @@ entries the migration carried over were removed — this solution only ever buil
 Minimum tooling this implies: VS 2026 (or VS 2022 17.14+) and the .NET 10 SDK. Both are
 already the baseline in §0, so nothing is lost.
 
+### D10 — Franchise grouping waits for authoritative relation data
+
+A MyAnimeList export carries no relationship data at all. Its 23 fields per entry are
+catalogue basics and the user's own tracking; there is no sequel, prequel, parent or
+franchise field. Franchises therefore cannot be derived from an import, only curated.
+
+That is a problem at realistic scale. Measured against a genuine 752-title export, a
+title-similarity heuristic proposed **138 candidate franchises covering 447 titles (59%)**.
+Curating that by hand is data entry, not curation — but the same run also produced a
+confident group named "Re" containing seven entries, which is `Re:Zero` split on its colon.
+
+The brief permits detection "as an optional suggestion" (§4), and that option was considered
+and **declined**: a suggestion engine that is confidently wrong leaves the user unpicking
+mis-grouped franchises, which is worse than having none yet. Franchise grouping instead
+waits for MAL/AniList relation data, which is authoritative rather than inferred.
+
+**Consequence, accepted knowingly:** until that integration lands, users with large libraries
+have manual franchise management only, and will realistically group a handful of franchises
+rather than all of them. Phase 5 ships manual tools; the post-MVP API work in §10 is what
+makes franchises practical at scale.
+
+Do not re-propose title-similarity detection without new evidence that it can be made
+accurate — the 59% coverage figure is not the interesting number, the false positives are.
+
 ---
 
 ## 3. Solution structure
@@ -381,6 +405,10 @@ SortableJS interop (D5, §9).
 Create, rename, add/remove titles, reorder, dissolve. Collapsed card showing entries
 watched, remaining runtime, first entry, AI score, queue position; expanding shows viewing
 order. `OptionalWithinFranchise` respected in completion and runtime maths.
+
+Manual tools only, by decision (D10). Imports cannot supply relationships, and grouping is
+not inferred from titles — it waits for the authoritative relation data in §10. Expect large
+libraries to have few franchises until then.
 
 ### Phase 6 — Watching workflow
 Start Watching (status → Watching, set `DateStarted` if absent, dequeue as appropriate).
