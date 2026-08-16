@@ -1,5 +1,6 @@
 using AniQueue.Core.Domain;
 using AniQueue.Core.Import;
+using AniQueue.Core.Progress;
 using AniQueue.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
@@ -26,11 +27,14 @@ public sealed class ImportService(
         Stream input,
         IAnimeListParser parser,
         int profileId,
+        IProgress<OperationProgress>? progress = null,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(parser);
 
         logger.LogInformation("Import preview started using {Format}", parser.FormatName);
+
+        progress?.Report(new OperationProgress($"Reading the {parser.FormatName} file"));
 
         var parsed = await parser.ParseAsync(input, cancellationToken);
 
@@ -40,12 +44,27 @@ public sealed class ImportService(
             return ImportPreview.Rejected(parser.FormatName, parsed.Problems);
         }
 
+        progress?.Report(new OperationProgress(
+            $"Read {parsed.Entries.Count} {(parsed.Entries.Count == 1 ? "entry" : "entries")}"));
+
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
+
+        progress?.Report(new OperationProgress("Comparing against your library"));
         var library = await LoadMatchCandidatesAsync(context, profileId, cancellationToken);
 
-        var items = parsed.Entries
-            .Select(entry => BuildPreviewItem(entry, library))
-            .ToList();
+        var items = new List<ImportPreviewItem>(parsed.Entries.Count);
+        var matched = 0;
+
+        foreach (var entry in parsed.Entries)
+        {
+            items.Add(BuildPreviewItem(entry, library));
+            matched++;
+
+            progress?.Report(new OperationProgress(
+                "Comparing against your library", matched, parsed.Entries.Count));
+        }
+
+        progress?.Report(new OperationProgress("Preparing the preview"));
 
         var preview = new ImportPreview
         {
@@ -69,6 +88,7 @@ public sealed class ImportService(
     public async Task<ImportCommitResult> CommitAsync(
         ImportPreview preview,
         int profileId,
+        IProgress<OperationProgress>? progress = null,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(preview);
@@ -78,16 +98,23 @@ public sealed class ImportService(
             throw new InvalidOperationException("A rejected import cannot be committed.");
         }
 
+        progress?.Report(new OperationProgress("Opening a transaction"));
+
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
         await using var transaction = await context.Database.BeginTransactionAsync(cancellationToken);
 
         var created = 0;
         var updated = 0;
         var skipped = 0;
+        var processed = 0;
         var now = DateTimeOffset.UtcNow;
 
         foreach (var item in preview.Items)
         {
+            processed++;
+            progress?.Report(new OperationProgress(
+                "Saving your library", processed, preview.Items.Count));
+
             if (item.Action == ImportAction.Unchanged)
             {
                 skipped++;
@@ -141,6 +168,8 @@ public sealed class ImportService(
 
             await UpsertLibraryEntryAsync(context, profileId, anime.Id, item.Entry, now, cancellationToken);
         }
+
+        progress?.Report(new OperationProgress("Committing the transaction"));
 
         await context.SaveChangesAsync(cancellationToken);
         await transaction.CommitAsync(cancellationToken);

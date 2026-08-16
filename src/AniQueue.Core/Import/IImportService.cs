@@ -1,3 +1,5 @@
+using AniQueue.Core.Progress;
+
 namespace AniQueue.Core.Import;
 
 /// <summary>The outcome of actually committing a previewed import.</summary>
@@ -24,10 +26,15 @@ public interface IImportService
     /// <summary>
     /// Works out what the import would do. Reads the library; writes nothing.
     /// </summary>
+    /// <param name="progress">
+    /// Optional. Reports stages as they happen so the caller can show something
+    /// truthful rather than an indeterminate spinner.
+    /// </param>
     Task<ImportPreview> PreviewAsync(
         Stream input,
         IAnimeListParser parser,
         int profileId,
+        IProgress<OperationProgress>? progress = null,
         CancellationToken cancellationToken = default);
 
     /// <summary>
@@ -41,5 +48,6 @@ public interface IImportService
     Task<ImportCommitResult> CommitAsync(
         ImportPreview preview,
         int profileId,
+        IProgress<OperationProgress>? progress = null,
         CancellationToken cancellationToken = default);
 }

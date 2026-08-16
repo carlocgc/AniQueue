@@ -46,15 +46,10 @@
            instead keeps a single button and keeps its built-in keyboard and
            screen-reader behaviour. *@
         <InputFile id="import-file" class="file-input" OnChange="OnFileSelectedAsync"
-                   accept=".xml" disabled="@_busy" aria-label="Select MyAnimeList export file" />
+                   accept=".xml" disabled="@_busy.IsRunning" aria-label="Select MyAnimeList export file" />
 
-        @* The native control already renders the chosen file name — and truncates
-           it to fit. Echoing it underneath showed the same name twice, in two
-           different forms. Only the reading status is added here. *@
-        @if (_busy)
-        {
-            <p class="muted" aria-live="polite">Reading the file…</p>
-        }
+        @* The native control renders the chosen file name itself, and reading
+           status now lives in the busy dialog, so nothing is added here. *@
     </div>
 }
 
@@ -78,11 +73,11 @@
         @if (_commitResult is null)
         {
             <div class="toolbar">
-                <button class="primary" disabled="@(_busy || !preview.HasApplicableChanges)"
+                <button class="primary" disabled="@(_busy.IsRunning || !preview.HasApplicableChanges)"
                         @onclick="CommitAsync">
                     @ImportButtonText(preview)
                 </button>
-                <button @onclick="Reset" disabled="@_busy">Cancel</button>
+                <button @onclick="Reset" disabled="@_busy.IsRunning">Cancel</button>
             </div>
 
             @if (!preview.HasApplicableChanges && preview.UnchangedCount > 0)
@@ -258,20 +253,9 @@
     </div>
 }
 
-@* A blocking overlay rather than a disabled button. Parsing and committing a
-   real export take several seconds, during which the page would otherwise look
-   frozen and invite a second click. *@
-@if (_busy)
-{
-    <div class="busy-overlay" role="alertdialog" aria-busy="true" aria-live="assertive"
-         aria-label="@_busyMessage">
-        <div class="busy-panel">
-            <div class="spinner" aria-hidden="true"></div>
-            <p>@_busyMessage</p>
-            <p class="muted">This can take a few seconds for a large list.</p>
-        </div>
-    </div>
-}
+@* Blocking rather than a disabled button: a real export takes seconds, during
+   which the page would otherwise look frozen and invite a second click. *@
+<BusyDialog State="_busy" />
 
 @code {
     private const int PageSize = 100;
@@ -279,26 +263,15 @@
     private ImportPreview? _preview;
     private ImportCommitResult? _commitResult;
     private string? _error;
-    private bool _busy;
-    private string _busyMessage = string.Empty;
     private int _changesPage;
 
-    /// <summary>
-    /// Shows the blocking overlay and — critically — gives the renderer a chance to
-    /// send it before the caller starts its long synchronous-feeling work.
-    ///
-    /// Blazor renders once before an event handler runs and once after it completes,
-    /// so simply setting the flag and awaiting would show the overlay only after the
-    /// work it was meant to cover had already finished. Yielding flushes the render
-    /// batch to the browser first.
-    /// </summary>
-    private async Task BeginBusyAsync(string message)
-    {
-        _busy = true;
-        _busyMessage = message;
-        StateHasChanged();
-        await Task.Yield();
-    }
+    // Progress arrives off the render thread, so updates are marshalled back onto
+    // it with InvokeAsync before touching component state.
+    private BusyScope _busy = null!;
+
+    protected override void OnInitialized() =>
+        _busy = new BusyScope(() => InvokeAsync(StateHasChanged));
+
 
     private void SetResolution(ImportPreviewItem item, ChangeEventArgs e)
     {
@@ -327,16 +300,19 @@
     private async Task OnFileSelectedAsync(InputFileChangeEventArgs e)
     {
         Reset();
-        await BeginBusyAsync($"Reading {e.File.Name}…");
 
         try
         {
-            // The default OpenReadStream cap is 512 KB, far below a real export.
-            // The parser enforces the same ceiling again on the bytes it reads, so
-            // the limit holds regardless of which entry point is used.
-            await using var stream = e.File.OpenReadStream(ImportLimits.Default.MaxBytes);
+            _preview = await _busy.RunAsync($"Reading {e.File.Name}", async progress =>
+            {
+                // The default OpenReadStream cap is 512 KB, far below a real export.
+                // The parser enforces the same ceiling again on the bytes it reads,
+                // so the limit holds regardless of which entry point is used.
+                await using var stream = e.File.OpenReadStream(ImportLimits.Default.MaxBytes);
 
-            _preview = await ImportService.PreviewAsync(stream, Parser, Profile.DefaultProfileId);
+                return await ImportService.PreviewAsync(
+                    stream, Parser, Profile.DefaultProfileId, progress);
+            });
 
             if (_preview.IsFileRejected)
             {
@@ -349,10 +325,6 @@
             Logger.LogWarning(ex, "Import upload rejected");
             _error = "That file is too large to import.";
         }
-        finally
-        {
-            _busy = false;
-        }
     }
 
     private async Task CommitAsync()
@@ -363,11 +335,12 @@
         }
 
         var count = _preview.CreateCount + _preview.UpdateCount + _preview.ResolvedConflictCount;
-        await BeginBusyAsync($"Importing {count} {(count == 1 ? "entry" : "entries")}…");
+        var title = $"Importing {count} {(count == 1 ? "entry" : "entries")}";
 
         try
         {
-            _commitResult = await ImportService.CommitAsync(_preview, Profile.DefaultProfileId);
+            _commitResult = await _busy.RunAsync(title, progress =>
+                ImportService.CommitAsync(_preview, Profile.DefaultProfileId, progress));
         }
         catch (Exception ex)
         {
@@ -375,10 +348,6 @@
             // library is unchanged rather than partially written.
             Logger.LogError(ex, "Import commit failed");
             _error = "The import could not be completed. Your library has not been changed.";
-        }
-        finally
-        {
-            _busy = false;
         }
     }
 

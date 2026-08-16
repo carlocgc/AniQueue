@@ -312,7 +312,39 @@ td.numeric, th.numeric { text-align: right; font-variant-numeric: tabular-nums; 
     max-width: 90vw;
 }
 
-.busy-panel p { margin: 0.5rem 0 0; }
+.busy-panel h2 { margin: 0.75rem 0 0; font-size: 1.05rem; }
+.busy-panel p { margin: 0.4rem 0 0; }
+
+.busy-progress { width: 100%; margin-top: 0.9rem; height: 6px; }
+.busy-progress > span { transition: width 0.2s ease-out; }
+.busy-count { font-variant-numeric: tabular-nums; }
+
+/* Finished steps stay listed: they are what makes the dialog worth reading
+   rather than a spinner with a caption. */
+.busy-steps {
+    list-style: none;
+    margin: 0.9rem 0 0;
+    padding: 0.75rem 0 0;
+    border-top: 1px solid var(--border);
+    text-align: left;
+    font-size: 0.85rem;
+    color: var(--text-muted);
+    max-height: 8rem;
+    overflow-y: auto;
+}
+
+.busy-steps li { padding: 0.1rem 0 0.1rem 1.15rem; position: relative; }
+
+.busy-steps li::before {
+    content: "✓";
+    position: absolute;
+    left: 0;
+    color: var(--success);
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .busy-progress > span { transition: none; }
+}
 
 .spinner {
     width: 28px;
