@@ -4,10 +4,41 @@ using AniQueue.Core.Progress;
 
 namespace AniQueue.Core.Queue;
 
-/// <summary>What adding to the queue did.</summary>
-/// <param name="Added">Slots created.</param>
-/// <param name="AlreadyQueued">Titles skipped because they already had a slot.</param>
-public sealed record QueueAddResult(int Added, int AlreadyQueued);
+/// <summary>
+/// What adding to the queue did, with a reason for everything it declined.
+/// </summary>
+/// <remarks>
+/// The reasons are separated rather than summed into one "skipped" count because
+/// they are the answer to a question the user will ask: selecting five titles and
+/// getting three is confusing until something says which two did not go, and why.
+/// </remarks>
+public sealed record QueueAddResult
+{
+    public required int Added { get; init; }
+
+    /// <summary>Already had a slot. Adding twice is a no-op, not an error.</summary>
+    public int AlreadyQueued { get; init; }
+
+    /// <summary>
+    /// No longer waiting to be watched — started, finished, on hold or dropped.
+    /// </summary>
+    /// <remarks>
+    /// The queue holds what the user intends to watch next, so a title that has
+    /// left Planning does not belong in it. Declining up front is the same rule
+    /// <see cref="IQueueService.AdvanceAsync"/> applies afterwards; without it, a
+    /// watched title could be queued and would then be deleted by the next import,
+    /// which is a slot with a hidden expiry.
+    /// </remarks>
+    public int NoLongerPlanned { get; init; }
+
+    /// <summary>
+    /// Not in this profile's library at all, so there is nothing to plan. A stale
+    /// selection, or a title removed since the page was rendered.
+    /// </summary>
+    public int Unavailable { get; init; }
+
+    public int Skipped => AlreadyQueued + NoLongerPlanned + Unavailable;
+}
 
 /// <summary>One slot as the Up Next page shows it: a single title, in a position.</summary>
 public sealed record QueueListItem
@@ -84,12 +115,24 @@ public interface IQueueService
         CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Appends titles to the end of the queue, skipping any already present.
-    ///
-    /// Queue membership is deliberately idempotent: adding something twice is a
-    /// no-op rather than an error, because from the backlog the user cannot always
-    /// see what is already queued.
+    /// Appends titles to the end of the queue.
     /// </summary>
+    /// <remarks>
+    /// One rule governs queue membership: <b>a slot holds a title the user still
+    /// plans to watch.</b> This method applies it when a title goes in, and
+    /// <see cref="AdvanceAsync"/> applies the same rule again as statuses change.
+    /// Anything already queued, already started or finished, or absent from the
+    /// library is declined and counted, never added.
+    ///
+    /// It does not prevent re-watching, and the way it doesn't is the point: set the
+    /// title back to Planning at the source and it becomes queueable again. D12 has
+    /// AniQueue observe watch status rather than author it, so a re-watch is
+    /// expressed where every other status change is, instead of as an exception
+    /// carved out here.
+    ///
+    /// Adding something twice remains a no-op rather than an error, because from the
+    /// backlog the user cannot always see what is already queued.
+    /// </remarks>
     Task<QueueAddResult> AddAnimeAsync(
         int profileId,
         IReadOnlyCollection<int> animeIds,

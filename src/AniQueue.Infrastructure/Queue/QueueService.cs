@@ -88,7 +88,7 @@ public sealed class QueueService(
 
         if (animeIds.Count == 0)
         {
-            return new QueueAddResult(0, 0);
+            return new QueueAddResult { Added = 0 };
         }
 
         const string Message = "Adding to Up Next";
@@ -106,24 +106,43 @@ public sealed class QueueService(
         // Distinct so a selection containing the same id twice cannot violate the
         // unique index within one batch.
         var requested = animeIds.Distinct().ToList();
+        var alreadyQueued = requested.Count(queued.Contains);
         var toAdd = requested.Where(id => !queued.Contains(id)).ToList();
 
-        // Only titles that actually exist; a stale selection must not create a slot
-        // pointing at nothing.
-        var existingIds = (await context.Anime
-                .Where(a => toAdd.Contains(a.Id))
-                .Select(a => a.Id)
-                .ToListAsync(cancellationToken))
-            .ToHashSet();
+        // Statuses decide what may be queued at all. Read from the library rather
+        // than the catalogue: a title with no entry for this profile has nothing to
+        // plan, and a LibraryEntry cannot exist without its Anime, so this also
+        // covers the stale-selection case that used to need its own query.
+        var statuses = await context.LibraryEntries
+            .AsNoTracking()
+            .Where(e => e.ProfileId == profileId && toAdd.Contains(e.AnimeId))
+            .ToDictionaryAsync(e => e.AnimeId, e => e.Status, cancellationToken);
 
         var now = DateTimeOffset.UtcNow;
         var position = slots.Count;
         var added = 0;
+        var noLongerPlanned = 0;
+        var unavailable = 0;
 
         // Caller order is preserved, which is what lets a franchise be queued in
         // viewing order by passing its members already sorted.
-        foreach (var animeId in toAdd.Where(existingIds.Contains))
+        foreach (var animeId in toAdd)
         {
+            if (!statuses.TryGetValue(animeId, out var status))
+            {
+                unavailable++;
+                continue;
+            }
+
+            // The same rule AdvanceAsync applies later. Enforcing it here too is
+            // what stops a watched title being queued into a slot that the next
+            // import would silently delete.
+            if (status != LibraryStatus.Planning)
+            {
+                noLongerPlanned++;
+                continue;
+            }
+
             context.QueueItems.Add(new QueueItem
             {
                 ProfileId = profileId,
@@ -144,14 +163,24 @@ public sealed class QueueService(
         await context.SaveChangesAsync(cancellationToken);
         await transaction.CommitAsync(cancellationToken);
 
-        var skipped = requested.Count - added;
+        var result = new QueueAddResult
+        {
+            Added = added,
+            AlreadyQueued = alreadyQueued,
+            NoLongerPlanned = noLongerPlanned,
+            Unavailable = unavailable
+        };
 
         logger.LogInformation(
-            "Queue changed: {Added} added, {Skipped} skipped as already queued or missing",
+            "Queue changed: {Added} added, {Skipped} skipped ({AlreadyQueued} already queued, "
+            + "{NoLongerPlanned} no longer planned, {Unavailable} not in the library)",
             added,
-            skipped);
+            result.Skipped,
+            alreadyQueued,
+            noLongerPlanned,
+            unavailable);
 
-        return new QueueAddResult(added, skipped);
+        return result;
     }
 
     public async Task<QueueAddResult> AddFranchiseAsync(
@@ -174,7 +203,7 @@ public sealed class QueueService(
 
         if (members.Count == 0)
         {
-            return new QueueAddResult(0, 0);
+            return new QueueAddResult { Added = 0 };
         }
 
         logger.LogInformation(

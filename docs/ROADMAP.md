@@ -366,6 +366,25 @@ gains one job in the queue:
 - **`OptionalWithinFranchise` gets a concrete job**: it decides what expansion queues. It
   was previously a flag waiting for completion maths to consume it.
 
+**One membership rule, applied at both ends.** A queue slot holds a title the user
+still plans to watch. `AddAnimeAsync` enforces it when a title goes in and
+`AdvanceAsync` enforces it as statuses change — the same rule at two moments, rather
+than a rule on the way out and nothing on the way in.
+
+Expansion having that filter while the backlog's bulk add did not was a real defect,
+found by noticing a Completed title sitting at the top of Up Next. Beyond the
+inconsistency, allowing it created a slot with a hidden expiry: a watched title could
+be queued and would then be deleted by the next import's advancement, without the
+user having watched or removed it. Declining up front and **saying why** is the fix —
+`QueueAddResult` separates "already there" from "already started or finished" from
+"not in your library", because being told five of eight were added invites the guess
+that the application lost the other three.
+
+This does not carve out re-watching, and the way it doesn't matters: set the title
+back to Planning at the source and it is queueable again. D12 has AniQueue observe
+watch status rather than author it, so a re-watch is expressed where every other
+status change is.
+
 Three things fall out rather than being built:
 
 - Advancement becomes per title. Watch season two and only that row leaves; season three

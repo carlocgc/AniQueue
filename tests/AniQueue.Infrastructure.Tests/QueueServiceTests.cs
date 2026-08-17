@@ -297,7 +297,9 @@ public class QueueServiceTests
 
         // One distinct title was asked for and skipped; the duplicate in the request
         // is not counted twice, or a selection bug would inflate the message shown.
-        Assert.Equal(new QueueAddResult(0, 1), result);
+        Assert.Equal(0, result.Added);
+        Assert.Equal(1, result.AlreadyQueued);
+        Assert.Equal(1, result.Skipped);
         Assert.Equal("A", await fixture.OrderAsync());
     }
 
@@ -308,8 +310,126 @@ public class QueueServiceTests
 
         var result = await fixture.Queue.AddAnimeAsync(fixture.ProfileId, [4242]);
 
-        Assert.Equal(new QueueAddResult(0, 1), result);
+        Assert.Equal(0, result.Added);
+        Assert.Equal(1, result.Unavailable);
         Assert.Empty(await fixture.Queue.GetQueueAsync(fixture.ProfileId));
+    }
+
+    /// <summary>
+    /// Up Next holds what the user still intends to watch, so a title that has left
+    /// Planning is declined rather than queued. This is the same rule
+    /// <c>AdvanceAsync</c> applies later — without it, adding a finished show would
+    /// create a slot that the next import silently deleted.
+    /// </summary>
+    [Theory]
+    [InlineData(LibraryStatus.Watching)]
+    [InlineData(LibraryStatus.Completed)]
+    [InlineData(LibraryStatus.OnHold)]
+    [InlineData(LibraryStatus.Dropped)]
+    public async Task A_title_that_is_no_longer_planned_cannot_be_queued(LibraryStatus status)
+    {
+        await using var fixture = await Fixture.CreateAsync();
+
+        int animeId;
+        await using (var context = fixture.Database.CreateContext())
+        {
+            var anime = await SeedData.CreateAnimeAsync(context, "Gunbuster");
+            animeId = anime.Id;
+
+            var entry = SeedData.Entry(fixture.ProfileId, anime.Id);
+            entry.Status = status;
+            context.LibraryEntries.Add(entry);
+            await context.SaveChangesAsync();
+        }
+
+        var result = await fixture.Queue.AddAnimeAsync(fixture.ProfileId, [animeId]);
+
+        Assert.Equal(0, result.Added);
+        Assert.Equal(1, result.NoLongerPlanned);
+        Assert.Empty(await fixture.Queue.GetQueueAsync(fixture.ProfileId));
+    }
+
+    /// <summary>
+    /// Not a special case carved out for re-watching — the ordinary rule, reached by
+    /// the source saying the title is planned again (D12).
+    /// </summary>
+    [Fact]
+    public async Task A_finished_title_becomes_queueable_again_once_it_is_planned_again()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+
+        int animeId;
+        await using (var context = fixture.Database.CreateContext())
+        {
+            var anime = await SeedData.CreateAnimeAsync(context, "Gunbuster");
+            animeId = anime.Id;
+
+            var entry = SeedData.Entry(fixture.ProfileId, anime.Id);
+            entry.Status = LibraryStatus.Completed;
+            context.LibraryEntries.Add(entry);
+            await context.SaveChangesAsync();
+        }
+
+        Assert.Equal(0, (await fixture.Queue.AddAnimeAsync(fixture.ProfileId, [animeId])).Added);
+
+        await SetStatusAsync(fixture, animeId, LibraryStatus.Planning);
+
+        Assert.Equal(1, (await fixture.Queue.AddAnimeAsync(fixture.ProfileId, [animeId])).Added);
+        Assert.Equal("Gunbuster", await fixture.OrderAsync());
+    }
+
+    [Fact]
+    public async Task A_title_with_no_library_entry_cannot_be_queued()
+    {
+        // The queue orders the watch list; it does not add to it. Something absent
+        // from the library has no intent recorded about it either way.
+        await using var fixture = await Fixture.CreateAsync();
+
+        int animeId;
+        await using (var context = fixture.Database.CreateContext())
+        {
+            var anime = await SeedData.CreateAnimeAsync(context, "Not in the library");
+            animeId = anime.Id;
+        }
+
+        var result = await fixture.Queue.AddAnimeAsync(fixture.ProfileId, [animeId]);
+
+        Assert.Equal(0, result.Added);
+        Assert.Equal(1, result.Unavailable);
+    }
+
+    /// <summary>
+    /// The defect this rule closes: the two ways into the queue used to disagree.
+    /// Expansion filtered on Planning; adding the same titles individually did not.
+    /// </summary>
+    [Fact]
+    public async Task Both_ways_into_the_queue_apply_the_same_rule()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        var franchiseId = await SeedSlayersAsync(fixture, firstSeasonStatus: LibraryStatus.Completed);
+
+        List<int> allMembers;
+        await using (var context = fixture.Database.CreateContext())
+        {
+            allMembers = await context.Anime
+                .Where(a => a.FranchiseId == franchiseId)
+                .OrderBy(a => a.FranchiseOrder)
+                .Select(a => a.Id)
+                .ToListAsync();
+        }
+
+        // Every member, watched and optional alike, offered directly.
+        var direct = await fixture.Queue.AddAnimeAsync(fixture.ProfileId, allMembers);
+        var queuedDirectly = await fixture.OrderAsync();
+
+        // The completed first season is refused by both paths. The optional special
+        // is the one difference, and it is deliberate: expansion excludes it by
+        // default, while asking for it by name is an explicit choice.
+        Assert.Equal(1, direct.NoLongerPlanned);
+        Assert.Equal("Slayers Next Slayers Try Slayers Special", queuedDirectly);
+
+        await using var verify = fixture.Database.CreateContext();
+        Assert.Equal(3, await verify.QueueItems.CountAsync());
     }
 
     // --- Franchise expansion (D15) ---------------------------------------
@@ -590,6 +710,13 @@ public class QueueServiceTests
     /// A slot is released on evidence that it is done, never on the absence of
     /// evidence. A queued title with no library entry is unknown, not watched.
     /// </summary>
+    /// <remarks>
+    /// The slot is written directly rather than through <c>AddAnimeAsync</c>, which
+    /// now refuses to create it. Advancement still has to cope with the state: a
+    /// library entry can be deleted after its title was queued, and older data
+    /// predates the rule. Two guards against the same corruption is the right number
+    /// when one of them is a delete.
+    /// </remarks>
     [Fact]
     public async Task A_queued_title_with_no_library_entry_is_left_alone()
     {
@@ -598,7 +725,8 @@ public class QueueServiceTests
         await using (var context = fixture.Database.CreateContext())
         {
             var anime = await SeedData.CreateAnimeAsync(context, "Orphan");
-            await fixture.Queue.AddAnimeAsync(fixture.ProfileId, [anime.Id]);
+            context.QueueItems.Add(SeedData.QueueSlot(fixture.ProfileId, position: 0, anime.Id));
+            await context.SaveChangesAsync();
         }
 
         Assert.Equal(0, await fixture.Queue.AdvanceAsync(fixture.ProfileId));
@@ -676,12 +804,17 @@ public class QueueServiceTests
             anime.FranchiseId = franchise.Id;
 
             var entry = SeedData.Entry(fixture.ProfileId, anime.Id);
-            entry.Status = LibraryStatus.Watching;
             entry.EpisodesWatched = 4;
             context.LibraryEntries.Add(entry);
 
             await context.SaveChangesAsync();
             await fixture.Queue.AddAnimeAsync(fixture.ProfileId, [anime.Id]);
+
+            // Started after it was queued, and before the import that would release
+            // it — which is exactly when the page has to render a status other than
+            // Planning.
+            entry.Status = LibraryStatus.Watching;
+            await context.SaveChangesAsync();
         }
 
         var slot = Assert.Single(await fixture.Queue.GetQueueAsync(fixture.ProfileId));
