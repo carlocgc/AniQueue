@@ -921,6 +921,12 @@ The audit trail for writes nobody watched (D21), and the source of "last synced 
 and the pending-conflict badge. `Outcome` distinguishes success, nothing-to-do and failure —
 a stalled sync must never render as "up to date".
 
+A row is written only when a run has reached a terminal state, so `FinishedAt` is never null in
+practice; it stays nullable because a run interrupted mid-flight is a state Phase 5c can reach and
+this table should be able to describe. `StartedAt` times the work the row records rather than the
+whole visit — for a reviewed sync that is the apply, since the gap between fetching and confirming
+is a person thinking, not a sync running. Recency is read from the key, not this column: see §8.
+
 ### Franchise
 
 `Id, Name, Description?, ManualSortOrder`. Anime→Franchise is 0..1 for MVP. Internal
@@ -991,9 +997,20 @@ different fetch into the same preview, commit and advancement.
 A partial fetch must be rejected outright rather than reported as a partial success: a truncated
 list is indistinguishable from mass deletion, which is precisely the hazard D19 guards.
 
+*One thing the merge does beyond concatenating*, added in 5b: an entry claiming an identifier an
+earlier part already claimed is dropped. Within one payload a repeated identifier is a real
+contradiction and the preview surfaces it as a conflict; across payloads it is an artifact of how
+the list was chunked, and asking the user to resolve several hundred of those would be the
+pipeline blaming them for its own paging.
+
 **Parsers are resolved by key.** They are registered as one unkeyed singleton today and injected
 singly, so adding a second implementation would silently rebind the first and start feeding XML
 to the wrong parser.
+
+*And the AniList parser is registered twice, sharing one instance* — keyed like every other, and
+concretely for the sync, which passes the title-language preference as an argument to an overload
+rather than putting an AniList concern on the interface a MyAnimeList export also implements
+(D22).
 
 **A parsed entry carries a set of identifiers, not one.** `ParsedLibraryEntry` holds a single
 `Source` + `SourceAnimeId` today, which is enough for a format that knows only itself. AniList
@@ -1229,13 +1246,56 @@ complete rather than partial. They remain empty for MyAnimeList-only and manual 
 surfaces must still say what they are filtering over — `RuntimeCalculator.Sum` already reports
 `IsPartial` for exactly this reason.
 
+**Amendments made while building it.** Recorded here rather than left as drift between this
+section and the code:
+
+- **`SyncRun` moved here from 5c.** This phase has to render "last synced", and nothing else can
+  say it. An on-demand run also deserves the same record an unattended one gets, so 5c adds the
+  loop rather than the table. A row is written when a run reaches a *terminal* state — a failure,
+  or a list that already matched — and a preview waiting on a person is not terminal. Recording
+  one would let the page report the library as up to date while the changes sat unconfirmed on
+  screen. The kill switch writes nothing at all: nothing was attempted, and a log of runs that
+  never ran buries the failures that did.
+- **Catalogue fields follow one rule: a value replaces, a null leaves alone.** Otherwise the
+  consolidating user's next MyAnimeList import blanks the duration, year and art an AniList sync
+  had just supplied, for every title the two lists share — turning Phase 3's filters back off.
+  D18's precedence guards tracking data; nullness guards catalogue data.
+- **A cover URL that merely moved is not a change.** It is nearly always the same picture behind
+  a rotated CDN path, and reporting it would turn an idle sync into a library-wide review list —
+  the churn D21 assumes away when it says a sync that changes nothing writes nothing. Gaining art
+  where there was none is reported.
+- **The title preference reaches the parser as an argument, not through the interface.**
+  `AniListJsonParser` exposes an overload taking `TitleLanguage`; `IAnimeListParser.ParseAsync`
+  keeps its shape and defaults to romaji. A preference has no business on the interface a
+  MyAnimeList export also implements, so the parser is registered twice sharing one instance —
+  keyed as `IAnimeListParser` like every other, and concretely for the sync that passes the
+  argument.
+- **Chunk following belongs to the client, with a hard ceiling of 20 requests.** `hasNextChunk`
+  is the other end's word, so an unbounded loop is a request loop with no exit. Hitting the
+  ceiling **fails the fetch** rather than keeping what arrived, and `ParseResult.Merge` enforces
+  the same rule when parts are joined — half a list is precisely what D19's absence handling
+  would read as a mass deletion.
+- **No `AddHttpClient`.** It would mean a package reference to manage a single long-lived client
+  to a single host, which §12 requires approval for. The two things the factory would supply are
+  done explicitly: a pooled connection lifetime so a long-running container notices DNS changes,
+  and one shared instance rather than a socket per call. Cookies are off, because the endpoint
+  sets a `laravel_session` nothing here wants.
+- **Settings that do not act yet are shown, grouped and labelled.** Unattended application,
+  conflict policy and absence policy only mean something once 5c runs on a timer. They sit under
+  a heading saying AniQueue does not sync on a schedule yet, because a control that silently does
+  nothing reads as broken — and omitting it reads worse to someone who has just read what
+  unattended sync will do.
+
 #### Phase 5c — Unattended sync
 
-A `BackgroundService` on a `PeriodicTimer`, a scope per tick, a configuration kill-switch (D20),
-and **ticks that never overlap** — a slow response must skip the next tick, not queue it, or one
-timeout turns a five-minute interval into concurrent syncs racing each other. Unattended
-application and the absence policy (D19, D21). `SyncRun`. Staleness notification, failure
-surfacing and backoff.
+A `BackgroundService` on a `PeriodicTimer`, a scope per tick, and **ticks that never overlap** —
+a slow response must skip the next tick, not queue it, or one timeout turns a five-minute interval
+into concurrent syncs racing each other. Unattended application and the absence policy (D19, D21).
+Staleness notification, failure surfacing and backoff.
+
+*`SyncRun` and the configuration kill-switch landed in 5b* — the Sources page needed both — so
+this phase writes rows to an existing table rather than creating one. The poll-interval floor is
+still operator configuration and still arrives here, since nothing polls before it.
 
 **Write it as a job runner that happens to have one job.** AniQueue ends up with several timed
 background tasks — metadata and artwork enrichment, and eventually scheduled re-ranking — and the
@@ -1438,8 +1498,19 @@ Phase 5 adds, and these are load-bearing rather than decorative:
   released (D19).
 - **Two writers.** A sync commit and a queue reorder issued concurrently both succeed and leave
   positions contiguous — D2's invariant under the one condition D2 never faced.
+- **The client's failure paths**, against a stub handler: a 404 that names the private-account
+  case, a 429 that says how long to wait, a socket error that does not repeat the resolved host
+  back at the user, and a server claiming `hasNextChunk` forever failing rather than looping.
+- **The run record.** A failed fetch and a list that already matched each write a row; a preview
+  still awaiting a decision writes none; the kill switch writes none.
 
 No test may depend on a live external API.
+
+**One SQLite trap worth knowing before Phase 9 meets it.** SQLite cannot `ORDER BY` a
+`DateTimeOffset` — EF stores it as text with an offset and refuses to sort it, throwing at query
+time rather than returning a wrong order. `SyncRun` reads recency from its key instead, which is
+the same order for an append-only table. `RecommendationRun` browses newest-first over
+`CreatedAt` and will hit exactly this.
 
 ---
 
