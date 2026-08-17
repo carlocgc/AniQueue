@@ -970,7 +970,7 @@ carries `ProfileId` so multi-user — post-MVP per §10 — stays possible. Sett
 | `IAiRecommendationProvider` | Core | `ManualJsonRecommendationProvider` only in MVP |
 | `IRankingCalculator` | **Core** | hybrid ranking formula — pure, testable |
 | `IRuntimeCalculator` | **Core** | episode×duration maths, franchise sums, formatting |
-| `ICoverImageResolver` | Core | URL passthrough now; local caching later |
+| `ICoverImageResolver` | Core | **Post-MVP; nothing builds or consumes it yet.** Kept in this table because the reason it was drawn — art must be served by AniQueue rather than hotlinked — is a real constraint, recorded in §10 |
 
 Import splits at the point where a database is first needed:
 
@@ -1192,7 +1192,7 @@ The mapping, which is where the fiddly parts are:
 | `format` `TV` / `TV_SHORT` | `Tv`. The query pins `type: ANIME`, so manga formats never arrive |
 | `score(format: POINT_100)` | `score > 0 ? max(1, round(score / 10.0, AwayFromZero)) : null` |
 | `startedAt` / `completedAt` FuzzyDate | `DateOnly?`; a partial date is null, as `0000-00-00` already is |
-| `duration`, `seasonYear`, `coverImage` | `EpisodeDurationMinutes`, `ReleaseYear`, `CoverImageUrl` |
+| `duration`, `seasonYear`, `coverImage.extraLarge` | `EpisodeDurationMinutes`, `ReleaseYear`, `CoverImageUrl` |
 
 Scores need the most care, and the probe changed the answer here. AniList users pick one of five
 scoring systems and a raw `score` returns *their* scale, so an unconverted read gives 87 for a
@@ -1549,6 +1549,71 @@ D11 and D12 it is the only remaining manual step in the loop. **Write-back stays
 and should be approached carefully: it is the one direction that can damage a list the user
 maintains elsewhere, and every safeguard in the import pipeline exists to protect data
 flowing the other way.
+
+### Stretch goals — artwork and the visual decision
+
+**The premise is accepted as real rather than decorative.** A backlog of several hundred rows is
+a wall of text, and recognising a show by its art is faster than reading its title — which makes
+artwork a decision aid on the surface where decisions are made, not styling. That is the same
+argument §7 makes for grouping franchises in the backlog.
+
+It is a stretch goal anyway, because nothing in the MVP renders an image and Phase 5 is already
+split for size. What follows is written down so the cost is understood before it is started.
+
+**Tier 1 — AniList already supplies more than we ask for, at no extra cost.** Measured against a
+real 753-entry list:
+
+| Field | Null | Note |
+|---|---|---|
+| `coverImage.extraLarge` | **0 of 753** | Same request cost as `large`; downscaling is possible, upscaling is not |
+| `coverImage.color` | 59 (7.8%) | A dominant accent colour per title — themed cards with **no image loading at all** |
+| `bannerImage` | 185 (24.6%) | But 95% of `TV` and 92% of `MOVIE` have one. The gap is almost entirely `OVA` (99) and `SPECIAL` (45) |
+
+That last distribution is the design constraint: a banner-led layout works for exactly the
+formats that dominate a watch decision, and needs a poster fallback for side content. Do not
+build a layout that assumes a banner.
+
+`coverImage.color` deserves particular attention — it is six bytes, present for 92% of titles,
+and enables per-show theming without solving the image-serving problem below at all. It is the
+highest value per byte on offer.
+
+**Only `extraLarge` is taken in Phase 5b, and the rest waits deliberately.** Nothing renders any
+of it yet, and the whole library refetches in one request, so storing fields no phase reads would
+be the speculative infrastructure D11 argues against, for no saving.
+
+**Tier 2 — serving it is the real work, and it is why `ICoverImageResolver` exists.** Rendering
+AniList's URLs directly is hotlinking, and it fails in four separate ways:
+
+- It is **someone else's bandwidth**, on a CDN that owes a third-party application nothing.
+- **The URLs rot.** They carry a content hash — `bx16498-buvcRTBx4NSm.jpg` — so replacing a
+  title's art changes its URL and every stored copy becomes a broken image.
+- **One third-party request per card**, disclosing to AniList's CDN what the user is browsing.
+  §9 already notes this audience skews toward Brave, whose Shields will block some of them —
+  producing a page of broken images with no explanation.
+- **Availability.** AniList down means no art anywhere.
+
+Caching through AniQueue answers all four, and lands on a constraint that is already written
+down: §6 forbids image binaries in the database, so the cache is the filesystem under `/data` —
+which is exactly where §9's non-root bind-mount problem lives. Solve that once for the database
+and it is solved for art too.
+
+**Tier 3 — richer artwork needs a mapping AniQueue does not have.** Clearlogos, backdrops,
+character art and language-specific posters come from fanart.tv, TMDB and TVDB, and **all three
+are TMDB/TVDB-keyed**. That is the same anime-ID → TMDB mapping §10 already identifies as the
+expensive half of the Overseerr work, so the two should be costed together rather than separately
+— one mapping unlocks both a precise request link and the richer art. Kitsu is the exception
+worth remembering: it is an anime database with 1:1 identity that publishes its own poster and
+cover art, so it is reachable through D17's identity table without any TMDB mapping at all.
+
+*Confidence, stated plainly:* the AniList figures above are measured. The fanart.tv, TMDB, TVDB
+and Kitsu characterisations are from general knowledge — their current API terms, key
+requirements and rate limits need checking before any of them is committed to.
+
+**One schema note, because it is the same shape as a decision already made.** More than one image
+per title means `Anime.CoverImageUrl` stops being sufficient — poster, banner and later logo and
+backdrop are a set, not a field. That is precisely the arity-1 denormalisation D17 has just
+finished replacing for identity, and the answer is the same: an `AnimeImage` table keyed by kind
+and source, not a column per image. Worth doing in one step if it is done at all.
 
 ### Stretch goals — self-hosted neighbours
 
