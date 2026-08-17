@@ -153,6 +153,11 @@ projects. Prevents version drift.
 Settings (§25 of the brief) are a fixed, known set. Typed columns are migratable, bindable
 straight from the Settings page, and cannot rot into stringly-typed soup.
 
+**Amended by D20.** Two kinds of setting turned out not to fit this entity: those an operator
+must reach from outside a running container, which live in configuration, and those keyed per
+external source rather than per profile, which get their own entity. The argument above is
+unchanged for everything that remains here.
+
 ### D8 — `AniQueue.slnx`, not `AniQueue.sln`
 
 *Reverses an earlier call in this document.* The brief names `AniQueue.sln`, and the first
@@ -192,8 +197,8 @@ waits for MAL/AniList relation data, which is authoritative rather than inferred
 
 **Consequence, accepted knowingly:** until that integration lands, users with large libraries
 have manual franchise management only, and will realistically group a handful of franchises
-rather than all of them. Phase 5 ships manual tools; the post-MVP API work in §10 is what
-makes franchises practical at scale.
+rather than all of them. Phase 6 ships manual tools; the relation data D13 promoted into the MVP
+is what makes franchises practical at scale.
 
 Do not re-propose title-similarity detection without new evidence that it can be made
 accurate — the 59% coverage figure is not the interesting number, the false positives are.
@@ -202,6 +207,12 @@ accurate — the 59% coverage figure is not the interesting number, the false po
 authoritative relation data this decision was waiting for, so the wait is now until Phase 5
 rather than until after the MVP. Phase 6 may propose groupings from real relations — still
 confirmed by the user, never applied silently.
+
+**Amended again by the Phase 5 split.** Relation data is now fetched *in Phase 6*, not handed
+over by Phase 5. Because relations come from a separate query rather than riding along with the
+list (see Phase 6), they have no coupling to list sync, and fetching them one phase before
+anything consumed them split one feature across two phases for no benefit. The wait is
+unchanged in substance: authoritative relations still precede any grouping proposal.
 
 ### D11 — The AI orders a closed set. It does not choose what is in it.
 
@@ -293,6 +304,26 @@ Design for it, verify before relying on it.
 data. Promoting AniList read access supplies it, so franchises can use real relations inside
 the MVP rather than waiting. The phase order below puts AniList before franchises for exactly
 this reason.
+
+**Scope, revised once the design was worked through.** Three things changed and are recorded
+here rather than left as drift between this entry and the phase plan:
+
+- **The phase is three phases** — 5a, 5b, 5c. Fourteen deliverables across five subsystems is
+  not one reviewable change, and §9 already names scope as the main schedule risk.
+- **The per-source watermark described below is not a wire optimisation.** `MediaListCollection`
+  returns an entire list in one request, so a watermark-driven delta costs *more* requests than
+  a full fetch — and worse, a delta is structurally blind to deletions, because a removed entry
+  has no `updatedAt` to appear under. That makes it incompatible with D19, which is committed.
+  The watermark's real jobs are refusing to re-poll inside the interval floor, skipping a commit
+  that would change nothing, and rendering "last synced". That is bookkeeping, not a protocol.
+- **Relation data moves to Phase 6**, where it is consumed. See the amendment on D10.
+
+**Three assumptions in this entry need verifying before code depends on them**, and none is
+expensive to check: that AniList serves public list data unauthenticated (which if true removes
+OAuth from the MVP entirely), that `MediaList.score` accepts a `format:` argument so
+normalisation is the API's job rather than ours, and that `MediaListCollection` returns a
+complete list without cursor paging. Phase 5b's first task is a single request that answers all
+three.
 
 ### D14 — No manual priority. The queue is the user's ordering.
 
@@ -390,6 +421,14 @@ back to Planning at the source and it is queueable again. D12 has AniQueue obser
 watch status rather than author it, so a re-watch is expressed where every other
 status change is.
 
+**AniList's `REPEATING` is not that gesture, and mapping it here would be a mistake.**
+`REPEATING` means actively re-watching now, so it maps to `Watching` and its queue slot is
+released — correct, because Up Next answers "what do I start next" and a show playing tonight
+is not a decision waiting to be made. The re-watch above is a *planned* re-watch, expressed by
+setting a completed title back to `PLANNING`, and that still works unchanged. Mapping
+`REPEATING` to `Planning` to make re-watches queueable would put a show being watched into the
+not-started bucket and break D12's premise that status is observed faithfully.
+
 Three things fall out rather than being built:
 
 - Advancement becomes per title. Watch season two and only that row leaves; season three
@@ -458,6 +497,254 @@ franchises were never going to appear there in the first place.
 action (D15) — they are simply not a unit of ranking, exactly as they are not a unit of
 watching.
 
+### D17 — External identity is a set, not a field
+
+*Retires `Anime.Source` + `Anime.SourceAnimeId` as the identity mechanism. `Source` survives
+as provenance.*
+
+Phase 5's charter said reconciliation "reuses the import pipeline — matching on
+`Source + SourceAnimeId`". That sentence is only true while both sides speak the same source.
+A library imported from MyAnimeList holds `(MyAnimeList, <mal id>)` on every row; an AniList
+sync arrives as `(AniList, <anilist id>)`, matches nothing, falls through to the title branch,
+and returns a conflict or a duplicate for **every title in the library**. Against the genuine
+752-title export measured in D10 that is either 750 hand decisions or 750 duplicate rows — and
+unattended sync has nobody present to make decisions.
+
+AniList publishes `Media.idMal`, so the bridge arrives in the same response that creates the
+problem. What was missing was anywhere to keep it.
+
+**Decision:** external identity moves to `AnimeExternalId (AnimeId, Source, ExternalId)`,
+unique on `(Source, ExternalId)`. A title carries zero or more. Matching tries every
+identifier an incoming entry supplies, in source-precedence order, before it considers a title.
+
+Three consequences, one of them a tidy-up:
+
+- **The filtered unique index disappears.** `IX_Anime_Source_SourceAnimeId` carries
+  `WHERE SourceAnimeId IS NOT NULL` only because manual entries have no identifier and would
+  otherwise collide on null. A manual entry now has no rows at all, so the constraint needs no
+  filter.
+- **`Source` narrows to provenance** — how this record came to exist — and stays on `Anime`
+  because the seeder and conflict linking both reason about it. The backlog's source filter
+  changes meaning with it, and improves: `Source == AniList` becomes "this title is on
+  AniList" rather than "an AniList import created this row", which is what a user clicking the
+  chip means.
+- **A row can offer several links.** `SourceLink?` becomes a collection, so a bridged title
+  links to both MyAnimeList and AniList.
+
+Typed columns per platform — `MalId`, `AniListId`, later `KitsuId` — were considered and
+declined. They are the arity-fixed denormalisation of the same relation, they need one filtered
+index each, and reaching the general shape later means rewriting the matching path a second
+time. Matching is the one path where a mistake silently duplicates or silently merges a user's
+library, so it is worth getting right once; and the generality is free *now*, while the only
+consumers are two projections and one filter. This is the argument Phase 11 makes about
+squashing migrations — a cheap structural change has a window.
+
+**Not every platform is a peer, and this table must not imply otherwise.** MyAnimeList,
+AniList and Kitsu are anime databases with roughly 1:1 title identity that publish
+cross-references to one another. Trakt, TMDB and TVDB are general-media databases where a
+franchise is frequently one series with absolute episode numbering, the mapping is many-to-one,
+and nobody publishes it — §10 already says exactly this about Overseerr. Storing such an
+identifier here is harmless; assuming it is 1:1 and self-populating is not.
+
+**The bridge is one-directional, accepted knowingly.** A MyAnimeList XML export carries no
+AniList identifier, so a user who syncs AniList first and imports MAL second still conflicts.
+That is the unusual order, and it is a stated limitation rather than a defect.
+
+### D18 — A primary source owns tracking data. Others may only add.
+
+Consolidating two separately-maintained lists is a use case AniQueue serves: a user with a
+MyAnimeList history and an AniList list they now keep current has a real reason to want the
+union. D17 makes it possible, and it makes the overlap contested — once a row carries both
+identifiers, both sources can write its status, progress and score.
+
+`UpsertLibraryEntryAsync` is unconditional last-writer-wins, which is right with one source and
+wrong with two on a timer. The failure is concrete. A show on both lists is finished and scored
+on MyAnimeList, the export is imported, and `AdvanceAsync` correctly releases its queue slot.
+Thirty minutes later the scheduled AniList sync returns its stale `PLANNING`, unambiguously,
+and applies it. The title reverts, becomes queueable again, and reappears in the backlog as a
+decision already made. It flaps every interval, and the deliberate act loses every time,
+because the scheduled writer is always the last writer.
+
+**Decision:** each configured source carries a precedence rank. On a contested row a
+lower-ranked source may create the row and fill catalogue metadata, but may not overwrite
+status, episode progress or score written by a higher-ranked one.
+`LibraryEntry.LastWrittenBySource` records who last wrote the tracking fields.
+
+- **Precedence guards tracking data only.** Catalogue metadata — episode duration, release
+  year, cover image — is filled by whoever has it, because AniList carries fields a
+  MyAnimeList export simply does not. This is the line `UpsertLibraryEntryAsync` and
+  `ApplyCatalogueFields` already draw between the user's tracking and facts about the title.
+- **Ranking is explicit, never inferred.** "Whichever source syncs wins" is the obvious rule
+  and it is wrong for the consolidator migrating *away* from AniList while treating
+  MyAnimeList as authoritative.
+- **With one source configured it never fires**, and behaviour is identical to today's. The
+  single-tracker user D13 optimises for pays nothing.
+
+Freshest-wins was rejected on availability: AniList supplies `MediaList.updatedAt`, and the
+MyAnimeList export appears to carry no per-entry update time — the parser reads none. A rule
+that cannot be evaluated for one side is not a rule. Monotonic merge — never regress status or
+progress — was rejected because it breaks D15's re-watch story outright: a re-watch is
+expressed by setting a title *back* to Planning, which is precisely the regression such a rule
+would refuse.
+
+### D19 — Absence is authoritative, but only where the source once spoke
+
+D11 puts list membership outside AniQueue, which taken seriously means a title deleted from the
+user's AniList list should leave here too. The import pipeline has no concept of absence — it
+iterates a payload, so a title not in it is never considered — and so today the library only
+ever grows.
+
+Two populations must be told apart before any of this is safe, and D17 is what makes the
+distinction exact:
+
+- **A row with no identifier for the syncing source** has never been listed there. Out of
+  scope, untouched, always. Every MyAnimeList-only and hand-added title is in this bucket.
+- **A row carrying that source's identifier which the fetch did not return** was listed and is
+  not now. Only this population is ever in scope.
+
+That is what protects the consolidating user, and the protection is worth stating precisely
+because it is *structural rather than configured*: their MyAnimeList-only titles are never at
+risk whatever the setting says.
+
+**Decision:** absence handling is configured per source — flag for review, remove, or ignore —
+defaulting to **flag**. The default is safe for identical-list and consolidated-list users
+alike, so correctness never depends on the user finding a setting.
+
+- **Only the `LibraryEntry` and its queue slot are ever removed**, never the `Anime`. The
+  catalogue row is shared with franchise grouping and `RecommendationRunItem` history.
+- **Removing an entry must remove its queue slot in the same transaction.** `AdvanceAsync`
+  deliberately treats a missing library entry as *unknown, not watched*, and keeps the slot.
+  Deleting the entry alone destroys the only evidence that could ever release it, leaving a
+  slot nothing can clear.
+- **Automatic removal waits for Phase 8.** Phase 8 is what gives the user a full backup and
+  restore, and it ships after this phase. A truncated response, a paging bug, a mistyped
+  username or a profile turned private all look identical to "the user deleted everything",
+  and an emptied library taking the hand-built queue with it is the one failure here with no
+  recovery path in the product.
+- **When it does land it needs guards:** honour absence only when the fetch is structurally
+  complete, never act on an empty or near-empty response, and cap the proportion removable in
+  one unattended run before downgrading to flag.
+
+### D20 — Operator configuration and user preference are different stores
+
+*Amends D7 by adding a second home for settings, without reopening its argument.*
+
+Phase 5 is the first phase with settings a self-hoster needs to reach from outside the
+application, and the first with something the application must be able to be *told to stop
+doing*. A single YAML file in `/data` was proposed for all of it, and declined.
+
+**The stated goal was already met.** `Database:Path` is `/data/aniqueue.db`, so the database
+already lives outside the image in the operator's volume, and criterion 25 already proves it
+survives container recreation. Settings in the database are settings in `/data`. A second file
+there is not more persistent; it is a second thing to back up, and one that Phase 8's
+full-library export would not cover.
+
+**Decision:** split by who owns the value, and keep the key sets **disjoint** so there is no
+precedence puzzle between them.
+
+| | Store | Holds |
+|---|---|---|
+| Operator / deployment | `IConfiguration` — `appsettings.json`, environment variables, optional `/data/userconfig.json` | Database path, port, sync kill-switch, poll-interval floor, the AniList account |
+| User preference | Database, per profile, per D7 | Primary source, absence policy, unattended application, conflict policy, title language |
+
+Because the sets are disjoint, a value changed in the UI can never be silently reverted by a
+file, and the escape hatch that matters when the UI is unreachable — turning sync off — is a
+configuration key by design.
+
+`AddJsonFile(path, optional: true, reloadOnChange: true)` is one line and needs no package.
+YAML needs YamlDotNet, which §12 requires approving, and a UI writing a hand-editable file
+needs atomic replacement, concurrent-write protection, and comment-preserving round-tripping
+that YamlDotNet does not provide. §9 also notes that a non-root container cannot write to a
+root-owned bind-mounted `/data`, which would turn a first-run failure into a save button that
+fails for Unraid users.
+
+**Do not depend on live reload.** The file watcher behind `reloadOnChange` does not reliably
+fire on Windows-host or network-share bind mounts, so a restart must apply the file too.
+
+**Per-source settings do not belong on `ProfileSettings`.** They are keyed
+`(ProfileId, Source)`, so they get their own entity — which is also where D18's precedence rank
+and D19's absence policy live.
+
+### D21 — Unattended sync applies the unambiguous and holds the rest
+
+The remote platform is where the user maintains their list, so the most recent sync is the
+better record and AniQueue should accept it without asking. But nobody is present to answer a
+question, and §6 forbids silently merging a match the application cannot confidently identify.
+
+**"Unambiguous" is already computed.** `ImportAction.Create` and `ImportAction.Update` are
+unambiguous; `ImportAction.Conflict` is by definition not. So the "safe subset" is Phase 2's
+preview with conflicts withheld, and no new classification logic exists.
+
+**Decision:** unattended sync commits creates and updates and holds conflicts. Both are
+configurable per source — application defaulting to automatic, conflict handling defaulting to
+review.
+
+- **Review persists nothing.** A held preview is stale within the hour; the user's visit
+  re-fetches and recomputes. Everything an earlier run applied returns as `Unchanged` and
+  renders as nothing to do, so the pipeline gives this for free. Only the count is stored, for
+  the badge.
+- **`SyncRun` is the audit trail.** Unattended writes with nobody watching leave the log as the
+  only record of what changed; a row per run carries counts and outcome, and doubles as the
+  "last synced" the Sources page shows.
+- **A sync that would change nothing writes nothing.** `HasApplicableChanges` gates the commit
+  and the advancement, so an idle poll never contends for the single writer.
+
+For AniList the conflict population is exactly **one shape**, which is what makes this
+affordable. An AniList entry always carries an identifier, so it matches, bridges through
+`idMal`, or is a clean create; the only remaining path is a local row with *no* identifiers
+whose title matches exactly — a hand-added entry meeting the real thing. That shape decides
+which resolutions may be automated:
+
+- **`LinkToExisting` may be offered**, because it is the only resolution that converges:
+  writing the identifier is what stops the entry conflicting on every subsequent sync.
+  Choosing it is opting into silent title-based merging, which §6 otherwise forbids, so it is
+  an explicit opt-in and is labelled as one. Two things make it defensible — the test is exact
+  case-insensitive equality, not the similarity heuristic D10 rejected, and a genuinely
+  ambiguous multi-match produces a conflict with no candidate id, which existing code already
+  downgrades to skip.
+- **`Skip` looks safe and does not converge.** The row stays unidentified and conflicts again
+  on every sync, so the pending count never clears. What that choice really wants is skip
+  *plus suppression* — a record that this pair was declined — which is the only part of this
+  decision needing new persistence, and it is deferred.
+- **`ImportAsNew` is never offered unattended.** It duplicates the row, both copies appear in
+  the backlog, both are queueable, and no delete-duplicate surface exists. One toggle silently
+  multiplying rows across a library is the same class of hazard as automatic removal before
+  Phase 8.
+
+**A mandatory interactive first run was considered and dropped.** It was proposed because the
+first sync is where a large unattended commit lands; with conflicts held by default the
+remaining first-run change is D22's title rewrite, which is visible, reversible and not data
+loss. It is recommended, not required.
+
+### D22 — Title language is a preference, and a sync applies it
+
+`Media.title` has four variants; a MyAnimeList export has one, roughly romaji.
+`ApplyCatalogueFields` assigns `Title` unconditionally, so a first AniList sync rewrites the
+displayed name of most of the library — *Shingeki no Kyojin* becoming *Attack on Titan* across
+every row, queue slot and franchise — driven by a choice nobody made. Meanwhile
+`AlternativeTitle` has existed since Phase 1 with nothing ever written to it.
+
+**Decision:** the preferred language is a user setting — romaji, English or native. The
+preferred variant is written to `Title` and another to `AlternativeTitle`, and **changing the
+preference triggers a sync** rather than swapping the columns.
+
+Triggering a sync is what makes this cheap. The next fetch rewrites `Title` through the same
+`ApplyCatalogueFields` that set it originally, so there is no bulk update, no migration, and
+none of the partial states a swap must guard — `Title` is required, and manual and
+MyAnimeList-only rows have no alternative to swap with. It also behaves identically whether
+the preference is changed before or after the first sync.
+
+- **The resulting preview shows a title change on every AniList-known row.** With review on
+  that is a long list. It is also honest: it is a library-wide change, and
+  `CompareWithExisting` already renders it.
+- **A missing variant falls back rather than writing null.** English is frequently absent on
+  less mainstream titles, so one chain — romaji, English, native — is applied from whichever
+  the preference names, and `AlternativeTitle` stays null rather than duplicating `Title`.
+- **`userPreferred` is not offered.** It depends on the AniList account's display setting,
+  which would make captured test fixtures irreproducible.
+- **MyAnimeList-only and manual rows are unaffected**, since there is no alternative to
+  prefer. The Sources page should say so, or the setting reads as broken.
+
 ---
 
 ## 3. Solution structure
@@ -501,7 +788,10 @@ erDiagram
     Profile ||--o{ QueueItem : owns
     Profile ||--|| ProfileSettings : has
     Profile ||--o{ RecommendationRun : owns
+    Profile ||--o{ SourceSyncSettings : configures
+    Profile ||--o{ SyncRun : records
     Anime ||--o{ LibraryEntry : "referenced by"
+    Anime ||--o{ AnimeExternalId : "identified by"
     Franchise ||--o{ Anime : groups
     Anime ||--o| QueueItem : "queued as"
     RecommendationRun ||--o{ RecommendationRunItem : contains
@@ -510,26 +800,60 @@ erDiagram
 ### Anime
 
 `Id, Title, AlternativeTitle?, MediaType, EpisodeCount?, EpisodeDurationMinutes?,
-ReleaseYear?, CoverImageUrl?, Description?, Source, SourceAnimeId?, FranchiseId?,
+ReleaseYear?, CoverImageUrl?, Description?, Source, FranchiseId?,
 FranchiseOrder?, OptionalWithinFranchise, CreatedAt, UpdatedAt`
 
 - `MediaType`: `Unknown, Tv, Movie, Ova, Ona, Special, Music`
-- `Source`: `Manual, MyAnimeList, AniList`
+- `Source`: `Manual, MyAnimeList, AniList` — **provenance only** since D17. Identity lives on
+  `AnimeExternalId`.
 - `OptionalWithinFranchise` (brief §21) belongs here, not on `Franchise` — it describes an
   individual entry's role within its group.
-- **Filtered** unique index on `(Source, SourceAnimeId)` `WHERE SourceAnimeId IS NOT NULL`.
-  Manual entries have no source id and must not collide with one another.
+- `AlternativeTitle` holds the non-preferred title variant (D22). Null for manual and
+  MyAnimeList-only rows, which have only one title.
+- `EpisodeDurationMinutes` and `ReleaseYear` are first populated in Phase 5b. A MyAnimeList
+  export carries neither, so before that phase they are null on every imported row and every
+  runtime and decade feature in Phase 3 is inert by design.
 - Domain entities are never coupled to MAL/AniList DTOs.
+
+### AnimeExternalId
+
+`Id, AnimeId, Source, ExternalId`. See D17. Unique on `(Source, ExternalId)` — **unfiltered**,
+because a manual entry has no rows rather than a null identifier. A title carries zero or more,
+which is what lets an AniList sync bridge onto a MyAnimeList-imported row through `Media.idMal`
+instead of conflicting with it.
 
 ### LibraryEntry
 
 `Id, ProfileId, AnimeId, Status, UserScore?, EpisodesWatched, DateStarted?, DateCompleted?,
-DateAdded, LastUpdated, PersonalNotes?, ManualPriority, IsHidden, RecommendationScore?,
+DateAdded, LastUpdated, PersonalNotes?, IsHidden, LastWrittenBySource?, RecommendationScore?,
 RecommendationConfidence?, RecommendationReason?, RecommendationUpdatedAt?`
 
 - `Status`: `Planning, Watching, Completed, OnHold, Dropped`
 - Unique `(ProfileId, AnimeId)`; indexes on `(ProfileId, Status)`, `(ProfileId, IsHidden)`
-- No `QueuePosition` — see D1.
+- `UserScore` is 1–10 or null, enforced by `CK_LibraryEntries_UserScoreRange`. Sources that use
+  a different scale must normalise *before* reaching here — see Phase 5b on AniList's five
+  scoring systems.
+- `LastWrittenBySource` records who last wrote the tracking fields, so D18's precedence can
+  tell a stale source from an authoritative one. Null on rows written before that decision.
+- No `QueuePosition` — see D1. No `ManualPriority` — see D14.
+
+### SourceSyncSettings
+
+`Id, ProfileId, Source, IsEnabled, PrecedenceRank, PollIntervalMinutes, ApplyUnattended,
+ConflictPolicy, AbsencePolicy, LastWatermark?`
+
+Keyed `(ProfileId, Source)`, which is why these are not on `ProfileSettings` (D20). Holds
+D18's precedence rank, D19's absence policy and D21's application and conflict policies. The
+account identifier is **not** here — it is operator configuration (D20).
+
+### SyncRun
+
+`Id, ProfileId, Source, StartedAt, FinishedAt?, Outcome, Created, Updated, Skipped,
+ConflictsHeld, SlotsReleased, FailureReason?`
+
+The audit trail for writes nobody watched (D21), and the source of "last synced 4 minutes ago"
+and the pending-conflict badge. `Outcome` distinguishes success, nothing-to-do and failure —
+a stalled sync must never render as "up to date".
 
 ### Franchise
 
@@ -546,6 +870,10 @@ expand into its members, and to badge them once they are there.
 title, so the unique index on `(ProfileId, AnimeId)` needs no filter and there is no check
 constraint. Queueing a franchise appends its titles individually (D15).
 
+A slot's release depends on its `LibraryEntry` existing, because `AdvanceAsync` treats a missing
+entry as unknown rather than watched. Anything that deletes an entry must therefore delete its
+slot in the same transaction, or the slot becomes unreleasable (D19).
+
 ### RecommendationRun / RecommendationRunItem
 
 Run: `Id, ProfileId, CreatedAt, ProviderName, ModelIdentifier?, CompletedCount,
@@ -557,7 +885,7 @@ within 0.0–1.0, because these values arrive from an external model.
 ### Profile / ProfileSettings
 
 Single default local profile; no registration, no OAuth, no auth in MVP. All library data
-carries `ProfileId` so multi-user (Phase 5 post-MVP) stays possible. Settings per D7.
+carries `ProfileId` so multi-user — post-MVP per §10 — stays possible. Settings per D7 and D20.
 
 ---
 
@@ -570,7 +898,9 @@ carries `ProfileId` so multi-user (Phase 5 post-MVP) stays possible. Settings pe
 | `IFranchiseService` | Infrastructure | membership, ordering, dissolve, next-unwatched |
 | `IImportService` | Infrastructure | orchestrates the import pipeline |
 | `IRecommendationService` | Infrastructure | build request, validate/apply result, run history |
-| `IAnimeListParser` | **Core** (incl. impls) | `MyAnimeListXmlParser`, `AniQueueJsonParser` — pure, no database |
+| `IAnimeListParser` | **Core** (incl. impls) | `MyAnimeListXmlParser`, `AniListJsonParser`, `AniQueueJsonParser` — pure, no database |
+| `IAniListClient` | Infrastructure | HTTP, GraphQL, paging, rate limits. Produces streams the parser reads |
+| `ISyncService` | Infrastructure | Orchestrates fetch → preview → apply per source; owns `SyncRun` |
 | `IAiRecommendationProvider` | Core | `ManualJsonRecommendationProvider` only in MVP |
 | `IRankingCalculator` | **Core** | hybrid ranking formula — pure, testable |
 | `IRuntimeCalculator` | **Core** | episode×duration maths, franchise sums, formatting |
@@ -579,9 +909,25 @@ carries `ProfileId` so multi-user (Phase 5 post-MVP) stays possible. Settings pe
 Import splits at the point where a database is first needed:
 
 ```
-IAnimeListParser  (Core, pure)      file bytes  → ParseResult (entries + problems)
+IAniListClient    (Infrastructure)  HTTP        → response stream(s)
+IAnimeListParser  (Core, pure)      bytes       → ParseResult (entries + problems)
 IImportService    (Infrastructure)  ParseResult → ImportPreview → commit
 ```
+
+**The seam is `ParseResult`, and Phase 5a moves it.** `PreviewAsync` currently takes a `Stream`
+and parses internally, which a sync cannot use — it has already fetched, possibly across several
+responses. So `PreviewAsync(ParseResult, …)` becomes the primitive and the stream overload
+composes parse-then-preview on top of it. `ParseResult` merges trivially: concatenate entries,
+concatenate problems, and treat the whole fetch as rejected if any part of it was. That is what
+makes "the difference is the trigger, not the logic" true rather than aspirational — sync is a
+different fetch into the same preview, commit and advancement.
+
+A partial fetch must be rejected outright rather than reported as a partial success: a truncated
+list is indistinguishable from mass deletion, which is precisely the hazard D19 guards.
+
+**Parsers are resolved by key.** They are registered as one unkeyed singleton today and injected
+singly, so adding a second implementation would silently rebind the first and start feeding XML
+to the wrong parser.
 
 **D9 — parsing lives in Core, and the parser does not build the preview.** The brief's
 `IAnimeListProvider.ImportAsync` returns an `ImportPreview` directly. But deciding whether
@@ -621,10 +967,16 @@ contrast in both themes.
 API keys, IP addresses, server information, or personal notes unless explicitly opted in.
 The UI states plainly what is being sent.
 
-**Data integrity on import.** Match on `Source + SourceAnimeId` first; title matching only
-cautiously and never silently merging ambiguous matches. An import must not overwrite
-manual queue position, personal notes, franchise grouping, hidden flag, or recommendation
-history unless explicitly requested.
+**Data integrity on import.** Match on external identity first — every identifier the incoming
+entry supplies, in source-precedence order (D17) — then title matching only cautiously and never
+silently merging ambiguous matches. An import must not overwrite manual queue position, personal
+notes, franchise grouping, hidden flag, or recommendation history unless explicitly requested.
+Where a title is known to more than one source, D18 decides which one's tracking data stands.
+
+**Outbound HTTP.** One fixed endpoint, held as a constant, never composed from user input, so
+there is no request-forgery surface. Account names travel as GraphQL variables rather than in a
+URL. Cap the response size as import caps upload size — a hostile or malfunctioning endpoint is
+the same problem as a hostile file.
 
 ---
 
@@ -641,7 +993,9 @@ onward even if later phases slip.
 | 2 | **Vertical slice** | MAL XML → preview → confirm → SQLite → backlog list, end to end |
 | 3 | Backlog page | Search, filter, sort, page, bulk actions |
 | 4 | Up Next | Reorder correct and persistent; queue advances when status changes |
-| 5 | AniList read sync | List and status retrieved by API; queue advances unattended |
+| 5a | Reconciliation groundwork | External identity is a set; precedence honoured; MAL import unchanged and green |
+| 5b | AniList read sync, on demand | Sync Now lands the user's list; runtime and decade filters work for the first time |
+| 5c | Unattended sync | Queue advances with nobody present; stalled sync is visible |
 | 6 | Franchises | Management plus grouping from real relation data |
 | 7 | Dashboard + decision mode | Summary counts, Suggested Next, "What should I watch?" |
 | 8 | JSON interchange | Full library export → wipe → restore round-trip |
@@ -668,6 +1022,10 @@ size limits, dedup on `Source + SourceAnimeId`, preview summarising new/updated/
 conflicts/invalid and totals per status, then explicit commit. Minimal backlog list to
 prove the data landed.
 
+*Described as delivered.* Phase 5a moves dedup onto `AnimeExternalId` (D17); everything else
+here — the preview-then-commit split, the field-preservation rules, the conflict handling — is
+what Phase 5 reuses rather than replaces.
+
 ### Phase 3 — Backlog page
 Server-side search, filtering, sorting, paging/virtualisation. Filters: status, franchise/
 standalone, media type, decade, runtime, score, source. Quick filters (Under 2h,
@@ -683,10 +1041,13 @@ every status by default buries the couple of hundred titles that are actually a 
 behind several hundred that are not.
 
 Also adds a **source link per row** — "View on MyAnimeList", and AniList once that source
-exists. This costs nothing: `Source` and `SourceAnimeId` are already stored by the importer,
-so the URL is pure formatting with no lookup, no configuration and no new dependency. It is
+exists. This costs nothing: external identifiers are already stored by the importer, so the URL
+is pure formatting with no lookup, no configuration and no new dependency. It is
 worth having early because a backlog of several hundred titles constantly raises "what *is*
 this one?", and answering it should not mean leaving the page to search manually.
+
+From Phase 5a a row can carry several identifiers, so it offers a link per source rather than
+one (D17) — a title bridged from MyAnimeList onto AniList links to both.
 
 It is also the first implementation of the link provider described in §10, so Plex and
 Overseerr later become configuration rather than new machinery.
@@ -706,21 +1067,108 @@ title, which is what lets the user put something between two seasons.
 Also **queue advancement** (D12): when an import or sync reports that a queued title is no
 longer Planning, its slot is released and positions are normalised, so the next item becomes
 next in line without anyone pressing anything. This lives here rather than in the import
-because it is a queue invariant, and it works with file import immediately — the API in
-Phase 5 only changes how often it runs.
+because it is a queue invariant, and it works with file import immediately — Phase 5c only
+changes how often it runs.
 
 ### Phase 5 — AniList read sync
-Retrieve the user's list, statuses and scores over the AniList GraphQL API, and the relation
-data franchises need. Read only (D13): no write-back, no scheduled re-ranking. Runs on demand
-and on an interval, with a per-source watermark so repeated polling stays inside rate limits.
 
-Reconciliation reuses the import pipeline rather than duplicating it — matching on
-`Source + SourceAnimeId`, preserving every locally curated field, and advancing the queue via
-the Phase 4 rule. The difference is the trigger, not the logic.
+Read only (D13): no write-back, no scheduled re-ranking. Reconciliation reuses the import
+pipeline rather than duplicating it — preserving every locally curated field and advancing the
+queue via the Phase 4 rule. The difference is the trigger, not the logic.
 
-Unattended sync cannot show a preview and wait, so it applies the safe subset — status,
-progress, scores — and leaves anything ambiguous for review. The field-preservation rules
-proven in Phase 2 are what make that safe.
+Split into three because it was not one reviewable change. The seams are chosen so that all of
+the AniList-specific risk is retired in 5b, while a human is still confirming every commit; 5c
+then adds unattendedness to a path already proven by hand. That is the argument D5 made for
+shipping buttons before drag.
+
+#### Phase 5a — Reconciliation groundwork
+
+No network, no new user-facing feature. `AnimeExternalId` and its migration, backfilling every
+existing row from `Source` + `SourceAnimeId` (D17). Multiple `SourceLink`s per row. The backlog's
+source filter and facet re-pointed at "is on this source" rather than "was created by it".
+`PreviewAsync(ParseResult, …)` extracted as the primitive; parsers resolved by key.
+`SourceSyncSettings`, precedence, and `LastWrittenBySource` (D18).
+
+Everything here is provable against the existing MyAnimeList import, so the exit criterion is
+that Phase 2 and Phase 4's suites pass unchanged with identity restructured underneath them.
+
+**This phase ships no visible value**, which cuts against the front-loading principle above. It
+is accepted deliberately: it is small, it is low-risk, and it is what makes 5b and 5c reviewable
+instead of one enormous change.
+
+#### Phase 5b — AniList read sync, on demand
+
+**First task is a single request** answering the three assumptions D13 flags — unauthenticated
+public list access, `score(format:)`, and whether `MediaListCollection` pages. Everything below
+is designed for the answers being yes, yes, and no; verify before relying on it.
+
+`AniListClient` in Infrastructure; `AniListJsonParser` in Core, tested against a captured
+response committed as a fixture, so no test touches the network (§8). A **Sources** page: account
+status, last sync, Sync Now, and the D18–D22 settings. Conflicts default to held for review, and
+the existing import preview *is* the review surface (D21).
+
+The mapping, which is where the fiddly parts are:
+
+| AniList | AniQueue |
+|---|---|
+| `CURRENT` / `REPEATING` | `Watching` — see D15 on why `REPEATING` is not a planned re-watch |
+| `PLANNING` / `COMPLETED` / `DROPPED` | `Planning` / `Completed` / `Dropped` |
+| `PAUSED` | `OnHold` |
+| `format` `TV` / `TV_SHORT` | `Tv`. The query pins `type: ANIME`, so manga formats never arrive |
+| `score(format: POINT_10)` | `score > 0 ? max(1, round(score)) : null` |
+| `startedAt` / `completedAt` FuzzyDate | `DateOnly?`; a partial date is null, as `0000-00-00` already is |
+| `duration`, `seasonYear`, `coverImage` | `EpisodeDurationMinutes`, `ReleaseYear`, `CoverImageUrl` |
+
+Scores need the most care. AniList users pick one of five scoring systems and `MediaList.score`
+returns *their* scale, so a raw read gives 87 for a 100-point user and violates
+`CK_LibraryEntries_UserScoreRange` mid-transaction. Asking the API to convert avoids
+reimplementing five conversions and inherits its 3-smiley mapping rather than inventing one.
+Rounding happens *after* excluding zero, and low values clamp up to 1 rather than down to 0: a
+10-decimal user's 0.4 is a real rating, and rounding it away would silently reclassify it as
+unscored. A 1 is useful signal — it separates a disliked show from an unrated one, which is
+exactly what Phase 9 ranks on.
+
+**Runtime and decade features start working here**, and this is the phase's most visible effect
+besides the sync itself. `EpisodeDurationMinutes` and `ReleaseYear` have never been populated
+outside the development seeder, so Phase 3's runtime filter, runtime sort and *Under 2h* /
+*Under 6h* / decade chips have been inert in every real installation, and Phase 7's *Something
+short* and *One evening* modes were blocked on data nothing supplied. Only AniList-known titles
+gain it, so those surfaces show a subset and must say so — `RuntimeCalculator.Sum` already
+reports `IsPartial` for exactly this reason.
+
+#### Phase 5c — Unattended sync
+
+A `BackgroundService` on a `PeriodicTimer`, a scope per tick, a configuration kill-switch (D20),
+and **ticks that never overlap** — a slow response must skip the next tick, not queue it, or one
+timeout turns a five-minute interval into concurrent syncs racing each other. Unattended
+application and the absence policy (D19, D21). `SyncRun`. Staleness notification, failure
+surfacing and backoff.
+
+**This is the app's first background writer**, and §9's `SQLITE_BUSY` risk stops being
+hypothetical when it runs on a timer. WAL and `busy_timeout` are already configured and are the
+right tool — a 30-second budget against millisecond writes, failing as a retry rather than
+corruption — so no application-level lock is added. What is required is non-overlapping ticks
+and a commit that is skipped entirely when nothing would change.
+
+**Pages must not change under the user**, which is already the default: Blazor Server re-renders
+only when something calls `StateHasChanged`, and a background write in its own scope cannot
+reach an open circuit. So the work is the opposite — telling an open page it went stale, via a
+singleton event pages subscribe to and *reliably unsubscribe from*, marshalled onto the render
+thread as `BusyScope` already does. The page then offers a refresh button rather than moving
+under the cursor. Sync Now is exempt: the user asked, so it refreshes.
+
+Staleness here is safe rather than merely tolerable, and Phase 4 made it so on purpose. Every
+queue mutation resolves against the database inside its transaction rather than against the
+rendered page, and `MoveAsync`/`RemoveAsync` key on `QueueItemId`, so acting on a stale Up Next
+either does the right thing or returns false and logs.
+
+Failure must be legible and must never look like success. A GraphQL `errors` array arrives with
+HTTP 200 and is a failure, not an empty list; a private or mistyped account resolves to nothing
+and is a configuration error, not a successful sync of zero entries — under an absence policy of
+remove, that distinction is the difference between a warning and an emptied library. The Sources
+page shows last success and last failure separately, because "last synced 3 hours ago, last
+attempt failed: profile is private" is actionable where "sync failed" is not, and sustained
+failure escalates to a banner on Up Next, whose correctness silently depends on sync running.
 
 ### Phase 6 — Franchises
 Create, rename, add/remove titles, reorder, dissolve. Collapsed card showing entries
@@ -732,8 +1180,22 @@ Grouping in the **backlog** is the other half, and it is where the brief's §264
 actually lives: five Slayers rows collapse into one decision on the surface where decisions
 are made, while the queue keeps them separate so they can be ordered (D15).
 
-Grouping may now be proposed from the relation data Phase 5 supplies, which is what D10 was
-waiting for. Proposals are still confirmed by the user; nothing is grouped silently.
+**Relation data is fetched here**, not handed over by Phase 5. It comes from a separate query
+rather than riding along with the list, so it has no coupling to sync — and it *should* be
+separate, because relations are near-static while the list changes constantly. Inlining them
+would refetch an immutable graph on every poll inside the response that also carries the data
+that does change. A batched pass over titles whose relations are not yet known costs roughly
+fifteen requests for a 750-title library, once, and zero in the steady state.
+
+Store edges as **external ids** — `(Source, ExternalId, RelationType, RelatedExternalId)` —
+rather than as `AnimeId` pairs. Relations routinely point at titles the user does not own: an
+unwatched middle season, a spin-off never planned. Resolving at write time would discard those,
+and then two owned seasons connecting *through* an unowned one could not be grouped. External
+ids resolve through `AnimeExternalId` with a join when needed and survive titles arriving in any
+order.
+
+Grouping may now be proposed from that relation data, which is what D10 was waiting for.
+Proposals are still confirmed by the user; nothing is grouped silently.
 
 ### Phase 7 — Dashboard and decision mode
 Currently Watching with progress bars, Up Next top 5–10, backlog summary counts and
@@ -822,13 +1284,35 @@ candidate, duplicate, missing candidate, rank collision, out-of-range predicted 
 out-of-range confidence); runtime calculations including unknown-duration cases; franchise
 runtime with optional entries; hybrid ranking; weighted-random selection bounds.
 
+AniList parsing is tested the same way, against a **captured response committed as a fixture**:
+every scoring system normalising into 1–10, a decimal score below 0.5 clamping to 1 rather than
+to null, `REPEATING` mapping to `Watching`, partial FuzzyDates becoming null, a missing `english`
+title falling back rather than writing null, a missing `idMal`, and a GraphQL `errors` array
+arriving with HTTP 200 being treated as a rejection rather than an empty list. Capturing the
+fixture from a real response once is what keeps all of this network-free forever.
+
 **Infrastructure.Tests — real EF, real SQLite.** Use `Data Source=:memory:` with a
 **deliberately held-open connection** (the database dies when the last connection closes).
 The EF `InMemory` provider is not used at all — it does not enforce the constraints under
-test. Covers: migrations apply cleanly; dedup on `Source + SourceAnimeId`; import
+test. Covers: migrations apply cleanly; dedup on external identity; import
 idempotency; import preserves local fields; **queue reorder edge cases and the contiguity
 invariant** (load-bearing per D2); franchise ordering; completion transitions; applying AI
 recommendations leaves `QueueItem` untouched.
+
+Phase 5 adds, and these are load-bearing rather than decorative:
+
+- **The bridge.** An AniList entry carrying `idMal` matches a MyAnimeList-imported row instead of
+  conflicting with it, and writes the AniList identifier so it never conflicts again. This is
+  the test that stops D17 regressing into 750 conflicts.
+- **Precedence.** A lower-ranked source cannot overwrite status, progress or score written by a
+  higher-ranked one, but can still fill catalogue metadata (D18).
+- **Absence scoping.** A row with no identifier for the syncing source is untouched by any
+  absence policy; a row that carries one and is missing from the fetch is acted on. A partial or
+  empty fetch acts on nothing (D19).
+- **Deleting an entry deletes its queue slot**, because a slot whose entry is gone can never be
+  released (D19).
+- **Two writers.** A sync commit and a queue reorder issued concurrently both succeed and leave
+  positions contiguous — D2's invariant under the one condition D2 never faced.
 
 No test may depend on a live external API.
 
@@ -903,6 +1387,15 @@ Reassess once it is known *which* element Shields is acting on.
 **SQLite single-writer.** Adequate for one user, but a concurrent import and queue write
 can hit `SQLITE_BUSY`. WAL plus a `busy_timeout` at startup; keep write transactions short.
 
+*Phase 5c makes this real.* Until then every write is user-initiated from a circuit, so two
+writers required two people. A scheduled sync writes with nobody present, and it contends with
+the user over the same narrow table — its `AdvanceAsync` and a drag in Up Next both rewrite
+`QueueItem.Position`. The mitigation is the one already chosen rather than a new one: WAL and a
+30-second `busy_timeout` against millisecond writes, a commit skipped entirely when nothing would
+change, and ticks that cannot overlap. An application-level lock was considered and declined —
+it is a single-process guarantee that silently becomes wrong the day anything else opens the
+file, which is a worse failure than the one it prevents.
+
 **Scope.** This is a large MVP — 25 acceptance criteria across 11 phases. Treating them as
 one milestone is the main schedule risk; the phase ordering exists to avoid it.
 
@@ -916,10 +1409,36 @@ native apps, automatic metadata scraping, automatic franchise detection, streami
 integrations. `IAnimeListProvider` and `IAiRecommendationProvider` are the extension
 points; nothing speculative gets built behind them. **No fake AniList integration.**
 
-**Post-MVP** (brief §42, amended by D13): metadata enrichment, cover art, genres and studios ·
+**Post-MVP** (brief §42, amended by D13): metadata enrichment beyond what a sync already hands
+over, cover art *rendering*, genres and studios ·
 optional AI providers, OpenAI-compatible endpoints, Ollama/LM Studio, scheduled re-ranking ·
 MAL API sync · **write-back to AniList or MAL** · multi-user, authentication, household
 profiles.
+
+**The metadata line moved, and the distinction is deliberate.** *Enrichment* means going out to
+fetch data AniQueue was not given — a separate call, a separate concern — and that stays
+post-MVP. `duration`, `seasonYear` and `coverImage` arrive in the same response as `episodes`,
+which Phase 5b already consumes, so declining them would mean discarding fields already in hand
+to honour a boundary drawn before AniList was in the MVP. They are taken; rendering cover art is
+not. `description` is declined outright — it is read once and never filtered on, so the source
+links already answer it.
+
+**Genres and studios: deferred, with the shape decided so it is not re-litigated.** They are the
+only catalogue data here that is many-to-many, so storing them usefully means normalised
+`Genre`/`Studio` entities and join tables — a delimited or JSON column makes "has genre Shonen" a
+`LIKE` scan, which §6's indexed-server-side-filtering requirement rules out at a few thousand
+titles. That is Phase 3-shaped work, and there is no backfill penalty for waiting: because
+`MediaListCollection` returns an entire list in one request, refetching to populate them later
+costs a single call. Two details worth keeping: genre can be filtered but **not sorted**, being
+multi-valued, while studio can be both because AniList's `studios` edges carry `isMain`.
+
+**Genre and studio affinity is a stronger stretch goal than filtering.** "You rate Kyoto
+Animation 8.4 and Shonen 6.1" computed from the user's own history is a local, transparent,
+explainable ranking signal needing no model at all — which is exactly what Phase 9 says it wants.
+It matters more than it looks: in the MVP the AI half of ranking is a manual copy-paste
+workflow, so an affinity score is the only thing that could rank a backlog *without the user
+doing anything*. Recorded as a candidate input to `IRankingCalculator`, and the best argument for
+eventually modelling genres at all.
 
 AniList *read* access is no longer here — D13 moved it into the MVP as Phase 5, because with
 D11 and D12 it is the only remaining manual step in the loop. **Write-back stays post-MVP**
@@ -1002,10 +1521,16 @@ stated here rather than quietly reported as done.
 ## 12. Working agreements
 
 - Integration branch is `development`. `main` is release-only.
-- One feature branch per phase: `feature/phase-N-slug` → PR into `development`.
+- One feature branch per phase: `feature/phase-N-slug` → PR into `development`. A split phase
+  gets one branch per part — `feature/phase-5a-slug` and so on — because the point of splitting
+  it was reviewable PRs.
 - Rebase onto `development` and resolve conflicts locally before opening a PR.
 - No new third-party dependency without explicit approval. SortableJS is the only one
   pre-approved, and only for Phase 4.
+- **Phase 5 needs no new dependency**, which is worth recording because two were considered and
+  both declined. YamlDotNet was declined by D20 in favour of the in-box JSON configuration
+  provider; a GraphQL client library was declined because a GraphQL request is an HTTP POST with
+  a JSON body, and `HttpClient` plus `System.Text.Json` are in the box.
 - **LF line endings everywhere**, in the repository and in the working tree on every
   platform, enforced by `.gitattributes` (`* text=auto eol=lf`) with `.editorconfig`
   matching it. `.gitattributes` is the enforcement point rather than `core.autocrlf`
