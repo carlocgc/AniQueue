@@ -4,6 +4,7 @@ using AniQueue.Core.Import;
 using AniQueue.Core.Progress;
 using AniQueue.Infrastructure.Import;
 using AniQueue.Infrastructure.Persistence;
+using AniQueue.Infrastructure.Queue;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
@@ -286,7 +287,63 @@ public class ImportServiceTests
         Assert.Equal("Matches your comedy history", updatedEntry.RecommendationReason);
         Assert.NotNull(updatedAnime.FranchiseId);
         Assert.Equal(1, updatedAnime.FranchiseOrder);
-        Assert.Equal(1, await verify.QueueItems.CountAsync());
+
+        // The queue slot is the exception, and deliberately so (D12): the import
+        // reported this title as Completed, and a queue of things to watch next
+        // should not still be offering something already watched. Note what did not
+        // happen — the import did not reorder anything or overwrite a position. It
+        // released a slot whose reason for existing had gone.
+        Assert.Equal(0, await verify.QueueItems.CountAsync());
+    }
+
+    [Fact]
+    public async Task An_import_leaves_the_queue_alone_for_titles_still_waiting_to_be_watched()
+    {
+        // The other half of the guarantee above. Advancement must be triggered by a
+        // title ceasing to be Planning, not merely by an import having run — or
+        // every import would quietly empty the queue.
+        await using var fixture = await ImportFixture.CreateAsync();
+
+        var initial = await fixture.Service.PreviewAsync(
+            Export(
+                Entry("268", "Golden Boy", status: "Plan to Watch"),
+                Entry("269", "Cat Soup", status: "Plan to Watch")),
+            Parser,
+            Profile.DefaultProfileId);
+        await fixture.Service.CommitAsync(initial, Profile.DefaultProfileId);
+
+        await using (var setup = fixture.Database.CreateContext())
+        {
+            var ids = await setup.Anime.OrderBy(a => a.Id).Select(a => a.Id).ToListAsync();
+
+            setup.QueueItems.AddRange(
+                SeedData.QueueSlot(Profile.DefaultProfileId, 0, ids[0]),
+                SeedData.QueueSlot(Profile.DefaultProfileId, 1, ids[1]));
+
+            await setup.SaveChangesAsync();
+        }
+
+        // Only the first title has been started.
+        var reimport = await fixture.Service.PreviewAsync(
+            Export(
+                Entry("268", "Golden Boy", status: "Watching", watched: 2),
+                Entry("269", "Cat Soup", status: "Plan to Watch")),
+            Parser,
+            Profile.DefaultProfileId);
+
+        var result = await fixture.Service.CommitAsync(reimport, Profile.DefaultProfileId);
+
+        Assert.Equal(1, result.QueueSlotsReleased);
+
+        await using var verify = fixture.Database.CreateContext();
+        var remaining = await verify.QueueItems.SingleAsync();
+
+        // The survivor also moved up to fill the gap, which is the whole point:
+        // whatever is next has to actually be next.
+        Assert.Equal(0, remaining.Position);
+
+        var stillQueued = await verify.Anime.SingleAsync(a => a.Id == remaining.AnimeId);
+        Assert.Equal("Cat Soup", stillQueued.Title);
     }
 
     [Fact]
@@ -533,7 +590,13 @@ public class ImportServiceTests
             return new ImportFixture
             {
                 Database = database,
-                Service = new ImportService(database.ContextFactory, NullLogger<ImportService>.Instance)
+                // The real queue service, not a stub: committing an import advances
+                // the queue (D12), and that is behaviour worth exercising here
+                // rather than mocking away.
+                Service = new ImportService(
+                    database.ContextFactory,
+                    new QueueService(database.ContextFactory, NullLogger<QueueService>.Instance),
+                    NullLogger<ImportService>.Instance)
             };
         }
 

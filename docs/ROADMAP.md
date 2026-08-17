@@ -676,6 +676,29 @@ can duplicate or resurrect rows. The working pattern is `@key` on every item plu
 the DOM move inside `onEnd`, then calling into .NET with `(oldIndex, newIndex)` and letting
 the re-render produce the authoritative order. Budget a spike in Phase 4. Mitigated by D5.
 
+*Resolved in Phase 4, and the pattern above held exactly as written.* The implementation is
+`Components/Pages/UpNext.razor.js`, which is commented as the reference for it. Three things
+were learned that the paragraph above does not imply:
+
+- **The drag never edits the list.** It reports two indices and nothing else. Because the
+  DOM is reverted before .NET is called, the visible move is always produced by the server's
+  re-render — so a reorder the service clamps or rejects cannot leave the page showing an
+  order the database does not hold. This is what makes the risk tractable rather than merely
+  survivable.
+- **Drag must be allowed to fail without taking the page with it.** A failure to initialise
+  the interop throws inside `OnAfterRenderAsync`, which tears down the circuit and shows the
+  user "An unhandled error has occurred" — a strictly worse outcome than having no drag. It
+  is caught and logged, and the page degrades to the move buttons, which is what D5 chose
+  them for. Anything layering interop onto a page should do the same.
+- **`Assets[...]` returns an application-relative path, which is not a valid ES module
+  specifier.** `import()` rejects it outright. Resolve through `new URL(path,
+  document.baseURI)` rather than prefixing a slash, so the application still works when
+  hosted under a sub-path behind a reverse proxy.
+
+Still open, because it cannot be verified from a desktop browser here: touch. The
+configuration disambiguates drag from scroll with `delayOnTouchOnly`, which is the
+conventional answer, but it is untested on a real touch device.
+
 **Non-root container against a bind-mounted `/data`.** A non-root UID cannot create the
 database file in a host directory owned by root. Named volumes are fine — Docker seeds
 ownership from the image — bind mounts are not. Plan: pin a known UID/GID in the image,

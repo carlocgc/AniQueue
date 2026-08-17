@@ -11,6 +11,17 @@ public sealed record ImportCommitResult
 
     public required int Skipped { get; init; }
 
+    /// <summary>
+    /// Slots that left Up Next because the import showed their titles are no longer
+    /// waiting to be watched (D12).
+    /// </summary>
+    /// <remarks>
+    /// Reported rather than left silent. The queue shortening on its own is the
+    /// intended behaviour, but a user who does not know the rule exists would read
+    /// it as an import having eaten their ordering.
+    /// </remarks>
+    public int QueueSlotsReleased { get; init; }
+
     public int Total => Created + Updated + Skipped;
 }
 

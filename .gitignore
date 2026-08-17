@@ -495,3 +495,7 @@ src/AniQueue.Web/data/
 
 # Claude Code local (machine-specific) settings
 .claude/settings.local.json
+
+# Agent-tooling launch config. The inner loop this repo documents is F5 on
+# AniQueue.Web (ROADMAP.md §13); this file only tells one tool the same thing.
+.claude/launch.json
