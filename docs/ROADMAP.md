@@ -318,12 +318,48 @@ here rather than left as drift between this entry and the phase plan:
   that would change nothing, and rendering "last synced". That is bookkeeping, not a protocol.
 - **Relation data moves to Phase 6**, where it is consumed. See the amendment on D10.
 
-**Three assumptions in this entry need verifying before code depends on them**, and none is
-expensive to check: that AniList serves public list data unauthenticated (which if true removes
-OAuth from the MVP entirely), that `MediaList.score` accepts a `format:` argument so
-normalisation is the API's job rather than ours, and that `MediaListCollection` returns a
-complete list without cursor paging. Phase 5b's first task is a single request that answers all
-three.
+**Verified against the live API on 2026-08-17**, using a real 753-entry public list rather than
+assumed. What was checked, and what it means:
+
+| Assumption | Result |
+|---|---|
+| Public lists readable unauthenticated | **Yes.** HTTP 200 with full data, no `Authorization` header. **OAuth is out of the MVP entirely** |
+| `MediaList.score` accepts `format:` | **Yes**, and the conversion is genuinely server-side — the same entry returns 7 / 70 / 4 / 3 across `POINT_10` / `POINT_100` / `POINT_5` / `POINT_3` |
+| `MediaListCollection` returns a complete list | **Yes.** Unchunked, `hasNextChunk` is `false`; 753 entries and 753 distinct media ids arrive in **one request** of 424 KB at full fidelity |
+| Rate limit | **30/min**, not the documented 90. `X-RateLimit-Limit`/`-Remaining` are returned and CORS-exposed |
+
+That settles the watermark argument above with measurements rather than reasoning: one request
+per poll, 424 KB, against a 30/min budget. There is no rate-limit problem for a delta to solve.
+
+Field-level counts from the same response, which several decisions below now rest on:
+
+| | |
+|---|---|
+| `idMal` null | **6 of 753** (0.8%) — the bridge gap in D17 is real but tiny |
+| `title.english` null | **111 of 753** (14.7%) — D22's fallback chain is load-bearing, not defensive |
+| `duration` null | **0** — every title carries an episode duration |
+| `seasonYear` null | 13 (1.7%) |
+| `episodes` null | 1 |
+| `coverImage.large` null | 0 |
+| `startedAt` entirely null | 208 (27.6%) |
+
+**What the probe could not verify, because this library does not contain it.** Only `COMPLETED`,
+`CURRENT` and `PLANNING` appear, so the `PAUSED`, `DROPPED` and `REPEATING` mappings are
+reasoned rather than observed. No partial `FuzzyDate` occurred — every date was complete or
+entirely null — so partial-date handling is untested against real data even though the schema
+makes all three components independently nullable. And the account uses no custom lists, which
+leaves one hazard open below.
+
+**Custom lists are an open hazard.** `MediaListCollection.lists` carries `isCustomList`, and
+AniList lets a user file one entry into a status list *and* custom lists. Whether that surfaces
+the entry more than once in the collection is unverified — 753 entries to 753 distinct media ids
+here proves only that it does not happen when no custom list exists. The parser must therefore
+de-duplicate by media id rather than trust the collection to be flat.
+
+**Two hardening notes from the response itself.** The endpoint sets a `laravel_session` cookie,
+so the client should not persist cookies; and 424 KB for 753 entries means a library of a few
+thousand is a few megabytes, which is what §6's response cap should be sized against with
+headroom rather than tightly.
 
 ### D14 — No manual priority. The queue is the user's ordering.
 
@@ -568,7 +604,15 @@ Two edges follow, and both must be caught while previewing rather than at the co
 **One narrow gap remains, and it is a data-quality gap rather than a hole in the model.** An
 AniList entry with a null `idMal` asserts that no MyAnimeList counterpart exists; if the export
 contains one anyway, the title conflicts on name and the user decides. Nothing in the design can
-do better than the cross-reference it is given.
+do better than the cross-reference it is given. Measured against a real 753-entry list, **6
+entries had a null `idMal`** — under 1%, so the fallback is genuinely a corner rather than a
+common path.
+
+**The two identifiers are not interchangeable, and this is worth stating because assuming
+otherwise is a tempting shortcut.** They frequently coincide — *Shingeki no Kyojin* is 16498 on
+both — and then diverge without warning: its second season is AniList 20958 and MyAnimeList
+25777. Code that treated one id as the other would appear to work across a sample and then
+silently mis-map a sequel onto an unrelated title.
 
 ### D18 — A primary source owns tracking data. Others may only add.
 
@@ -757,9 +801,11 @@ the preference is changed before or after the first sync.
 - **The resulting preview shows a title change on every AniList-known row.** With review on
   that is a long list. It is also honest: it is a library-wide change, and
   `CompareWithExisting` already renders it.
-- **A missing variant falls back rather than writing null.** English is frequently absent on
-  less mainstream titles, so one chain — romaji, English, native — is applied from whichever
-  the preference names, and `AlternativeTitle` stays null rather than duplicating `Title`.
+- **A missing variant falls back rather than writing null.** English is absent far more often
+  than "occasionally" — **111 of 753 entries**, nearly one in seven, in the measured library. A
+  preference of English without a fallback would push null into a `required` column for every
+  one of them. One chain — romaji, English, native — is applied from whichever the preference
+  names, and `AlternativeTitle` stays null rather than duplicating `Title`.
 - **`userPreferred` is not offered.** It depends on the AniList account's display setting,
   which would make captured test fixtures irreproducible.
 - **MyAnimeList-only and manual rows are unaffected**, since there is no alternative to
@@ -1002,7 +1048,10 @@ Where a title is known to more than one source, D18 decides which one's tracking
 **Outbound HTTP.** One fixed endpoint, held as a constant, never composed from user input, so
 there is no request-forgery surface. Account names travel as GraphQL variables rather than in a
 URL. Cap the response size as import caps upload size — a hostile or malfunctioning endpoint is
-the same problem as a hostile file.
+the same problem as a hostile file — and size the cap generously: a measured 753-entry library is
+424 KB, so a few thousand entries is a few megabytes and a tight cap would reject a legitimate
+large library. Do not persist cookies; the endpoint sets a session cookie that serves no purpose
+here.
 
 ---
 
@@ -1141,26 +1190,44 @@ The mapping, which is where the fiddly parts are:
 | `PLANNING` / `COMPLETED` / `DROPPED` | `Planning` / `Completed` / `Dropped` |
 | `PAUSED` | `OnHold` |
 | `format` `TV` / `TV_SHORT` | `Tv`. The query pins `type: ANIME`, so manga formats never arrive |
-| `score(format: POINT_10)` | `score > 0 ? max(1, round(score)) : null` |
+| `score(format: POINT_100)` | `score > 0 ? max(1, round(score / 10.0, AwayFromZero)) : null` |
 | `startedAt` / `completedAt` FuzzyDate | `DateOnly?`; a partial date is null, as `0000-00-00` already is |
 | `duration`, `seasonYear`, `coverImage` | `EpisodeDurationMinutes`, `ReleaseYear`, `CoverImageUrl` |
 
-Scores need the most care. AniList users pick one of five scoring systems and `MediaList.score`
-returns *their* scale, so a raw read gives 87 for a 100-point user and violates
-`CK_LibraryEntries_UserScoreRange` mid-transaction. Asking the API to convert avoids
-reimplementing five conversions and inherits its 3-smiley mapping rather than inventing one.
-Rounding happens *after* excluding zero, and low values clamp up to 1 rather than down to 0: a
-10-decimal user's 0.4 is a real rating, and rounding it away would silently reclassify it as
-unscored. A 1 is useful signal — it separates a disliked show from an unrated one, which is
-exactly what Phase 9 ranks on.
+Scores need the most care, and the probe changed the answer here. AniList users pick one of five
+scoring systems and a raw `score` returns *their* scale, so an unconverted read gives 87 for a
+100-point user and violates `CK_LibraryEntries_UserScoreRange` mid-transaction. Asking the API to
+convert is right; **asking it for `POINT_10` is not.**
+
+`score(format: POINT_10)` returns an integer, because AniList rounds during conversion — measured
+half-up, since a 10-point 5 becomes a 5-point 3. So a 100-point user's score of 4 converts to 0.4
+and comes back as **0**, which is indistinguishable from unscored. The scale that is supposed to
+protect low scores is the one that destroys them.
+
+Requesting `POINT_100` instead — the finest-grained integer scale, which every native format maps
+onto without loss — keeps 0 meaning exactly one thing, and leaves the 1–10 mapping ours to do:
+divide by ten, round away from zero, and clamp up to 1 so a 4/100 becomes a 1 rather than
+vanishing. Rounding happens *after* excluding zero. Away-from-zero is specified deliberately
+because .NET's default `Math.Round` is banker's rounding, which would send 8.5 down to 8.
+
+A 1 is useful signal — it separates a disliked show from an unrated one, which is exactly what
+Phase 9 ranks on. In the measured library 188 of 753 entries are unscored, so the zero branch is a
+quarter of the data rather than an edge case.
+
+Coarse native formats stay coarse: a 3-smiley user's history compresses to three distinct values
+whatever we request, so Phase 9's ranking should not claim confidence it does not have.
 
 **Runtime and decade features start working here**, and this is the phase's most visible effect
 besides the sync itself. `EpisodeDurationMinutes` and `ReleaseYear` have never been populated
 outside the development seeder, so Phase 3's runtime filter, runtime sort and *Under 2h* /
 *Under 6h* / decade chips have been inert in every real installation, and Phase 7's *Something
-short* and *One evening* modes were blocked on data nothing supplied. Only AniList-known titles
-gain it, so those surfaces show a subset and must say so — `RuntimeCalculator.Sum` already
-reports `IsPartial` for exactly this reason.
+short* and *One evening* modes were blocked on data nothing supplied.
+
+The measured coverage is better than expected: **not one of 753 entries had a null `duration`**,
+and only 13 lacked `seasonYear`. So for AniList-known titles these features are effectively
+complete rather than partial. They remain empty for MyAnimeList-only and manual rows, so the
+surfaces must still say what they are filtering over — `RuntimeCalculator.Sum` already reports
+`IsPartial` for exactly this reason.
 
 #### Phase 5c — Unattended sync
 
@@ -1212,6 +1279,10 @@ separate, because relations are near-static while the list changes constantly. I
 would refetch an immutable graph on every poll inside the response that also carries the data
 that does change. A batched pass over titles whose relations are not yet known costs roughly
 fifteen requests for a 750-title library, once, and zero in the steady state.
+
+**Pace that pass.** The measured rate limit is 30 requests a minute, not the documented 90, so a
+fifteen-request backfill is half a minute's budget in one burst. Honour `X-RateLimit-Remaining`
+and spread it rather than discovering the limit through 429s.
 
 Store edges as **external ids** — `(Source, ExternalId, RelationType, RelatedExternalId)` —
 rather than as `AnimeId` pairs. Relations routinely point at titles the user does not own: an
@@ -1310,12 +1381,19 @@ candidate, duplicate, missing candidate, rank collision, out-of-range predicted 
 out-of-range confidence); runtime calculations including unknown-duration cases; franchise
 runtime with optional entries; hybrid ranking; weighted-random selection bounds.
 
-AniList parsing is tested the same way, against a **captured response committed as a fixture**:
-every scoring system normalising into 1–10, a decimal score below 0.5 clamping to 1 rather than
-to null, `REPEATING` mapping to `Watching`, partial FuzzyDates becoming null, a missing `english`
-title falling back rather than writing null, a missing `idMal`, and a GraphQL `errors` array
-arriving with HTTP 200 being treated as a rejection rather than an empty list. Capturing the
-fixture from a real response once is what keeps all of this network-free forever.
+AniList parsing is tested the same way, against a committed JSON fixture: every scoring system
+normalising into 1–10, a `POINT_100` score below 5 clamping to 1 rather than to null, `REPEATING`
+mapping to `Watching`, partial and wholly-null FuzzyDates becoming null, a missing `english` title
+falling back rather than writing null, a missing `idMal`, one media id appearing in two lists, and
+a GraphQL `errors` array arriving with HTTP 200 being treated as a rejection rather than an empty
+list.
+
+**The fixture is structurally faithful and its content is fictional.** §0 forbids committing a
+personal export to a public repository, and a captured response *is* one — so the shape is copied
+from a real response and the titles, ids, scores and dates are invented. That is not only a
+compliance point: a hand-authored fixture can contain the cases a real library does not. The
+library used to verify the API held no `PAUSED`, `DROPPED` or `REPEATING` entry, no partial date
+and no custom list, so a capture would have tested none of the mappings most likely to be wrong.
 
 **Infrastructure.Tests — real EF, real SQLite.** Use `Data Source=:memory:` with a
 **deliberately held-open connection** (the database dies when the last connection closes).
