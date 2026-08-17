@@ -1,0 +1,230 @@
+using System.Net;
+using System.Net.Http.Json;
+using System.Text.Json;
+using AniQueue.Core.Sync;
+using Microsoft.Extensions.Logging;
+
+namespace AniQueue.Infrastructure.Sync;
+
+/// <summary>
+/// Reads a public AniList list over GraphQL.
+///
+/// A GraphQL request is an HTTP POST with a JSON body, which is why no client
+/// library was taken for it (§12): <c>HttpClient</c> and <c>System.Text.Json</c>
+/// are in the box, and the one query this application issues is written out below
+/// where it can be read.
+/// </summary>
+public sealed class AniListClient(HttpClient httpClient, ILogger<AniListClient> logger) : IAniListClient
+{
+    private const string Endpoint = "https://graphql.anilist.co";
+
+    /// <summary>
+    /// AniList's documented maximum. Asked for explicitly rather than left to the
+    /// server's default so the chunk loop below has defined arithmetic.
+    /// </summary>
+    private const int PerChunk = 500;
+
+    /// <summary>
+    /// 20 chunks — 10,000 entries — before the fetch is abandoned as unbounded.
+    /// </summary>
+    /// <remarks>
+    /// A ceiling rather than a trusted loop condition: <c>hasNextChunk</c> comes
+    /// from the other end, and a server that always says "there is more" would
+    /// otherwise be a request loop this application never escapes. Hitting it is a
+    /// failure rather than a truncation, because half a list is the one shape a
+    /// sync must never act on (§5, D19).
+    /// </remarks>
+    private const int MaxChunks = 20;
+
+    /// <summary>
+    /// The only query AniQueue issues.
+    /// </summary>
+    /// <remarks>
+    /// Two arguments carry decisions rather than mechanics:
+    ///
+    /// <c>type: ANIME</c> pins the collection, so a manga format never arrives and
+    /// the parser's guard against one stays theoretical.
+    ///
+    /// <c>score(format: POINT_100)</c> asks the server to convert from whichever of
+    /// five scoring systems the account uses. POINT_100 specifically, not POINT_10:
+    /// AniList rounds during conversion, so a 100-point user's 4 would come back as
+    /// 0 and be indistinguishable from unscored. The finest-grained integer scale
+    /// loses nothing and leaves the 1–10 mapping to the parser, where it is tested.
+    ///
+    /// Everything else is the smallest set the pipeline consumes. <c>relations</c>
+    /// is deliberately absent: franchise grouping is Phase 6, and fetching data for
+    /// a feature that does not exist yet is what D11 argues against.
+    /// </remarks>
+    private const string ListQuery =
+        """
+        query ($userName: String, $chunk: Int, $perChunk: Int) {
+          MediaListCollection(userName: $userName, type: ANIME, chunk: $chunk, perChunk: $perChunk) {
+            hasNextChunk
+            lists {
+              name
+              isCustomList
+              entries {
+                status
+                score(format: POINT_100)
+                progress
+                repeat
+                updatedAt
+                startedAt { year month day }
+                completedAt { year month day }
+                media {
+                  id
+                  idMal
+                  type
+                  format
+                  episodes
+                  duration
+                  seasonYear
+                  title { romaji english native }
+                  coverImage { extraLarge }
+                }
+              }
+            }
+          }
+        }
+        """;
+
+    public async Task<AniListFetch> FetchListAsync(
+        string userName,
+        CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(userName))
+        {
+            return AniListFetch.Failed("No AniList account is configured.");
+        }
+
+        var payloads = new List<byte[]>();
+
+        for (var chunk = 1; chunk <= MaxChunks; chunk++)
+        {
+            var (payload, failure) = await FetchChunkAsync(userName, chunk, cancellationToken);
+
+            if (failure is not null)
+            {
+                return AniListFetch.Failed(failure);
+            }
+
+            payloads.Add(payload!);
+
+            if (!HasNextChunk(payload!))
+            {
+                logger.LogInformation(
+                    "Fetched an AniList list in {Chunks} request(s), {Bytes} bytes",
+                    chunk,
+                    payloads.Sum(p => p.Length));
+
+                return new AniListFetch { Payloads = payloads };
+            }
+        }
+
+        return AniListFetch.Failed(
+            $"The list did not finish within {MaxChunks} requests, so nothing was applied.");
+    }
+
+    private async Task<(byte[]? Payload, string? Failure)> FetchChunkAsync(
+        string userName,
+        int chunk,
+        CancellationToken cancellationToken)
+    {
+        using var request = new HttpRequestMessage(HttpMethod.Post, Endpoint)
+        {
+            Content = JsonContent.Create(new
+            {
+                query = ListQuery,
+                variables = new { userName, chunk, perChunk = PerChunk }
+            })
+        };
+
+        try
+        {
+            using var response = await httpClient.SendAsync(request, cancellationToken);
+
+            if (!response.IsSuccessStatusCode)
+            {
+                return (null, DescribeFailure(response));
+            }
+
+            // Read as bytes rather than a stream: HttpClient's
+            // MaxResponseContentBufferSize enforces the ceiling here, and the
+            // response has to be buffered anyway to read hasNextChunk before
+            // deciding whether to ask for more.
+            var payload = await response.Content.ReadAsByteArrayAsync(cancellationToken);
+            return (payload, null);
+        }
+        catch (HttpRequestException ex)
+        {
+            // Deliberately not surfaced verbatim. The message can carry the
+            // resolved host and inner socket detail, and §6 keeps that out of a
+            // production-facing surface; the log has the exception in full.
+            logger.LogWarning(ex, "AniList request failed for chunk {Chunk}", chunk);
+            return (null, "AniList could not be reached.");
+        }
+        catch (TaskCanceledException ex) when (!cancellationToken.IsCancellationRequested)
+        {
+            logger.LogWarning(ex, "AniList request timed out for chunk {Chunk}", chunk);
+            return (null, "AniList did not respond in time.");
+        }
+    }
+
+    /// <summary>
+    /// Turns a non-success response into something worth showing the user.
+    /// </summary>
+    /// <remarks>
+    /// 404 is the one worth naming: it is what a mistyped username or a list turned
+    /// private looks like, and it is the failure an operator can actually fix.
+    ///
+    /// The measured rate limit is 30 requests a minute, not the documented 90, so
+    /// 429 is real rather than theoretical — though a single on-demand fetch of one
+    /// or two requests is a long way from it. <b>No retry happens here.</b>
+    /// Retrying inside a user-initiated action turns a fast failure into a stall
+    /// they cannot cancel; backoff belongs to the unattended runner in Phase 5c,
+    /// which has somewhere to wait.
+    /// </remarks>
+    private static string DescribeFailure(HttpResponseMessage response) => response.StatusCode switch
+    {
+        HttpStatusCode.NotFound =>
+            "AniList has no such user, or the list is private.",
+
+        HttpStatusCode.TooManyRequests =>
+            response.Headers.RetryAfter?.Delta is { } wait
+                ? $"AniList is rate limiting requests. Try again in {(int)wait.TotalSeconds} seconds."
+                : "AniList is rate limiting requests. Try again shortly.",
+
+        _ => $"AniList returned {(int)response.StatusCode}."
+    };
+
+    /// <summary>
+    /// Reads the paging flag, and nothing else, out of the response.
+    /// </summary>
+    /// <remarks>
+    /// This is the one piece of the body the client looks at, and it is protocol
+    /// rather than content: whether to issue another request. Everything meaningful
+    /// in the payload is the parser's business, in Core, where it is tested without
+    /// a network (D9).
+    ///
+    /// An unreadable body returns false rather than throwing. The parser is about
+    /// to reject it with a message describing what is actually wrong, which is a
+    /// better error than one about paging.
+    /// </remarks>
+    private static bool HasNextChunk(byte[] payload)
+    {
+        try
+        {
+            using var document = JsonDocument.Parse(payload);
+
+            return document.RootElement.TryGetProperty("data", out var data) &&
+                   data.TryGetProperty("MediaListCollection", out var collection) &&
+                   collection.ValueKind == JsonValueKind.Object &&
+                   collection.TryGetProperty("hasNextChunk", out var flag) &&
+                   flag.ValueKind == JsonValueKind.True;
+        }
+        catch (JsonException)
+        {
+            return false;
+        }
+    }
+}

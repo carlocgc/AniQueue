@@ -1,15 +1,45 @@
 using AniQueue.Infrastructure;
 using AniQueue.Infrastructure.Persistence;
 using AniQueue.Infrastructure.Persistence.Seeding;
+using AniQueue.Infrastructure.Sync;
 using AniQueue.Web.Components;
 
 var builder = WebApplication.CreateBuilder(args);
+
+// Operator settings the self-hoster edits from outside the application, kept
+// beside the database in their volume rather than inside the image (D20). The
+// database path is read before this file is added because it is what says where
+// "beside the database" is; everything else, including the path itself for the
+// binding below, can still be overridden by it.
+//
+// reloadOnChange is set, but nothing may depend on it: the file watcher behind it
+// does not reliably fire on Windows-host or network-share bind mounts, so a
+// restart has to apply the file too.
+{
+    var databasePath = builder.Configuration[$"{AniQueueDatabaseOptions.SectionName}:Path"]
+        ?? new AniQueueDatabaseOptions().Path;
+
+    if (Path.GetDirectoryName(databasePath) is { Length: > 0 } dataDirectory)
+    {
+        builder.Configuration.AddJsonFile(
+            Path.Combine(dataDirectory, "userconfig.json"), optional: true, reloadOnChange: true);
+    }
+}
 
 builder.Services.AddRazorComponents()
     .AddInteractiveServerComponents();
 
 builder.Services.AddAniQueuePersistence(options =>
     builder.Configuration.GetSection(AniQueueDatabaseOptions.SectionName).Bind(options));
+
+// Bound to the live section rather than through a delegate, unlike the database
+// options above: this is the half of configuration an operator edits while the
+// application is running, and a section binding is what lets a reload reach the
+// options monitor at all.
+builder.Services.Configure<SyncOptions>(
+    builder.Configuration.GetSection(SyncOptions.SectionName));
+
+builder.Services.AddAniQueueSync();
 
 if (builder.Environment.IsDevelopment())
 {
