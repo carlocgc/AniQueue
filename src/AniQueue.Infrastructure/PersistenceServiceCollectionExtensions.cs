@@ -43,8 +43,13 @@ public static class PersistenceServiceCollectionExtensions
         services.AddScoped<Core.Library.ILibraryService, Library.LibraryService>();
         services.AddScoped<Core.Queue.IQueueService, Queue.QueueService>();
 
-        // Parsers are pure and stateless, so a singleton is sufficient (D9).
-        services.AddSingleton<Core.Import.IAnimeListParser, Core.Import.MyAnimeListXmlParser>();
+        // Parsers are pure and stateless, so a singleton is sufficient (D9), and
+        // they are registered under a key rather than as a bare IAnimeListParser.
+        // An unkeyed second registration would silently rebind the first, and the
+        // symptom would be the import page quietly feeding XML to whichever parser
+        // happened to be registered last.
+        services.AddKeyedSingleton<Core.Import.IAnimeListParser, Core.Import.MyAnimeListXmlParser>(
+            Core.Domain.AnimeSource.MyAnimeList);
 
         return services;
     }

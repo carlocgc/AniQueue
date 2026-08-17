@@ -38,16 +38,28 @@ public sealed class ImportService(
     {
         ArgumentNullException.ThrowIfNull(parser);
 
-        logger.LogInformation("Import preview started using {Format}", parser.FormatName);
-
         progress?.Report(new OperationProgress($"Reading the {parser.FormatName} file"));
 
         var parsed = await parser.ParseAsync(input, cancellationToken);
 
+        return await PreviewAsync(parsed, parser.FormatName, profileId, progress, cancellationToken);
+    }
+
+    public async Task<ImportPreview> PreviewAsync(
+        ParseResult parsed,
+        string formatName,
+        int profileId,
+        IProgress<OperationProgress>? progress = null,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(parsed);
+
+        logger.LogInformation("Import preview started using {Format}", formatName);
+
         if (parsed.IsFileRejected)
         {
-            logger.LogWarning("Import file rejected by {Format} parser", parser.FormatName);
-            return ImportPreview.Rejected(parser.FormatName, parsed.Problems);
+            logger.LogWarning("Import payload rejected by {Format} parser", formatName);
+            return ImportPreview.Rejected(formatName, parsed.Problems);
         }
 
         progress?.Report(new OperationProgress(
@@ -86,7 +98,7 @@ public sealed class ImportService(
 
         var preview = new ImportPreview
         {
-            FormatName = parser.FormatName,
+            FormatName = formatName,
             Items = items,
             Problems = parsed.Problems
         };

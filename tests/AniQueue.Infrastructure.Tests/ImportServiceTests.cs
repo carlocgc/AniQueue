@@ -586,34 +586,4 @@ public class ImportServiceTests
         Assert.Equal(1, result.Created);
     }
 
-    private sealed class ImportFixture : IAsyncDisposable
-    {
-        public required SqliteTestDatabase Database { get; init; }
-
-        public required IImportService Service { get; init; }
-
-        public static async Task<ImportFixture> CreateAsync()
-        {
-            var database = await SqliteTestDatabase.CreateAsync();
-
-            await new DatabaseInitializer(
-                database.ContextFactory,
-                Options.Create(new AniQueueDatabaseOptions { Path = ":memory:" }),
-                NullLogger<DatabaseInitializer>.Instance).InitialiseAsync();
-
-            return new ImportFixture
-            {
-                Database = database,
-                // The real queue service, not a stub: committing an import advances
-                // the queue (D12), and that is behaviour worth exercising here
-                // rather than mocking away.
-                Service = new ImportService(
-                    database.ContextFactory,
-                    new QueueService(database.ContextFactory, NullLogger<QueueService>.Instance),
-                    NullLogger<ImportService>.Instance)
-            };
-        }
-
-        public ValueTask DisposeAsync() => Database.DisposeAsync();
-    }
 }
