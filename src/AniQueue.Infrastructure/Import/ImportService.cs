@@ -145,6 +145,15 @@ public sealed class ImportService(
         // import at the final save.
         var written = new HashSet<ExternalIdentifier>();
 
+        // Who outranks whom, for titles two sources both describe (D18). Usually
+        // empty — nothing configures a source until Phase 5b — and an empty map
+        // means precedence never fires, so the single-tracker case behaves exactly
+        // as it did before this existed.
+        var precedence = await context.SourceSyncSettings
+            .AsNoTracking()
+            .Where(s => s.ProfileId == profileId)
+            .ToDictionaryAsync(s => s.Source, s => s.PrecedenceRank, cancellationToken);
+
         foreach (var item in preview.Items)
         {
             processed++;
@@ -177,7 +186,7 @@ public sealed class ImportService(
                     }
 
                     await EnsureIdentifiersAsync(context, linked, item.Entry, written, cancellationToken);
-                    await UpsertLibraryEntryAsync(context, profileId, linked.Id, item.Entry, now, cancellationToken);
+                    await UpsertLibraryEntryAsync(context, profileId, linked.Id, item.Entry, now, precedence, cancellationToken);
                     updated++;
                     continue;
                 }
@@ -204,7 +213,7 @@ public sealed class ImportService(
             }
 
             await EnsureIdentifiersAsync(context, anime, item.Entry, written, cancellationToken);
-            await UpsertLibraryEntryAsync(context, profileId, anime.Id, item.Entry, now, cancellationToken);
+            await UpsertLibraryEntryAsync(context, profileId, anime.Id, item.Entry, now, precedence, cancellationToken);
         }
 
         progress?.Report(new OperationProgress("Committing the transaction"));
@@ -653,6 +662,7 @@ public sealed class ImportService(
         int animeId,
         ParsedLibraryEntry parsed,
         DateTimeOffset now,
+        IReadOnlyDictionary<AnimeSource, int> precedence,
         CancellationToken cancellationToken)
     {
         var entry = await context.LibraryEntries
@@ -670,10 +680,21 @@ public sealed class ImportService(
             context.LibraryEntries.Add(entry);
         }
 
+        entry.LastUpdated = now;
+
+        if (!MayWriteTracking(parsed.Source, entry.LastWrittenBySource, precedence))
+        {
+            // A lower-ranked source has nothing to say about what the user watched
+            // (D18). It still reached here, and its catalogue metadata has already
+            // been applied — precedence guards the user's tracking data, not facts
+            // about the title.
+            return;
+        }
+
         entry.Status = parsed.Status;
         entry.EpisodesWatched = parsed.EpisodesWatched;
         entry.UserScore = parsed.UserScore;
-        entry.LastUpdated = now;
+        entry.LastWrittenBySource = parsed.Source;
 
         // A source that has no date must not clear one already known.
         entry.DateStarted = parsed.DateStarted ?? entry.DateStarted;
@@ -682,6 +703,43 @@ public sealed class ImportService(
         // Deliberately untouched: PersonalNotes, IsHidden and every
         // Recommendation* field, along with queue membership and franchise grouping
         // held on other tables. These are the user's work, not the source's.
+    }
+
+    /// <summary>
+    /// Whether <paramref name="incoming"/> may overwrite tracking data that
+    /// <paramref name="lastWriter"/> recorded (D18).
+    /// </summary>
+    /// <remarks>
+    /// Permissive by default, and deliberately so. Precedence only decides
+    /// contested rows — where two different sources both describe one title *and*
+    /// both have been given a rank. Anything else is allowed through, which is what
+    /// makes this inert for the single-tracker setup D13 optimises for: the
+    /// behaviour is identical to unconditional last-writer-wins until someone
+    /// configures a second source.
+    /// </remarks>
+    private static bool MayWriteTracking(
+        AnimeSource incoming,
+        AnimeSource? lastWriter,
+        IReadOnlyDictionary<AnimeSource, int> precedence)
+    {
+        if (lastWriter is not { } previous || previous == incoming)
+        {
+            return true;
+        }
+
+        // An unranked source is not outranked by anything. Silently treating a
+        // missing rank as "lowest" would make a first sync unable to write
+        // anything, which is the opposite of the intent.
+        if (!precedence.TryGetValue(incoming, out var incomingRank) ||
+            !precedence.TryGetValue(previous, out var previousRank))
+        {
+            return true;
+        }
+
+        // Lower rank wins; equal ranks fall back to last-writer-wins, because two
+        // sources the user has declared equally authoritative give no grounds to
+        // prefer either.
+        return incomingRank <= previousRank;
     }
 
     private sealed record AnimeSnapshot(
