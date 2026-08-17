@@ -118,6 +118,11 @@ free to avoid at the start.
 
 ### D4 — Recommendation history needs per-run items
 
+> **Superseded in part by D16.** A run item references one anime; the nullable
+> `FranchiseId` below is gone. The rest of this entry — run plus per-candidate items, no
+> persisted request payloads, `LibraryEntry` as the applied-run cache — stands, and it is
+> that cache which forced D16.
+
 *Brief §20 is internally inconsistent.* It says store run metadata and avoid duplicating
 request data, then requires comparing the current recommendation set against a previous
 one. Metadata alone cannot support that comparison.
@@ -416,6 +421,42 @@ most rows; and the queue has its own lifecycle. The conclusion survives its orig
 (D4), so Phase 9 could rank a franchise against individual titles — the same granularity
 mismatch in the recommendation surface. It is not changed here because it is a question about
 D11's model rather than the queue's, and it should be argued on its own terms before Phase 9.
+**Settled by D16, in the affirmative.**
+
+### D16 — A ranked candidate is a title. It cannot be a franchise.
+
+*Settles the question D15 left open, and supersedes part of D4.* `RecommendationRunItem`
+references exactly one anime; the nullable `FranchiseId` and its exclusive-or check
+constraint are removed.
+
+D15's granularity argument carries over unchanged — ranking a twelve-season group against a
+single film compares a project to an evening. But the decisive reason is narrower and does
+not depend on taste at all:
+
+**A franchise ranking had nowhere to be applied.** Applying a run caches its result on
+`LibraryEntry.Recommendation*`, which is what makes sorting the backlog by AI score a
+single-table query (D4). A franchise has no `LibraryEntry` row. So a franchise placement
+could be *stored* and never *applied* — the column permitted a row that the write path
+structurally could not consume.
+
+This was not a hypothetical. The one existing implementation of applying a run filtered its
+items with `Where(i => i.AnimeId is not null)`, discarding franchise placements as its first
+act. A field whose every consumer must skip it is not extensibility; it is an invitation to a
+bug in Phase 9, where an imported ranking containing franchises would validate, persist,
+report success, and change nothing.
+
+Nothing produced such a row — not the seeder, not any test — so removal loses no behaviour.
+
+**Consequence for Phase 9, stated plainly:** the AI ranks titles. If a user wants a
+franchise's seasons ranked, they are ranked individually, which is also the only form in
+which the result can be displayed or sorted. This costs nothing real: D11 already builds the
+candidate set from the user's library, and every candidate in it is a `LibraryEntry`, so
+franchises were never going to appear there in the first place.
+
+**Not changed:** `Anime.FranchiseId`, `FranchiseOrder`, `OptionalWithinFranchise` and the
+`Franchise` entity all stand. Franchises remain a grouping, a backlog collapse and a queueing
+action (D15) — they are simply not a unit of ranking, exactly as they are not a unit of
+watching.
 
 ---
 
@@ -509,7 +550,9 @@ constraint. Queueing a franchise appends its titles individually (D15).
 
 Run: `Id, ProfileId, CreatedAt, ProviderName, ModelIdentifier?, CompletedCount,
 CandidateCount, ResultCount, WasApplied`
-Item: `Id, RunId, AnimeId?, FranchiseId?, Rank, PredictedScore, Confidence, Reason?`
+Item: `Id, RunId, AnimeId, Rank, PredictedScore, Confidence, Reason?` — one title per
+placement, never a franchise (D16). Check constraints keep `Rank >= 1` and `Confidence`
+within 0.0–1.0, because these values arrive from an external model.
 
 ### Profile / ProfileSettings
 
@@ -693,10 +736,24 @@ Grouping may now be proposed from the relation data Phase 5 supplies, which is w
 waiting for. Proposals are still confirmed by the user; nothing is grouped silently.
 
 ### Phase 7 — Dashboard and decision mode
-Currently Watching with progress bars, Up Next top 5–10 with a prominent Start Watching,
-backlog summary counts and estimated runtime, Suggested Next. "What should I watch?":
-Anything / Something short / A movie / One evening / Old-school / From my top 20 / Surprise
-me. Surprise me uses **weighted randomness**, not the top-ranked title. No conversational UI.
+Currently Watching with progress bars, Up Next top 5–10, backlog summary counts and
+estimated runtime, Suggested Next. "What should I watch?": Anything / Something short /
+A movie / One evening / Old-school / From my top 20 / Surprise me. Surprise me uses
+**weighted randomness**, not the top-ranked title. No conversational UI.
+
+**No Start Watching button**, here or anywhere. An earlier version of this phase promised one
+prominently; D12 removed the action and this description was not updated with it. Recorded
+explicitly so it is not reinstated by someone reading the brief's §22 in isolation: starting
+a show is observed, not declared, and the queue advances on the next sync.
+
+**Open question, deliberately not answered yet.** That leaves the decision moment with no
+interaction in it — the user reads the top of Up Next and leaves the application. Whether
+that is finished or merely unfinished is a real product question, and the cheapest candidate
+answer already exists as a stretch goal: the per-provider search links in §10, so the top
+item can offer "watch on Plex" or "request on Overseerr". That is a link, not an
+integration, and it keeps D11 and D12 intact — AniQueue decides what to watch and hands off
+the how. It is **not** committed here; it is written down so the gap is visible rather than
+discovered late.
 
 ### Phase 8 — JSON interchange
 Versioned AniQueue interchange format, import and export, validation, backwards-compatible

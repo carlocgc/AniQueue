@@ -1,4 +1,5 @@
 using AniQueue.Core.Domain;
+using AniQueue.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 
 namespace AniQueue.Infrastructure.Tests;
@@ -68,6 +69,81 @@ public class ConstraintTests
 
         var slot = await context.QueueItems.SingleAsync();
         Assert.Equal(anime.Id, slot.AnimeId);
+    }
+
+    /// <summary>
+    /// Values on a run item come from an external model, which §6 treats as untrusted
+    /// data. These constraints are the last line if validation upstream ever has a
+    /// gap, so they are worth asserting rather than assuming — the entity had no
+    /// coverage at all until D16 touched its configuration.
+    /// </summary>
+    [Theory]
+    [InlineData(0, 0.5)]      // rank must be 1-based
+    [InlineData(-1, 0.5)]
+    [InlineData(1, -0.1)]     // confidence is a probability
+    [InlineData(1, 1.5)]
+    public async Task A_run_item_outside_the_permitted_ranges_is_rejected(int rank, double confidence)
+    {
+        await using var database = await SqliteTestDatabase.CreateAsync();
+        await using var context = database.CreateContext();
+
+        var (run, anime) = await CreateRunAsync(context);
+
+        run.Items.Add(new RecommendationRunItem
+        {
+            AnimeId = anime.Id,
+            Rank = rank,
+            PredictedScore = 8.0,
+            Confidence = confidence
+        });
+
+        await Assert.ThrowsAsync<DbUpdateException>(() => context.SaveChangesAsync());
+    }
+
+    [Fact]
+    public async Task A_valid_run_item_is_stored_against_its_title()
+    {
+        // Since D16 a placement is always one title; there is no franchise variant
+        // and no exclusive-or constraint to satisfy.
+        await using var database = await SqliteTestDatabase.CreateAsync();
+        await using var context = database.CreateContext();
+
+        var (run, anime) = await CreateRunAsync(context);
+
+        run.Items.Add(new RecommendationRunItem
+        {
+            AnimeId = anime.Id,
+            Rank = 1,
+            PredictedScore = 8.4,
+            Confidence = 0.75,
+            Reason = "Matches your comedy history"
+        });
+
+        await context.SaveChangesAsync();
+
+        var stored = await context.Set<RecommendationRunItem>().SingleAsync();
+        Assert.Equal(anime.Id, stored.AnimeId);
+        Assert.Equal(1, stored.Rank);
+    }
+
+    private static async Task<(RecommendationRun Run, Anime Anime)> CreateRunAsync(AniQueueDbContext context)
+    {
+        var profile = await SeedData.CreateProfileAsync(context);
+        var anime = await SeedData.CreateAnimeAsync(context, "Nichijou");
+
+        var run = new RecommendationRun
+        {
+            ProfileId = profile.Id,
+            CreatedAt = DateTimeOffset.UtcNow,
+            ProviderName = "ManualJson",
+            CandidateCount = 1,
+            ResultCount = 1
+        };
+
+        context.RecommendationRuns.Add(run);
+        await context.SaveChangesAsync();
+
+        return (run, anime);
     }
 
     [Fact]
