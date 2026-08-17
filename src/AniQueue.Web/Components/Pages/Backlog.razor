@@ -420,9 +420,7 @@ else
             $"Adding {ids.Count} to Up Next",
             progress => QueueService.AddAnimeAsync(Profile.DefaultProfileId, ids, progress));
 
-        _actionMessage = result.AlreadyQueued > 0
-            ? $"Added {result.Added} to Up Next; {result.AlreadyQueued} were already there."
-            : $"Added {result.Added} to Up Next.";
+        _actionMessage = QueueAddText(result);
 
         await AfterBulkActionAsync();
     }
@@ -450,6 +448,47 @@ else
         // appearing for the first time, changes which controls should be offered.
         Facets = await LibraryService.GetFacetsAsync(Profile.DefaultProfileId);
         Page = await LibraryService.GetPageAsync(Profile.DefaultProfileId, _query);
+    }
+
+    /// <summary>
+    /// Reports what was added, and accounts for anything that was not.
+    /// </summary>
+    /// <remarks>
+    /// Every reason is named. Selecting eight titles and being told five were added
+    /// leaves the user to guess at the other three, and the likeliest guess — that
+    /// the application dropped them — is the wrong one. This is reachable in normal
+    /// use: the status filter widens the backlog past Planning, and Up Next only
+    /// holds what is still planned.
+    /// </remarks>
+    private static string QueueAddText(QueueAddResult result)
+    {
+        var added = result.Added == 1
+            ? "Added one title to Up Next."
+            : $"Added {result.Added} titles to Up Next.";
+
+        if (result.Skipped == 0)
+        {
+            return added;
+        }
+
+        var reasons = new List<string>();
+
+        if (result.AlreadyQueued > 0)
+        {
+            reasons.Add($"{result.AlreadyQueued} already there");
+        }
+
+        if (result.NoLongerPlanned > 0)
+        {
+            reasons.Add($"{result.NoLongerPlanned} already started or finished");
+        }
+
+        if (result.Unavailable > 0)
+        {
+            reasons.Add($"{result.Unavailable} no longer in your library");
+        }
+
+        return $"{added} Skipped {result.Skipped}: {string.Join(", ", reasons)}.";
     }
 
     private static string Active(bool isActive) => isActive ? "active" : string.Empty;

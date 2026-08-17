@@ -43,8 +43,8 @@ public sealed class LibraryService(
         // by design, and a set lookup beats a correlated subquery per entry.
         var queued = await context.QueueItems
             .AsNoTracking()
-            .Where(q => q.ProfileId == profileId && q.AnimeId != null)
-            .Select(q => q.AnimeId!.Value)
+            .Where(q => q.ProfileId == profileId)
+            .Select(q => q.AnimeId)
             .ToListAsync(cancellationToken);
 
         var queuedIds = queued.ToHashSet();
