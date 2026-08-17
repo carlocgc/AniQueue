@@ -1,3 +1,4 @@
+using System.Globalization;
 using AniQueue.Core.Domain;
 using AniQueue.Core.Library;
 using AniQueue.Infrastructure.Library;
@@ -74,7 +75,8 @@ public class LibraryServiceTests
                 new AnimeExternalId
                 {
                     Source = source,
-                    ExternalId = sourceId ?? Random.Shared.Next(100_000, 999_999).ToString()
+                    ExternalId = sourceId
+                        ?? Random.Shared.Next(100_000, 999_999).ToString(CultureInfo.InvariantCulture)
                 }
             ],
             FranchiseId = franchiseId,

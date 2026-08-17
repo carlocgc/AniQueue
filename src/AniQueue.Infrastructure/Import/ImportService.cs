@@ -300,7 +300,7 @@ public sealed class ImportService(
     private static ImportPreviewItem BuildPreviewItem(
         ParsedLibraryEntry entry,
         MatchCandidates library,
-        IReadOnlyDictionary<ExternalIdentifier, string> claimed)
+        Dictionary<ExternalIdentifier, string> claimed)
     {
         if (entry.ExternalIds.Count > 0)
         {

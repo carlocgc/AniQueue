@@ -1804,6 +1804,15 @@ stated here rather than quietly reported as done.
   the tooling builds the model through the startup project's DI — with `PrivateAssets=all`
   so it never reaches the published output.
 
+  **The scaffolder writes CRLF on Windows**, including the model snapshot it rewrites every
+  time. `.gitattributes` normalises that on commit, so the repository stays clean, but the
+  working tree does not — which contradicts §12's rule that LF applies in both. Strip it after
+  scaffolding rather than letting three files drift per migration:
+
+  ```bash
+  git ls-files | while read -r f; do tr -dc '\r' < "$f" | wc -c | grep -qv '^0$' && tr -d '\r' < "$f" > "$f.tmp" && mv "$f.tmp" "$f"; done
+  ```
+
 - **The development database lands under the Web project, not the repository root.**
   `Database:Path` is `./data/aniqueue.db` in `appsettings.Development.json`, and a relative
   path resolves against the app's *content root*, so the file appears at
