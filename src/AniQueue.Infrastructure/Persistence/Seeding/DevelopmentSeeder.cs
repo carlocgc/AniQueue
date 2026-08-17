@@ -210,7 +210,10 @@ public sealed class DevelopmentSeeder(
         RecommendationRun run,
         CancellationToken cancellationToken)
     {
-        foreach (var item in run.Items.Where(i => i.AnimeId is not null))
+        // Every item is a title, so there is nothing to filter out. This used to skip
+        // items with no AnimeId — which was the franchise case, and the fact that
+        // applying a run had to discard those is what D16 acted on.
+        foreach (var item in run.Items)
         {
             var entry = await context.LibraryEntries
                 .FirstOrDefaultAsync(e => e.AnimeId == item.AnimeId, cancellationToken);

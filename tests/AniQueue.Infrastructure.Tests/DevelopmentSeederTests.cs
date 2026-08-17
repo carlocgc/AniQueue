@@ -100,7 +100,11 @@ public class DevelopmentSeederTests
         var run = await context.RecommendationRuns.Include(r => r.Items).SingleAsync();
         Assert.True(run.WasApplied);
 
-        foreach (var item in run.Items.Where(i => i.AnimeId is not null))
+        // No filtering: every ranked item is a title now, so every one of them must
+        // have been mirrored. Skipping any was previously unavoidable (D16).
+        Assert.NotEmpty(run.Items);
+
+        foreach (var item in run.Items)
         {
             var entry = await context.LibraryEntries.SingleAsync(e => e.AnimeId == item.AnimeId);
 

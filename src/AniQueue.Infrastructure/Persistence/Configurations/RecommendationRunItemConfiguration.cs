@@ -20,16 +20,10 @@ public class RecommendationRunItemConfiguration : IEntityTypeConfiguration<Recom
             .HasForeignKey(i => i.AnimeId)
             .OnDelete(DeleteBehavior.Cascade);
 
-        builder
-            .HasOne(i => i.Franchise)
-            .WithMany()
-            .HasForeignKey(i => i.FranchiseId)
-            .OnDelete(DeleteBehavior.Cascade);
-
-        // Same exclusive-or rule as QueueItem: a ranked candidate is one thing.
-        builder.ToTable(t => t.HasCheckConstraint(
-            "CK_RecommendationRunItems_AnimeXorFranchise",
-            "(\"AnimeId\" IS NULL) <> (\"FranchiseId\" IS NULL)"));
+        // No franchise reference and no exclusive-or constraint: a ranked candidate
+        // is always one title (D16). A franchise placement had nowhere to be applied
+        // to, because applying a run caches onto LibraryEntry and a franchise has no
+        // LibraryEntry row.
 
         // These arrive from an external model. Range-checking at the database
         // boundary means a validation gap upstream cannot persist nonsense.
