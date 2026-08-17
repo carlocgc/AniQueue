@@ -693,10 +693,24 @@ Grouping may now be proposed from the relation data Phase 5 supplies, which is w
 waiting for. Proposals are still confirmed by the user; nothing is grouped silently.
 
 ### Phase 7 — Dashboard and decision mode
-Currently Watching with progress bars, Up Next top 5–10 with a prominent Start Watching,
-backlog summary counts and estimated runtime, Suggested Next. "What should I watch?":
-Anything / Something short / A movie / One evening / Old-school / From my top 20 / Surprise
-me. Surprise me uses **weighted randomness**, not the top-ranked title. No conversational UI.
+Currently Watching with progress bars, Up Next top 5–10, backlog summary counts and
+estimated runtime, Suggested Next. "What should I watch?": Anything / Something short /
+A movie / One evening / Old-school / From my top 20 / Surprise me. Surprise me uses
+**weighted randomness**, not the top-ranked title. No conversational UI.
+
+**No Start Watching button**, here or anywhere. An earlier version of this phase promised one
+prominently; D12 removed the action and this description was not updated with it. Recorded
+explicitly so it is not reinstated by someone reading the brief's §22 in isolation: starting
+a show is observed, not declared, and the queue advances on the next sync.
+
+**Open question, deliberately not answered yet.** That leaves the decision moment with no
+interaction in it — the user reads the top of Up Next and leaves the application. Whether
+that is finished or merely unfinished is a real product question, and the cheapest candidate
+answer already exists as a stretch goal: the per-provider search links in §10, so the top
+item can offer "watch on Plex" or "request on Overseerr". That is a link, not an
+integration, and it keeps D11 and D12 intact — AniQueue decides what to watch and hands off
+the how. It is **not** committed here; it is written down so the gap is visible rather than
+discovered late.
 
 ### Phase 8 — JSON interchange
 Versioned AniQueue interchange format, import and export, validation, backwards-compatible
