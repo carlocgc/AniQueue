@@ -40,6 +40,10 @@ public static class SyncServiceCollectionExtensions
         // contexts through the factory (D3) and holds nothing between calls.
         services.AddScoped<ISyncService, Sync.SyncService>();
 
+        // Runs once at startup, writing the settings file this section's options are
+        // read from if the operator has none yet (D20).
+        services.AddScoped<Sync.UserConfigTemplate>();
+
         return services;
     }
 

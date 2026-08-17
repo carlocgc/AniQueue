@@ -725,6 +725,29 @@ fails for Unraid users.
 **Do not depend on live reload.** The file watcher behind `reloadOnChange` does not reliably
 fire on Windows-host or network-share bind mounts, so a restart must apply the file too.
 
+**The file is written on first boot, and everything in it is commented out.** A settings file
+nobody knows exists is a poor escape hatch, and "create it yourself, in the right place, with the
+right key names" is worse — so startup leaves a template naming every key it accepts. Three
+properties make it safe rather than merely helpful, and all three are load-bearing:
+
+- **It configures nothing.** The file is added *last*, so a key it sets beats the same key from
+  an environment variable. A template shipping real values would therefore override the
+  `Sync__AniList__UserName` an operator set in their compose file, on a machine where nobody had
+  opened the file. Commented out, it can only take effect once somebody uncomments a line — an
+  act that carries the intent to override.
+- **One line per setting, written as a full `Sync:AniList:UserName` path.** The JSON provider
+  reads a property name containing colons as the whole key, so this means the same as the nested
+  spelling. Uncommenting a line out of a *nested* block leaves its closing braces behind, and a
+  malformed settings file stops AniQueue from starting — a poor property for the file an operator
+  edits when something is already wrong.
+- **It never overwrites and never fails the boot.** An existing file is the operator's work,
+  including one they emptied deliberately. §9's non-root container writing to a root-owned bind
+  mount cannot create it at all, and refusing to start over an unwritable convenience file would
+  turn a hint into an outage, so failure is a logged warning.
+
+`Database:Path` is deliberately not offered in it: the file is found by looking beside the
+database, so a path set there could not be read until it was already in use.
+
 **Per-source settings do not belong on `ProfileSettings`.** They are keyed
 `(ProfileId, Source)`, so they get their own entity — which is also where D18's precedence rank
 and D19's absence policy live.

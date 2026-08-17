@@ -15,15 +15,15 @@ var builder = WebApplication.CreateBuilder(args);
 // reloadOnChange is set, but nothing may depend on it: the file watcher behind it
 // does not reliably fire on Windows-host or network-share bind mounts, so a
 // restart has to apply the file too.
-{
-    var databasePath = builder.Configuration[$"{AniQueueDatabaseOptions.SectionName}:Path"]
-        ?? new AniQueueDatabaseOptions().Path;
+var databasePath = builder.Configuration[$"{AniQueueDatabaseOptions.SectionName}:Path"]
+    ?? new AniQueueDatabaseOptions().Path;
 
-    if (Path.GetDirectoryName(databasePath) is { Length: > 0 } dataDirectory)
-    {
-        builder.Configuration.AddJsonFile(
-            Path.Combine(dataDirectory, "userconfig.json"), optional: true, reloadOnChange: true);
-    }
+var dataDirectory = Path.GetDirectoryName(databasePath);
+
+if (!string.IsNullOrEmpty(dataDirectory))
+{
+    builder.Configuration.AddJsonFile(
+        Path.Combine(dataDirectory, UserConfigTemplate.FileName), optional: true, reloadOnChange: true);
 }
 
 builder.Services.AddRazorComponents()
@@ -102,6 +102,22 @@ catch (Exception ex)
     app.Services.GetRequiredService<ILogger<Program>>()
         .LogCritical(ex, "Database initialisation failed; AniQueue cannot start");
     return 1;
+}
+
+// Leave the operator a settings file to find, once the volume is known to be
+// usable (D20). Deliberately after the database work rather than beside the
+// configuration wiring above: the directory exists by now, and a template written
+// before the schema was proved would be a file left behind by a failed start.
+//
+// It configures nothing — every key in it is commented out — so it does not
+// matter that this run has already read its configuration.
+if (!string.IsNullOrEmpty(dataDirectory))
+{
+    using var scope = app.Services.CreateScope();
+
+    await scope.ServiceProvider
+        .GetRequiredService<UserConfigTemplate>()
+        .EnsureExistsAsync(dataDirectory, app.Lifetime.ApplicationStopping);
 }
 
 if (!app.Environment.IsDevelopment())
