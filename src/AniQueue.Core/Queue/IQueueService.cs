@@ -6,17 +6,10 @@ namespace AniQueue.Core.Queue;
 
 /// <summary>What adding to the queue did.</summary>
 /// <param name="Added">Slots created.</param>
-/// <param name="AlreadyQueued">Entries skipped because they already had a slot.</param>
+/// <param name="AlreadyQueued">Titles skipped because they already had a slot.</param>
 public sealed record QueueAddResult(int Added, int AlreadyQueued);
 
-/// <summary>
-/// One slot as the Up Next page shows it.
-///
-/// A slot holds either a title or a whole franchise (D1), so roughly half these
-/// properties apply to any given row. That is preferred here over two record types
-/// and a discriminated read at every call site: the page renders one ordered list
-/// in one loop, and splitting the type would split the loop for no gain.
-/// </summary>
+/// <summary>One slot as the Up Next page shows it: a single title, in a position.</summary>
 public sealed record QueueListItem
 {
     public required int QueueItemId { get; init; }
@@ -24,29 +17,9 @@ public sealed record QueueListItem
     /// <summary>Zero-based; the UI shows <c>Position + 1</c>.</summary>
     public required int Position { get; init; }
 
-    /// <summary>The anime's title, or the franchise's name.</summary>
+    public required int AnimeId { get; init; }
+
     public required string Title { get; init; }
-
-    public int? AnimeId { get; init; }
-
-    public int? FranchiseId { get; init; }
-
-    public bool IsFranchise => FranchiseId is not null;
-
-    /// <summary>Total minutes to watch, or null when it cannot be known.</summary>
-    /// <remarks>
-    /// Supplied by the service rather than derived here: a franchise's runtime is a
-    /// sum over its members, which is not reconstructable from one row.
-    /// </remarks>
-    public int? EstimatedRuntimeMinutes { get; init; }
-
-    /// <summary>
-    /// True when the runtime above omits entries whose length is unknown. A total
-    /// built from half a franchise is misleading unless the UI can say so.
-    /// </summary>
-    public bool IsRuntimePartial { get; init; }
-
-    // --- Title slots -----------------------------------------------------
 
     public MediaType MediaType { get; init; }
 
@@ -54,7 +27,7 @@ public sealed record QueueListItem
 
     public int? ReleaseYear { get; init; }
 
-    /// <summary>Null for a franchise slot, which has no single status.</summary>
+    /// <summary>Null when the title has no library entry, which should not happen.</summary>
     public LibraryStatus? Status { get; init; }
 
     public int EpisodesWatched { get; init; }
@@ -63,27 +36,30 @@ public sealed record QueueListItem
 
     public string? SourceAnimeId { get; init; }
 
-    /// <summary>Link out to the site this title came from, if there is one.</summary>
-    public SourceLink? SourceLink =>
-        IsFranchise ? null : SourceLinkBuilder.ForAnime(Source, SourceAnimeId);
-
-    // --- Franchise slots -------------------------------------------------
-
-    /// <summary>Titles in the franchise.</summary>
-    public int EntryCount { get; init; }
-
     /// <summary>
-    /// How many of them are finished. Optional entries (<see
-    /// cref="Anime.OptionalWithinFranchise"/>) are counted like any other here;
-    /// treating them as skippable is part of Phase 5's completion maths, and
-    /// anticipating it would mean two definitions of "done" in the codebase at
-    /// once.
+    /// The franchise this title belongs to, if any.
     /// </summary>
-    public int CompletedEntryCount { get; init; }
+    /// <remarks>
+    /// Carried so the queue can badge the seasons of one franchise as visibly
+    /// related. That badge is the whole of a franchise's presence here now: the
+    /// rows are grouped to the eye, and independent to the ordering (D15).
+    /// </remarks>
+    public string? FranchiseName { get; init; }
+
+    /// <summary>Estimated minutes to watch, or null when it cannot be known.</summary>
+    public int? EstimatedRuntimeMinutes { get; init; }
+
+    /// <summary>Link out to the site this title came from, if there is one.</summary>
+    public SourceLink? SourceLink => SourceLinkBuilder.ForAnime(Source, SourceAnimeId);
 }
 
-/// <summary>A franchise that could be queued, for the add control.</summary>
-public sealed record QueueableFranchise(int FranchiseId, string Name, int EntryCount);
+/// <summary>A franchise with titles that could be queued, for the add control.</summary>
+/// <param name="QueueableCount">
+/// How many titles queueing it would actually add — its members that are still
+/// planned, not already queued, and not optional. Shown rather than the total
+/// membership, because that is the number the click will produce.
+/// </param>
+public sealed record QueueableFranchise(int FranchiseId, string Name, int QueueableCount);
 
 /// <summary>
 /// The manually ordered Up Next queue: the list of what to watch next, in the
@@ -96,6 +72,9 @@ public sealed record QueueableFranchise(int FranchiseId, string Name, int EntryC
 /// collide against itself mid-transaction. Every mutation here therefore runs in
 /// one transaction and rewrites positions from the resulting order, which also
 /// repairs a queue that arrived non-contiguous for any other reason.
+///
+/// Every slot is a single title (D15). Franchises are queued by expansion, not by
+/// occupying a slot of their own.
 /// </summary>
 public interface IQueueService
 {
@@ -118,11 +97,29 @@ public interface IQueueService
         CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Appends whole franchises to the end of the queue, on the same terms.
+    /// Queues a franchise by appending its titles individually, in viewing order.
     /// </summary>
-    Task<QueueAddResult> AddFranchisesAsync(
+    /// <remarks>
+    /// This is D15's mechanic, and the reason a franchise needs no slot type of its
+    /// own. One click still expresses one decision — "I want to watch Slayers" —
+    /// but what lands in the queue is a run of things the user can actually sit
+    /// down to, each independently orderable. Putting a film between two seasons
+    /// becomes an ordinary drag rather than something the model forbids.
+    ///
+    /// Three filters, in order: members still <see cref="LibraryStatus.Planning"/>,
+    /// because there is no point queueing what has been watched; members not
+    /// already queued, so re-adding after a new season syncs adds only the new one;
+    /// and, unless <paramref name="includeOptional"/> is set, members not marked
+    /// <see cref="Anime.OptionalWithinFranchise"/> — the specials and side films the
+    /// user has said are skippable.
+    ///
+    /// Ordering is by <see cref="Anime.FranchiseOrder"/>, with unsequenced members
+    /// last and a title tiebreak, so the run is watchable top to bottom.
+    /// </remarks>
+    Task<QueueAddResult> AddFranchiseAsync(
         int profileId,
-        IReadOnlyCollection<int> franchiseIds,
+        int franchiseId,
+        bool includeOptional = false,
         CancellationToken cancellationToken = default);
 
     /// <summary>Which of the profile's titles already occupy a queue slot.</summary>
@@ -130,9 +127,10 @@ public interface IQueueService
         int profileId,
         CancellationToken cancellationToken = default);
 
-    /// <summary>Franchises with at least one title, excluding those already queued.</summary>
+    /// <summary>Franchises that would actually add something, and how much.</summary>
     Task<IReadOnlyList<QueueableFranchise>> GetQueueableFranchisesAsync(
         int profileId,
+        bool includeOptional = false,
         CancellationToken cancellationToken = default);
 
     /// <summary>
@@ -159,6 +157,11 @@ public interface IQueueService
     /// queue, not of any one way of learning about a status change. Import calls it
     /// today; the Phase 5 sync will call the same method, and changes only how often
     /// it runs.
+    ///
+    /// Since D15 every slot is one title, so the rule is simply per title — watch
+    /// the second season of something and only that row leaves, with the third
+    /// rising to meet you. The bespoke "release a franchise once nothing in it is
+    /// still planned" rule this needed under the old model is gone.
     ///
     /// Idempotent, and safe to call when nothing has changed.
     /// </remarks>

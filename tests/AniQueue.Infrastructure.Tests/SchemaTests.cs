@@ -30,9 +30,9 @@ public class SchemaTests
     [InlineData("IX_LibraryEntries_ProfileId_AnimeId")]
     // Queue ordering reads (D2 — intentionally not unique).
     [InlineData("IX_QueueItems_ProfileId_Position")]
-    // Nothing may occupy two queue slots.
+    // No title may occupy two queue slots. Since D15 a slot is always one title,
+    // so this index is no longer filtered and there is no franchise counterpart.
     [InlineData("IX_QueueItems_ProfileId_AnimeId")]
-    [InlineData("IX_QueueItems_ProfileId_FranchiseId")]
     public async Task Expected_index_exists(string indexName)
     {
         await using var database = await SqliteTestDatabase.CreateAsync();

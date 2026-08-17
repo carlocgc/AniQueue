@@ -403,6 +403,15 @@ tbody tr.selected { background: var(--surface-alt); }
 
 .queue tr.drag-chosen { background: var(--surface-alt); }
 
+/* Checkbox and its label as one target, aligned with the controls beside it. */
+.inline-check {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    color: var(--text-muted);
+    cursor: pointer;
+}
+
 .queue-actions { display: flex; gap: 0.15rem; }
 
 /* Square, so five of them fit a row without the actions column dominating the

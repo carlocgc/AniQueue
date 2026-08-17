@@ -76,6 +76,11 @@ Numbered so they can be cited in code comments, PRs and future amendments.
 
 ### D1 — The queue gets its own table; `LibraryEntry.QueuePosition` is dropped
 
+> **Superseded in part by D15.** A franchise no longer occupies a queue slot, so the
+> exclusive-or below is gone and `QueueItem.AnimeId` is required. The conclusion — a separate
+> table — still stands, for the different reasons D15 gives. The rest of this entry is kept
+> as the record of why the queue was modelled this way first.
+
 *Brief §4 vs §5 contradict each other.* §4 puts `QueuePosition` on `LibraryEntry`; §5
 requires that an anime **or an entire franchise** can occupy a queue slot. There is no
 `LibraryEntry` row for a franchise, so a nullable int on that table structurally cannot
@@ -319,6 +324,80 @@ Two details worth keeping in mind when removing anything similar:
   entries sharing a value; with priority gone it sorted unique titles and would have passed
   without exercising the tiebreak at all. It was re-pointed at a sort that genuinely collides.
 
+### D15 — A franchise groups titles and queues them. It is not a queue item.
+
+*Reverses the central claim of D1, and declines §262 of the brief — while still meeting the
+acceptance criterion that rested on it.*
+
+The brief (§262) allows "an anime **or** an entire franchise" to occupy a queue slot, and D1
+built the schema around it: a dedicated `QueueItem` table with an exclusive-or reference,
+because a franchise has no `LibraryEntry` row to hang a position on. That is now withdrawn.
+`QueueItem` references exactly one anime.
+
+**A franchise is not a thing you watch.** The queue answers one question — what do I press
+play on tonight — and its unit has to be an answer to it. A slot holding twelve seasons is a
+project, not an evening. Once one exists, position stops meaning anything: item 2 is ninety
+minutes and item 3 is ninety hours, and "third in the queue" no longer describes when you
+get to it.
+
+**The mechanism that made it work was already deleted.** §262 only functioned because of
+§302 — *starting the franchise selects the next unfinished anime in franchise order* — which
+turned one slot into a sequence of real decisions. D12 removed the entire watching workflow,
+that action with it. What was left was a queue element with no defined way to progress
+through it, and implementing D12 exposed the gap immediately: releasing a franchise slot
+needed a rule invented for the purpose ("release once nothing in it is still planned")
+derivable from nothing. Having to invent that rule was the evidence.
+
+**And it forbade the ordering the application exists to provide.** A franchise as one slot
+makes it structurally impossible to put anything between two of its seasons, or to skip a
+season, or to space a long series out across months. D11 says AniQueue owns the order of the
+watch list. A model that prevents the user expressing an order contradicts the premise.
+
+**Decision:** `QueueItem` is `Id, ProfileId, Position, AnimeId, AddedAt`. The exclusive-or
+check constraint and the franchise index go. A franchise keeps everything else it had —
+membership, `FranchiseOrder`, `OptionalWithinFranchise`, curation, the collapsed card — and
+gains one job in the queue:
+
+- **Queueing a franchise expands it.** Its members that are still Planning, not already
+  queued, and (by default) not optional are appended individually in viewing order. One
+  click, one decision, but what lands is a run of watchable titles.
+- **In the queue a franchise is a badge**, so its seasons read as related while remaining
+  independently orderable.
+- **`OptionalWithinFranchise` gets a concrete job**: it decides what expansion queues. It
+  was previously a flag waiting for completion maths to consume it.
+
+Three things fall out rather than being built:
+
+- Advancement becomes per title. Watch season two and only that row leaves; season three
+  rises to meet you. The invented franchise rule is gone.
+- Re-adding a franchise after a sync brings a new season queues exactly the new season, from
+  the same idempotency that already governs adding a title twice.
+- Dissolving a franchise no longer empties part of the queue. Under D1 the slot was deleted
+  with the franchise, silently taking the user's ordering with it.
+
+**What is given up, plainly.** The queue can no longer show one line reading "Slayers"; a
+five-season franchise is five rows, and that is the point — those are five evenings. The
+brief's §264 complaint that sequels should not each be *"an independent high-level
+choice"* is real, but it is a **backlog** problem, and it is answered where it occurs: by
+grouping and collapsing in the backlog, which is the decision surface. The queue is the
+ordering surface, and ordering wants the finer grain.
+
+**Acceptance criterion 10 is still met.** It asks to *"add standalone anime or franchises to
+Up Next"*, and that still works, from one control. What changed is what the queue holds
+afterwards, which the criterion does not specify. Unlike D12's honest decline of criteria 13
+and 14, nothing on the brief's completion list is lost here — only §262's account of how it
+should be represented.
+
+**Why the queue keeps its own table.** D1's reasoning is gone, so `LibraryEntry.QueuePosition`
+would now be expressible. It is still refused. Reordering would write to wide library rows
+that imports contend for on a single-writer database; the ordering column would be null on
+most rows; and the queue has its own lifecycle. The conclusion survives its original argument.
+
+**Left open deliberately:** `RecommendationRunItem` still carries a nullable `FranchiseId`
+(D4), so Phase 9 could rank a franchise against individual titles — the same granularity
+mismatch in the recommendation surface. It is not changed here because it is a question about
+D11's model rather than the queue's, and it should be argued on its own terms before Phase 9.
+
 ---
 
 ## 3. Solution structure
@@ -365,7 +444,6 @@ erDiagram
     Anime ||--o{ LibraryEntry : "referenced by"
     Franchise ||--o{ Anime : groups
     Anime ||--o| QueueItem : "queued as"
-    Franchise ||--o| QueueItem : "queued as"
     RecommendationRun ||--o{ RecommendationRunItem : contains
 ```
 
@@ -399,10 +477,14 @@ RecommendationConfidence?, RecommendationReason?, RecommendationUpdatedAt?`
 ordering is `Anime.FranchiseOrder`. User can create, rename, add/remove titles, reorder and
 dissolve. **No automatic franchise detection in v1.**
 
+A franchise groups titles; it is never itself queued (D15). Its role in the queue is to
+expand into its members, and to badge them once they are there.
+
 ### QueueItem
 
-`Id, ProfileId, Position, AnimeId?, FranchiseId?, AddedAt`. See D1/D2. Filtered unique
-indexes on `(ProfileId, AnimeId)` and `(ProfileId, FranchiseId)` so nothing is queued twice.
+`Id, ProfileId, Position, AnimeId, AddedAt`. See D2 and D15. A slot is always exactly one
+title, so the unique index on `(ProfileId, AnimeId)` needs no filter and there is no check
+constraint. Queueing a franchise appends its titles individually (D15).
 
 ### RecommendationRun / RecommendationRunItem
 
@@ -553,8 +635,11 @@ awaited inline freezes the entire circuit rather than just the page.
 
 ### Phase 4 — Up Next
 `QueueService`: add, remove, move to top/up/down/bottom, transactional reorder with
-position normalisation. Franchises queueable from the start (D1). Buttons first, then
-SortableJS interop (D5, §9).
+position normalisation. Buttons first, then SortableJS interop (D5, §9).
+
+A franchise is queued by **expansion** (D15) — its unwatched, non-optional members appended
+individually in viewing order — rather than by occupying a slot of its own. Every slot is one
+title, which is what lets the user put something between two seasons.
 
 Also **queue advancement** (D12): when an import or sync reports that a queued title is no
 longer Planning, its slot is released and positions are normalised, so the next item becomes
@@ -577,8 +662,13 @@ proven in Phase 2 are what make that safe.
 
 ### Phase 6 — Franchises
 Create, rename, add/remove titles, reorder, dissolve. Collapsed card showing entries
-watched, remaining runtime, first entry, AI score, queue position; expanding shows viewing
-order. `OptionalWithinFranchise` respected in completion and runtime maths.
+watched, remaining runtime, first entry, AI score and how many of its titles are queued;
+expanding shows viewing order. `OptionalWithinFranchise` respected in completion and runtime
+maths, and it already governs what queueing a franchise adds (D15).
+
+Grouping in the **backlog** is the other half, and it is where the brief's §264 complaint
+actually lives: five Slayers rows collapse into one decision on the surface where decisions
+are made, while the queue keeps them separate so they can be ordered (D15).
 
 Grouping may now be proposed from the relation data Phase 5 supplies, which is what D10 was
 waiting for. Proposals are still confirmed by the user; nothing is grouped silently.
@@ -816,7 +906,7 @@ The brief's 25 criteria, mapped so completion is measurable.
 | 1–2 `docker compose up -d`, open in browser | 11 |
 | 3–7 Upload MAL XML, preview, confirm, see statuses and scores | 2 |
 | 8–9 Create/edit franchises, collapse sequels into them | 6 |
-| 10–12 Add to Up Next, drag to exact order, persist across restart | 4 + 11 |
+| 10–12 Add to Up Next, drag to exact order, persist across restart | 4 + 11 — adding a franchise expands it into its titles (D15) |
 | 13–14 Track progress, complete with a score | **declined — see D12** |
 | 15 Filter backlog usefully | 3 |
 | 16–22 AI request export, prompt, import, preview, apply, manual order intact | 9 |

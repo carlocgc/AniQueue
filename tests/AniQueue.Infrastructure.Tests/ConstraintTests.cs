@@ -11,52 +11,63 @@ namespace AniQueue.Infrastructure.Tests;
 public class ConstraintTests
 {
     [Fact]
-    public async Task Queue_slot_may_hold_a_franchise()
+    public async Task A_queue_slot_holds_one_title()
     {
-        // The case that forced the queue onto its own table (D1): the brief's
-        // LibraryEntry.QueuePosition could never have represented this, because a
-        // franchise has no LibraryEntry row.
+        // Since D15 that is all a slot can be. The XOR check constraint that let it
+        // hold a franchise instead is gone, along with the franchise slot itself —
+        // a franchise is a grouping and an action, not a thing you watch.
         await using var database = await SqliteTestDatabase.CreateAsync();
         await using var context = database.CreateContext();
 
         var profile = await SeedData.CreateProfileAsync(context);
-        var franchise = await SeedData.CreateFranchiseAsync(context, "Slayers");
+        var anime = await SeedData.CreateAnimeAsync(context, "Slayers");
 
-        context.QueueItems.Add(SeedData.QueueSlot(profile.Id, position: 0, franchiseId: franchise.Id));
+        context.QueueItems.Add(SeedData.QueueSlot(profile.Id, position: 0, animeId: anime.Id));
         await context.SaveChangesAsync();
 
         var stored = await context.QueueItems.SingleAsync();
-        Assert.True(stored.IsFranchise);
-        Assert.Equal(franchise.Id, stored.FranchiseId);
-        Assert.Null(stored.AnimeId);
+        Assert.Equal(anime.Id, stored.AnimeId);
     }
 
     [Fact]
-    public async Task Queue_slot_referencing_neither_anime_nor_franchise_is_rejected()
-    {
-        await using var database = await SqliteTestDatabase.CreateAsync();
-        await using var context = database.CreateContext();
-
-        var profile = await SeedData.CreateProfileAsync(context);
-        context.QueueItems.Add(SeedData.QueueSlot(profile.Id, position: 0));
-
-        await Assert.ThrowsAsync<DbUpdateException>(() => context.SaveChangesAsync());
-    }
-
-    [Fact]
-    public async Task Queue_slot_referencing_both_anime_and_franchise_is_rejected()
+    public async Task The_same_title_cannot_occupy_two_queue_slots()
     {
         await using var database = await SqliteTestDatabase.CreateAsync();
         await using var context = database.CreateContext();
 
         var profile = await SeedData.CreateProfileAsync(context);
         var anime = await SeedData.CreateAnimeAsync(context, "Gunbuster");
-        var franchise = await SeedData.CreateFranchiseAsync(context, "Gunbuster");
 
-        context.QueueItems.Add(
-            SeedData.QueueSlot(profile.Id, position: 0, animeId: anime.Id, franchiseId: franchise.Id));
+        context.QueueItems.Add(SeedData.QueueSlot(profile.Id, position: 0, animeId: anime.Id));
+        await context.SaveChangesAsync();
+
+        context.QueueItems.Add(SeedData.QueueSlot(profile.Id, position: 1, animeId: anime.Id));
 
         await Assert.ThrowsAsync<DbUpdateException>(() => context.SaveChangesAsync());
+    }
+
+    [Fact]
+    public async Task Deleting_a_franchise_leaves_its_titles_queued()
+    {
+        // Dissolving a grouping is a curation decision about labels. It must not
+        // silently empty the queue — under the old model the franchise's slot went
+        // with it, taking the user's ordering along.
+        await using var database = await SqliteTestDatabase.CreateAsync();
+        await using var context = database.CreateContext();
+
+        var profile = await SeedData.CreateProfileAsync(context);
+        var franchise = await SeedData.CreateFranchiseAsync(context, "Slayers");
+        var anime = await SeedData.CreateAnimeAsync(context, "Slayers Next");
+
+        anime.FranchiseId = franchise.Id;
+        context.QueueItems.Add(SeedData.QueueSlot(profile.Id, position: 0, animeId: anime.Id));
+        await context.SaveChangesAsync();
+
+        context.Franchises.Remove(franchise);
+        await context.SaveChangesAsync();
+
+        var slot = await context.QueueItems.SingleAsync();
+        Assert.Equal(anime.Id, slot.AnimeId);
     }
 
     [Fact]

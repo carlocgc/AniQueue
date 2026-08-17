@@ -48,18 +48,29 @@ public class DevelopmentSeederTests
     }
 
     [Fact]
-    public async Task The_queue_mixes_a_franchise_with_standalone_titles()
+    public async Task The_queue_interleaves_franchise_seasons_with_standalone_titles()
     {
-        // The arrangement D1 exists for. If this cannot be seeded, the queue model
-        // is wrong.
+        // The arrangement D15 exists for: two seasons of one franchise with
+        // something else deliberately between them. If this cannot be seeded, the
+        // queue model has taken the ordering away from the user.
         await using var database = await SeededDatabaseAsync();
         await using var context = database.CreateContext();
 
-        var slots = await context.QueueItems.OrderBy(q => q.Position).ToListAsync();
+        var slots = await context.QueueItems
+            .OrderBy(q => q.Position)
+            .Select(q => new { q.Position, q.Anime!.FranchiseId })
+            .ToListAsync();
 
-        Assert.Contains(slots, s => s.FranchiseId is not null);
-        Assert.Contains(slots, s => s.AnimeId is not null);
         Assert.Equal(Enumerable.Range(0, slots.Count), slots.Select(s => s.Position));
+
+        var franchisePositions = slots.Where(s => s.FranchiseId is not null).Select(s => s.Position).ToList();
+
+        Assert.True(franchisePositions.Count >= 2, "the seed needs at least two entries of one franchise queued");
+
+        // Not adjacent — something standalone sits in the gap.
+        Assert.True(
+            franchisePositions.Max() - franchisePositions.Min() > franchisePositions.Count - 1,
+            $"franchise entries were queued as one contiguous block at {string.Join(", ", franchisePositions)}");
     }
 
     [Fact]

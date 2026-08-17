@@ -98,12 +98,15 @@ public sealed class DevelopmentSeeder(
             context.LibraryEntries.Add(Planning(entry));
         }
 
-        // A hand-ordered queue mixing a whole franchise with standalone titles —
-        // the arrangement a QueuePosition column on LibraryEntry could not express.
+        // A hand-ordered queue with a standalone title deliberately sitting between
+        // two seasons of the same franchise. That arrangement is the point of D15:
+        // franchises group titles rather than occupying a slot, so the user can
+        // space a long series out instead of committing to it in one block.
         context.QueueItems.AddRange(
             new QueueItem { ProfileId = profileId, Position = 0, AnimeId = hinamatsuri.Id, AddedAt = now },
-            new QueueItem { ProfileId = profileId, Position = 1, FranchiseId = slayers.Id, AddedAt = now },
-            new QueueItem { ProfileId = profileId, Position = 2, AnimeId = dragonMaid.Id, AddedAt = now });
+            new QueueItem { ProfileId = profileId, Position = 1, AnimeId = slayersEntries[0].Id, AddedAt = now },
+            new QueueItem { ProfileId = profileId, Position = 2, AnimeId = dragonMaid.Id, AddedAt = now },
+            new QueueItem { ProfileId = profileId, Position = 3, AnimeId = slayersEntries[1].Id, AddedAt = now });
 
         var run = new RecommendationRun
         {
