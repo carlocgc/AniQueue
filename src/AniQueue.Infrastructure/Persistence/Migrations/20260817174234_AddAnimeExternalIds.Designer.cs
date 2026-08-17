@@ -3,6 +3,7 @@ using System;
 using AniQueue.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 
 #nullable disable
@@ -10,9 +11,11 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace AniQueue.Infrastructure.Persistence.Migrations
 {
     [DbContext(typeof(AniQueueDbContext))]
-    partial class AniQueueDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260817174234_AddAnimeExternalIds")]
+    partial class AddAnimeExternalIds
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder.HasAnnotation("ProductVersion", "10.0.11");
@@ -61,6 +64,10 @@ namespace AniQueue.Infrastructure.Persistence.Migrations
                     b.Property<int>("Source")
                         .HasColumnType("INTEGER");
 
+                    b.Property<string>("SourceAnimeId")
+                        .HasMaxLength(64)
+                        .HasColumnType("TEXT");
+
                     b.Property<string>("Title")
                         .IsRequired()
                         .HasMaxLength(500)
@@ -74,6 +81,11 @@ namespace AniQueue.Infrastructure.Persistence.Migrations
                     b.HasIndex("FranchiseId");
 
                     b.HasIndex("Title");
+
+                    b.HasIndex("Source", "SourceAnimeId")
+                        .IsUnique()
+                        .HasDatabaseName("IX_Anime_Source_SourceAnimeId")
+                        .HasFilter("\"SourceAnimeId\" IS NOT NULL");
 
                     b.ToTable("Anime");
                 });
@@ -167,9 +179,6 @@ namespace AniQueue.Infrastructure.Persistence.Migrations
 
                     b.Property<DateTimeOffset>("LastUpdated")
                         .HasColumnType("TEXT");
-
-                    b.Property<int?>("LastWrittenBySource")
-                        .HasColumnType("INTEGER");
 
                     b.Property<string>("PersonalNotes")
                         .HasMaxLength(8000)
@@ -392,42 +401,6 @@ namespace AniQueue.Infrastructure.Persistence.Migrations
                         });
                 });
 
-            modelBuilder.Entity("AniQueue.Core.Domain.SourceSyncSettings", b =>
-                {
-                    b.Property<int>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("INTEGER");
-
-                    b.Property<int>("AbsencePolicy")
-                        .HasColumnType("INTEGER");
-
-                    b.Property<bool>("ApplyUnattended")
-                        .HasColumnType("INTEGER");
-
-                    b.Property<int>("ConflictPolicy")
-                        .HasColumnType("INTEGER");
-
-                    b.Property<bool>("IsEnabled")
-                        .HasColumnType("INTEGER");
-
-                    b.Property<int>("PrecedenceRank")
-                        .HasColumnType("INTEGER");
-
-                    b.Property<int>("ProfileId")
-                        .HasColumnType("INTEGER");
-
-                    b.Property<int>("Source")
-                        .HasColumnType("INTEGER");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("ProfileId", "Source")
-                        .IsUnique()
-                        .HasDatabaseName("IX_SourceSyncSettings_ProfileId_Source");
-
-                    b.ToTable("SourceSyncSettings");
-                });
-
             modelBuilder.Entity("AniQueue.Core.Domain.Anime", b =>
                 {
                     b.HasOne("AniQueue.Core.Domain.Franchise", "Franchise")
@@ -520,17 +493,6 @@ namespace AniQueue.Infrastructure.Persistence.Migrations
                     b.Navigation("Anime");
 
                     b.Navigation("Run");
-                });
-
-            modelBuilder.Entity("AniQueue.Core.Domain.SourceSyncSettings", b =>
-                {
-                    b.HasOne("AniQueue.Core.Domain.Profile", "Profile")
-                        .WithMany()
-                        .HasForeignKey("ProfileId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.Navigation("Profile");
                 });
 
             modelBuilder.Entity("AniQueue.Core.Domain.Anime", b =>

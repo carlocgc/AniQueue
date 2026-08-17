@@ -96,7 +96,8 @@ else
                                     {
                                         <span class="badge">@franchise</span>
                                     }
-                                    @if (item.SourceLink is { } link)
+                                    @* One per site: a bridged title is known to both (D17). *@
+                                    @foreach (var link in item.SourceLinks)
                                     {
                                         <a class="badge badge-link" href="@link.Url"
                                            target="_blank" rel="noopener noreferrer"

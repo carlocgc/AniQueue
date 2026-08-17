@@ -48,6 +48,19 @@ public class LibraryEntry
     /// <summary>Hidden entries stay in the library but drop out of backlog views.</summary>
     public bool IsHidden { get; set; }
 
+    /// <summary>
+    /// Which source last wrote the tracking fields above — status, progress, score
+    /// and the watch dates (D18).
+    /// </summary>
+    /// <remarks>
+    /// Null for rows written before precedence existed, and for anything edited
+    /// here rather than observed. It exists so a lower-ranked source cannot
+    /// overwrite what a higher-ranked one recorded: with two lists both describing
+    /// one title, unconditional last-writer-wins lets a scheduled sync silently
+    /// revert a deliberate import, every interval, forever.
+    /// </remarks>
+    public AnimeSource? LastWrittenBySource { get; set; }
+
     // Currently-applied recommendation, denormalised from the latest applied
     // RecommendationRun so that sorting the backlog by AI score stays a
     // single-table query rather than a join against run history (D4).

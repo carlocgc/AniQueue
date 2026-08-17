@@ -174,8 +174,10 @@ public class ConstraintTests
     [Fact]
     public async Task Many_manual_entries_without_a_source_identifier_are_allowed()
     {
-        // Why the uniqueness index is filtered: unfiltered, every manual entry
-        // would collide with every other one on (Manual, NULL).
+        // This used to be the reason the uniqueness index needed a filter: with a
+        // nullable identifier column, every manual entry collided with every other
+        // one on (Manual, NULL). A hand-added title now has no identifier row at
+        // all, so the collision cannot occur and the index needs no filter (D17).
         await using var database = await SqliteTestDatabase.CreateAsync();
         await using var context = database.CreateContext();
 
@@ -184,6 +186,67 @@ public class ConstraintTests
         await SeedData.CreateAnimeAsync(context, "Hand-added three");
 
         Assert.Equal(3, await context.Anime.CountAsync());
+        Assert.Equal(0, await context.AnimeExternalIds.CountAsync());
+    }
+
+    [Fact]
+    public async Task A_title_cannot_hold_two_identifiers_from_one_source()
+    {
+        // Nothing legitimately issues two MyAnimeList ids for one show, so a second
+        // is evidence that two sources disagree about identity. That is a conflict
+        // for the user to resolve, never a row to write.
+        await using var database = await SqliteTestDatabase.CreateAsync();
+        await using var context = database.CreateContext();
+
+        var anime = await SeedData.CreateAnimeAsync(context, "Golden Boy", AnimeSource.MyAnimeList, "268");
+
+        context.AnimeExternalIds.Add(new AnimeExternalId
+        {
+            AnimeId = anime.Id,
+            Source = AnimeSource.MyAnimeList,
+            ExternalId = "999"
+        });
+
+        await Assert.ThrowsAsync<DbUpdateException>(() => context.SaveChangesAsync());
+    }
+
+    [Fact]
+    public async Task One_title_may_be_identified_by_several_services()
+    {
+        // The point of D17. A title AniList knows carries a MyAnimeList id too, and
+        // holding both is what lets an import in either order match rather than
+        // duplicate.
+        await using var database = await SqliteTestDatabase.CreateAsync();
+        await using var context = database.CreateContext();
+
+        var anime = await SeedData.CreateAnimeAsync(context, "Attack on Titan", AnimeSource.AniList, "16498");
+
+        context.AnimeExternalIds.Add(new AnimeExternalId
+        {
+            AnimeId = anime.Id,
+            Source = AnimeSource.MyAnimeList,
+            ExternalId = "16498"
+        });
+
+        await context.SaveChangesAsync();
+
+        Assert.Equal(2, await context.AnimeExternalIds.CountAsync(x => x.AnimeId == anime.Id));
+    }
+
+    [Fact]
+    public async Task Deleting_a_title_takes_its_identifiers_with_it()
+    {
+        // Identity is meaningless without the title it identifies, and a stranded
+        // row would silently claim an identifier no longer in use.
+        await using var database = await SqliteTestDatabase.CreateAsync();
+        await using var context = database.CreateContext();
+
+        var anime = await SeedData.CreateAnimeAsync(context, "Golden Boy", AnimeSource.MyAnimeList, "268");
+
+        context.Anime.Remove(anime);
+        await context.SaveChangesAsync();
+
+        Assert.Equal(0, await context.AnimeExternalIds.CountAsync());
     }
 
     [Fact]

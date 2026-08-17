@@ -51,7 +51,9 @@ public sealed class QueueService(
                 q.Anime.EpisodeDurationMinutes,
                 q.Anime.ReleaseYear,
                 q.Anime.Source,
-                q.Anime.SourceAnimeId,
+                ExternalIds = q.Anime.ExternalIds
+                    .Select(x => new { x.Source, x.ExternalId })
+                    .ToList(),
                 FranchiseName = q.Anime.Franchise != null ? q.Anime.Franchise.Name : null,
                 Entry = context.LibraryEntries
                     .Where(e => e.ProfileId == profileId && e.AnimeId == q.AnimeId)
@@ -72,7 +74,7 @@ public sealed class QueueService(
             Status = r.Entry?.Status,
             EpisodesWatched = r.Entry?.EpisodesWatched ?? 0,
             Source = r.Source,
-            SourceAnimeId = r.SourceAnimeId,
+            ExternalIds = [.. r.ExternalIds.Select(x => new ExternalIdentifier(x.Source, x.ExternalId))],
             FranchiseName = r.FranchiseName,
             EstimatedRuntimeMinutes = RuntimeCalculator.Estimate(r.EpisodeCount, r.EpisodeDurationMinutes)
         });

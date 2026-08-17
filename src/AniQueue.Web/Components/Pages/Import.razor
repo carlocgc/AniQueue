@@ -1,6 +1,5 @@
 @page "/import"
 @inject IImportService ImportService
-@inject IAnimeListParser Parser
 @inject ILogger<Import> Logger
 
 <PageTitle>Import — AniQueue</PageTitle>
@@ -267,6 +266,12 @@
 
 @code {
     private const int PageSize = 100;
+
+    // Resolved by key: this page uploads MyAnimeList XML specifically, and asking
+    // for a bare IAnimeListParser would silently start resolving whichever parser
+    // was registered last once a second one exists.
+    [Inject(Key = AnimeSource.MyAnimeList)]
+    private IAnimeListParser Parser { get; set; } = null!;
 
     private ImportPreview? _preview;
     private ImportCommitResult? _commitResult;

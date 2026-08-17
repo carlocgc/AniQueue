@@ -78,6 +78,35 @@ public class FranchiseExpansionMigrationTests
             await command.ExecuteNonQueryAsync();
         }
 
+        /// <summary>
+        /// Writes a library entry as SQL rather than through EF.
+        /// </summary>
+        /// <remarks>
+        /// EF issues an INSERT naming every column the *current* model maps, so
+        /// seeding an old schema through it only works while no column has been
+        /// added since. That assumption broke the moment D18 added
+        /// LastWrittenBySource. Naming the columns explicitly pins this to the
+        /// schema the test actually migrated to, which is the same reason the
+        /// franchise slot above goes in as SQL.
+        /// </remarks>
+        public async Task InsertLibraryEntryAsync(int profileId, int animeId, LibraryStatus status)
+        {
+            await using var command = _connection.CreateCommand();
+            command.CommandText =
+                """
+                INSERT INTO "LibraryEntries"
+                    ("ProfileId", "AnimeId", "Status", "EpisodesWatched", "IsHidden", "DateAdded", "LastUpdated")
+                VALUES
+                    ($profile, $anime, $status, 0, 0, '2026-01-01 00:00:00+00:00', '2026-01-01 00:00:00+00:00');
+                """;
+
+            command.Parameters.AddWithValue("$profile", profileId);
+            command.Parameters.AddWithValue("$anime", animeId);
+            command.Parameters.AddWithValue("$status", (int)status);
+
+            await command.ExecuteNonQueryAsync();
+        }
+
         public ValueTask DisposeAsync() => _connection.DisposeAsync();
     }
 
@@ -100,14 +129,18 @@ public class FranchiseExpansionMigrationTests
             anime.FranchiseOrder = order;
             anime.OptionalWithinFranchise = optional;
 
-            var entry = SeedData.Entry(profile.Id, anime.Id);
-            entry.Status = status;
-            context.LibraryEntries.Add(entry);
-
             ids[title] = anime.Id;
         }
 
         await context.SaveChangesAsync();
+
+        // After the catalogue rows are saved, because the entries reference them
+        // and go in outside the change tracker.
+        foreach (var (title, _, _, status) in members)
+        {
+            await database.InsertLibraryEntryAsync(profile.Id, ids[title], status);
+        }
+
         return new Seeded(profile.Id, franchise.Id, ids);
     }
 
@@ -201,12 +234,15 @@ public class FranchiseExpansionMigrationTests
         {
             var first = await SeedData.CreateAnimeAsync(context, "Gunbuster");
             var last = await SeedData.CreateAnimeAsync(context, "Nichijou");
-            context.LibraryEntries.Add(SeedData.Entry(seeded.ProfileId, first.Id));
-            context.LibraryEntries.Add(SeedData.Entry(seeded.ProfileId, last.Id));
 
             context.QueueItems.Add(SeedData.QueueSlot(seeded.ProfileId, position: 0, first.Id));
             context.QueueItems.Add(SeedData.QueueSlot(seeded.ProfileId, position: 2, last.Id));
             await context.SaveChangesAsync();
+
+            // Entries go in as SQL for the same reason as everywhere else here: the
+            // current model maps columns this schema version does not have.
+            await database.InsertLibraryEntryAsync(seeded.ProfileId, first.Id, LibraryStatus.Planning);
+            await database.InsertLibraryEntryAsync(seeded.ProfileId, last.Id, LibraryStatus.Planning);
         }
 
         await database.InsertFranchiseSlotAsync(seeded.ProfileId, position: 1, seeded.FranchiseId);

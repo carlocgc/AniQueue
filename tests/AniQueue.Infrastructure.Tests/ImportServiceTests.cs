@@ -135,7 +135,12 @@ public class ImportServiceTests
 
         Assert.Equal("Golden Boy", anime.Title);
         Assert.Equal(AnimeSource.MyAnimeList, anime.Source);
-        Assert.Equal("268", anime.SourceAnimeId);
+
+        var identifier = await context.AnimeExternalIds.SingleAsync();
+        Assert.Equal(anime.Id, identifier.AnimeId);
+        Assert.Equal(AnimeSource.MyAnimeList, identifier.Source);
+        Assert.Equal("268", identifier.ExternalId);
+
         Assert.Equal(LibraryStatus.Completed, entry.Status);
         Assert.Equal(9, entry.UserScore);
     }
@@ -397,8 +402,15 @@ public class ImportServiceTests
 
         await using var context = fixture.Database.CreateContext();
         var anime = await context.Anime.SingleAsync();
-        Assert.Equal(AnimeSource.MyAnimeList, anime.Source);
-        Assert.Equal("268", anime.SourceAnimeId);
+
+        // Provenance is unchanged by linking — the title really was hand-added
+        // (D17). What linking writes is the identifier, and that is what stops it
+        // conflicting again.
+        Assert.Equal(AnimeSource.Manual, anime.Source);
+
+        var identifier = await context.AnimeExternalIds.SingleAsync();
+        Assert.Equal(anime.Id, identifier.AnimeId);
+        Assert.Equal("268", identifier.ExternalId);
 
         var entry = await context.LibraryEntries.SingleAsync();
         Assert.Equal(9, entry.UserScore);
@@ -447,7 +459,9 @@ public class ImportServiceTests
 
         await using var context = fixture.Database.CreateContext();
         Assert.Equal(2, await context.Anime.CountAsync());
-        Assert.Equal(1, await context.Anime.CountAsync(a => a.SourceAnimeId == null));
+
+        // The hand-added copy keeps no identifier; the imported one gets it.
+        Assert.Equal(1, await context.Anime.CountAsync(a => a.ExternalIds.Count == 0));
     }
 
     [Fact]
@@ -470,8 +484,8 @@ public class ImportServiceTests
         await fixture.Service.CommitAsync(preview, Profile.DefaultProfileId);
 
         await using var context = fixture.Database.CreateContext();
-        var anime = await context.Anime.SingleAsync();
-        Assert.Null(anime.SourceAnimeId);
+        Assert.Equal(1, await context.Anime.CountAsync());
+        Assert.Equal(0, await context.AnimeExternalIds.CountAsync());
         Assert.Equal(0, await context.LibraryEntries.CountAsync());
     }
 
@@ -572,34 +586,4 @@ public class ImportServiceTests
         Assert.Equal(1, result.Created);
     }
 
-    private sealed class ImportFixture : IAsyncDisposable
-    {
-        public required SqliteTestDatabase Database { get; init; }
-
-        public required IImportService Service { get; init; }
-
-        public static async Task<ImportFixture> CreateAsync()
-        {
-            var database = await SqliteTestDatabase.CreateAsync();
-
-            await new DatabaseInitializer(
-                database.ContextFactory,
-                Options.Create(new AniQueueDatabaseOptions { Path = ":memory:" }),
-                NullLogger<DatabaseInitializer>.Instance).InitialiseAsync();
-
-            return new ImportFixture
-            {
-                Database = database,
-                // The real queue service, not a stub: committing an import advances
-                // the queue (D12), and that is behaviour worth exercising here
-                // rather than mocking away.
-                Service = new ImportService(
-                    database.ContextFactory,
-                    new QueueService(database.ContextFactory, NullLogger<QueueService>.Instance),
-                    NullLogger<ImportService>.Instance)
-            };
-        }
-
-        public ValueTask DisposeAsync() => Database.DisposeAsync();
-    }
 }

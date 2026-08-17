@@ -35,7 +35,26 @@ public sealed record ImportCommitResult
 public interface IImportService
 {
     /// <summary>
-    /// Works out what the import would do. Reads the library; writes nothing.
+    /// Works out what an already-parsed payload would do. Reads the library;
+    /// writes nothing.
+    /// </summary>
+    /// <remarks>
+    /// This is the primitive, and the stream overload composes onto it. A sync has
+    /// already fetched — possibly across several responses, merged into one
+    /// <see cref="ParseResult"/> — so it has no single stream to hand over, and
+    /// without this seam it would need a parallel matching path. Keeping one means
+    /// the difference between an upload and a sync is the trigger, not the logic.
+    /// </remarks>
+    Task<ImportPreview> PreviewAsync(
+        ParseResult parsed,
+        string formatName,
+        int profileId,
+        IProgress<OperationProgress>? progress = null,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Parses a stream and works out what importing it would do. Reads the library;
+    /// writes nothing.
     /// </summary>
     /// <param name="progress">
     /// Optional. Reports stages as they happen so the caller can show something
