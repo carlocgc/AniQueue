@@ -36,6 +36,10 @@ public static class SyncServiceCollectionExtensions
             CreateHttpClient(),
             serviceProvider.GetRequiredService<ILogger<AniListClient>>()));
 
+        // Scoped like the import service it delegates to: it opens short-lived
+        // contexts through the factory (D3) and holds nothing between calls.
+        services.AddScoped<ISyncService, Sync.SyncService>();
+
         return services;
     }
 

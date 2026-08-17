@@ -40,7 +40,13 @@ public class SourceSyncSettings
     public int PrecedenceRank { get; set; }
 
     /// <summary>Whether this source participates in sync at all.</summary>
-    public bool IsEnabled { get; set; }
+    /// <remarks>
+    /// Defaults to enabled, because the settings that exist for a source are the
+    /// ones the user went and configured. The switch that matters for stopping a
+    /// sync nobody can reach the UI to stop is the operator's, in configuration
+    /// (D20); this one is the ordinary "not right now".
+    /// </remarks>
+    public bool IsEnabled { get; set; } = true;
 
     /// <summary>
     /// Whether unattended runs commit their unambiguous changes, or hold everything

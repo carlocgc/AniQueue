@@ -30,6 +30,8 @@ public class AniQueueDbContext(DbContextOptions<AniQueueDbContext> options) : Db
 
     public DbSet<SourceSyncSettings> SourceSyncSettings => Set<SourceSyncSettings>();
 
+    public DbSet<SyncRun> SyncRuns => Set<SyncRun>();
+
     public DbSet<RecommendationRun> RecommendationRuns => Set<RecommendationRun>();
 
     public DbSet<RecommendationRunItem> RecommendationRunItems => Set<RecommendationRunItem>();
