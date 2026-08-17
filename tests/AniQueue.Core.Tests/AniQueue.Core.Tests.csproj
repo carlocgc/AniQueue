@@ -1,7 +1,14 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
-  <!-- Pure tests: no database, no fixtures, no I/O. These should stay fast enough
+  <!-- Pure tests: no database, no network, no disk. These should stay fast enough
        to run on every save in Visual Studio's Test Explorer. -->
+
+  <!-- The AniList fixture is embedded rather than copied to the output directory:
+       it is then read from memory, and no test needs to know where it landed
+       relative to the runner's working directory. -->
+  <ItemGroup>
+    <EmbeddedResource Include="Import\Fixtures\*.json" />
+  </ItemGroup>
 
   <ItemGroup>
     <PackageReference Include="coverlet.collector" />

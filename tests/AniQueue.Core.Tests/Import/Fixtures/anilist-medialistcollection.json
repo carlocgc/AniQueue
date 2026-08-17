@@ -1,0 +1,326 @@
+{
+  "//": [
+    "A MediaListCollection response, shaped exactly as AniList returns one and filled",
+    "with invented titles, ids, scores and dates. The shape is copied from a real",
+    "response; none of the content is anyone's list. §0 forbids committing a personal",
+    "export to a public repository, and a captured response is one.",
+    "",
+    "Being hand-authored is also what makes it useful. The 753-entry library used to",
+    "verify the API held no PAUSED, DROPPED or REPEATING entry, no partial FuzzyDate",
+    "and no custom list, so a capture would have exercised none of the mappings most",
+    "likely to be wrong. Every one of them is below."
+  ],
+  "data": {
+    "MediaListCollection": {
+      "hasNextChunk": false,
+      "lists": [
+        {
+          "name": "Completed",
+          "isCustomList": false,
+          "status": "COMPLETED",
+          "entries": [
+            {
+              "status": "COMPLETED",
+              "score": 87,
+              "progress": 24,
+              "repeat": 0,
+              "updatedAt": 1743552000,
+              "startedAt": { "year": 2021, "month": 1, "day": 12 },
+              "completedAt": { "year": 2021, "month": 6, "day": 30 },
+              "media": {
+                "id": 900101,
+                "idMal": 500101,
+                "type": "ANIME",
+                "format": "TV",
+                "episodes": 24,
+                "duration": 24,
+                "seasonYear": 2021,
+                "title": {
+                  "romaji": "Sora no Kakera",
+                  "english": "Fragments of Sky",
+                  "native": "空の欠片"
+                },
+                "coverImage": { "extraLarge": "https://cdn.example.invalid/cover/bx900101.jpg" }
+              }
+            },
+            {
+              "status": "COMPLETED",
+              "score": 85,
+              "progress": 12,
+              "repeat": 0,
+              "updatedAt": 1743552001,
+              "startedAt": { "year": 2019, "month": null, "day": null },
+              "completedAt": { "year": null, "month": null, "day": null },
+              "media": {
+                "id": 900102,
+                "idMal": null,
+                "type": "ANIME",
+                "format": "TV_SHORT",
+                "episodes": 12,
+                "duration": 5,
+                "seasonYear": 2019,
+                "title": {
+                  "romaji": "Yoake Cafe",
+                  "english": null,
+                  "native": "夜明けカフェ"
+                },
+                "coverImage": { "extraLarge": "https://cdn.example.invalid/cover/bx900102.jpg" }
+              }
+            },
+            {
+              "status": "COMPLETED",
+              "score": 4,
+              "progress": 1,
+              "repeat": 0,
+              "updatedAt": 1743552002,
+              "startedAt": { "year": null, "month": null, "day": null },
+              "completedAt": { "year": null, "month": null, "day": null },
+              "media": {
+                "id": 900103,
+                "idMal": 500103,
+                "type": "ANIME",
+                "format": "MOVIE",
+                "episodes": 1,
+                "duration": 118,
+                "seasonYear": null,
+                "title": {
+                  "romaji": "Kioku no Umi",
+                  "english": "Sea of Memory",
+                  "native": "記憶の海"
+                },
+                "coverImage": { "extraLarge": "https://cdn.example.invalid/cover/bx900103.jpg" }
+              }
+            },
+            {
+              "status": "COMPLETED",
+              "score": 0,
+              "progress": 26,
+              "repeat": 1,
+              "updatedAt": 1743552003,
+              "startedAt": { "year": 2003, "month": 4, "day": 6 },
+              "completedAt": { "year": 2003, "month": 10, "day": 5 },
+              "media": {
+                "id": 900104,
+                "idMal": 500104,
+                "type": "ANIME",
+                "format": "TV",
+                "episodes": 26,
+                "duration": 24,
+                "seasonYear": 2003,
+                "title": {
+                  "romaji": "Hagane no Tsubasa",
+                  "english": "Steel Wings",
+                  "native": "鋼の翼"
+                },
+                "coverImage": { "extraLarge": "https://cdn.example.invalid/cover/bx900104.jpg" }
+              }
+            }
+          ]
+        },
+        {
+          "name": "Watching",
+          "isCustomList": false,
+          "status": "CURRENT",
+          "entries": [
+            {
+              "status": "CURRENT",
+              "score": 0,
+              "progress": 7,
+              "repeat": 0,
+              "updatedAt": 1743552004,
+              "startedAt": { "year": 2026, "month": 7, "day": 3 },
+              "completedAt": { "year": null, "month": null, "day": null },
+              "media": {
+                "id": 900105,
+                "idMal": 500105,
+                "type": "ANIME",
+                "format": "TV",
+                "episodes": null,
+                "duration": 24,
+                "seasonYear": 2026,
+                "title": {
+                  "romaji": "Tsuki no Shigoto",
+                  "english": "Work of the Moon",
+                  "native": "月の仕事"
+                },
+                "coverImage": { "extraLarge": "https://cdn.example.invalid/cover/bx900105.jpg" }
+              }
+            },
+            {
+              "status": "REPEATING",
+              "score": 100,
+              "progress": 5,
+              "repeat": 2,
+              "updatedAt": 1743552005,
+              "startedAt": { "year": 2015, "month": 4, "day": 2 },
+              "completedAt": { "year": 2015, "month": 6, "day": 25 },
+              "media": {
+                "id": 900106,
+                "idMal": 500106,
+                "type": "ANIME",
+                "format": "TV",
+                "episodes": 13,
+                "duration": 24,
+                "seasonYear": 2015,
+                "title": {
+                  "romaji": "Hoshi wo Kazoeru",
+                  "english": "Counting Stars",
+                  "native": "星を数える"
+                },
+                "coverImage": { "extraLarge": "https://cdn.example.invalid/cover/bx900106.jpg" }
+              }
+            }
+          ]
+        },
+        {
+          "name": "Paused",
+          "isCustomList": false,
+          "status": "PAUSED",
+          "entries": [
+            {
+              "status": "PAUSED",
+              "score": 55,
+              "progress": 12,
+              "repeat": 0,
+              "updatedAt": 1743552006,
+              "startedAt": { "year": 2018, "month": 10, "day": 1 },
+              "completedAt": { "year": null, "month": null, "day": null },
+              "media": {
+                "id": 900107,
+                "idMal": 500107,
+                "type": "ANIME",
+                "format": "TV",
+                "episodes": 51,
+                "duration": 24,
+                "seasonYear": 2018,
+                "title": {
+                  "romaji": "Nagai Fuyu no Ato de",
+                  "english": "After the Long Winter",
+                  "native": "長い冬の後で"
+                },
+                "coverImage": { "extraLarge": "https://cdn.example.invalid/cover/bx900107.jpg" }
+              }
+            }
+          ]
+        },
+        {
+          "name": "Dropped",
+          "isCustomList": false,
+          "status": "DROPPED",
+          "entries": [
+            {
+              "status": "DROPPED",
+              "score": 23,
+              "progress": 3,
+              "repeat": 0,
+              "updatedAt": 1743552007,
+              "startedAt": { "year": 2022, "month": 1, "day": 8 },
+              "completedAt": { "year": null, "month": null, "day": null },
+              "media": {
+                "id": 900108,
+                "idMal": 500108,
+                "type": "ANIME",
+                "format": "ONA",
+                "episodes": 12,
+                "duration": 22,
+                "seasonYear": 2022,
+                "title": {
+                  "romaji": "Denwa Bangou",
+                  "english": "The Number You Have Dialled",
+                  "native": "電話番号"
+                },
+                "coverImage": { "extraLarge": "https://cdn.example.invalid/cover/bx900108.jpg" }
+              }
+            }
+          ]
+        },
+        {
+          "name": "Planning",
+          "isCustomList": false,
+          "status": "PLANNING",
+          "entries": [
+            {
+              "status": "PLANNING",
+              "score": 0,
+              "progress": 0,
+              "repeat": 0,
+              "updatedAt": 1743552008,
+              "startedAt": { "year": null, "month": null, "day": null },
+              "completedAt": { "year": null, "month": null, "day": null },
+              "media": {
+                "id": 900109,
+                "idMal": 500109,
+                "type": "ANIME",
+                "format": "TV",
+                "episodes": 12,
+                "duration": 23,
+                "seasonYear": 2026,
+                "title": {
+                  "romaji": "Kaze no Tegami",
+                  "english": "Letters on the Wind",
+                  "native": "風の手紙"
+                },
+                "coverImage": { "extraLarge": "javascript:alert(1)" }
+              }
+            },
+            {
+              "status": "PLANNING",
+              "score": 0,
+              "progress": 0,
+              "repeat": 0,
+              "updatedAt": 1743552009,
+              "startedAt": { "year": 2024, "month": 2, "day": 31 },
+              "completedAt": { "year": null, "month": null, "day": null },
+              "media": {
+                "id": 900110,
+                "idMal": 500110,
+                "type": "ANIME",
+                "format": "SPECIAL",
+                "episodes": 1,
+                "duration": 24,
+                "seasonYear": 2024,
+                "title": {
+                  "romaji": "Owari no Hajimari",
+                  "english": null,
+                  "native": "終わりの始まり"
+                },
+                "coverImage": { "extraLarge": "https://cdn.example.invalid/cover/bx900110.jpg" }
+              }
+            }
+          ]
+        },
+        {
+          "name": "Favourites",
+          "isCustomList": true,
+          "status": null,
+          "entries": [
+            {
+              "status": "COMPLETED",
+              "score": 87,
+              "progress": 24,
+              "repeat": 0,
+              "updatedAt": 1743552000,
+              "startedAt": { "year": 2021, "month": 1, "day": 12 },
+              "completedAt": { "year": 2021, "month": 6, "day": 30 },
+              "media": {
+                "id": 900101,
+                "idMal": 500101,
+                "type": "ANIME",
+                "format": "TV",
+                "episodes": 24,
+                "duration": 24,
+                "seasonYear": 2021,
+                "title": {
+                  "romaji": "Sora no Kakera",
+                  "english": "Fragments of Sky",
+                  "native": "空の欠片"
+                },
+                "coverImage": { "extraLarge": "https://cdn.example.invalid/cover/bx900101.jpg" }
+              }
+            }
+          ]
+        }
+      ]
+    }
+  }
+}
