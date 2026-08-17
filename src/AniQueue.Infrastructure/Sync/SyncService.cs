@@ -204,6 +204,66 @@ public sealed class SyncService(
         return statuses;
     }
 
+    public async Task SaveSettingsAsync(
+        SourceSyncSettings settings,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(settings);
+        RequireSyncable(settings.Source);
+
+        await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
+
+        var stored = await context.SourceSyncSettings.FirstOrDefaultAsync(
+            s => s.ProfileId == settings.ProfileId && s.Source == settings.Source, cancellationToken);
+
+        if (stored is null)
+        {
+            context.SourceSyncSettings.Add(settings);
+        }
+        else
+        {
+            // Copied field by field rather than attached, because the instance the
+            // page edited came back through a page render and carries no identity
+            // this context would recognise.
+            stored.IsEnabled = settings.IsEnabled;
+            stored.PrecedenceRank = settings.PrecedenceRank;
+            stored.ApplyUnattended = settings.ApplyUnattended;
+            stored.ConflictPolicy = settings.ConflictPolicy;
+            stored.AbsencePolicy = settings.AbsencePolicy;
+        }
+
+        await context.SaveChangesAsync(cancellationToken);
+
+        logger.LogInformation("Sync settings saved for {Source}", settings.Source);
+    }
+
+    public async Task SavePreferredTitleLanguageAsync(
+        int profileId,
+        TitleLanguage language,
+        CancellationToken cancellationToken = default)
+    {
+        await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
+
+        var settings = await context.ProfileSettings
+            .FirstOrDefaultAsync(s => s.ProfileId == profileId, cancellationToken);
+
+        if (settings is null)
+        {
+            // Nothing has created a settings row for this profile yet. The rest of
+            // the defaults come from the entity, which is where they are documented.
+            settings = new ProfileSettings { ProfileId = profileId, DisplayName = "AniQueue" };
+            context.ProfileSettings.Add(settings);
+        }
+
+        settings.PreferredTitleLanguage = language;
+        await context.SaveChangesAsync(cancellationToken);
+    }
+
+    public Task<TitleLanguage> GetPreferredTitleLanguageAsync(
+        int profileId,
+        CancellationToken cancellationToken = default) =>
+        LoadPreferredTitleLanguageAsync(profileId, cancellationToken);
+
     /// <summary>
     /// Parses every payload of one fetch, in the user's preferred title language,
     /// and merges them into the single result the preview takes.

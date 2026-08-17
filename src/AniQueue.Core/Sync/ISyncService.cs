@@ -105,4 +105,29 @@ public interface ISyncService
     Task<IReadOnlyList<SourceSyncStatus>> GetStatusAsync(
         int profileId,
         CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Stores this profile's settings for one source, creating the row if this is
+    /// the first time the user has said anything about it.
+    /// </summary>
+    Task SaveSettingsAsync(SourceSyncSettings settings, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Stores the preferred title language (D22).
+    /// </summary>
+    /// <remarks>
+    /// A profile-wide preference living behind the sync service, because a sync is
+    /// the only thing that acts on it and the Sources page is where it is set until
+    /// Phase 10 builds a settings page. Changing it does not rewrite anything: the
+    /// next fetch does, through the same path that wrote the titles originally.
+    /// </remarks>
+    Task SavePreferredTitleLanguageAsync(
+        int profileId,
+        TitleLanguage language,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>The preferred title language, for rendering the control that sets it.</summary>
+    Task<TitleLanguage> GetPreferredTitleLanguageAsync(
+        int profileId,
+        CancellationToken cancellationToken = default);
 }

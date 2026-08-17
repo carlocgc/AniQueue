@@ -442,6 +442,53 @@ public class SyncServiceTests
     }
 
     [Fact]
+    public async Task Settings_are_created_on_first_save_and_updated_after()
+    {
+        // The Sources page writes each control as it is changed, so this runs on
+        // every click. The first one has no row to update.
+        await using var fixture = await SyncFixture.CreateAsync(
+            new StubAniListClient(Response(900101, "Sora no Kakera")));
+
+        var status = Assert.Single(await fixture.Service.GetStatusAsync(Profile.DefaultProfileId));
+
+        status.Settings.PrecedenceRank = 1;
+        status.Settings.AbsencePolicy = SyncAbsencePolicy.Ignore;
+        await fixture.Service.SaveSettingsAsync(status.Settings);
+
+        var afterCreate = Assert.Single(await fixture.Service.GetStatusAsync(Profile.DefaultProfileId));
+        Assert.Equal(1, afterCreate.Settings.PrecedenceRank);
+
+        afterCreate.Settings.PrecedenceRank = 0;
+        await fixture.Service.SaveSettingsAsync(afterCreate.Settings);
+
+        await using var context = fixture.Database.CreateContext();
+        var stored = await context.SourceSyncSettings.SingleAsync();
+
+        Assert.Equal(0, stored.PrecedenceRank);
+        Assert.Equal(SyncAbsencePolicy.Ignore, stored.AbsencePolicy);
+    }
+
+    [Fact]
+    public async Task The_title_preference_survives_a_profile_with_no_settings_row()
+    {
+        // Nothing creates a ProfileSettings row for the default profile today, so
+        // the first person to touch this control would otherwise hit a null.
+        await using var fixture = await SyncFixture.CreateAsync(
+            new StubAniListClient(Response(900101, "Sora no Kakera")));
+
+        Assert.Equal(
+            TitleLanguage.Romaji,
+            await fixture.Service.GetPreferredTitleLanguageAsync(Profile.DefaultProfileId));
+
+        await fixture.Service.SavePreferredTitleLanguageAsync(
+            Profile.DefaultProfileId, TitleLanguage.Native);
+
+        Assert.Equal(
+            TitleLanguage.Native,
+            await fixture.Service.GetPreferredTitleLanguageAsync(Profile.DefaultProfileId));
+    }
+
+    [Fact]
     public async Task Only_a_source_with_a_list_to_fetch_can_be_synced()
     {
         // MyAnimeList is a file import. Asking to sync it is a programming error,
