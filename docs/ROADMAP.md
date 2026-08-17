@@ -546,9 +546,29 @@ franchise is frequently one series with absolute episode numbering, the mapping 
 and nobody publishes it — §10 already says exactly this about Overseerr. Storing such an
 identifier here is harmless; assuming it is 1:1 and self-populating is not.
 
-**The bridge is one-directional, accepted knowingly.** A MyAnimeList XML export carries no
-AniList identifier, so a user who syncs AniList first and imports MAL second still conflicts.
-That is the unusual order, and it is a stated limitation rather than a defect.
+**The bridge works in both directions, provided a sync writes every identifier it is given.**
+An AniList entry carries both `id` and `idMal`, so a sync that stores both leaves a
+`(MyAnimeList, <mal id>)` row waiting, and a MyAnimeList export landing later matches it on the
+ordinary path instead of conflicting. This extends no new trust: it is the same `idMal` claim,
+from the same field, that the other direction already depends on. So a parsed entry carries a
+**set** of identifiers rather than one, and a commit writes every one it does not already hold.
+
+Two edges follow, and both must be caught while previewing rather than at the commit:
+
+- **Two incoming entries claiming one identifier.** AniList holds split and duplicate entries
+  that point at a single `idMal`. The second write would violate `UNIQUE(Source, ExternalId)`
+  and fail the whole transaction, so the collision is detected during matching and reported as
+  a problem against the entries that caused it.
+- **One entry whose identifiers resolve to different local rows.** Trying identifiers in
+  precedence order reads as first-match-wins, which silently discards contradicting evidence —
+  and the contradiction usually means those two local rows are duplicates that ought to be
+  merged. There is no merge surface, so this is a conflict for the user to resolve, never a
+  silent pick.
+
+**One narrow gap remains, and it is a data-quality gap rather than a hole in the model.** An
+AniList entry with a null `idMal` asserts that no MyAnimeList counterpart exists; if the export
+contains one anyway, the title conflicts on name and the user decides. Nothing in the design can
+do better than the cross-reference it is given.
 
 ### D18 — A primary source owns tracking data. Others may only add.
 
@@ -928,6 +948,12 @@ list is indistinguishable from mass deletion, which is precisely the hazard D19 
 **Parsers are resolved by key.** They are registered as one unkeyed singleton today and injected
 singly, so adding a second implementation would silently rebind the first and start feeding XML
 to the wrong parser.
+
+**A parsed entry carries a set of identifiers, not one.** `ParsedLibraryEntry` holds a single
+`Source` + `SourceAnimeId` today, which is enough for a format that knows only itself. AniList
+supplies its own id *and* `idMal` in the same record, and writing both is what makes D17's bridge
+work whichever source the user starts with. The MyAnimeList parser emits one identifier and the
+AniList parser two; nothing downstream needs to know which produced what.
 
 **D9 — parsing lives in Core, and the parser does not build the preview.** The brief's
 `IAnimeListProvider.ImportAsync` returns an `ImportPreview` directly. But deciding whether
