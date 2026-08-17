@@ -267,7 +267,15 @@ public sealed class ImportService(
         var anime = await context.Anime
             .AsNoTracking()
             .Select(a => new AnimeSnapshot(
-                a.Id, a.Source, a.Title, a.MediaType, a.EpisodeCount))
+                a.Id,
+                a.Source,
+                a.Title,
+                a.AlternativeTitle,
+                a.MediaType,
+                a.EpisodeCount,
+                a.EpisodeDurationMinutes,
+                a.ReleaseYear,
+                a.CoverImageUrl))
             .ToListAsync(cancellationToken);
 
         // Loaded whole for the same reason the catalogue is: an IN clause built
@@ -429,11 +437,43 @@ public sealed class ImportService(
             changes.Add($"Type: {existing.MediaType} → {entry.MediaType}");
         }
 
+        if (entry.AlternativeTitle is not null &&
+            !string.Equals(existing.AlternativeTitle, entry.AlternativeTitle, StringComparison.Ordinal))
+        {
+            changes.Add($"Also known as: '{entry.AlternativeTitle}'");
+        }
+
         // Only an actual value replaces a known one; an import that has forgotten
         // the episode count must not erase one already recorded.
         if (entry.EpisodeCount is not null && existing.EpisodeCount != entry.EpisodeCount)
         {
             changes.Add($"Episodes: {Display(existing.EpisodeCount, "unknown")} → {entry.EpisodeCount}");
+        }
+
+        if (entry.EpisodeDurationMinutes is not null &&
+            existing.EpisodeDurationMinutes != entry.EpisodeDurationMinutes)
+        {
+            changes.Add(
+                $"Episode length: {Display(existing.EpisodeDurationMinutes, "unknown")} → "
+                + $"{entry.EpisodeDurationMinutes} min");
+        }
+
+        if (entry.ReleaseYear is not null && existing.ReleaseYear != entry.ReleaseYear)
+        {
+            changes.Add($"Year: {Display(existing.ReleaseYear, "unknown")} → {entry.ReleaseYear}");
+        }
+
+        // Deliberately only reported when there is currently no art at all.
+        //
+        // A cover URL that merely changed is almost always the same picture behind
+        // a rotated CDN path, and reporting it would turn an otherwise idle sync
+        // into a library-wide list of "updated" rows for the user to review — the
+        // exact churn D21 relies on not happening when it says an unchanged sync
+        // writes nothing. Gaining art where there was none is a real change and is
+        // shown.
+        if (entry.CoverImageUrl is not null && existing.CoverImageUrl is null)
+        {
+            changes.Add("Adds cover art");
         }
 
         // Identifiers this record does not carry yet. Shown because it is a real
@@ -624,9 +664,13 @@ public sealed class ImportService(
     private static Anime CreateAnime(ParsedLibraryEntry entry, DateTimeOffset now) => new()
     {
         Title = entry.Title,
+        AlternativeTitle = entry.AlternativeTitle,
         Source = entry.Source,
         MediaType = entry.MediaType,
         EpisodeCount = entry.EpisodeCount,
+        EpisodeDurationMinutes = entry.EpisodeDurationMinutes,
+        ReleaseYear = entry.ReleaseYear,
+        CoverImageUrl = entry.CoverImageUrl,
         CreatedAt = now,
         UpdatedAt = now
     };
@@ -635,9 +679,22 @@ public sealed class ImportService(
     /// Refreshes catalogue metadata only. Franchise membership and ordering are
     /// the user's grouping decisions and are never touched by an import.
     /// </summary>
+    /// <remarks>
+    /// Every field here follows one rule: a value replaces what is stored, and a
+    /// null leaves it alone. That is what lets two sources of differing richness
+    /// describe one title without the poorer one erasing what the richer one knew —
+    /// a MyAnimeList export carries no duration, year or cover art, and re-importing
+    /// one after an AniList sync must not blank all three (D18 draws the same line
+    /// for tracking data, guarded by precedence rather than by nullness).
+    /// </remarks>
     private static void ApplyCatalogueFields(Anime anime, ParsedLibraryEntry entry, DateTimeOffset now)
     {
         anime.Title = entry.Title;
+
+        if (entry.AlternativeTitle is not null)
+        {
+            anime.AlternativeTitle = entry.AlternativeTitle;
+        }
 
         if (entry.MediaType != MediaType.Unknown)
         {
@@ -647,6 +704,21 @@ public sealed class ImportService(
         if (entry.EpisodeCount is not null)
         {
             anime.EpisodeCount = entry.EpisodeCount;
+        }
+
+        if (entry.EpisodeDurationMinutes is not null)
+        {
+            anime.EpisodeDurationMinutes = entry.EpisodeDurationMinutes;
+        }
+
+        if (entry.ReleaseYear is not null)
+        {
+            anime.ReleaseYear = entry.ReleaseYear;
+        }
+
+        if (entry.CoverImageUrl is not null)
+        {
+            anime.CoverImageUrl = entry.CoverImageUrl;
         }
 
         anime.UpdatedAt = now;
@@ -746,8 +818,12 @@ public sealed class ImportService(
         int Id,
         AnimeSource Source,
         string Title,
+        string? AlternativeTitle,
         MediaType MediaType,
-        int? EpisodeCount);
+        int? EpisodeCount,
+        int? EpisodeDurationMinutes,
+        int? ReleaseYear,
+        string? CoverImageUrl);
 
     private sealed record EntrySnapshot(
         int AnimeId,

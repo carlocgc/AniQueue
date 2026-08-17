@@ -40,10 +40,33 @@ public sealed record ParsedLibraryEntry
 
     public required string Title { get; init; }
 
+    /// <summary>
+    /// The title variant the user did not ask to see (D22). Null for any source
+    /// that publishes only one — which is every MyAnimeList export.
+    /// </summary>
+    public string? AlternativeTitle { get; init; }
+
     public MediaType MediaType { get; init; } = MediaType.Unknown;
 
     /// <summary>Null when unknown. Sources routinely write 0 to mean "unknown".</summary>
     public int? EpisodeCount { get; init; }
+
+    /// <summary>
+    /// Typical episode length, where the source states one.
+    /// </summary>
+    /// <remarks>
+    /// This and the two fields below are catalogue facts rather than tracking data,
+    /// so D18's precedence never guards them — whichever source has them fills them
+    /// in. A MyAnimeList export carries none of the three, which is why every
+    /// runtime and decade surface built in Phase 3 sat inert until an AniList sync
+    /// existed to populate them.
+    /// </remarks>
+    public int? EpisodeDurationMinutes { get; init; }
+
+    public int? ReleaseYear { get; init; }
+
+    /// <summary>Remote URL only. Nothing downloads or stores the image.</summary>
+    public string? CoverImageUrl { get; init; }
 
     public LibraryStatus Status { get; init; } = LibraryStatus.Planning;
 
