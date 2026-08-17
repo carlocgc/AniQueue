@@ -44,7 +44,21 @@ public class Anime
     /// is why the uniqueness index over (Source, SourceAnimeId) is filtered — two
     /// manual entries must not collide with each other.
     /// </summary>
+    /// <remarks>
+    /// Superseded by <see cref="ExternalIds"/> (D17) and removed once every reader
+    /// has moved across. Still written and read in the meantime so that the
+    /// migration adding the new table changes no behaviour on its own.
+    /// </remarks>
     public string? SourceAnimeId { get; set; }
+
+    /// <summary>
+    /// Every external service that identifies this title (D17).
+    /// </summary>
+    /// <remarks>
+    /// Empty for manual entries. More than one is the normal case for anything
+    /// AniList knows, since it publishes a MyAnimeList id alongside its own.
+    /// </remarks>
+    public ICollection<AnimeExternalId> ExternalIds { get; set; } = [];
 
     public int? FranchiseId { get; set; }
 
