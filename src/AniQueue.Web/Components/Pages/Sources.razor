@@ -20,6 +20,17 @@
     <div class="notice error" role="alert">@_error</div>
 }
 
+@* A finished sync reports at the top, where the button that started it is, rather
+   than below the source cards. There is nothing to scroll to — the result *is*
+   that no tables appeared — so a message further down the page reads as the click
+   having done nothing at all. *@
+@if (_nothingToDo)
+{
+    <div class="notice success" role="status">
+        Already up to date — your library matches this source, so there is nothing to apply.
+    </div>
+}
+
 @if (!SyncConfiguration.CurrentValue.Enabled)
 {
     @* The operator's kill switch. Said out loud because otherwise a Sync Now that
@@ -194,12 +205,6 @@
     <div class="toolbar">
         <a class="button primary" href="backlog">View backlog</a>
         <button @onclick="Reset">Done</button>
-    </div>
-}
-else if (_nothingToDo)
-{
-    <div class="notice info" role="status">
-        Your library already matches this source, so there is nothing to apply.
     </div>
 }
 
