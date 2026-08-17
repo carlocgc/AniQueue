@@ -44,13 +44,12 @@ internal static class SeedData
         return franchise;
     }
 
-    public static QueueItem QueueSlot(int profileId, int position, int? animeId = null, int? franchiseId = null) =>
+    public static QueueItem QueueSlot(int profileId, int position, int animeId) =>
         new()
         {
             ProfileId = profileId,
             Position = position,
             AnimeId = animeId,
-            FranchiseId = franchiseId,
             AddedAt = DateTimeOffset.UtcNow
         };
 

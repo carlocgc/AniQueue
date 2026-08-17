@@ -32,70 +32,190 @@ public sealed class QueueService(
     {
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
 
-        var slots = await context.QueueItems
+        // One query, because a slot is one title (D15). Under the old model this
+        // needed three: the slots, then titles and franchises resolved separately
+        // and stitched back together in memory.
+        var rows = await context.QueueItems
             .AsNoTracking()
             .Where(q => q.ProfileId == profileId)
             .OrderBy(q => q.Position)
             .ThenBy(q => q.Id)
-            .Select(q => new { q.Id, q.Position, q.AnimeId, q.FranchiseId })
+            .Select(q => new
+            {
+                q.Id,
+                q.Position,
+                q.AnimeId,
+                q.Anime!.Title,
+                q.Anime.MediaType,
+                q.Anime.EpisodeCount,
+                q.Anime.EpisodeDurationMinutes,
+                q.Anime.ReleaseYear,
+                q.Anime.Source,
+                q.Anime.SourceAnimeId,
+                FranchiseName = q.Anime.Franchise != null ? q.Anime.Franchise.Name : null,
+                Entry = context.LibraryEntries
+                    .Where(e => e.ProfileId == profileId && e.AnimeId == q.AnimeId)
+                    .Select(e => new { e.Status, e.EpisodesWatched })
+                    .FirstOrDefault()
+            })
             .ToListAsync(cancellationToken);
 
-        if (slots.Count == 0)
+        return rows.ConvertAll(r => new QueueListItem
         {
-            return [];
-        }
-
-        var animeIds = slots.Where(s => s.AnimeId != null).Select(s => s.AnimeId!.Value).ToList();
-        var franchiseIds = slots.Where(s => s.FranchiseId != null).Select(s => s.FranchiseId!.Value).ToList();
-
-        var titles = await LoadTitleSlotsAsync(context, profileId, animeIds, cancellationToken);
-        var franchises = await LoadFranchiseSlotsAsync(context, profileId, franchiseIds, cancellationToken);
-
-        var items = new List<QueueListItem>(slots.Count);
-
-        foreach (var slot in slots)
-        {
-            // A slot whose target vanished should not exist — both foreign keys
-            // cascade — but rendering the rest of the queue beats throwing away the
-            // page over one impossible row.
-            QueueListItem? item = slot switch
-            {
-                { AnimeId: { } animeId } => titles.GetValueOrDefault(animeId) is { } title
-                    ? title with { QueueItemId = slot.Id, Position = slot.Position }
-                    : null,
-                { FranchiseId: { } franchiseId } => franchises.GetValueOrDefault(franchiseId) is { } franchise
-                    ? franchise with { QueueItemId = slot.Id, Position = slot.Position }
-                    : null,
-                _ => null
-            };
-
-            if (item is null)
-            {
-                logger.LogWarning(
-                    "Queue slot {QueueItemId} references something that no longer exists; skipping it",
-                    slot.Id);
-
-                continue;
-            }
-
-            items.Add(item);
-        }
-
-        return items;
+            QueueItemId = r.Id,
+            Position = r.Position,
+            AnimeId = r.AnimeId,
+            Title = r.Title,
+            MediaType = r.MediaType,
+            EpisodeCount = r.EpisodeCount,
+            ReleaseYear = r.ReleaseYear,
+            Status = r.Entry?.Status,
+            EpisodesWatched = r.Entry?.EpisodesWatched ?? 0,
+            Source = r.Source,
+            SourceAnimeId = r.SourceAnimeId,
+            FranchiseName = r.FranchiseName,
+            EstimatedRuntimeMinutes = RuntimeCalculator.Estimate(r.EpisodeCount, r.EpisodeDurationMinutes)
+        });
     }
 
-    public Task<QueueAddResult> AddAnimeAsync(
+    public async Task<QueueAddResult> AddAnimeAsync(
         int profileId,
         IReadOnlyCollection<int> animeIds,
         IProgress<OperationProgress>? progress = null,
-        CancellationToken cancellationToken = default) =>
-        AppendAsync(profileId, animeIds, asFranchise: false, progress, cancellationToken);
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(animeIds);
 
-    public Task<QueueAddResult> AddFranchisesAsync(
+        if (animeIds.Count == 0)
+        {
+            return new QueueAddResult { Added = 0 };
+        }
+
+        const string Message = "Adding to Up Next";
+        progress?.Report(new OperationProgress(Message));
+
+        await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
+        await using var transaction = await context.Database.BeginTransactionAsync(cancellationToken);
+
+        // Read inside the transaction. The unique index would reject a duplicate
+        // anyway, but failing the whole batch because one title was already queued
+        // would be a poor trade for the user.
+        var slots = await LoadOrderedAsync(context, profileId, cancellationToken);
+        var queued = slots.Select(q => q.AnimeId).ToHashSet();
+
+        // Distinct so a selection containing the same id twice cannot violate the
+        // unique index within one batch.
+        var requested = animeIds.Distinct().ToList();
+        var alreadyQueued = requested.Count(queued.Contains);
+        var toAdd = requested.Where(id => !queued.Contains(id)).ToList();
+
+        // Statuses decide what may be queued at all. Read from the library rather
+        // than the catalogue: a title with no entry for this profile has nothing to
+        // plan, and a LibraryEntry cannot exist without its Anime, so this also
+        // covers the stale-selection case that used to need its own query.
+        var statuses = await context.LibraryEntries
+            .AsNoTracking()
+            .Where(e => e.ProfileId == profileId && toAdd.Contains(e.AnimeId))
+            .ToDictionaryAsync(e => e.AnimeId, e => e.Status, cancellationToken);
+
+        var now = DateTimeOffset.UtcNow;
+        var position = slots.Count;
+        var added = 0;
+        var noLongerPlanned = 0;
+        var unavailable = 0;
+
+        // Caller order is preserved, which is what lets a franchise be queued in
+        // viewing order by passing its members already sorted.
+        foreach (var animeId in toAdd)
+        {
+            if (!statuses.TryGetValue(animeId, out var status))
+            {
+                unavailable++;
+                continue;
+            }
+
+            // The same rule AdvanceAsync applies later. Enforcing it here too is
+            // what stops a watched title being queued into a slot that the next
+            // import would silently delete.
+            if (status != LibraryStatus.Planning)
+            {
+                noLongerPlanned++;
+                continue;
+            }
+
+            context.QueueItems.Add(new QueueItem
+            {
+                ProfileId = profileId,
+                Position = position++,
+                AnimeId = animeId,
+                AddedAt = now
+            });
+
+            added++;
+            progress?.Report(new OperationProgress(Message, added, toAdd.Count));
+        }
+
+        // Existing slots are renumbered as well, so an append also repairs a queue
+        // that was already non-contiguous. Counting new rows from slots.Count above
+        // is only correct because of this.
+        RewritePositions(slots);
+
+        await context.SaveChangesAsync(cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
+
+        var result = new QueueAddResult
+        {
+            Added = added,
+            AlreadyQueued = alreadyQueued,
+            NoLongerPlanned = noLongerPlanned,
+            Unavailable = unavailable
+        };
+
+        logger.LogInformation(
+            "Queue changed: {Added} added, {Skipped} skipped ({AlreadyQueued} already queued, "
+            + "{NoLongerPlanned} no longer planned, {Unavailable} not in the library)",
+            added,
+            result.Skipped,
+            alreadyQueued,
+            noLongerPlanned,
+            unavailable);
+
+        return result;
+    }
+
+    public async Task<QueueAddResult> AddFranchiseAsync(
         int profileId,
-        IReadOnlyCollection<int> franchiseIds,
-        CancellationToken cancellationToken = default) =>
-        AppendAsync(profileId, franchiseIds, asFranchise: true, progress: null, cancellationToken);
+        int franchiseId,
+        bool includeOptional = false,
+        CancellationToken cancellationToken = default)
+    {
+        List<int> members;
+
+        // Read in its own context, which is closed before the append opens a
+        // transaction of its own. Anything that changes in between is caught by the
+        // append re-checking inside that transaction; the worst case is that fewer
+        // titles land than were counted, which is the safe direction.
+        await using (var context = await contextFactory.CreateDbContextAsync(cancellationToken))
+        {
+            members = await QueueableMembers(context, profileId, franchiseId, includeOptional)
+                .ToListAsync(cancellationToken);
+        }
+
+        if (members.Count == 0)
+        {
+            return new QueueAddResult { Added = 0 };
+        }
+
+        logger.LogInformation(
+            "Expanding franchise {FranchiseId} into {Count} queue slots",
+            franchiseId,
+            members.Count);
+
+        // Handed to the ordinary append in viewing order. Expansion deliberately
+        // owns no writing of its own — one path creates slots, so the contiguity
+        // invariant has one place to be got right (D15).
+        return await AddAnimeAsync(profileId, members, cancellationToken: cancellationToken);
+    }
 
     public async Task<IReadOnlySet<int>> GetQueuedAnimeIdsAsync(
         int profileId,
@@ -105,8 +225,8 @@ public sealed class QueueService(
 
         var ids = await context.QueueItems
             .AsNoTracking()
-            .Where(q => q.ProfileId == profileId && q.AnimeId != null)
-            .Select(q => q.AnimeId!.Value)
+            .Where(q => q.ProfileId == profileId)
+            .Select(q => q.AnimeId)
             .ToListAsync(cancellationToken);
 
         return ids.ToHashSet();
@@ -114,26 +234,35 @@ public sealed class QueueService(
 
     public async Task<IReadOnlyList<QueueableFranchise>> GetQueueableFranchisesAsync(
         int profileId,
+        bool includeOptional = false,
         CancellationToken cancellationToken = default)
     {
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
 
-        var queued = await context.QueueItems
+        var franchises = await context.Franchises
             .AsNoTracking()
-            .Where(q => q.ProfileId == profileId && q.FranchiseId != null)
-            .Select(q => q.FranchiseId!.Value)
-            .ToListAsync(cancellationToken);
-
-        // Empty franchises are excluded rather than offered and then queued as a
-        // slot with nothing behind it.
-        var candidates = await context.Franchises
-            .AsNoTracking()
-            .Where(f => !queued.Contains(f.Id) && f.Entries.Count > 0)
             .OrderBy(f => f.Name)
-            .Select(f => new QueueableFranchise(f.Id, f.Name, f.Entries.Count))
+            .Select(f => new { f.Id, f.Name })
             .ToListAsync(cancellationToken);
 
-        return candidates;
+        var offers = new List<QueueableFranchise>();
+
+        foreach (var franchise in franchises)
+        {
+            // Counted the same way the click will expand it, so the number offered
+            // is the number that will land. A franchise that is fully watched or
+            // fully queued counts zero and is not offered at all — under the old
+            // model it would have been, and then done nothing.
+            var count = await QueueableMembers(context, profileId, franchise.Id, includeOptional)
+                .CountAsync(cancellationToken);
+
+            if (count > 0)
+            {
+                offers.Add(new QueueableFranchise(franchise.Id, franchise.Name, count));
+            }
+        }
+
+        return offers;
     }
 
     public async Task<bool> RemoveAsync(
@@ -189,39 +318,25 @@ public sealed class QueueService(
             return 0;
         }
 
-        // Franchise membership, so a franchise slot can be judged by the titles in it.
-        var franchiseIds = slots.Where(s => s.FranchiseId != null).Select(s => s.FranchiseId!.Value).ToList();
+        var queuedIds = slots.ConvertAll(s => s.AnimeId);
 
-        var members = franchiseIds.Count == 0
-            ? []
-            : await context.Anime
-                .AsNoTracking()
-                .Where(a => a.FranchiseId != null && franchiseIds.Contains(a.FranchiseId.Value))
-                .Select(a => new { FranchiseId = a.FranchiseId!.Value, a.Id })
-                .ToListAsync(cancellationToken);
-
-        var membersByFranchise = members.ToLookup(m => m.FranchiseId, m => m.Id);
-
-        // Statuses for everything the queue refers to, and nothing else. Narrowed to
-        // the relevant ids rather than reading the profile's whole library: this runs
-        // after every import, and the queue is small where the library is not.
+        // Statuses for the queued titles and nothing else. Narrowed to those ids
+        // rather than reading the profile's whole library: this runs after every
+        // import, and the queue is small where the library is not.
         //
-        // A status is recorded only where a library entry exists. That absence is
-        // load-bearing below — it is how "not planned" is kept distinct from "nothing
-        // is known", which are very different grounds for discarding a slot.
-        var subjects = slots
-            .Where(s => s.AnimeId != null)
-            .Select(s => s.AnimeId!.Value)
-            .Concat(members.Select(m => m.Id))
-            .Distinct()
-            .ToList();
-
+        // A status exists only where a library entry does, and that absence is
+        // load-bearing below — it keeps "not planned" distinct from "nothing is
+        // known", which are very different grounds for discarding a slot.
         var statuses = await context.LibraryEntries
             .AsNoTracking()
-            .Where(e => e.ProfileId == profileId && subjects.Contains(e.AnimeId))
+            .Where(e => e.ProfileId == profileId && queuedIds.Contains(e.AnimeId))
             .ToDictionaryAsync(e => e.AnimeId, e => e.Status, cancellationToken);
 
-        var released = slots.Where(slot => IsFinishedWith(slot, statuses, membersByFranchise)).ToList();
+        // Released only on positive evidence of being done. A queued title with no
+        // library entry is unknown, and unknown is not watched.
+        var released = slots
+            .Where(s => statuses.TryGetValue(s.AnimeId, out var status) && status != LibraryStatus.Planning)
+            .ToList();
 
         if (released.Count == 0)
         {
@@ -245,50 +360,6 @@ public sealed class QueueService(
             slots.Count);
 
         return released.Count;
-    }
-
-    /// <summary>
-    /// Whether a slot has served its purpose and should be released.
-    /// </summary>
-    /// <remarks>
-    /// Two deliberate abstentions, both on the same principle — a slot the user
-    /// created is only removed on positive evidence that it is done, never on the
-    /// absence of evidence:
-    ///
-    /// <list type="bullet">
-    /// <item>A queued title with no library entry at all. Nothing is known about its
-    /// status, and "unknown" is not "watched".</item>
-    /// <item>A franchise none of whose titles has a known status — including one
-    /// with no titles at all. Far more likely the grouping is mid-edit than that
-    /// there is nothing left to watch, and silently dropping the slot would lose a
-    /// decision the user made.</item>
-    /// </list>
-    ///
-    /// A franchise whose titles *are* known is released once none of them is still
-    /// Planning. Starting the first season does not release it — the rest of the
-    /// group is exactly what the slot is holding a place for.
-    /// </remarks>
-    private static bool IsFinishedWith(
-        QueueItem slot,
-        Dictionary<int, LibraryStatus> statuses,
-        ILookup<int, int> membersByFranchise)
-    {
-        if (slot.AnimeId is { } animeId)
-        {
-            return statuses.TryGetValue(animeId, out var status) && status != LibraryStatus.Planning;
-        }
-
-        if (slot.FranchiseId is not { } franchiseId)
-        {
-            return false;
-        }
-
-        var known = membersByFranchise[franchiseId]
-            .Where(statuses.ContainsKey)
-            .Select(id => statuses[id])
-            .ToList();
-
-        return known.Count > 0 && known.TrueForAll(status => status != LibraryStatus.Planning);
     }
 
     public Task<bool> MoveAsync(
@@ -364,98 +435,43 @@ public sealed class QueueService(
     }
 
     /// <summary>
-    /// Appends anime or franchises to the end of the queue.
+    /// The members of a franchise that queueing it would actually add, in viewing
+    /// order. Defined once so the count offered and the set appended cannot drift.
     /// </summary>
-    /// <remarks>
-    /// One method for both because everything except which column is set and which
-    /// table is checked for existence is identical, and the part worth getting right
-    /// — one transaction, skip duplicates, leave positions contiguous — should exist
-    /// once.
-    /// </remarks>
-    private async Task<QueueAddResult> AppendAsync(
+    private static IQueryable<int> QueueableMembers(
+        AniQueueDbContext context,
         int profileId,
-        IReadOnlyCollection<int> ids,
-        bool asFranchise,
-        IProgress<OperationProgress>? progress,
-        CancellationToken cancellationToken)
+        int franchiseId,
+        bool includeOptional)
     {
-        ArgumentNullException.ThrowIfNull(ids);
+        var members = context.Anime
+            .AsNoTracking()
+            .Where(a => a.FranchiseId == franchiseId);
 
-        if (ids.Count == 0)
+        if (!includeOptional)
         {
-            return new QueueAddResult(0, 0);
+            // Specials and side films the user has marked skippable. They can still
+            // be queued individually from the backlog; what they do not do is arrive
+            // uninvited when someone says "I want to watch this franchise".
+            members = members.Where(a => !a.OptionalWithinFranchise);
         }
 
-        var message = asFranchise ? "Adding franchises to Up Next" : "Adding to Up Next";
-        progress?.Report(new OperationProgress(message));
-
-        await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
-        await using var transaction = await context.Database.BeginTransactionAsync(cancellationToken);
-
-        // Read inside the transaction. The filtered unique index would reject a
-        // duplicate anyway, but failing the whole batch because one title was
-        // already queued would be a poor trade for the user.
-        var slots = await LoadOrderedAsync(context, profileId, cancellationToken);
-
-        var queued = slots
-            .Select(q => asFranchise ? q.FranchiseId : q.AnimeId)
-            .Where(id => id is not null)
-            .Select(id => id!.Value)
-            .ToHashSet();
-
-        // Distinct so a selection containing the same id twice cannot violate the
-        // unique index within one batch.
-        var requested = ids.Distinct().ToList();
-        var toAdd = requested.Where(id => !queued.Contains(id)).ToList();
-
-        // Only things that actually exist; a stale selection must not create a slot
-        // pointing at nothing.
-        var existing = asFranchise
-            ? await context.Franchises
-                .Where(f => toAdd.Contains(f.Id))
-                .Select(f => f.Id)
-                .ToListAsync(cancellationToken)
-            : await context.Anime
-                .Where(a => toAdd.Contains(a.Id))
-                .Select(a => a.Id)
-                .ToListAsync(cancellationToken);
-
-        var existingIds = existing.ToHashSet();
-        var now = DateTimeOffset.UtcNow;
-        var position = slots.Count;
-        var added = 0;
-
-        foreach (var id in toAdd.Where(existingIds.Contains))
-        {
-            context.QueueItems.Add(new QueueItem
-            {
-                ProfileId = profileId,
-                Position = position++,
-                AnimeId = asFranchise ? null : id,
-                FranchiseId = asFranchise ? id : null,
-                AddedAt = now
-            });
-
-            added++;
-            progress?.Report(new OperationProgress(message, added, toAdd.Count));
-        }
-
-        // Existing slots are renumbered as well, so an append also repairs a queue
-        // that was already non-contiguous. New rows counted from slots.Count above
-        // is only correct because of this.
-        RewritePositions(slots);
-
-        await context.SaveChangesAsync(cancellationToken);
-        await transaction.CommitAsync(cancellationToken);
-
-        var skipped = requested.Count - added;
-
-        logger.LogInformation(
-            "Queue changed: {Added} added, {Skipped} skipped as already queued or missing",
-            added,
-            skipped);
-
-        return new QueueAddResult(added, skipped);
+        return members
+            // Still waiting to be watched, and not already in the queue. Together
+            // these make re-adding a franchise after a new season syncs add exactly
+            // the new season.
+            .Where(a => context.LibraryEntries.Any(e =>
+                e.ProfileId == profileId
+                && e.AnimeId == a.Id
+                && e.Status == LibraryStatus.Planning))
+            .Where(a => !context.QueueItems.Any(q => q.ProfileId == profileId && q.AnimeId == a.Id))
+            // Unsequenced members last rather than first: a null order means nobody
+            // has said where it goes, which is not a claim that it goes before the
+            // first season.
+            .OrderBy(a => a.FranchiseOrder == null)
+            .ThenBy(a => a.FranchiseOrder)
+            .ThenBy(a => a.Title)
+            .Select(a => a.Id);
     }
 
     /// <summary>
@@ -497,121 +513,5 @@ public sealed class QueueService(
         }
 
         return changed;
-    }
-
-    private static async Task<Dictionary<int, QueueListItem>> LoadTitleSlotsAsync(
-        AniQueueDbContext context,
-        int profileId,
-        List<int> animeIds,
-        CancellationToken cancellationToken)
-    {
-        if (animeIds.Count == 0)
-        {
-            return [];
-        }
-
-        // Left-joined onto the library rather than inner-joined: a queued title with
-        // no library entry is odd but not impossible, and it should still render
-        // with an unknown status instead of disappearing from the queue.
-        var rows = await context.Anime
-            .AsNoTracking()
-            .Where(a => animeIds.Contains(a.Id))
-            .Select(a => new
-            {
-                a.Id,
-                a.Title,
-                a.MediaType,
-                a.EpisodeCount,
-                a.EpisodeDurationMinutes,
-                a.ReleaseYear,
-                a.Source,
-                a.SourceAnimeId,
-                Entry = context.LibraryEntries
-                    .Where(e => e.ProfileId == profileId && e.AnimeId == a.Id)
-                    .Select(e => new { e.Status, e.EpisodesWatched })
-                    .FirstOrDefault()
-            })
-            .ToListAsync(cancellationToken);
-
-        return rows.ToDictionary(
-            r => r.Id,
-            r => new QueueListItem
-            {
-                // Overwritten per slot by the caller; a title can only be queued
-                // once, but the record is keyed by anime here, not by slot.
-                QueueItemId = 0,
-                Position = 0,
-                Title = r.Title,
-                AnimeId = r.Id,
-                MediaType = r.MediaType,
-                EpisodeCount = r.EpisodeCount,
-                ReleaseYear = r.ReleaseYear,
-                Status = r.Entry?.Status,
-                EpisodesWatched = r.Entry?.EpisodesWatched ?? 0,
-                Source = r.Source,
-                SourceAnimeId = r.SourceAnimeId,
-                EstimatedRuntimeMinutes = RuntimeCalculator.Estimate(r.EpisodeCount, r.EpisodeDurationMinutes)
-            });
-    }
-
-    private static async Task<Dictionary<int, QueueListItem>> LoadFranchiseSlotsAsync(
-        AniQueueDbContext context,
-        int profileId,
-        List<int> franchiseIds,
-        CancellationToken cancellationToken)
-    {
-        if (franchiseIds.Count == 0)
-        {
-            return [];
-        }
-
-        var franchises = await context.Franchises
-            .AsNoTracking()
-            .Where(f => franchiseIds.Contains(f.Id))
-            .Select(f => new { f.Id, f.Name })
-            .ToListAsync(cancellationToken);
-
-        // Members are loaded rather than aggregated in SQL because the runtime sum
-        // has to report whether it is partial (§7, Phase 5), and "how many of these
-        // had an unknown length" is not something a SUM can tell us. The set is
-        // bounded by what is actually queued, so it stays small.
-        var members = await context.Anime
-            .AsNoTracking()
-            .Where(a => a.FranchiseId != null && franchiseIds.Contains(a.FranchiseId.Value))
-            .Select(a => new
-            {
-                FranchiseId = a.FranchiseId!.Value,
-                a.EpisodeCount,
-                a.EpisodeDurationMinutes,
-                IsCompleted = context.LibraryEntries.Any(e =>
-                    e.ProfileId == profileId
-                    && e.AnimeId == a.Id
-                    && e.Status == LibraryStatus.Completed)
-            })
-            .ToListAsync(cancellationToken);
-
-        var byFranchise = members.ToLookup(m => m.FranchiseId);
-
-        return franchises.ToDictionary(
-            f => f.Id,
-            f =>
-            {
-                var entries = byFranchise[f.Id].ToList();
-
-                var (minutes, isPartial) = RuntimeCalculator.Sum(
-                    entries.Select(e => RuntimeCalculator.Estimate(e.EpisodeCount, e.EpisodeDurationMinutes)));
-
-                return new QueueListItem
-                {
-                    QueueItemId = 0,
-                    Position = 0,
-                    Title = f.Name,
-                    FranchiseId = f.Id,
-                    EntryCount = entries.Count,
-                    CompletedEntryCount = entries.Count(e => e.IsCompleted),
-                    EstimatedRuntimeMinutes = minutes,
-                    IsRuntimePartial = isPartial
-                };
-            });
     }
 }
