@@ -824,7 +824,7 @@ public class QueueServiceTests
         Assert.Equal(LibraryStatus.Watching, slot.Status);
         Assert.Equal(4, slot.EpisodesWatched);
         Assert.Equal(12 * 23, slot.EstimatedRuntimeMinutes);
-        Assert.NotNull(slot.SourceLink);
+        Assert.NotEmpty(slot.SourceLinks);
 
         // The franchise's only presence in the queue: a name to badge the row with.
         Assert.Equal("Hinamatsuri", slot.FranchiseName);

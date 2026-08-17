@@ -63,9 +63,11 @@ public sealed record QueueListItem
 
     public int EpisodesWatched { get; init; }
 
+    /// <summary>How this record came to exist here. Provenance, not identity (D17).</summary>
     public AnimeSource Source { get; init; }
 
-    public string? SourceAnimeId { get; init; }
+    /// <summary>Every service that identifies this title.</summary>
+    public IReadOnlyList<ExternalIdentifier> ExternalIds { get; init; } = [];
 
     /// <summary>
     /// The franchise this title belongs to, if any.
@@ -80,8 +82,8 @@ public sealed record QueueListItem
     /// <summary>Estimated minutes to watch, or null when it cannot be known.</summary>
     public int? EstimatedRuntimeMinutes { get; init; }
 
-    /// <summary>Link out to the site this title came from, if there is one.</summary>
-    public SourceLink? SourceLink => SourceLinkBuilder.ForAnime(Source, SourceAnimeId);
+    /// <summary>Links out to every site that knows this title, in a stable order.</summary>
+    public IReadOnlyList<SourceLink> SourceLinks => SourceLinkBuilder.ForAnime(ExternalIds);
 }
 
 /// <summary>A franchise with titles that could be queued, for the add control.</summary>

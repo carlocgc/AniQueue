@@ -182,10 +182,15 @@ public sealed class MyAnimeListXmlParser(ImportLimits? limits = null) : IAnimeLi
             episodeCount = null;
         }
 
+        // One identifier, because a MyAnimeList export knows only about
+        // MyAnimeList. An AniList response will supply two (D17); nothing
+        // downstream needs to know which parser produced how many.
+        var malId = NullIfBlank(Value(fields, "series_animedb_id"));
+
         return new ParsedLibraryEntry
         {
             Source = AnimeSource.MyAnimeList,
-            SourceAnimeId = NullIfBlank(Value(fields, "series_animedb_id")),
+            ExternalIds = malId is null ? [] : [new ExternalIdentifier(AnimeSource.MyAnimeList, malId)],
             Title = title,
             MediaType = MapMediaType(Value(fields, "series_type")),
             EpisodeCount = episodeCount,

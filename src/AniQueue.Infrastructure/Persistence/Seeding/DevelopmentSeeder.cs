@@ -199,7 +199,9 @@ public sealed class DevelopmentSeeder(
                 FranchiseOrder = order,
                 OptionalWithinFranchise = optional,
                 Source = source,
-                SourceAnimeId = sourceId,
+                ExternalIds = sourceId is null
+                    ? []
+                    : [new AnimeExternalId { Source = source, ExternalId = sourceId }],
                 CreatedAt = now,
                 UpdatedAt = now
             };

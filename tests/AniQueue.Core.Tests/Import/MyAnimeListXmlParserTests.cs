@@ -1,4 +1,5 @@
 using System.Text;
+using System.Text.Json;
 using AniQueue.Core.Domain;
 using AniQueue.Core.Import;
 
@@ -42,7 +43,12 @@ public class MyAnimeListXmlParserTests
 
         var entry = Assert.Single(result.Entries);
         Assert.Equal(AnimeSource.MyAnimeList, entry.Source);
-        Assert.Equal("268", entry.SourceAnimeId);
+
+        // One identifier: a MyAnimeList export knows only about MyAnimeList. An
+        // AniList response will supply two (D17), and nothing downstream cares
+        // which parser produced how many.
+        var identifier = Assert.Single(entry.ExternalIds);
+        Assert.Equal(new ExternalIdentifier(AnimeSource.MyAnimeList, "268"), identifier);
         Assert.Equal("Golden Boy", entry.Title);          // CDATA unwrapped
         Assert.Equal(MediaType.Ova, entry.MediaType);
         Assert.Equal(6, entry.EpisodeCount);
@@ -288,6 +294,13 @@ public class MyAnimeListXmlParserTests
         var first = await Parser.ParseAsync(Xml(Export(GoldenBoy)));
         var second = await Parser.ParseAsync(Xml(Export(GoldenBoy)));
 
-        Assert.Equal(first.Entries, second.Entries);
+        // Compared as serialised form rather than with record equality, which stopped
+        // being structural when ExternalIds became a collection — a record compares
+        // an IReadOnlyList<T> member by reference, so two identical parses would
+        // differ. Serialising also means a member added later is covered without
+        // anyone remembering to extend this test.
+        Assert.Equal(
+            JsonSerializer.Serialize(first.Entries),
+            JsonSerializer.Serialize(second.Entries));
     }
 }

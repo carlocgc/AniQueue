@@ -13,18 +13,13 @@ public class AnimeConfiguration : IEntityTypeConfiguration<Anime>
         builder.Property(a => a.Title).IsRequired().HasMaxLength(500);
         builder.Property(a => a.AlternativeTitle).HasMaxLength(500);
         builder.Property(a => a.CoverImageUrl).HasMaxLength(2000);
-        builder.Property(a => a.SourceAnimeId).HasMaxLength(64);
 
         builder.HasIndex(a => a.Title);
 
-        // Deduplication key for imports. Filtered because manual entries have no
-        // SourceAnimeId: without the filter, every manual entry would collide with
-        // every other one on (Manual, NULL).
-        builder
-            .HasIndex(a => new { a.Source, a.SourceAnimeId })
-            .IsUnique()
-            .HasFilter("\"SourceAnimeId\" IS NOT NULL")
-            .HasDatabaseName("IX_Anime_Source_SourceAnimeId");
+        // No index over (Source, SourceAnimeId) any more. Deduplication is keyed on
+        // AnimeExternalId now (D17), because one column could only ever hold one
+        // identity — and a library imported from one service then synced from
+        // another matched nothing and conflicted on every title.
 
         builder.HasIndex(a => a.FranchiseId);
 

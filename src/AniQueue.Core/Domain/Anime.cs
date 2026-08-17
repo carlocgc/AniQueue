@@ -40,23 +40,17 @@ public class Anime
     public AnimeSource Source { get; set; } = AnimeSource.Manual;
 
     /// <summary>
-    /// Identifier assigned by <see cref="Source"/>. Null for manual entries, which
-    /// is why the uniqueness index over (Source, SourceAnimeId) is filtered — two
-    /// manual entries must not collide with each other.
-    /// </summary>
-    /// <remarks>
-    /// Superseded by <see cref="ExternalIds"/> (D17) and removed once every reader
-    /// has moved across. Still written and read in the meantime so that the
-    /// migration adding the new table changes no behaviour on its own.
-    /// </remarks>
-    public string? SourceAnimeId { get; set; }
-
-    /// <summary>
     /// Every external service that identifies this title (D17).
     /// </summary>
     /// <remarks>
     /// Empty for manual entries. More than one is the normal case for anything
-    /// AniList knows, since it publishes a MyAnimeList id alongside its own.
+    /// AniList knows, since it publishes a MyAnimeList id alongside its own — and
+    /// that second identifier is what lets a sync match a MyAnimeList-imported row
+    /// rather than duplicate it.
+    ///
+    /// This replaced a single <c>SourceAnimeId</c> column. One column could hold
+    /// one identity, so a library imported from one service and synced from another
+    /// matched nothing and conflicted on every title.
     /// </remarks>
     public ICollection<AnimeExternalId> ExternalIds { get; set; } = [];
 

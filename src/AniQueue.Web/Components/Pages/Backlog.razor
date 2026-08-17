@@ -220,15 +220,20 @@ else
                                         {
                                             <span class="badge">@item.FranchiseName</span>
                                         }
-                                        @* Free: Source and SourceAnimeId are already stored, so
-                                           this is formatting rather than a lookup.
+                                        @* Free: the identifiers are already stored, so this is
+                                           formatting rather than a lookup.
+
+                                           One badge per site, because a title can be known to
+                                           more than one (D17) — anything AniList has bridged
+                                           carries a MyAnimeList id as well, and offering both
+                                           beats picking one.
 
                                            A badge rather than a sentence: it sits among the
                                            other row badges, where prose reads as description
                                            instead of as something clickable. The short name
                                            is the label; the accessible name spells the site
                                            out, because "MAL" announced on its own is jargon. *@
-                                        @if (item.SourceLink is { } link)
+                                        @foreach (var link in item.SourceLinks)
                                         {
                                             <a class="badge badge-link" href="@link.Url"
                                                target="_blank" rel="noopener noreferrer"

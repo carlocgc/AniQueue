@@ -32,9 +32,11 @@ public sealed record LibraryListItem
 
     public double? RecommendationConfidence { get; init; }
 
+    /// <summary>How this record came to exist here. Provenance, not identity (D17).</summary>
     public AnimeSource Source { get; init; }
 
-    public string? SourceAnimeId { get; init; }
+    /// <summary>Every service that identifies this title.</summary>
+    public IReadOnlyList<ExternalIdentifier> ExternalIds { get; init; } = [];
 
     /// <summary>Whether this title already occupies a slot in the Up Next queue.</summary>
     public bool IsQueued { get; init; }
@@ -42,8 +44,8 @@ public sealed record LibraryListItem
     /// <summary>Estimated minutes to watch, or null when it cannot be known.</summary>
     public int? EstimatedRuntimeMinutes => RuntimeCalculator.Estimate(EpisodeCount, EpisodeDurationMinutes);
 
-    /// <summary>Link out to the site this title was imported from, if there is one.</summary>
-    public SourceLink? SourceLink => SourceLinkBuilder.ForAnime(Source, SourceAnimeId);
+    /// <summary>Links out to every site that knows this title, in a stable order.</summary>
+    public IReadOnlyList<SourceLink> SourceLinks => SourceLinkBuilder.ForAnime(ExternalIds);
 }
 
 /// <summary>Counts for the library as a whole.</summary>

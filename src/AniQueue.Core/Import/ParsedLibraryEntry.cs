@@ -9,12 +9,34 @@ namespace AniQueue.Core.Import;
 /// leaking into the domain: parsers translate into this shape, and everything
 /// downstream works from it without knowing which format produced it.
 /// </summary>
+/// <remarks>
+/// <b>Equality is not fully structural.</b> A record compares an
+/// <see cref="IReadOnlyList{T}"/> member by reference, so two instances with
+/// identical <see cref="ExternalIds"/> are unequal. Nothing downstream compares
+/// these — matching works from the identifiers themselves — so no custom equality
+/// is implemented rather than carrying one nothing needs. Compare serialised form
+/// if two parses ever have to be checked against each other.
+/// </remarks>
 public sealed record ParsedLibraryEntry
 {
+    /// <summary>
+    /// Which format produced this entry. Provenance only — matching uses
+    /// <see cref="ExternalIds"/>.
+    /// </summary>
     public required AnimeSource Source { get; init; }
 
-    /// <summary>Identifier from the source, when the file provides one.</summary>
-    public string? SourceAnimeId { get; init; }
+    /// <summary>
+    /// Every identifier this record supplies, which may be more than one (D17).
+    /// </summary>
+    /// <remarks>
+    /// A MyAnimeList export knows only itself and supplies one, or none for an
+    /// entry missing its id. An AniList response supplies its own id and the
+    /// MyAnimeList id it publishes alongside, and storing both is what makes the
+    /// bridge between the two services work in whichever order the user imports.
+    ///
+    /// Empty is legitimate and means the entry can only be matched by title.
+    /// </remarks>
+    public IReadOnlyList<ExternalIdentifier> ExternalIds { get; init; } = [];
 
     public required string Title { get; init; }
 

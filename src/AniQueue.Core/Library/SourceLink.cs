@@ -22,11 +22,10 @@ public sealed record SourceLink(string ShortName, string SiteName, string Url)
 }
 
 /// <summary>
-/// Builds links to the site a title was imported from.
+/// Builds links to the sites that identify a title.
 ///
-/// This needs no lookup, no configuration and no network: <see cref="Anime.Source"/>
-/// and <see cref="Anime.SourceAnimeId"/> are already stored by the importer, so the
-/// URL is pure formatting.
+/// This needs no lookup, no configuration and no network: the identifiers are
+/// already stored by the importer, so a URL is pure formatting.
 ///
 /// It is also the first implementation of the pattern the Plex and Overseerr links
 /// will use (ROADMAP.md §10) — given a title, return an optional link. Those need
@@ -35,12 +34,33 @@ public sealed record SourceLink(string ShortName, string SiteName, string Url)
 public static class SourceLinkBuilder
 {
     /// <summary>
-    /// A link to the title on the site it came from, or null for manual entries and
-    /// for sources with no identifier to link to.
+    /// A link per identifier that points somewhere, in a stable order.
     /// </summary>
-    public static SourceLink? ForAnime(AnimeSource source, string? sourceAnimeId)
+    /// <remarks>
+    /// Returns several since D17: a title AniList knows carries a MyAnimeList
+    /// identifier too, and offering both is strictly more useful than picking one.
+    /// Ordered by source so a row's badges do not reshuffle between renders.
+    /// </remarks>
+    public static IReadOnlyList<SourceLink> ForAnime(IEnumerable<ExternalIdentifier>? identifiers)
     {
-        if (string.IsNullOrWhiteSpace(sourceAnimeId))
+        if (identifiers is null)
+        {
+            return [];
+        }
+
+        return [.. identifiers
+            .OrderBy(i => i.Source)
+            .Select(i => For(i.Source, i.Value))
+            .OfType<SourceLink>()];
+    }
+
+    /// <summary>
+    /// A link for one identifier, or null when the source or the value cannot
+    /// produce one.
+    /// </summary>
+    public static SourceLink? For(AnimeSource source, string? externalId)
+    {
+        if (string.IsNullOrWhiteSpace(externalId))
         {
             return null;
         }
@@ -48,7 +68,7 @@ public static class SourceLinkBuilder
         // Identifiers come from imported files, so they are not trusted to be
         // numeric. Anything else is not a usable path segment on either site, and
         // refusing here means nothing has to be escaped downstream.
-        if (!long.TryParse(sourceAnimeId, NumberStyles.None, CultureInfo.InvariantCulture, out var id))
+        if (!long.TryParse(externalId, NumberStyles.None, CultureInfo.InvariantCulture, out var id))
         {
             return null;
         }

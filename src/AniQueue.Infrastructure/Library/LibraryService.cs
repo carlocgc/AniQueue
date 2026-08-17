@@ -68,7 +68,13 @@ public sealed class LibraryService(
                 e.RecommendationScore,
                 e.RecommendationConfidence,
                 e.Anime.Source,
-                e.Anime.SourceAnimeId
+
+                // Projected to an anonymous shape and mapped after materialising:
+                // a collection projection translates to a join, and building the
+                // domain record here would depend on constructor translation.
+                ExternalIds = e.Anime.ExternalIds
+                    .Select(x => new { x.Source, x.ExternalId })
+                    .ToList()
             })
             .ToListAsync(cancellationToken);
 
@@ -91,7 +97,7 @@ public sealed class LibraryService(
                 RecommendationScore = i.RecommendationScore,
                 RecommendationConfidence = i.RecommendationConfidence,
                 Source = i.Source,
-                SourceAnimeId = i.SourceAnimeId,
+                ExternalIds = [.. i.ExternalIds.Select(x => new ExternalIdentifier(x.Source, x.ExternalId))],
                 IsQueued = queuedIds.Contains(i.AnimeId)
             }).ToList()
         };
@@ -126,10 +132,17 @@ public sealed class LibraryService(
             .Distinct()
             .ToListAsync(cancellationToken);
 
+        // Counted over identifiers so the chip offered matches the filter applied,
+        // with Manual added by inversion for titles carrying none.
         var sources = await entries
-            .Select(e => e.Anime!.Source)
+            .SelectMany(e => e.Anime!.ExternalIds.Select(x => x.Source))
             .Distinct()
             .ToListAsync(cancellationToken);
+
+        if (await entries.AnyAsync(e => !e.Anime!.ExternalIds.Any(), cancellationToken))
+        {
+            sources.Add(AnimeSource.Manual);
+        }
 
         var countByStatus = await entries
             .GroupBy(e => e.Status)
@@ -273,7 +286,15 @@ public sealed class LibraryService(
 
         if (query.Source is { } source1)
         {
-            filtered = filtered.Where(e => e.Anime!.Source == source1);
+            // "Is this title on that service", not "did that service create this
+            // record" (D17). A hand-added title since linked to MyAnimeList belongs
+            // under the MyAnimeList chip, which is what clicking it means.
+            //
+            // Manual keeps a useful meaning by inversion: carrying no external
+            // identifier at all is exactly the hand-added set.
+            filtered = source1 == AnimeSource.Manual
+                ? filtered.Where(e => !e.Anime!.ExternalIds.Any())
+                : filtered.Where(e => e.Anime!.ExternalIds.Any(x => x.Source == source1));
         }
 
         filtered = query.Franchise switch

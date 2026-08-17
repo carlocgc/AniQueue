@@ -65,7 +65,18 @@ public class LibraryServiceTests
             EpisodeDurationMinutes = duration,
             ReleaseYear = year,
             Source = source,
-            SourceAnimeId = sourceId ?? Guid.NewGuid().ToString("N")[..8],
+
+            // A distinct identifier per title unless one is given, so the uniqueness
+            // index does not make unrelated tests collide. Numeric because
+            // SourceLinkBuilder refuses anything else.
+            ExternalIds =
+            [
+                new AnimeExternalId
+                {
+                    Source = source,
+                    ExternalId = sourceId ?? Random.Shared.Next(100_000, 999_999).ToString()
+                }
+            ],
             FranchiseId = franchiseId,
             CreatedAt = now,
             UpdatedAt = now
@@ -396,9 +407,8 @@ public class LibraryServiceTests
         }
 
         var page = await fixture.Library.GetPageAsync(Profile.DefaultProfileId, new LibraryQuery());
-        var link = Assert.Single(page.Items).SourceLink;
+        var link = Assert.Single(Assert.Single(page.Items).SourceLinks);
 
-        Assert.NotNull(link);
         Assert.Equal("https://myanimelist.net/anime/268", link.Url);
     }
 }

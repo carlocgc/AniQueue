@@ -24,8 +24,11 @@ public class SchemaTests
     }
 
     [Theory]
-    // Import deduplication (ROADMAP.md §4).
-    [InlineData("IX_Anime_Source_SourceAnimeId")]
+    // Import deduplication (D17). Unfiltered, unlike the single-column index it
+    // replaced — a manual entry now has no row rather than a null identifier.
+    [InlineData("IX_AnimeExternalIds_Source_ExternalId")]
+    // One identifier per title per source; a second means two sources disagree.
+    [InlineData("IX_AnimeExternalIds_AnimeId_Source")]
     // One relationship per profile per title; what makes re-import idempotent.
     [InlineData("IX_LibraryEntries_ProfileId_AnimeId")]
     // Queue ordering reads (D2 — intentionally not unique).

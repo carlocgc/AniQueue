@@ -8,7 +8,7 @@ public class SourceLinkBuilderTests
     [Fact]
     public void Builds_a_MyAnimeList_link()
     {
-        var link = SourceLinkBuilder.ForAnime(AnimeSource.MyAnimeList, "268");
+        var link = SourceLinkBuilder.For(AnimeSource.MyAnimeList, "268");
 
         Assert.NotNull(link);
         Assert.Equal("https://myanimelist.net/anime/268", link.Url);
@@ -19,7 +19,7 @@ public class SourceLinkBuilderTests
     [Fact]
     public void Builds_an_AniList_link()
     {
-        var link = SourceLinkBuilder.ForAnime(AnimeSource.AniList, "21");
+        var link = SourceLinkBuilder.For(AnimeSource.AniList, "21");
 
         Assert.NotNull(link);
         Assert.Equal("https://anilist.co/anime/21", link.Url);
@@ -32,7 +32,7 @@ public class SourceLinkBuilderTests
         // The badge shows "MAL", which is jargon on its own. A screen reader
         // announcing just that would tell the user nothing about where the link
         // goes or which row it belongs to.
-        var link = SourceLinkBuilder.ForAnime(AnimeSource.MyAnimeList, "268");
+        var link = SourceLinkBuilder.For(AnimeSource.MyAnimeList, "268");
 
         Assert.NotNull(link);
         Assert.Equal("Open Golden Boy on MyAnimeList", link.DescribeFor("Golden Boy"));
@@ -42,8 +42,8 @@ public class SourceLinkBuilderTests
     public void Manual_entries_have_nowhere_to_link_to()
     {
         // They were typed in here; there is no external page.
-        Assert.Null(SourceLinkBuilder.ForAnime(AnimeSource.Manual, null));
-        Assert.Null(SourceLinkBuilder.ForAnime(AnimeSource.Manual, "268"));
+        Assert.Null(SourceLinkBuilder.For(AnimeSource.Manual, null));
+        Assert.Null(SourceLinkBuilder.For(AnimeSource.Manual, "268"));
     }
 
     [Theory]
@@ -51,7 +51,7 @@ public class SourceLinkBuilderTests
     [InlineData("")]
     [InlineData("   ")]
     public void No_identifier_means_no_link(string? id) =>
-        Assert.Null(SourceLinkBuilder.ForAnime(AnimeSource.MyAnimeList, id));
+        Assert.Null(SourceLinkBuilder.For(AnimeSource.MyAnimeList, id));
 
     [Theory]
     [InlineData("../../evil")]
@@ -65,7 +65,7 @@ public class SourceLinkBuilderTests
         // Identifiers arrive in imported files and are not trusted. Refusing
         // anything that is not a plain number means nothing has to be escaped
         // downstream, and a hand-edited export cannot steer the link anywhere.
-        Assert.Null(SourceLinkBuilder.ForAnime(AnimeSource.MyAnimeList, id));
+        Assert.Null(SourceLinkBuilder.For(AnimeSource.MyAnimeList, id));
     }
 
     private static readonly string[] ExpectedHosts = ["myanimelist.net", "anilist.co"];
@@ -78,7 +78,7 @@ public class SourceLinkBuilderTests
     {
         foreach (var source in LinkableSources)
         {
-            var link = SourceLinkBuilder.ForAnime(source, "1");
+            var link = SourceLinkBuilder.For(source, "1");
 
             Assert.NotNull(link);
             var uri = new Uri(link.Url);

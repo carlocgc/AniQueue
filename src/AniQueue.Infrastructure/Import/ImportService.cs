@@ -61,9 +61,21 @@ public sealed class ImportService(
         var items = new List<ImportPreviewItem>(parsed.Entries.Count);
         var matched = 0;
 
+        // Identifiers this file has already used, and the title that used them.
+        // A file claiming one identifier twice would violate the uniqueness index
+        // at commit and abort the whole import, so it is caught here instead and
+        // reported against the entry that caused it (D17).
+        var claimed = new Dictionary<ExternalIdentifier, string>();
+
         foreach (var entry in parsed.Entries)
         {
-            items.Add(BuildPreviewItem(entry, library));
+            items.Add(BuildPreviewItem(entry, library, claimed));
+
+            foreach (var identifier in entry.ExternalIds)
+            {
+                claimed.TryAdd(identifier, entry.Title);
+            }
+
             matched++;
 
             progress?.Report(new OperationProgress(
@@ -115,6 +127,12 @@ public sealed class ImportService(
         var processed = 0;
         var now = DateTimeOffset.UtcNow;
 
+        // Identifiers written during this commit but not yet flushed. Pending adds
+        // are invisible to a query, so without this a second entry claiming the same
+        // identifier would be added again and the unique index would abort the whole
+        // import at the final save.
+        var written = new HashSet<ExternalIdentifier>();
+
         foreach (var item in preview.Items)
         {
             processed++;
@@ -146,6 +164,7 @@ public sealed class ImportService(
                         continue;
                     }
 
+                    await EnsureIdentifiersAsync(context, linked, item.Entry, written, cancellationToken);
                     await UpsertLibraryEntryAsync(context, profileId, linked.Id, item.Entry, now, cancellationToken);
                     updated++;
                     continue;
@@ -172,6 +191,7 @@ public sealed class ImportService(
                 updated++;
             }
 
+            await EnsureIdentifiersAsync(context, anime, item.Entry, written, cancellationToken);
             await UpsertLibraryEntryAsync(context, profileId, anime.Id, item.Entry, now, cancellationToken);
         }
 
@@ -226,8 +246,25 @@ public sealed class ImportService(
         var anime = await context.Anime
             .AsNoTracking()
             .Select(a => new AnimeSnapshot(
-                a.Id, a.Source, a.SourceAnimeId, a.Title, a.MediaType, a.EpisodeCount))
+                a.Id, a.Source, a.Title, a.MediaType, a.EpisodeCount))
             .ToListAsync(cancellationToken);
+
+        // Loaded whole for the same reason the catalogue is: an IN clause built
+        // from a large export would exceed SQLite's parameter ceiling, and this
+        // table is narrower than the one above.
+        var identifiers = await context.AnimeExternalIds
+            .AsNoTracking()
+            .Select(x => new { x.Source, x.ExternalId, x.AnimeId })
+            .ToListAsync(cancellationToken);
+
+        var byIdentifier = identifiers.ToDictionary(
+            x => new ExternalIdentifier(x.Source, x.ExternalId),
+            x => x.AnimeId);
+
+        // Which titles carry any identifier at all. This is what distinguishes a
+        // hand-added row from an imported one now that there is no null column to
+        // test, and the manual-twin check below depends on it.
+        var identified = identifiers.Select(x => x.AnimeId).ToHashSet();
 
         var entries = await context.LibraryEntries
             .AsNoTracking()
@@ -236,27 +273,76 @@ public sealed class ImportService(
                 e.AnimeId, e.Status, e.EpisodesWatched, e.UserScore, e.DateStarted, e.DateCompleted))
             .ToDictionaryAsync(e => e.AnimeId, cancellationToken);
 
-        return new MatchCandidates(anime, entries);
+        return new MatchCandidates(anime, byIdentifier, identified, entries);
     }
 
-    private static ImportPreviewItem BuildPreviewItem(ParsedLibraryEntry entry, MatchCandidates library)
+    private static ImportPreviewItem BuildPreviewItem(
+        ParsedLibraryEntry entry,
+        MatchCandidates library,
+        IReadOnlyDictionary<ExternalIdentifier, string> claimed)
     {
-        if (entry.SourceAnimeId is not null)
+        if (entry.ExternalIds.Count > 0)
         {
-            var bySourceId = library.Anime.FirstOrDefault(a =>
-                a.Source == entry.Source &&
-                string.Equals(a.SourceAnimeId, entry.SourceAnimeId, StringComparison.Ordinal));
-
-            if (bySourceId is not null)
+            // An identifier this same file already used. Two entries cannot be the
+            // same title on the same service, so one of them is wrong, and applying
+            // either silently would be a guess.
+            foreach (var identifier in entry.ExternalIds)
             {
-                return CompareWithExisting(entry, bySourceId, library);
+                if (claimed.TryGetValue(identifier, out var firstClaimant))
+                {
+                    return new ImportPreviewItem
+                    {
+                        Entry = entry,
+                        Action = ImportAction.Conflict,
+                        ExistingTitle = firstClaimant,
+                        ConflictReason =
+                            $"This file already used {identifier.Source} id {identifier.Value} "
+                            + $"for '{firstClaimant}'. Two entries cannot share one identifier."
+                    };
+                }
+            }
+
+            // Every identifier is tried, not just the one matching this parser's own
+            // service. That is the whole point of D17: an AniList entry carrying a
+            // MyAnimeList id matches a MyAnimeList-imported row instead of
+            // duplicating it, and the same holds in the other direction.
+            var resolved = entry.ExternalIds
+                .Where(library.ByIdentifier.ContainsKey)
+                .Select(id => library.ByIdentifier[id])
+                .Distinct()
+                .ToList();
+
+            // Identifiers that disagree about which local title they mean. Almost
+            // always two local rows that are really one title, and merging them is
+            // not something this pipeline can do — so the user decides rather than
+            // the first identifier winning by position.
+            if (resolved.Count > 1)
+            {
+                var names = resolved
+                    .Select(id => library.Anime.FirstOrDefault(a => a.Id == id)?.Title)
+                    .OfType<string>();
+
+                return new ImportPreviewItem
+                {
+                    Entry = entry,
+                    Action = ImportAction.Conflict,
+                    ConflictReason =
+                        $"Its identifiers point at {resolved.Count} different titles already in "
+                        + $"your library ({string.Join(", ", names)}), which cannot all be this one."
+                };
+            }
+
+            if (resolved.Count == 1)
+            {
+                var existing = library.Anime.First(a => a.Id == resolved[0]);
+                return CompareWithExisting(entry, existing, library);
             }
 
             // No identifier match, but a same-titled entry with no identifier of its
             // own is very likely the title the user added by hand before importing.
             // Creating a second copy would be a silent duplicate, so it is surfaced.
             var manualTwin = library.Anime.FirstOrDefault(a =>
-                a.SourceAnimeId is null &&
+                !library.Identified.Contains(a.Id) &&
                 string.Equals(a.Title, entry.Title, StringComparison.OrdinalIgnoreCase));
 
             if (manualTwin is not null)
@@ -329,6 +415,15 @@ public sealed class ImportService(
             changes.Add($"Episodes: {Display(existing.EpisodeCount, "unknown")} → {entry.EpisodeCount}");
         }
 
+        // Identifiers this record does not carry yet. Shown because it is a real
+        // change and the reason later syncs will match cleanly rather than
+        // conflict — this line is D17's bridge being written. Re-importing the
+        // same file adds nothing, so idempotency is unaffected.
+        foreach (var identifier in entry.ExternalIds.Where(id => !library.ByIdentifier.ContainsKey(id)))
+        {
+            changes.Add($"Links to {identifier.Source} id {identifier.Value}");
+        }
+
         if (library.Entries.TryGetValue(existing.Id, out var current))
         {
             if (current.Status != entry.Status)
@@ -371,13 +466,20 @@ public sealed class ImportService(
     }
 
     /// <summary>
-    /// Adopts the incoming source identifier and metadata onto the record the user
-    /// identified as the same title.
+    /// Adopts the incoming metadata onto the record the user identified as the same
+    /// title, and returns it so its identifiers can be written.
     ///
-    /// Writing the identifier is the substance of the operation: it is what stops
-    /// the entry conflicting again on every subsequent import. Franchise grouping
-    /// on the existing record is left alone, as with any other import.
+    /// Attaching the identifier is the substance of the operation: it is what stops
+    /// the entry conflicting again on every subsequent import. Franchise grouping on
+    /// the existing record is left alone, as with any other import.
     /// </summary>
+    /// <remarks>
+    /// <see cref="Anime.Source"/> is deliberately not reassigned. It records how the
+    /// record came to exist, and a hand-added title that has since been linked was
+    /// still hand-added (D17). What changes is which services identify it, and that
+    /// is now a separate table — so the backlog's source filter, which asks "is this
+    /// on MyAnimeList", finds it either way.
+    /// </remarks>
     private static async Task<Anime?> LinkToExistingAsync(
         AniQueueDbContext context,
         ImportPreviewItem item,
@@ -395,8 +497,6 @@ public sealed class ImportService(
             return null;
         }
 
-        existing.Source = item.Entry.Source;
-        existing.SourceAnimeId = item.Entry.SourceAnimeId;
         ApplyCatalogueFields(existing, item.Entry, now);
 
         await context.SaveChangesAsync(cancellationToken);
@@ -411,21 +511,99 @@ public sealed class ImportService(
     private static string Display(int? value, string whenMissing) =>
         value?.ToString(System.Globalization.CultureInfo.CurrentCulture) ?? whenMissing;
 
-    private static Task<Anime?> FindExistingAsync(
+    /// <summary>
+    /// Resolves an entry to a title through any identifier it supplies.
+    /// </summary>
+    /// <remarks>
+    /// Re-resolved at commit rather than trusting the id captured during preview,
+    /// which is what makes committing the same preview twice a no-op instead of a
+    /// unique-index violation. Identifiers are tried in the order the parser
+    /// supplied them; a set that resolves to two different titles was already
+    /// turned into a conflict during preview, so the first hit is unambiguous here.
+    /// </remarks>
+    private static async Task<Anime?> FindExistingAsync(
         AniQueueDbContext context,
         ParsedLibraryEntry entry,
-        CancellationToken cancellationToken) =>
-        entry.SourceAnimeId is null
-            ? Task.FromResult<Anime?>(null)
-            : context.Anime.FirstOrDefaultAsync(
-                a => a.Source == entry.Source && a.SourceAnimeId == entry.SourceAnimeId,
-                cancellationToken);
+        CancellationToken cancellationToken)
+    {
+        foreach (var identifier in entry.ExternalIds)
+        {
+            var animeId = await context.AnimeExternalIds
+                .AsNoTracking()
+                .Where(x => x.Source == identifier.Source && x.ExternalId == identifier.Value)
+                .Select(x => (int?)x.AnimeId)
+                .FirstOrDefaultAsync(cancellationToken);
+
+            if (animeId is { } id)
+            {
+                return await context.Anime.FirstOrDefaultAsync(a => a.Id == id, cancellationToken);
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// Adds identifiers the title does not already carry.
+    /// </summary>
+    /// <remarks>
+    /// Two guards, both protecting a unique index that would otherwise abort the
+    /// entire import rather than skip one row:
+    ///
+    /// A title already holding an identifier for that source keeps it. A differing
+    /// value means two sources disagree about identity, which is a conflict for the
+    /// user rather than something to overwrite silently.
+    ///
+    /// An identifier already naming a different title is left alone for the same
+    /// reason — it is evidence of a duplicate, not permission to re-point it.
+    /// </remarks>
+    private static async Task EnsureIdentifiersAsync(
+        AniQueueDbContext context,
+        Anime anime,
+        ParsedLibraryEntry entry,
+        HashSet<ExternalIdentifier> written,
+        CancellationToken cancellationToken)
+    {
+        foreach (var identifier in entry.ExternalIds)
+        {
+            if (!written.Add(identifier))
+            {
+                continue;
+            }
+
+            var holdsSource = await context.AnimeExternalIds
+                .AnyAsync(
+                    x => x.AnimeId == anime.Id && x.Source == identifier.Source,
+                    cancellationToken);
+
+            if (holdsSource)
+            {
+                continue;
+            }
+
+            var claimedElsewhere = await context.AnimeExternalIds
+                .AnyAsync(
+                    x => x.Source == identifier.Source && x.ExternalId == identifier.Value,
+                    cancellationToken);
+
+            if (claimedElsewhere)
+            {
+                continue;
+            }
+
+            context.AnimeExternalIds.Add(new AnimeExternalId
+            {
+                AnimeId = anime.Id,
+                Source = identifier.Source,
+                ExternalId = identifier.Value
+            });
+        }
+    }
 
     private static Anime CreateAnime(ParsedLibraryEntry entry, DateTimeOffset now) => new()
     {
         Title = entry.Title,
         Source = entry.Source,
-        SourceAnimeId = entry.SourceAnimeId,
         MediaType = entry.MediaType,
         EpisodeCount = entry.EpisodeCount,
         CreatedAt = now,
@@ -497,7 +675,6 @@ public sealed class ImportService(
     private sealed record AnimeSnapshot(
         int Id,
         AnimeSource Source,
-        string? SourceAnimeId,
         string Title,
         MediaType MediaType,
         int? EpisodeCount);
@@ -510,7 +687,14 @@ public sealed class ImportService(
         DateOnly? DateStarted,
         DateOnly? DateCompleted);
 
+    /// <param name="ByIdentifier">Every external identifier in the catalogue, to the title it names.</param>
+    /// <param name="Identified">
+    /// Titles carrying at least one identifier. The complement is the hand-added
+    /// set, which used to be recognisable by a null identifier column.
+    /// </param>
     private sealed record MatchCandidates(
         IReadOnlyList<AnimeSnapshot> Anime,
+        IReadOnlyDictionary<ExternalIdentifier, int> ByIdentifier,
+        IReadOnlySet<int> Identified,
         IReadOnlyDictionary<int, EntrySnapshot> Entries);
 }
