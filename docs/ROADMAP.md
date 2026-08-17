@@ -1237,6 +1237,27 @@ timeout turns a five-minute interval into concurrent syncs racing each other. Un
 application and the absence policy (D19, D21). `SyncRun`. Staleness notification, failure
 surfacing and backoff.
 
+**Write it as a job runner that happens to have one job.** AniQueue ends up with several timed
+background tasks — metadata and artwork enrichment, and eventually scheduled re-ranking — and the
+loop each of them needs is identical: tick, open a scope, refuse to overlap, catch, record, back
+off. Expressing that as "run this job" rather than "run the sync" costs about twenty lines either
+way and makes the second job additive instead of a refactor. Nothing more than the loop is
+generalised.
+
+**Specifically, do not generalise the run record.** `SyncRun`'s columns — created, updated,
+conflicts held, slots released — mean something for a sync and nothing for an artwork fetch.
+Folding future jobs into one table forces either a JSON blob or a wide row of nullable columns
+each belonging to one job type, which is the stringly-typed bag D7 rejected. A second job gets a
+second typed table.
+
+**And no background task page yet.** What such a page offers is observability and manual control,
+and both already exist per job: the Sources page shows last success, last failure and Sync Now.
+A combined view earns its place when per-job surfaces become worse than one shared surface, which
+is around three jobs. Today there is one, and two of the three candidates cannot exist in the MVP
+— metadata and artwork have no MVP consumer, and scheduled re-ranking has nothing to call, since
+D11's recommendation workflow is a manual export and paste. The trigger for building it is a
+second real job, not a date.
+
 **This is the app's first background writer**, and §9's `SQLITE_BUSY` risk stops being
 hypothetical when it runs on a timer. WAL and `busy_timeout` are already configured and are the
 right tool — a 30-second budget against millisecond writes, failing as a retry rather than
@@ -1597,17 +1618,65 @@ down: §6 forbids image binaries in the database, so the cache is the filesystem
 which is exactly where §9's non-root bind-mount problem lives. Solve that once for the database
 and it is solved for art too.
 
-**Tier 3 — richer artwork needs a mapping AniQueue does not have.** Clearlogos, backdrops,
-character art and language-specific posters come from fanart.tv, TMDB and TVDB, and **all three
-are TMDB/TVDB-keyed**. That is the same anime-ID → TMDB mapping §10 already identifies as the
-expensive half of the Overseerr work, so the two should be costed together rather than separately
-— one mapping unlocks both a precise request link and the richer art. Kitsu is the exception
-worth remembering: it is an anime database with 1:1 identity that publishes its own poster and
-cover art, so it is reachable through D17's identity table without any TMDB mapping at all.
+**Tier 3 — richer artwork needs an id mapping, and that mapping is now measured rather than
+assumed.** Clearlogos, backdrops, character art and language-specific posters come from
+fanart.tv, TMDB and TVDB, and **all three are TMDB/TVDB-keyed**. The cross-reference does not
+have to be built: open datasets already publish it. `Fribb/anime-lists` merges AniList,
+MyAnimeList, AniDB, Kitsu, TVDB and TMDB identifiers into one file, and `Anime-Lists/anime-lists`
+is the long-standing AniDB↔TVDB source that carries episode offsets. The question is not
+availability. It is coverage.
 
-*Confidence, stated plainly:* the AniList figures above are measured. The fanart.tv, TMDB, TVDB
-and Kitsu characterisations are from general knowledge — their current API terms, key
-requirements and rate limits need checking before any of them is committed to.
+Measured against the same 753-entry library using Fribb's merged dataset — 7.5 MB, 42,867
+records, 20,687 of them carrying an AniList id:
+
+| Format | Titles | In dataset | → TVDB | → TMDB |
+|---|---|---|---|---|
+| TV | 253 | 248 | **248 (98%)** | **248 (98%)** |
+| MOVIE | 163 | 163 | 78 (48%) | 143 (88%) |
+| OVA | 219 | 186 | 136 (62%) | 148 (68%) |
+| SPECIAL | 73 | 72 | **11 (15%)** | **12 (16%)** |
+| ONA | 31 | 31 | 18 (58%) | 18 (58%) |
+| TV_SHORT | 13 | 13 | 8 (62%) | 8 (62%) |
+| **All** | **753** | 714 (95%) | 500 (66%) | **578 (77%)** |
+
+**Coverage tracks format, and that changes the cost of everything built on it.** The dataset
+knows 95% of the library but keys only 77% to TMDB, and the shortfall is concentrated almost
+entirely in `SPECIAL` and `OVA`. A mainstream TV-only library would sit near 98%; a library that
+is 29% OVA and 10% special sits at 77%. Any estimate of this work has to be made against the
+shape of the library, not a headline number.
+
+Three consequences:
+
+- **Tier 3 art is additive, not a replacement.** AniList covers 100% of covers and TMDB would
+  cover 77%, so richer art layers over a base that is always present. Graceful degradation falls
+  out of the data rather than needing to be designed, which lowers the risk of the whole tier.
+- **Overseerr is in better shape than 77% suggests.** Requests concentrate on series and films —
+  98% and 88% — because specials and OVAs are rarely individually requestable. The cheap half of
+  §10's cost table lands on the well-mapped half of the library.
+- **Both identifier types are needed, keyed by media kind.** Films are 88% TMDB but 48% TVDB;
+  series are 98% on both. The data is typed accordingly — `"themoviedb_id": {"tv": 26209}` versus
+  a `movie` variant — so a design assuming one external key is wrong.
+
+**These identifiers do not fit `AnimeExternalId`, and that is D17's warning arriving in
+practice.** The table assumes 1:1 identity; a TVDB or TMDB id is many-to-one and only meaningful
+alongside the season it refers to, which the dataset supplies as `"season": {"tvdb": 1,
+"tmdb": 1}`. Storing them as if they were peers of an AniList id would silently claim an identity
+they do not have. They need the season carried with them.
+
+**The fetch is the same shape as Phase 6's relation pass**, and should reuse its pattern rather
+than invent one: a lazy batched pass over titles whose mapping is not yet resolved, rare, and
+doing nothing in the steady state. **Cache the dataset under `/data` rather than vendoring it** —
+7.5 MB re-committed on every refresh is permanent history in a public repository, it goes stale
+for exactly the new titles a user is most likely to be planning, and `/data` is already where the
+artwork cache lives. Every use is an enhancement, so a failed fetch must degrade silently.
+
+*Confidence, stated plainly:* the AniList and coverage figures above are measured. **The
+dataset's licence has not been read, and vendoring would be redistribution** — that must be
+checked before either path is chosen. The fanart.tv, TMDB, TVDB and Kitsu characterisations are
+from general knowledge; their current API terms, key requirements and rate limits need verifying
+before any of them is committed to. Kitsu remains the exception worth remembering: an anime
+database with 1:1 identity that publishes its own art, reachable through D17's table with no
+TMDB mapping at all.
 
 **One schema note, because it is the same shape as a decision already made.** More than one image
 per title means `Anime.CoverImageUrl` stops being sufficient — poster, banner and later logo and
