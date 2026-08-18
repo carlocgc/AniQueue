@@ -588,29 +588,6 @@ button.icon.remove:hover:not(:disabled) {
 
 .source-settings legend { padding: 0 0.4rem; color: var(--text-muted); font-size: 0.85rem; }
 
-/* Loading shell ----------------------------------------------------------- */
-
-/* Covers the gap between the served page and the circuit's first render, which
-   exists because neither root is prerendered (see ROADMAP §9). Hidden by a
-   selector rather than by script: if scripting never runs there is nothing to
-   remove it, and a shell that outlives its own cause is worse than the flash it
-   was hiding. */
-.app-loading {
-    position: fixed;
-    inset: 0;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 1.1rem;
-    font-weight: 600;
-    letter-spacing: 0.08em;
-    color: var(--text-muted);
-    background: var(--bg);
-}
-
-/* The application has rendered, so the shell has nothing left to cover. */
-body:has(.app) .app-loading { display: none; }
-
 /* Framework error UI ------------------------------------------------------ */
 
 .validation-message { color: var(--danger); }

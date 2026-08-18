@@ -1539,48 +1539,50 @@ the same order for an append-only table. `RecommendationRun` browses newest-firs
 
 ## 9. Risks
 
-**A browser extension can break the prerender handoff, and one popular one does.** Dark Reader
-rewrites `<head>` while the page is loading — injecting styles, and injecting then removing a
-script that proxies the stylesheet APIs. On Firefox this reliably breaks Blazor's attach to the
-prerendered DOM: `TypeError: … insertBefore, n.parentNode is null`, then `No element is
-currently associated with component 1`, and the circuit is torn down as the page loads. Toggling
-the extension off makes it unreproducible; toggling it back on reproduces it immediately.
+**A DOM-rewriting browser extension breaks Blazor, and one popular one did.** Dark Reader's
+dynamic theme rewrites `<head>` as the page loads and then watches for changes. Blazor's renderer
+holds live references to the nodes it created, so a node moved or removed underneath it fails the
+next render: `TypeError: … insertBefore, n.parentNode is null`, then `No element is currently
+associated with component 1`, and the circuit dies on load. Toggling the extension off makes it
+unreproducible; toggling it on reproduces it immediately, in both Firefox and Chromium.
 
-Found in Phase 5b, and worth recording at length because it cost a day and every intuition
-about it was wrong:
+**This is a known upstream limitation, not a misconfiguration here.** The same failure is reported
+against Edge's translation feature (dotnet/aspnetcore#47111, closed as *not planned*) and against
+Chrome 123 (#55085, closed as *External*), alongside a long line of "No element is currently
+associated with component" reports (#5592, #10715, #51393, #51825). Anything that mutates the DOM
+Blazor owns can break it, and the framework does not defend against it. The comparison that made
+this obvious: the same machine and browser runs this author's portfolio site untroubled, and that
+site is MVC — it renders HTML once and never binds to it again.
 
-- **It is not an IDE artifact.** It reproduces under a plain `dotnet run` with no Visual Studio
-  in the picture. Hot Reload off changes nothing; Browser Link's injected scripts are present in
-  a VS session but are not the cause.
-- **It is not our JavaScript.** SortableJS reverts its own DOM moves, and the reconnect module
-  only attaches listeners.
-- **It is not foreign nodes inside the prerendered region.** Browser Link inserts `<!--/bl-root-->`
-  comments into both the head and body regions; injecting exactly that deliberately and loading
-  the result in Chromium and in a clean Firefox profile attaches cleanly in both.
-- **It is not the persisted state arriving late.** That hypothesis produced a `defer` on the
-  Blazor script, which was committed and then reverted: instrumenting the page showed the
-  `Blazor-Server-Component-State` comment being consumed a comfortable margin before the attach,
-  in the same runs that failed.
+**The fix is `<meta name="darkreader-lock">`, which is the extension's own opt-out** for sites
+that already have a dark theme. AniQueue does, behind `prefers-color-scheme`, so the extension was
+re-theming a theme. In Dark Reader's source the tag is checked *before* anything runs: with the
+lock present it never starts its theme or its watchers, so there is no mutation to lose a race
+against. Verified here in Brave and Firefox with the extension installed, against the page that
+previously failed on every load.
 
-It was found by installing a `MutationObserver` as the first element in `<head>` and posting
-every node removal, with timings, to a temporary endpoint that appended them to a file beside
-the database. The extension's fingerprints — `--darkreader-neutral-background`, an `injectProxy`
-script added and removed — sit between `LOAD` and the attach in the resulting log. **That
-technique is the one to reach for again**: the browser's own console is not available when the
-symptom only appears on someone else's machine.
+**Prerendering was turned off and then back on**, which is worth recording because the reasoning
+looked sound and was wrong. With no prerendered DOM there is no attach step to corrupt, and it did
+fix Firefox — but Chromium still failed, because the extension keeps mutating long after the
+attach. A change that costs an empty first paint on every load for every user, and buys immunity
+in one browser, is not worth keeping once the real fix exists. An earlier `defer` on the Blazor
+script was reverted for the same reason: instrumenting the page showed the component-state comment
+being consumed well before the attach in the very runs that failed.
 
-**Nothing was changed to work around it, deliberately.** AniQueue already ships a full dark
-palette behind `prefers-color-scheme`, and now declares `color-scheme` as a `<meta>` in the head
-as well as in the stylesheet — the earliest point an extension can read it. Re-theming a site
-that already themes itself is redundant, and the fix for an affected user is to exclude the site
-in the extension. Phase 11's README should say so, since a self-hoster hitting a blank page has
-no way to guess it.
+**The technique is the transferable part.** None of the above came from reading code. A
+`MutationObserver` installed as the first element in `<head>`, posting every node removal with
+timings to a temporary endpoint that appended them to a file, is what named the culprit — the
+extension's fingerprints sit between `LOAD` and the attach in the resulting log. The browser
+console is no use when the symptom only appears on someone else's machine.
 
-**If it ever affects a user who cannot do that**, the structural answer is `prerender: false` on
-the interactive root: with no prerendered DOM there is nothing for an extension to corrupt
-between render and attach. It is not taken now because it costs first paint on every load for
-everyone, to defend against one extension the user can turn off — but it is the lever, and it is
-recorded here so the next person does not have to find it.
+**What is still true and unfixed:** any other extension that rewrites the DOM — a translator, an
+accessibility overlay — can break the same way, and there is no lock tag for those. If that ever
+reaches a user, the lever is `prerender: false` on the interactive root, which removes the attach
+step at the cost of first paint. It is not enough on its own, as above, but it is the only
+structural defence available.
+
+**Phase 11's README should mention the class of problem**, because a self-hoster meeting a blank
+page has no way to guess that an extension caused it.
 
 **SortableJS vs Blazor's DOM ownership — the real one.** Blazor's renderer diffs against
 its own virtual tree; SortableJS physically moves nodes behind its back, so the next render
