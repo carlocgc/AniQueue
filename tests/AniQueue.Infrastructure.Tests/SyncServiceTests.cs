@@ -413,6 +413,42 @@ public class SyncServiceTests
     }
 
     [Fact]
+    public async Task Every_setting_survives_a_change_to_a_row_that_already_exists()
+    {
+        // The update path copies field by field, so a property missing from it works
+        // exactly once — the first save writes the whole entity — and then silently
+        // stops. A test that only creates a row cannot see that, which is why this
+        // one saves twice and asserts on the second.
+        await using var fixture = await SyncFixture.CreateAsync(
+            new StubAniListClient(Response(900101, "Sora no Kakera")));
+
+        var first = Assert.Single(await fixture.Service.GetStatusAsync(Profile.DefaultProfileId));
+        await fixture.Service.SaveSettingsAsync(first.Settings);
+
+        var second = Assert.Single(await fixture.Service.GetStatusAsync(Profile.DefaultProfileId));
+
+        // Every settable field moved off its default, in one save, on an existing row.
+        second.Settings.IsEnabled = false;
+        second.Settings.PrecedenceRank = 1;
+        second.Settings.ApplyUnattended = false;
+        second.Settings.ConflictPolicy = SyncConflictPolicy.LinkToExisting;
+        second.Settings.AbsencePolicy = SyncAbsencePolicy.Ignore;
+        second.Settings.Schedule = SyncSchedule.Daily;
+
+        await fixture.Service.SaveSettingsAsync(second.Settings);
+
+        await using var context = fixture.Database.CreateContext();
+        var stored = await context.SourceSyncSettings.SingleAsync();
+
+        Assert.False(stored.IsEnabled);
+        Assert.Equal(1, stored.PrecedenceRank);
+        Assert.False(stored.ApplyUnattended);
+        Assert.Equal(SyncConflictPolicy.LinkToExisting, stored.ConflictPolicy);
+        Assert.Equal(SyncAbsencePolicy.Ignore, stored.AbsencePolicy);
+        Assert.Equal(SyncSchedule.Daily, stored.Schedule);
+    }
+
+    [Fact]
     public async Task The_title_preference_survives_a_profile_with_no_settings_row()
     {
         // Nothing creates a ProfileSettings row for the default profile today, so

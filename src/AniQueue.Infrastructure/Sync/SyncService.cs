@@ -525,11 +525,18 @@ public sealed class SyncService(
             // Copied field by field rather than attached, because the instance the
             // page edited came back through a page render and carries no identity
             // this context would recognise.
+            //
+            // Every settable property has to appear here, and a missing one fails in
+            // a nasty way: the first save creates the row from the whole entity, so
+            // the field works exactly once and silently stops afterwards. The test
+            // that covers this changes a saved row rather than creating one, because
+            // creation cannot catch it.
             stored.IsEnabled = settings.IsEnabled;
             stored.PrecedenceRank = settings.PrecedenceRank;
             stored.ApplyUnattended = settings.ApplyUnattended;
             stored.ConflictPolicy = settings.ConflictPolicy;
             stored.AbsencePolicy = settings.AbsencePolicy;
+            stored.Schedule = settings.Schedule;
         }
 
         await context.SaveChangesAsync(cancellationToken);
