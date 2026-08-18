@@ -1539,33 +1539,48 @@ the same order for an append-only table. `RecommendationRun` browses newest-firs
 
 ## 9. Risks
 
-**The prerender handoff races the end of the document.** ASP.NET writes the prerendered
-component state as a comment *after* `</html>`, which is past the `blazor.web.js` tag in the
-byte stream. A browser that executes that script the moment it parses it — rather than after
-parsing finishes — starts the circuit with no persisted state, so every component re-runs its
-initialiser and renders its loading state, replacing prerendered markup with a structurally
-different tree at the exact moment the client is binding to it. The attach then fails with
-`TypeError: … insertBefore, n.parentNode is null`, followed by
-`No element is currently associated with component 1`, and the circuit is torn down on load.
+**A browser extension can break the prerender handoff, and one popular one does.** Dark Reader
+rewrites `<head>` while the page is loading — injecting styles, and injecting then removing a
+script that proxies the stylesheet APIs. On Firefox this reliably breaks Blazor's attach to the
+prerendered DOM: `TypeError: … insertBefore, n.parentNode is null`, then `No element is
+currently associated with component 1`, and the circuit is torn down as the page loads. Toggling
+the extension off makes it unreproducible; toggling it back on reproduces it immediately.
 
-Found in Phase 5b, against a clean Firefox profile and a plain `dotnet run` — not an IDE
-artifact, and not the app's own JavaScript. **Firefox loses this race far more readily than
-Chromium**, which never reproduced it in around thirty loads, and anything that slows the
-response widens the window: a debugger attached, a cold start, a first request. That
-asymmetry is why it read as "works on my machine" for as long as it did.
+Found in Phase 5b, and worth recording at length because it cost a day and every intuition
+about it was wrong:
 
-The fix is `defer` on the script tag, which moves execution to after parsing completes so the
-state comment is always in the document before Blazor looks for it. It was diagnosed by
-posting `document.childNodes` back to the server at three points in the page lifecycle: the
-comment is absent when the page's inline script runs and present by `DOMContentLoaded`.
-Adding *any* work before the Blazor script also made it stop reproducing, which is the
-signature of a race rather than a defect in what the components render.
+- **It is not an IDE artifact.** It reproduces under a plain `dotnet run` with no Visual Studio
+  in the picture. Hot Reload off changes nothing; Browser Link's injected scripts are present in
+  a VS session but are not the cause.
+- **It is not our JavaScript.** SortableJS reverts its own DOM moves, and the reconnect module
+  only attaches listeners.
+- **It is not foreign nodes inside the prerendered region.** Browser Link inserts `<!--/bl-root-->`
+  comments into both the head and body regions; injecting exactly that deliberately and loading
+  the result in Chromium and in a clean Firefox profile attaches cleanly in both.
+- **It is not the persisted state arriving late.** That hypothesis produced a `defer` on the
+  Blazor script, which was committed and then reverted: instrumenting the page showed the
+  `Blazor-Server-Component-State` comment being consumed a comfortable margin before the attach,
+  in the same runs that failed.
 
-**`[PersistentState]` is what makes a page survive it at all.** Home and Backlog carry it, so
-their trees are identical either side of the handoff; Up Next deliberately does not, because
-a long queue would exceed SignalR's 32 KB receive limit. Any page that re-queries on attach is
-relying on the framework patching a differing tree, which works — until the state comment is
-late and every page does it at once.
+It was found by installing a `MutationObserver` as the first element in `<head>` and posting
+every node removal, with timings, to a temporary endpoint that appended them to a file beside
+the database. The extension's fingerprints — `--darkreader-neutral-background`, an `injectProxy`
+script added and removed — sit between `LOAD` and the attach in the resulting log. **That
+technique is the one to reach for again**: the browser's own console is not available when the
+symptom only appears on someone else's machine.
+
+**Nothing was changed to work around it, deliberately.** AniQueue already ships a full dark
+palette behind `prefers-color-scheme`, and now declares `color-scheme` as a `<meta>` in the head
+as well as in the stylesheet — the earliest point an extension can read it. Re-theming a site
+that already themes itself is redundant, and the fix for an affected user is to exclude the site
+in the extension. Phase 11's README should say so, since a self-hoster hitting a blank page has
+no way to guess it.
+
+**If it ever affects a user who cannot do that**, the structural answer is `prerender: false` on
+the interactive root: with no prerendered DOM there is nothing for an extension to corrupt
+between render and attach. It is not taken now because it costs first paint on every load for
+everyone, to defend against one extension the user can turn off — but it is the lever, and it is
+recorded here so the next person does not have to find it.
 
 **SortableJS vs Blazor's DOM ownership — the real one.** Blazor's renderer diffs against
 its own virtual tree; SortableJS physically moves nodes behind its back, so the next render

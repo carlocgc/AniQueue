@@ -4,6 +4,11 @@
 <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    @* Declared here as well as in the stylesheet, because this is the earliest point
+       a browser — or an extension deciding whether a site needs its help — can read
+       it. AniQueue ships a full dark palette, so anything re-theming it on top is
+       redoing work, and in one measured case broke the page outright (§9). *@
+    <meta name="color-scheme" content="light dark" />
     <base href="/" />
     @* Without an explicit icon, browsers probe /favicon.ico on every page load.
        That 404s, and the 404 handler re-executes the whole app — returning a 4.6 KB
@@ -19,21 +24,7 @@
 <body>
     <Routes @rendermode="InteractiveServer" />
     <ReconnectModal />
-
-    @* Deferred deliberately, and this is load-bearing rather than a micro-optimisation.
-       ASP.NET writes the prerendered component state as a comment *after* </html> —
-       past this tag in the byte stream. Without defer the browser may execute Blazor
-       the moment it parses this line, while the tail of the document is still
-       arriving, so the circuit starts with no persisted state. Every component then
-       re-runs its initialiser and renders a loading state, replacing the prerendered
-       markup with a structurally different tree at the exact moment the client is
-       binding to it — which fails the attach with "insertBefore … parentNode is null"
-       and kills the circuit. Firefox loses this race far more readily than Chromium,
-       and anything that slows the response — a debugger, a cold start — widens it.
-
-       defer moves execution to after parsing completes, so the state comment is
-       always in the document before Blazor looks for it. *@
-    <script src="@Assets["_framework/blazor.web.js"]" defer></script>
+    <script src="@Assets["_framework/blazor.web.js"]"></script>
 </body>
 
 </html>
