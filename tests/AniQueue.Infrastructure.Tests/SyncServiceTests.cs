@@ -9,6 +9,7 @@ using AniQueue.Infrastructure.Sync;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
+using static AniQueue.Infrastructure.Tests.SyncFixture;
 
 namespace AniQueue.Infrastructure.Tests;
 
@@ -22,133 +23,6 @@ namespace AniQueue.Infrastructure.Tests;
 /// </summary>
 public class SyncServiceTests
 {
-    private sealed class StubAniListClient(params string[] payloads) : IAniListClient
-    {
-        public string? FailWith { get; set; }
-
-        public List<string> RequestedAccounts { get; } = [];
-
-        public Task<AniListFetch> FetchListAsync(string userName, CancellationToken cancellationToken = default)
-        {
-            RequestedAccounts.Add(userName);
-
-            return Task.FromResult(FailWith is not null
-                ? AniListFetch.Failed(FailWith)
-                : new AniListFetch
-                {
-                    Payloads = [.. payloads.Select(Encoding.UTF8.GetBytes)]
-                });
-        }
-    }
-
-    private sealed class SyncFixture : IAsyncDisposable
-    {
-        public required SqliteTestDatabase Database { get; init; }
-
-        public required StubAniListClient Client { get; init; }
-
-        public required ISyncService Service { get; init; }
-
-        public static async Task<SyncFixture> CreateAsync(
-            StubAniListClient client,
-            SyncOptions? options = null)
-        {
-            var database = await SqliteTestDatabase.CreateAsync();
-
-            await using (var context = database.CreateContext())
-            {
-                // A run belongs to a profile, and the default one is created by the
-                // initialiser in production.
-                context.Profiles.Add(new Profile
-                {
-                    Id = Profile.DefaultProfileId,
-                    Name = "Test",
-                    CreatedAt = DateTimeOffset.UtcNow
-                });
-
-                await context.SaveChangesAsync();
-            }
-
-            var importService = new ImportService(
-                database.ContextFactory,
-                new QueueService(database.ContextFactory, NullLogger<QueueService>.Instance),
-                NullLogger<ImportService>.Instance);
-
-            return new SyncFixture
-            {
-                Database = database,
-                Client = client,
-                Service = new SyncService(
-                    database.ContextFactory,
-                    client,
-                    new AniListJsonParser(),
-                    importService,
-                    new StubOptionsMonitor(options ?? Configured()),
-                    NullLogger<SyncService>.Instance)
-            };
-        }
-
-        public ValueTask DisposeAsync() => Database.DisposeAsync();
-    }
-
-    /// <summary>An options monitor that never changes, which is all these tests need.</summary>
-    private sealed class StubOptionsMonitor(SyncOptions value) : IOptionsMonitor<SyncOptions>
-    {
-        public SyncOptions CurrentValue => value;
-
-        public SyncOptions Get(string? name) => value;
-
-        public IDisposable? OnChange(Action<SyncOptions, string?> listener) => null;
-    }
-
-    private static SyncOptions Configured(bool enabled = true) =>
-        new() { Enabled = enabled, AniList = new AniListAccountOptions { UserName = "someone" } };
-
-    /// <summary>One AniList entry, in the shape the real response has.</summary>
-    private static string Response(
-        int id,
-        string romaji,
-        string? english = null,
-        string status = "PLANNING",
-        int score = 0,
-        int progress = 0) =>
-        $$"""
-          {
-            "data": { "MediaListCollection": { "hasNextChunk": false, "lists": [
-              { "name": "{{status}}", "isCustomList": false, "entries": [
-                {
-                  "status": "{{status}}",
-                  "score": {{score}},
-                  "progress": {{progress}},
-                  "repeat": 0,
-                  "startedAt": { "year": null, "month": null, "day": null },
-                  "completedAt": { "year": null, "month": null, "day": null },
-                  "media": {
-                    "id": {{id}},
-                    "idMal": {{id + 1000}},
-                    "type": "ANIME",
-                    "format": "TV",
-                    "episodes": 12,
-                    "duration": 24,
-                    "seasonYear": 2021,
-                    "title": {
-                      "romaji": "{{romaji}}",
-                      "english": {{(english is null ? "null" : $"\"{english}\"")}},
-                      "native": "ネイティブ"
-                    },
-                    "coverImage": { "extraLarge": "https://cdn.example.invalid/c.jpg" }
-                  }
-                }
-              ] }
-            ] } }
-          }
-          """;
-
-    private static async Task<SyncRun?> LastRunAsync(SyncFixture fixture)
-    {
-        await using var context = fixture.Database.CreateContext();
-        return await context.SyncRuns.OrderByDescending(r => r.Id).FirstOrDefaultAsync();
-    }
 
     [Fact]
     public async Task A_fetch_previews_without_writing_anything()
@@ -176,7 +50,7 @@ public class SyncServiceTests
 
         var fetch = await fixture.Service.FetchAsync(Profile.DefaultProfileId, AnimeSource.AniList);
         var applied = await fixture.Service.ApplyAsync(
-            fetch.Preview!, Profile.DefaultProfileId, AnimeSource.AniList);
+            fetch, Profile.DefaultProfileId);
 
         Assert.Equal(1, applied.Commit.Created);
 
@@ -212,7 +86,7 @@ public class SyncServiceTests
         }
 
         var fetch = await fixture.Service.FetchAsync(Profile.DefaultProfileId, AnimeSource.AniList);
-        await fixture.Service.ApplyAsync(fetch.Preview!, Profile.DefaultProfileId, AnimeSource.AniList);
+        await fixture.Service.ApplyAsync(fetch, Profile.DefaultProfileId);
 
         await using var context = fixture.Database.CreateContext();
         Assert.Equal(1, await context.Anime.CountAsync());
@@ -228,14 +102,14 @@ public class SyncServiceTests
             new StubAniListClient(Response(900101, "Sora no Kakera")));
 
         var first = await fixture.Service.FetchAsync(Profile.DefaultProfileId, AnimeSource.AniList);
-        await fixture.Service.ApplyAsync(first.Preview!, Profile.DefaultProfileId, AnimeSource.AniList);
+        await fixture.Service.ApplyAsync(first, Profile.DefaultProfileId);
 
         var second = await fixture.Service.FetchAsync(Profile.DefaultProfileId, AnimeSource.AniList);
 
         Assert.True(second.IsComplete);
         Assert.False(second.Preview!.HasApplicableChanges);
 
-        var run = await LastRunAsync(fixture);
+        var run = await fixture.LastRunAsync();
         Assert.Equal(SyncOutcome.NothingToDo, run!.Outcome);
     }
 
@@ -249,7 +123,7 @@ public class SyncServiceTests
 
         Assert.False(fetch.Succeeded);
 
-        var run = await LastRunAsync(fixture);
+        var run = await fixture.LastRunAsync();
         Assert.Equal(SyncOutcome.Failed, run!.Outcome);
         Assert.Contains("private", run.FailureReason!, StringComparison.Ordinal);
     }
@@ -268,7 +142,7 @@ public class SyncServiceTests
         Assert.False(fetch.Succeeded);
         Assert.Null(fetch.Preview);
 
-        var run = await LastRunAsync(fixture);
+        var run = await fixture.LastRunAsync();
         Assert.Equal(SyncOutcome.Failed, run!.Outcome);
     }
 
@@ -337,7 +211,7 @@ public class SyncServiceTests
             new StubAniListClient(Response(900101, "Sora no Kakera", english: "Fragments of Sky")));
 
         var fetch = await fixture.Service.FetchAsync(Profile.DefaultProfileId, AnimeSource.AniList);
-        await fixture.Service.ApplyAsync(fetch.Preview!, Profile.DefaultProfileId, AnimeSource.AniList);
+        await fixture.Service.ApplyAsync(fetch, Profile.DefaultProfileId);
 
         await using (var before = fixture.Database.CreateContext())
         {
@@ -415,7 +289,7 @@ public class SyncServiceTests
         }
 
         var fetch = await fixture.Service.FetchAsync(Profile.DefaultProfileId, AnimeSource.AniList);
-        await fixture.Service.ApplyAsync(fetch.Preview!, Profile.DefaultProfileId, AnimeSource.AniList);
+        await fixture.Service.ApplyAsync(fetch, Profile.DefaultProfileId);
 
         await using var context = fixture.Database.CreateContext();
         var anime = await context.Anime.SingleAsync();
@@ -446,11 +320,11 @@ public class SyncServiceTests
 
         var fetch = await fixture.Service.FetchAsync(Profile.DefaultProfileId, AnimeSource.AniList);
         var applied = await fixture.Service.ApplyAsync(
-            fetch.Preview!, Profile.DefaultProfileId, AnimeSource.AniList);
+            fetch, Profile.DefaultProfileId);
 
         Assert.Equal(1, applied.Commit.QueueSlotsReleased);
 
-        var run = await LastRunAsync(fixture);
+        var run = await fixture.LastRunAsync();
         Assert.Equal(1, run!.SlotsReleased);
 
         await using var context = fixture.Database.CreateContext();
@@ -481,14 +355,14 @@ public class SyncServiceTests
         // A preview holding a decision is not a finished run, so nothing is recorded
         // until the user acts on it.
         Assert.False(fetch.IsComplete);
-        Assert.Null(await LastRunAsync(fixture));
+        Assert.Null(await fixture.LastRunAsync());
 
         var applied = await fixture.Service.ApplyAsync(
-            fetch.Preview!, Profile.DefaultProfileId, AnimeSource.AniList);
+            fetch, Profile.DefaultProfileId);
 
         Assert.Equal(1, applied.ConflictsHeld);
 
-        var run = await LastRunAsync(fixture);
+        var run = await fixture.LastRunAsync();
         Assert.Equal(1, run!.ConflictsHeld);
         Assert.Equal(SyncOutcome.NothingToDo, run.Outcome);
     }
@@ -505,7 +379,7 @@ public class SyncServiceTests
         Assert.Null(before.LastRun);
 
         var fetch = await fixture.Service.FetchAsync(Profile.DefaultProfileId, AnimeSource.AniList);
-        await fixture.Service.ApplyAsync(fetch.Preview!, Profile.DefaultProfileId, AnimeSource.AniList);
+        await fixture.Service.ApplyAsync(fetch, Profile.DefaultProfileId);
 
         var after = Assert.Single(await fixture.Service.GetStatusAsync(Profile.DefaultProfileId));
         Assert.Equal(SyncOutcome.Succeeded, after.LastRun!.Outcome);
