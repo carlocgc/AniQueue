@@ -24,15 +24,27 @@
 
     @if (preview.ConflictCount > 0)
     {
-        @* Tinted because this is the only section that needs a decision; everything
-           else here is a report. *@
-        <div class="card needs-decision">
-            <h2>Conflicts — @preview.ConflictCount needing a decision</h2>
-            <p class="muted">
-                AniQueue will not merge entries it cannot confidently identify, because an
-                incorrect merge is much harder to undo than a skipped row. You know whether
-                these are the same title, so the choice is yours. Skipping changes nothing.
-            </p>
+        @* Tinted while it is still asking; once the decisions are made and applied it
+           is a report like everything else, so it stops shouting. *@
+        <div class="card @(IsEditable ? "needs-decision" : null)">
+            @if (IsEditable)
+            {
+                <h2>Conflicts — @preview.ConflictCount needing a decision</h2>
+                <p class="muted">
+                    AniQueue will not merge entries it cannot confidently identify, because an
+                    incorrect merge is much harder to undo than a skipped row. You know whether
+                    these are the same title, so the choice is yours. Skipping changes nothing.
+                </p>
+            }
+            else
+            {
+                <h2>Conflicts — @preview.ConflictCount, and what was decided</h2>
+                <p class="muted">
+                    These could not be confidently identified, so each one was handled the way
+                    the Action column records. Anything skipped is unchanged and will be asked
+                    about again next time.
+                </p>
+            }
 
             @if (IsEditable)
             {
@@ -90,7 +102,7 @@
                                     }
                                     else
                                     {
-                                        <span class="badge @ResolutionClass(item.Resolution)">@item.Resolution</span>
+                                        <span class="badge @ResolutionClass(item.Resolution)">@ResolutionText(item.Resolution)</span>
                                     }
                                 </td>
                             </tr>
@@ -99,11 +111,14 @@
                 </table>
             </div>
 
-            <p class="muted">
-                <strong>Link to existing</strong> treats them as the same title: the existing
-                entry adopts the incoming identifier and progress, so it will match cleanly
-                every time after this. <strong>Import as new</strong> adds a separate entry.
-            </p>
+            @if (IsEditable)
+            {
+                <p class="muted">
+                    <strong>Link to existing</strong> treats them as the same title: the existing
+                    entry adopts the incoming identifier and progress, so it will match cleanly
+                    every time after this. <strong>Import as new</strong> adds a separate entry.
+                </p>
+            }
         </div>
     }
 
@@ -240,6 +255,22 @@
         ConflictResolution.LinkToExisting => "link",
         ConflictResolution.ImportAsNew => "new",
         _ => "skip"
+    };
+
+    /// <summary>
+    /// What was done with a conflict, in words and in the past tense.
+    /// </summary>
+    /// <remarks>
+    /// The enum name reached the page as <c>LinkToExisting</c>, which is neither
+    /// English nor what the reader was offered: the control above spells the same
+    /// three choices out. This is a record of a decision already applied, so it
+    /// reads as one.
+    /// </remarks>
+    private static string ResolutionText(ConflictResolution resolution) => resolution switch
+    {
+        ConflictResolution.LinkToExisting => "Linked to existing",
+        ConflictResolution.ImportAsNew => "Added separately",
+        _ => "Skipped"
     };
 
     private static string ConflictPlanText(ImportPreview preview)

@@ -213,14 +213,18 @@
     <ImportPreviewView Preview="_preview" IsEditable="@(_applied is null)">
         <Actions>
             <div class="card">
-                <h2>What syncing would change</h2>
-                <p class="muted">
-                    Nothing has been saved. @_preview.CompletedCount completed &middot;
-                    @_preview.WatchingCount watching &middot; @_preview.PlanningCount planning
-                </p>
-
+                @* Before and after are two different statements. Until it is applied
+                   this describes something that has not happened; afterwards the same
+                   tables are the record of something that has, and "nothing has been
+                   saved" sitting under a green "Added 745" is a straight contradiction. *@
                 @if (_applied is null)
                 {
+                    <h2>What syncing would change</h2>
+                    <p class="muted">
+                        Nothing has been saved. @_preview.CompletedCount completed &middot;
+                        @_preview.WatchingCount watching &middot; @_preview.PlanningCount planning
+                    </p>
+
                     <div class="toolbar">
                         <button class="primary" disabled="@(_busy.IsRunning || !_preview.HasApplicableChanges)"
                                 @onclick="ApplyAsync">
@@ -228,6 +232,14 @@
                         </button>
                         <button @onclick="Reset" disabled="@_busy.IsRunning">Cancel</button>
                     </div>
+                }
+                else
+                {
+                    <h2>What the sync changed</h2>
+                    <p class="muted">
+                        Saved to your library. @_preview.CompletedCount completed &middot;
+                        @_preview.WatchingCount watching &middot; @_preview.PlanningCount planning
+                    </p>
                 }
             </div>
         </Actions>
