@@ -3,6 +3,7 @@ using AniQueue.Infrastructure.Persistence;
 using AniQueue.Infrastructure.Persistence.Seeding;
 using AniQueue.Infrastructure.Sync;
 using AniQueue.Web.Components;
+using AniQueue.Web.Services;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -76,6 +77,15 @@ builder.Services.Configure<SyncOptions>(
     builder.Configuration.GetSection(SyncOptions.SectionName));
 
 builder.Services.AddAniQueueSync();
+
+// The timer half of unattended sync (D21). Registered here rather than inside
+// AddAniQueueSync because hosting is the web project's business: Infrastructure
+// supplies the job, this decides that something runs it.
+//
+// One runner per job by design. A second job — metadata or artwork enrichment —
+// is another line here, and its own loop, so a slow job can never delay an
+// unrelated one.
+builder.Services.AddHostedService<BackgroundJobRunner<UnattendedSyncJob>>();
 
 // Registered even when the file is fine, so the banner component can ask without
 // caring whether a data directory was configured at all.
