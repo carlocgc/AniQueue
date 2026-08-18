@@ -12,9 +12,45 @@ public class Anime
 {
     public int Id { get; set; }
 
+    /// <summary>
+    /// The title as displayed: resolved from the variants below through the
+    /// profile's preferred language, and the only title anything else reads.
+    /// </summary>
+    /// <remarks>
+    /// Denormalised deliberately. The backlog searches, sorts and pages on this
+    /// column in SQL, the queue and the AI export read it, and pushing a
+    /// per-profile language choice into every one of those queries would buy
+    /// nothing: recomputing this column when the preference changes is one
+    /// statement, and it happens about as often as someone changes their theme.
+    ///
+    /// For a manual entry or a MyAnimeList import this is the only title there is
+    /// — those sources publish one name — and the variants below stay null.
+    /// </remarks>
     public required string Title { get; set; }
 
-    public string? AlternativeTitle { get; set; }
+    /// <summary>
+    /// The romanised title, where the source published one.
+    /// </summary>
+    /// <remarks>
+    /// Three typed columns rather than one <c>AlternativeTitle</c>, which is what
+    /// this replaced. That column held whichever variant happened to differ, with
+    /// nothing recording which language it was, so nothing could ever switch
+    /// between them without guessing — changing the displayed language meant
+    /// re-fetching the entire list from the source (D22).
+    ///
+    /// Typed columns rather than a title-per-row table for the reason D7 gives
+    /// about settings: the set is fixed and known — <see cref="TitleLanguage"/>
+    /// has three members and no plan for a fourth — so columns stay migratable and
+    /// keep the search above trivial, where a key/value bag would be stringly
+    /// typed and would drag a join into every query.
+    /// </remarks>
+    public string? TitleRomaji { get; set; }
+
+    /// <summary>The official English title. Absent for roughly one title in seven.</summary>
+    public string? TitleEnglish { get; set; }
+
+    /// <summary>The title in its original script.</summary>
+    public string? TitleNative { get; set; }
 
     public MediaType MediaType { get; set; } = MediaType.Unknown;
 

@@ -517,6 +517,25 @@ button.icon.remove:hover:not(:disabled) {
     border: 1px solid transparent;
 }
 
+/* A notice the user closes rather than one that closes itself. The padding on the
+   right is what keeps the text from running under the button. */
+.notice.dismissible { position: relative; padding-right: 2.4rem; }
+
+.notice .dismiss {
+    position: absolute;
+    top: 0.35rem;
+    right: 0.4rem;
+    padding: 0.1rem 0.4rem;
+    border: none;
+    background: none;
+    color: inherit;
+    opacity: 0.7;
+    font-size: 1.1rem;
+    line-height: 1.2;
+}
+
+.notice .dismiss:hover { opacity: 1; border-color: transparent; }
+
 .notice.info { background: var(--surface-alt); border-color: var(--border); }
 .notice.success { background: var(--success-bg); color: var(--success); }
 .notice.warning { background: var(--warning-bg); color: var(--warning); }
@@ -550,6 +569,43 @@ button.icon.remove:hover:not(:disabled) {
 }
 
 .progress > span { display: block; height: 100%; background: var(--accent); }
+
+/* Source settings --------------------------------------------------------- */
+
+/* Collapsed by default. The page's job is to say whether syncing is working and
+   to start one; the settings behind it are read once and then left alone, and
+   putting them in front of that would bury the two things a user came for. */
+.source-settings > summary {
+    cursor: pointer;
+    color: var(--text-muted);
+    font-size: 0.9rem;
+    padding: 0.35rem 0;
+}
+
+.source-settings > summary:hover { color: var(--text); }
+
+.field { margin: var(--gap) 0; max-width: 44rem; }
+
+.field > label { display: block; font-weight: 500; margin-bottom: 0.3rem; }
+
+/* Explanations under a control, not beside it: each of these says what a setting
+   will actually do, and a line of small print squeezed into a column is a line
+   nobody reads. */
+.field > .muted { margin: 0.35rem 0 0; font-size: 0.85rem; }
+
+.field input[type="checkbox"] { margin-right: 0.4rem; }
+
+/* A checkbox label is the control's own text, so it should not also be bold. */
+.field > label:has(input[type="checkbox"]) { font-weight: 400; }
+
+.source-settings fieldset {
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 0 1rem 1rem;
+    margin: var(--gap) 0 0;
+}
+
+.source-settings legend { padding: 0 0.4rem; color: var(--text-muted); font-size: 0.85rem; }
 
 /* Framework error UI ------------------------------------------------------ */
 

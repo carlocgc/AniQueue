@@ -62,211 +62,47 @@
 
 @if (_preview is { IsFileRejected: false } preview)
 {
-    <div class="stat-row">
-        <div class="stat"><div class="value">@preview.CreateCount</div><div class="label">New</div></div>
-        <div class="stat"><div class="value">@preview.UpdateCount</div><div class="label">Updated</div></div>
-        <div class="stat"><div class="value">@preview.UnchangedCount</div><div class="label">Unchanged</div></div>
-        <div class="stat"><div class="value">@preview.ConflictCount</div><div class="label">Conflicts</div></div>
-        <div class="stat"><div class="value">@preview.InvalidCount</div><div class="label">Invalid</div></div>
-    </div>
-
-    <div class="card">
-        <h2>In this file</h2>
-        <p class="muted">
-            @preview.CompletedCount completed &middot; @preview.WatchingCount watching
-            &middot; @preview.PlanningCount planning
-        </p>
-
-        @if (_commitResult is null)
-        {
-            <div class="toolbar">
-                <button class="primary" disabled="@(_busy.IsRunning || !preview.HasApplicableChanges)"
-                        @onclick="CommitAsync">
-                    @ImportButtonText(preview)
-                </button>
-                <button @onclick="Reset" disabled="@_busy.IsRunning">Cancel</button>
-            </div>
-
-            @if (!preview.HasApplicableChanges && preview.UnchangedCount > 0)
-            {
-                <div class="notice info">
-                    Everything in this file already matches your library, so importing
-                    would change nothing.
-                </div>
-            }
-        }
-    </div>
-
-    @if (preview.ConflictCount > 0)
-    {
-        @* Tinted because this is the only section that needs a decision; everything
-           else on the page is a report. *@
-        <div class="card needs-decision">
-            <h2>Conflicts — @preview.ConflictCount needing a decision</h2>
-            <p class="muted">
-                AniQueue will not merge entries it cannot confidently identify, because an
-                incorrect merge is much harder to undo than a skipped row. You know whether
-                these are the same title, so the choice is yours. Skipping changes nothing.
-            </p>
-
-            @if (_commitResult is null)
-            {
-                <div class="toolbar">
-                    <span class="muted">Set all to:</span>
-                    <button class="choice skip" @onclick="() => SetAllConflicts(ConflictResolution.Skip)">Skip</button>
-                    <button class="choice link" @onclick="() => SetAllConflicts(ConflictResolution.LinkToExisting)">Link to existing</button>
-                    <button class="choice new" @onclick="() => SetAllConflicts(ConflictResolution.ImportAsNew)">Import as new</button>
-                </div>
-
-                @* Says what confirming will actually do, so the decision does not have
-                   to be reconstructed by reading down the Action column. *@
+    @* The preview tables are shared with the Sources page, because a sync is
+       reviewed through exactly this surface (D21). What stays here is the part
+       specific to a file: what is in it, and what importing it would mean. *@
+    <ImportPreviewView Preview="preview" IsEditable="@(_commitResult is null)">
+        <Actions>
+            <div class="card">
+                <h2>In this file</h2>
                 <p class="muted">
-                    <strong>@ConflictPlanText(preview)</strong>
+                    @preview.CompletedCount completed &middot; @preview.WatchingCount watching
+                    &middot; @preview.PlanningCount planning
                 </p>
-            }
 
-            <div class="table-wrap">
-                <table>
-                    <thead>
-                        <tr>
-                            <th>Incoming title</th>
-                            <th>Already in library</th>
-                            <th>Why</th>
-                            <th>Action</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        @foreach (var item in preview.Items.Where(i => i.Action == ImportAction.Conflict))
-                        {
-                            <tr>
-                                <td>@item.Entry.Title</td>
-                                <td class="muted">@(item.ExistingTitle ?? "—")</td>
-                                <td class="muted">@item.ConflictReason</td>
-                                <td>
-                                    @if (_commitResult is null)
-                                    {
-                                        @* Coloured by what the choice does, using the same
-                                           language as the action badges: green adds, amber
-                                           modifies something that already exists, neutral
-                                           changes nothing. Amber on "link" is deliberate —
-                                           it rewrites an existing record and is the hardest
-                                           of the three to undo. *@
-                                        <select class="resolution @ResolutionClass(item.Resolution)"
-                                                value="@item.Resolution"
-                                                @onchange="e => SetResolution(item, e)"
-                                                aria-label="@($"How to handle {item.Entry.Title}")">
-                                            <option value="@ConflictResolution.Skip">Skip — no change</option>
-                                            @if (item.ExistingAnimeId is not null)
-                                            {
-                                                <option value="@ConflictResolution.LinkToExisting">Link to existing — rewrites it</option>
-                                            }
-                                            <option value="@ConflictResolution.ImportAsNew">Import as new — adds a copy</option>
-                                        </select>
-                                    }
-                                    else
-                                    {
-                                        <span class="badge @ResolutionClass(item.Resolution)">@item.Resolution</span>
-                                    }
-                                </td>
-                            </tr>
-                        }
-                    </tbody>
-                </table>
-            </div>
-
-            <p class="muted">
-                <strong>Link to existing</strong> treats them as the same title: the existing
-                entry adopts the MyAnimeList identifier and progress, so it will match cleanly
-                on every future import. <strong>Import as new</strong> adds a separate entry.
-            </p>
-        </div>
-    }
-
-    @if (preview.Problems.Count > 0)
-    {
-        <div class="card">
-            <h2>Problems</h2>
-            <ul class="muted">
-                @foreach (var problem in preview.Problems.Take(50))
+                @if (_commitResult is null)
                 {
-                    <li>@problem.ToString()</li>
+                    <div class="toolbar">
+                        <button class="primary" disabled="@(_busy.IsRunning || !preview.HasApplicableChanges)"
+                                @onclick="CommitAsync">
+                            @ImportButtonText(preview)
+                        </button>
+                        <button @onclick="Reset" disabled="@_busy.IsRunning">Cancel</button>
+                    </div>
+
+                    @if (!preview.HasApplicableChanges && preview.UnchangedCount > 0)
+                    {
+                        <div class="notice info">
+                            Everything in this file already matches your library, so importing
+                            would change nothing.
+                        </div>
+                    }
                 }
-            </ul>
-            @if (preview.Problems.Count > 50)
-            {
-                <p class="muted">…and @(preview.Problems.Count - 50) more.</p>
-            }
-        </div>
-    }
-
-    <div class="card">
-        @{
-            var changing = preview.Items
-                .Where(i => i.Action is ImportAction.Create or ImportAction.Update)
-                .ToList();
-            var totalPages = Math.Max(1, (changing.Count + PageSize - 1) / PageSize);
-            _changesPage = Math.Clamp(_changesPage, 0, totalPages - 1);
-            var visible = changing.Skip(_changesPage * PageSize).Take(PageSize).ToList();
-        }
-
-        <h2>Changes — @changing.Count</h2>
-
-        @if (changing.Count == 0)
-        {
-            <p class="empty-state">No entries would be created or updated.</p>
-        }
-        else
-        {
-            <div class="table-wrap">
-                <table>
-                    <thead>
-                        <tr>
-                            <th>Action</th><th>Title</th><th>Status</th>
-                            <th class="numeric">Score</th><th>Changes</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        @foreach (var item in visible)
-                        {
-                            <tr>
-                                <td><span class="badge @item.Action.ToString().ToLowerInvariant()">@item.Action</span></td>
-                                <td>@item.Entry.Title</td>
-                                <td>@item.Entry.Status</td>
-                                <td class="numeric">@(item.Entry.UserScore?.ToString() ?? "—")</td>
-                                <td class="muted">@string.Join("; ", item.Changes)</td>
-                            </tr>
-                        }
-                    </tbody>
-                </table>
             </div>
-
-            @* Paged rather than truncated. A real export runs to several hundred
-               entries, and "showing the first 200" leaves the rest unreviewable
-               before confirming a change to the whole library. *@
-            @if (totalPages > 1)
-            {
-                <div class="toolbar">
-                    <button @onclick="() => _changesPage = 0" disabled="@(_changesPage == 0)">First</button>
-                    <button @onclick="() => _changesPage--" disabled="@(_changesPage == 0)">Previous</button>
-                    <span class="muted">
-                        @(_changesPage * PageSize + 1)–@Math.Min((_changesPage + 1) * PageSize, changing.Count)
-                        of @changing.Count
-                    </span>
-                    <button @onclick="() => _changesPage++" disabled="@(_changesPage >= totalPages - 1)">Next</button>
-                    <button @onclick="() => _changesPage = totalPages - 1" disabled="@(_changesPage >= totalPages - 1)">Last</button>
-                </div>
-            }
-        }
-    </div>
+        </Actions>
+    </ImportPreviewView>
 }
+
 
 @* Blocking rather than a disabled button: a real export takes seconds, during
    which the page would otherwise look frozen and invite a second click. *@
 <BusyDialog State="_busy" />
 
 @code {
-    private const int PageSize = 100;
-
     // Resolved by key: this page uploads MyAnimeList XML specifically, and asking
     // for a bare IAnimeListParser would silently start resolving whichever parser
     // was registered last once a second one exists.
@@ -276,7 +112,6 @@
     private ImportPreview? _preview;
     private ImportCommitResult? _commitResult;
     private string? _error;
-    private int _changesPage;
 
     // Progress arrives off the render thread, so updates are marshalled back onto
     // it with InvokeAsync before touching component state.
@@ -284,31 +119,6 @@
 
     protected override void OnInitialized() =>
         _busy = new BusyScope(() => InvokeAsync(StateHasChanged));
-
-
-    private void SetResolution(ImportPreviewItem item, ChangeEventArgs e)
-    {
-        if (Enum.TryParse<ConflictResolution>(e.Value?.ToString(), out var resolution))
-        {
-            item.Resolution = resolution;
-        }
-    }
-
-    private void SetAllConflicts(ConflictResolution resolution)
-    {
-        if (_preview is null)
-        {
-            return;
-        }
-
-        foreach (var item in _preview.Items.Where(i => i.Action == ImportAction.Conflict))
-        {
-            // Only offer linking where there is something to link to.
-            item.Resolution = resolution == ConflictResolution.LinkToExisting && item.ExistingAnimeId is null
-                ? ConflictResolution.Skip
-                : resolution;
-        }
-    }
 
     private async Task OnFileSelectedAsync(InputFileChangeEventArgs e)
     {
@@ -364,49 +174,6 @@
         }
     }
 
-    /// <summary>
-    /// Maps a resolution onto the page's existing colour language: "new" adds and is
-    /// green like Create, "link" rewrites an existing record and is amber like Update,
-    /// "skip" changes nothing and stays neutral.
-    /// </summary>
-    private static string ResolutionClass(ConflictResolution resolution) => resolution switch
-    {
-        ConflictResolution.LinkToExisting => "link",
-        ConflictResolution.ImportAsNew => "new",
-        _ => "skip"
-    };
-
-    private static string ConflictPlanText(ImportPreview preview)
-    {
-        var conflicts = preview.Items.Where(i => i.Action == ImportAction.Conflict).ToList();
-        var skip = conflicts.Count(i => i.Resolution == ConflictResolution.Skip);
-        var link = conflicts.Count(i => i.Resolution == ConflictResolution.LinkToExisting);
-        var create = conflicts.Count(i => i.Resolution == ConflictResolution.ImportAsNew);
-
-        if (skip == conflicts.Count)
-        {
-            return "All conflicts will be skipped — nothing about them changes.";
-        }
-
-        var parts = new List<string>();
-        if (link > 0)
-        {
-            parts.Add($"{link} existing {(link == 1 ? "entry" : "entries")} rewritten");
-        }
-
-        if (create > 0)
-        {
-            parts.Add($"{create} added as {(create == 1 ? "a copy" : "copies")}");
-        }
-
-        if (skip > 0)
-        {
-            parts.Add($"{skip} skipped");
-        }
-
-        return $"On import: {string.Join(", ", parts)}.";
-    }
-
     private static string ImportButtonText(ImportPreview preview)
     {
         if (!preview.HasApplicableChanges)
@@ -446,6 +213,5 @@
         _preview = null;
         _commitResult = null;
         _error = null;
-        _changesPage = 0;
     }
 }

@@ -11,7 +11,9 @@ public class AnimeConfiguration : IEntityTypeConfiguration<Anime>
         builder.HasKey(a => a.Id);
 
         builder.Property(a => a.Title).IsRequired().HasMaxLength(500);
-        builder.Property(a => a.AlternativeTitle).HasMaxLength(500);
+        builder.Property(a => a.TitleRomaji).HasMaxLength(500);
+        builder.Property(a => a.TitleEnglish).HasMaxLength(500);
+        builder.Property(a => a.TitleNative).HasMaxLength(500);
         builder.Property(a => a.CoverImageUrl).HasMaxLength(2000);
 
         builder.HasIndex(a => a.Title);

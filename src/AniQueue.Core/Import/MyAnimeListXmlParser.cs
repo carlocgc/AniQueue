@@ -24,7 +24,7 @@ public sealed class MyAnimeListXmlParser(ImportLimits? limits = null) : IAnimeLi
     {
         ArgumentNullException.ThrowIfNull(input);
 
-        var buffered = await ReadWithLimitAsync(input, cancellationToken);
+        var buffered = await LimitedBuffer.ReadAsync(input, _limits.MaxBytes, cancellationToken);
         if (buffered is null)
         {
             return ParseResult.Rejected(
@@ -297,31 +297,4 @@ public sealed class MyAnimeListXmlParser(ImportLimits? limits = null) : IAnimeLi
         int.TryParse(raw, NumberStyles.Integer, CultureInfo.InvariantCulture, out var value) && value > 0
             ? value
             : 0;
-
-    /// <summary>
-    /// Buffers the upload so the size cap is enforced before any parsing begins.
-    /// Returns null when the limit is exceeded. A caller-supplied stream may not
-    /// report Length, so the bound is applied while copying rather than trusted
-    /// from a header.
-    /// </summary>
-    private async Task<MemoryStream?> ReadWithLimitAsync(Stream input, CancellationToken cancellationToken)
-    {
-        var buffer = new MemoryStream();
-        var chunk = new byte[81920];
-
-        int read;
-        while ((read = await input.ReadAsync(chunk, cancellationToken)) > 0)
-        {
-            if (buffer.Length + read > _limits.MaxBytes)
-            {
-                await buffer.DisposeAsync();
-                return null;
-            }
-
-            await buffer.WriteAsync(chunk.AsMemory(0, read), cancellationToken);
-        }
-
-        buffer.Position = 0;
-        return buffer;
-    }
 }

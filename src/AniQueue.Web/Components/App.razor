@@ -4,6 +4,28 @@
 <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    @* Declared here as well as in the stylesheet, because this is the earliest point
+       a browser — or an extension deciding whether a site needs its help — can read
+       it. AniQueue ships a full dark palette, so anything re-theming it on top is
+       redoing work, and in one measured case broke the page outright (§9). *@
+    <meta name="color-scheme" content="light dark" />
+    @* Tells Dark Reader to leave this page alone, which is its documented opt-out
+       for sites that already have a dark theme — and AniQueue does, immediately
+       above and behind prefers-color-scheme in the stylesheet.
+
+       This is not a preference about appearance. The extension's dynamic theme
+       rewrites <head> while the page loads and then watches for changes, and that
+       rewriting breaks Blazor's renderer: it holds live references to the nodes it
+       created, so a node moved or removed underneath it fails the next render with
+       "insertBefore … parentNode is null", then "No element is currently associated
+       with component 1", and the circuit dies on load. Measured in both Firefox and
+       Chromium, on this page, with nothing else installed (§9).
+
+       In Dark Reader's own source this tag is checked before it does anything: with
+       the lock present it never starts its theme or its watchers, so there is no
+       mutation to lose a race against. Removing it re-enables an extension fighting
+       a dark theme the application already has. *@
+    <meta name="darkreader-lock" />
     <base href="/" />
     @* Without an explicit icon, browsers probe /favicon.ico on every page load.
        That 404s, and the 404 handler re-executes the whole app — returning a 4.6 KB

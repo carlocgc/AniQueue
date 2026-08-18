@@ -29,6 +29,26 @@ public class ProfileSettings
 
     public ThemePreference Theme { get; set; } = ThemePreference.System;
 
+    /// <summary>
+    /// Which title variant a sync writes to <see cref="Anime.Title"/> (D22).
+    /// </summary>
+    /// <remarks>
+    /// A preference rather than whatever the source happened to send: AniList
+    /// publishes three variants and a MyAnimeList export one, so a first sync would
+    /// otherwise rewrite the displayed name of most of the library on a choice
+    /// nobody made.
+    ///
+    /// Romaji by default because it is what a MyAnimeList library already holds, so
+    /// the default changes nothing for the user who arrived that way. Changing it
+    /// triggers a sync rather than swapping columns — the next fetch rewrites the
+    /// title through the same path that set it, which is why there is no migration
+    /// and no half-swapped state to guard.
+    ///
+    /// This is a *user* preference and so lives here, in the database, rather than
+    /// alongside the account in configuration (D20).
+    /// </remarks>
+    public TitleLanguage PreferredTitleLanguage { get; set; } = TitleLanguage.Romaji;
+
     // Backlog
 
     /// <summary>

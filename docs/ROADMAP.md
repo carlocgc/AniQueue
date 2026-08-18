@@ -725,6 +725,44 @@ fails for Unraid users.
 **Do not depend on live reload.** The file watcher behind `reloadOnChange` does not reliably
 fire on Windows-host or network-share bind mounts, so a restart must apply the file too.
 
+**The file is written on first boot, and everything in it is commented out.** A settings file
+nobody knows exists is a poor escape hatch, and "create it yourself, in the right place, with the
+right key names" is worse — so startup leaves a template naming every key it accepts. Three
+properties make it safe rather than merely helpful, and all three are load-bearing:
+
+- **It configures nothing.** The file is added *last*, so a key it sets beats the same key from
+  an environment variable. A template shipping real values would therefore override the
+  `Sync__AniList__UserName` an operator set in their compose file, on a machine where nobody had
+  opened the file. Commented out, it can only take effect once somebody uncomments a line — an
+  act that carries the intent to override.
+- **One line per setting, written as a full `Sync:AniList:UserName` path.** The JSON provider
+  reads a property name containing colons as the whole key, so this means the same as the nested
+  spelling. Uncommenting a line out of a *nested* block leaves its closing braces behind, and a
+  file that cannot be parsed is a file whose settings are all silently absent — a poor property
+  for the one an operator edits when something is already wrong.
+- **It never overwrites and never fails the boot.** An existing file is the operator's work,
+  including one they emptied deliberately. §9's non-root container writing to a root-owned bind
+  mount cannot create it at all, and refusing to start over an unwritable convenience file would
+  turn a hint into an outage, so failure is a logged warning.
+
+**A file it cannot parse must not stop the application.** By default the JSON provider throws
+while the host is being built — before logging exists — so one missing comma in the file an
+operator edits by hand replaces AniQueue with a stack trace on a console they may not be watching.
+That is precisely backwards for an escape hatch: the file exists to be edited when something is
+already wrong, and editing it is when it will be mistyped.
+
+So the source is configured with `OnLoadException` set to ignore the load. Everything the file
+would have configured is skipped, every other configuration source stands, the application starts,
+and it says what happened — a warning at startup for the console, and a red banner on the
+dashboard naming the file and quoting the parser's own message, which carries the line and
+position. The provider's own load path decides what is acceptable rather than a validation pass of
+ours: this file permits comments and trailing commas, and two implementations of that rule could
+disagree. The same handler covers a file broken while the application is running, since a reload
+failure arrives the same way.
+
+`Database:Path` is deliberately not offered in it: the file is found by looking beside the
+database, so a path set there could not be read until it was already in use.
+
 **Per-source settings do not belong on `ProfileSettings`.** They are keyed
 `(ProfileId, Source)`, so they get their own entity — which is also where D18's precedence rank
 and D19's absence policy live.
@@ -788,9 +826,13 @@ displayed name of most of the library — *Shingeki no Kyojin* becoming *Attack 
 every row, queue slot and franchise — driven by a choice nobody made. Meanwhile
 `AlternativeTitle` has existed since Phase 1 with nothing ever written to it.
 
-**Decision:** the preferred language is a user setting — romaji, English or native. The
-preferred variant is written to `Title` and another to `AlternativeTitle`, and **changing the
-preference triggers a sync** rather than swapping the columns.
+**Decision:** the preferred language is a user setting — romaji, English or native. Each variant
+is stored against its language and the preferred one is resolved into `Title`, so **changing the
+preference rewrites the displayed titles immediately**, from what is already stored.
+
+*As originally written this decision said a sync applied the change, on the reasoning below. That
+was revisited in Phase 5b and is recorded after it — the reasoning was sound for the storage it
+assumed, and the storage was the thing worth fixing.*
 
 Triggering a sync is what makes this cheap. The next fetch rewrites `Title` through the same
 `ApplyCatalogueFields` that set it originally, so there is no bulk update, no migration, and
@@ -805,11 +847,47 @@ the preference is changed before or after the first sync.
   than "occasionally" — **111 of 753 entries**, nearly one in seven, in the measured library. A
   preference of English without a fallback would push null into a `required` column for every
   one of them. One chain — romaji, English, native — is applied from whichever the preference
-  names, and `AlternativeTitle` stays null rather than duplicating `Title`.
+  names, over variants that each know which language they are.
 - **`userPreferred` is not offered.** It depends on the AniList account's display setting,
   which would make captured test fixtures irreproducible.
 - **MyAnimeList-only and manual rows are unaffected**, since there is no alternative to
   prefer. The Sources page should say so, or the setting reads as broken.
+
+**Challenged in Phase 5b, and fixed there rather than deferred: this is display, not data.**
+Re-fetching an entire list to change which of two stored strings is shown is a heavy mechanism for
+a preference, and a library already up to date had nothing for the next sync to apply — so the
+setting could not take effect at all until something else changed. The setting now behaves like
+the theme does.
+
+**What made it impossible was the schema, and that is what changed.** `AlternativeTitle` was a
+bare string with nothing recording which language it held: the parser filled it with the next
+variant that existed and differed, so it carried English for one row and native for the next.
+Nothing could switch between them without guessing. Titles are now stored one column per language
+— `TitleRomaji`, `TitleEnglish`, `TitleNative` — with `Title` kept as the resolved display value.
+
+- **Typed columns rather than a title-per-row table**, for the reason D7 gives about settings: the
+  set is fixed and known. Keeping the denormalised `Title` alongside them is what leaves the
+  backlog's search, sort and paging as plain SQL over one column, where a join per query would
+  have bought nothing.
+- **Changing the preference rewrites `Title` in one statement**, from the variants already stored.
+  No fetch, no network, no review list — and it reverses just as cheaply, because the variants
+  are untouched by the switch.
+- **The parser stopped having an opinion about language.** It used to take the preference, which
+  needed an overload `IAnimeListParser` could not express and a second DI registration to reach.
+  Both are gone: one parse now serves every preference.
+- **The old column is dropped, not renamed.** The migration scaffolder proposed renaming it to
+  `TitleRomaji`, which would assert that its contents are romaji — precisely the guess these
+  columns exist to prevent. `Title` is untouched, so every library reads exactly as it did, and
+  the next sync fills the variants in properly; a row whose variants are not yet known is in the
+  same position a MyAnimeList-only title is in permanently.
+- **Storing a variant counts as a change** in the preview, so an already-synced library actually
+  records them on its next sync rather than resolving to the same displayed title and being
+  skipped as unchanged.
+- **Search reads every variant**, not only the displayed one: somebody reading English titles
+  still knows the show as *Shingeki no Kyojin*.
+
+*What is left for Phase 10* is only where the control lives — beside the theme, rather than on the
+Sources page under a source that no longer has anything to do with it.
 
 ---
 
@@ -865,7 +943,7 @@ erDiagram
 
 ### Anime
 
-`Id, Title, AlternativeTitle?, MediaType, EpisodeCount?, EpisodeDurationMinutes?,
+`Id, Title, TitleRomaji?, TitleEnglish?, TitleNative?, MediaType, EpisodeCount?, EpisodeDurationMinutes?,
 ReleaseYear?, CoverImageUrl?, Description?, Source, FranchiseId?,
 FranchiseOrder?, OptionalWithinFranchise, CreatedAt, UpdatedAt`
 
@@ -874,8 +952,10 @@ FranchiseOrder?, OptionalWithinFranchise, CreatedAt, UpdatedAt`
   `AnimeExternalId`.
 - `OptionalWithinFranchise` (brief §21) belongs here, not on `Franchise` — it describes an
   individual entry's role within its group.
-- `AlternativeTitle` holds the non-preferred title variant (D22). Null for manual and
-  MyAnimeList-only rows, which have only one title.
+- `Title` is the **resolved display title**, and the only one anything else reads — the backlog
+  searches, sorts and pages on it in SQL. The three variants beside it each know their own
+  language, which is what lets the preference be switched without a sync (D22); they are null for
+  manual and MyAnimeList-only rows, which have one name and keep it.
 - `EpisodeDurationMinutes` and `ReleaseYear` are first populated in Phase 5b. A MyAnimeList
   export carries neither, so before that phase they are null on every imported row and every
   runtime and decade feature in Phase 3 is inert by design.
@@ -920,6 +1000,12 @@ ConflictsHeld, SlotsReleased, FailureReason?`
 The audit trail for writes nobody watched (D21), and the source of "last synced 4 minutes ago"
 and the pending-conflict badge. `Outcome` distinguishes success, nothing-to-do and failure —
 a stalled sync must never render as "up to date".
+
+A row is written only when a run has reached a terminal state, so `FinishedAt` is never null in
+practice; it stays nullable because a run interrupted mid-flight is a state Phase 5c can reach and
+this table should be able to describe. `StartedAt` times the work the row records rather than the
+whole visit — for a reviewed sync that is the apply, since the gap between fetching and confirming
+is a person thinking, not a sync running. Recency is read from the key, not this column: see §8.
 
 ### Franchise
 
@@ -991,9 +1077,20 @@ different fetch into the same preview, commit and advancement.
 A partial fetch must be rejected outright rather than reported as a partial success: a truncated
 list is indistinguishable from mass deletion, which is precisely the hazard D19 guards.
 
+*One thing the merge does beyond concatenating*, added in 5b: an entry claiming an identifier an
+earlier part already claimed is dropped. Within one payload a repeated identifier is a real
+contradiction and the preview surfaces it as a conflict; across payloads it is an artifact of how
+the list was chunked, and asking the user to resolve several hundred of those would be the
+pipeline blaming them for its own paging.
+
 **Parsers are resolved by key.** They are registered as one unkeyed singleton today and injected
 singly, so adding a second implementation would silently rebind the first and start feeding XML
 to the wrong parser.
+
+*The AniList parser is keyed like every other, and only keyed.* It briefly needed a second,
+concrete registration so a sync could pass the title-language preference to an overload the
+interface could not express; storing each title against its language removed the reason for both
+(D22).
 
 **A parsed entry carries a set of identifiers, not one.** `ParsedLibraryEntry` holds a single
 `Source` + `SourceAnimeId` today, which is enough for a format that knows only itself. AniList
@@ -1229,13 +1326,54 @@ complete rather than partial. They remain empty for MyAnimeList-only and manual 
 surfaces must still say what they are filtering over — `RuntimeCalculator.Sum` already reports
 `IsPartial` for exactly this reason.
 
+**Amendments made while building it.** Recorded here rather than left as drift between this
+section and the code:
+
+- **`SyncRun` moved here from 5c.** This phase has to render "last synced", and nothing else can
+  say it. An on-demand run also deserves the same record an unattended one gets, so 5c adds the
+  loop rather than the table. A row is written when a run reaches a *terminal* state — a failure,
+  or a list that already matched — and a preview waiting on a person is not terminal. Recording
+  one would let the page report the library as up to date while the changes sat unconfirmed on
+  screen. The kill switch writes nothing at all: nothing was attempted, and a log of runs that
+  never ran buries the failures that did.
+- **Catalogue fields follow one rule: a value replaces, a null leaves alone.** Otherwise the
+  consolidating user's next MyAnimeList import blanks the duration, year and art an AniList sync
+  had just supplied, for every title the two lists share — turning Phase 3's filters back off.
+  D18's precedence guards tracking data; nullness guards catalogue data.
+- **A cover URL that merely moved is not a change.** It is nearly always the same picture behind
+  a rotated CDN path, and reporting it would turn an idle sync into a library-wide review list —
+  the churn D21 assumes away when it says a sync that changes nothing writes nothing. Gaining art
+  where there was none is reported.
+- **The parser has no opinion about title language.** It briefly took the preference through an
+  overload `IAnimeListParser` could not express, which needed a second DI registration to reach.
+  Storing each title against its language removed the reason for both: the parser carries every
+  variant the source published, and the import resolves which to display (D22).
+- **Chunk following belongs to the client, with a hard ceiling of 20 requests.** `hasNextChunk`
+  is the other end's word, so an unbounded loop is a request loop with no exit. Hitting the
+  ceiling **fails the fetch** rather than keeping what arrived, and `ParseResult.Merge` enforces
+  the same rule when parts are joined — half a list is precisely what D19's absence handling
+  would read as a mass deletion.
+- **No `AddHttpClient`.** It would mean a package reference to manage a single long-lived client
+  to a single host, which §12 requires approval for. The two things the factory would supply are
+  done explicitly: a pooled connection lifetime so a long-running container notices DNS changes,
+  and one shared instance rather than a socket per call. Cookies are off, because the endpoint
+  sets a `laravel_session` nothing here wants.
+- **Settings that do not act yet are shown, grouped and labelled.** Unattended application,
+  conflict policy and absence policy only mean something once 5c runs on a timer. They sit under
+  a heading saying AniQueue does not sync on a schedule yet, because a control that silently does
+  nothing reads as broken — and omitting it reads worse to someone who has just read what
+  unattended sync will do.
+
 #### Phase 5c — Unattended sync
 
-A `BackgroundService` on a `PeriodicTimer`, a scope per tick, a configuration kill-switch (D20),
-and **ticks that never overlap** — a slow response must skip the next tick, not queue it, or one
-timeout turns a five-minute interval into concurrent syncs racing each other. Unattended
-application and the absence policy (D19, D21). `SyncRun`. Staleness notification, failure
-surfacing and backoff.
+A `BackgroundService` on a `PeriodicTimer`, a scope per tick, and **ticks that never overlap** —
+a slow response must skip the next tick, not queue it, or one timeout turns a five-minute interval
+into concurrent syncs racing each other. Unattended application and the absence policy (D19, D21).
+Staleness notification, failure surfacing and backoff.
+
+*`SyncRun` and the configuration kill-switch landed in 5b* — the Sources page needed both — so
+this phase writes rows to an existing table rather than creating one. The poll-interval floor is
+still operator configuration and still arrives here, since nothing polls before it.
 
 **Write it as a job runner that happens to have one job.** AniQueue ends up with several timed
 background tasks — metadata and artwork enrichment, and eventually scheduled re-ranking — and the
@@ -1354,6 +1492,11 @@ General (display name, default queue size, date format, theme System/Light/Dark)
 export privacy, weighting), Data (export/import backup, clear recommendation results).
 Destructive actions require explicit confirmation. Accessibility and responsive passes.
 
+**Title language moves here from the Sources page**, where Phase 5b left it. The behaviour is
+already right — each title is stored against its language and changing the preference rewrites the
+displayed one immediately, with no sync (D22) — so what is left is only that the control sits
+under a source it no longer has anything to do with. It belongs beside the theme.
+
 ### Phase 11 — Docker and README
 Multi-stage Dockerfile (SDK build → `aspnet` runtime, no SDK in the final layer), non-root
 user, `/data` persistence, configurable port defaulting to 8080, `/health` endpoint,
@@ -1438,12 +1581,68 @@ Phase 5 adds, and these are load-bearing rather than decorative:
   released (D19).
 - **Two writers.** A sync commit and a queue reorder issued concurrently both succeed and leave
   positions contiguous — D2's invariant under the one condition D2 never faced.
+- **The client's failure paths**, against a stub handler: a 404 that names the private-account
+  case, a 429 that says how long to wait, a socket error that does not repeat the resolved host
+  back at the user, and a server claiming `hasNextChunk` forever failing rather than looping.
+- **The run record.** A failed fetch and a list that already matched each write a row; a preview
+  still awaiting a decision writes none; the kill switch writes none.
 
 No test may depend on a live external API.
+
+**One SQLite trap worth knowing before Phase 9 meets it.** SQLite cannot `ORDER BY` a
+`DateTimeOffset` — EF stores it as text with an offset and refuses to sort it, throwing at query
+time rather than returning a wrong order. `SyncRun` reads recency from its key instead, which is
+the same order for an append-only table. `RecommendationRun` browses newest-first over
+`CreatedAt` and will hit exactly this.
 
 ---
 
 ## 9. Risks
+
+**A DOM-rewriting browser extension breaks Blazor, and one popular one did.** Dark Reader's
+dynamic theme rewrites `<head>` as the page loads and then watches for changes. Blazor's renderer
+holds live references to the nodes it created, so a node moved or removed underneath it fails the
+next render: `TypeError: … insertBefore, n.parentNode is null`, then `No element is currently
+associated with component 1`, and the circuit dies on load. Toggling the extension off makes it
+unreproducible; toggling it on reproduces it immediately, in both Firefox and Chromium.
+
+**This is a known upstream limitation, not a misconfiguration here.** The same failure is reported
+against Edge's translation feature (dotnet/aspnetcore#47111, closed as *not planned*) and against
+Chrome 123 (#55085, closed as *External*), alongside a long line of "No element is currently
+associated with component" reports (#5592, #10715, #51393, #51825). Anything that mutates the DOM
+Blazor owns can break it, and the framework does not defend against it. The comparison that made
+this obvious: the same machine and browser runs this author's portfolio site untroubled, and that
+site is MVC — it renders HTML once and never binds to it again.
+
+**The fix is `<meta name="darkreader-lock">`, which is the extension's own opt-out** for sites
+that already have a dark theme. AniQueue does, behind `prefers-color-scheme`, so the extension was
+re-theming a theme. In Dark Reader's source the tag is checked *before* anything runs: with the
+lock present it never starts its theme or its watchers, so there is no mutation to lose a race
+against. Verified here in Brave and Firefox with the extension installed, against the page that
+previously failed on every load.
+
+**Prerendering was turned off and then back on**, which is worth recording because the reasoning
+looked sound and was wrong. With no prerendered DOM there is no attach step to corrupt, and it did
+fix Firefox — but Chromium still failed, because the extension keeps mutating long after the
+attach. A change that costs an empty first paint on every load for every user, and buys immunity
+in one browser, is not worth keeping once the real fix exists. An earlier `defer` on the Blazor
+script was reverted for the same reason: instrumenting the page showed the component-state comment
+being consumed well before the attach in the very runs that failed.
+
+**The technique is the transferable part.** None of the above came from reading code. A
+`MutationObserver` installed as the first element in `<head>`, posting every node removal with
+timings to a temporary endpoint that appended them to a file, is what named the culprit — the
+extension's fingerprints sit between `LOAD` and the attach in the resulting log. The browser
+console is no use when the symptom only appears on someone else's machine.
+
+**What is still true and unfixed:** any other extension that rewrites the DOM — a translator, an
+accessibility overlay — can break the same way, and there is no lock tag for those. If that ever
+reaches a user, the lever is `prerender: false` on the interactive root, which removes the attach
+step at the cost of first paint. It is not enough on its own, as above, but it is the only
+structural defence available.
+
+**Phase 11's README should mention the class of problem**, because a self-hoster meeting a blank
+page has no way to guess that an extension caused it.
 
 **SortableJS vs Blazor's DOM ownership — the real one.** Blazor's renderer diffs against
 its own virtual tree; SortableJS physically moves nodes behind its back, so the next render

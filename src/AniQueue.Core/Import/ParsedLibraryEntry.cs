@@ -38,12 +38,45 @@ public sealed record ParsedLibraryEntry
     /// </remarks>
     public IReadOnlyList<ExternalIdentifier> ExternalIds { get; init; } = [];
 
+    /// <summary>
+    /// The title to fall back on: whatever single name the format publishes.
+    /// </summary>
+    /// <remarks>
+    /// Every source has one of these. Only some publish the variants below, and a
+    /// parser never decides which of them to display — that is the profile's
+    /// preference, applied where the row is written, so the same parse serves a
+    /// user reading romaji and a user reading English.
+    /// </remarks>
     public required string Title { get; init; }
+
+    /// <summary>Variants, each against its language, for sources that publish them (D22).</summary>
+    public string? TitleRomaji { get; init; }
+
+    public string? TitleEnglish { get; init; }
+
+    public string? TitleNative { get; init; }
 
     public MediaType MediaType { get; init; } = MediaType.Unknown;
 
     /// <summary>Null when unknown. Sources routinely write 0 to mean "unknown".</summary>
     public int? EpisodeCount { get; init; }
+
+    /// <summary>
+    /// Typical episode length, where the source states one.
+    /// </summary>
+    /// <remarks>
+    /// This and the two fields below are catalogue facts rather than tracking data,
+    /// so D18's precedence never guards them — whichever source has them fills them
+    /// in. A MyAnimeList export carries none of the three, which is why every
+    /// runtime and decade surface built in Phase 3 sat inert until an AniList sync
+    /// existed to populate them.
+    /// </remarks>
+    public int? EpisodeDurationMinutes { get; init; }
+
+    public int? ReleaseYear { get; init; }
+
+    /// <summary>Remote URL only. Nothing downloads or stores the image.</summary>
+    public string? CoverImageUrl { get; init; }
 
     public LibraryStatus Status { get; init; } = LibraryStatus.Planning;
 

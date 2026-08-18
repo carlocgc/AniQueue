@@ -1,0 +1,412 @@
+using AniQueue.Core.Domain;
+using AniQueue.Core.Import;
+using AniQueue.Core.Progress;
+using AniQueue.Core.Sync;
+using AniQueue.Infrastructure.Persistence;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
+
+namespace AniQueue.Infrastructure.Sync;
+
+/// <summary>
+/// Turns a remote list into an import.
+///
+/// Almost everything here is arrangement rather than logic, and that is the point:
+/// the fetch is parsed into a <see cref="ParseResult"/> and handed to
+/// <see cref="IImportService"/>, which does the matching, the preview, the commit
+/// and the queue advancement exactly as it does for an uploaded file. If this class
+/// ever grows a second opinion about how an entry matches, the seam has been lost.
+///
+/// What is genuinely its own: deciding whether a sync may run at all, and writing
+/// the <see cref="SyncRun"/> that says how it went.
+/// </summary>
+public sealed class SyncService(
+    IDbContextFactory<AniQueueDbContext> contextFactory,
+    IAniListClient aniListClient,
+    [Microsoft.Extensions.DependencyInjection.FromKeyedServices(AnimeSource.AniList)] IAnimeListParser aniListParser,
+    IImportService importService,
+    IOptionsMonitor<SyncOptions> options,
+    ILogger<SyncService> logger) : ISyncService
+{
+    /// <summary>
+    /// The sources a sync can actually read. MyAnimeList is absent deliberately —
+    /// it is a file import, and nothing here fetches it.
+    /// </summary>
+    private static readonly AnimeSource[] SyncableSources = [AnimeSource.AniList];
+
+    public async Task<SyncFetchResult> FetchAsync(
+        int profileId,
+        AnimeSource source,
+        IProgress<OperationProgress>? progress = null,
+        CancellationToken cancellationToken = default)
+    {
+        RequireSyncable(source);
+
+        var current = options.CurrentValue;
+
+        // The kill switch, and no run is recorded for it. Nothing was attempted, and
+        // a log of runs that never ran would bury the failures that did (D20).
+        if (!current.Enabled)
+        {
+            return Failure(source, "Syncing is turned off in this deployment's configuration.");
+        }
+
+        var settings = await LoadSettingsAsync(profileId, source, cancellationToken);
+        if (!settings.IsEnabled)
+        {
+            return Failure(source, $"{source} syncing is switched off for this profile.");
+        }
+
+        var account = current.AniList.UserName;
+        if (string.IsNullOrWhiteSpace(account))
+        {
+            return Failure(source, "No AniList account is configured.");
+        }
+
+        var startedAt = DateTimeOffset.UtcNow;
+
+        logger.LogInformation("Sync started for {Source}", source);
+
+        progress?.Report(new OperationProgress($"Asking {source} for your list"));
+
+        var fetch = await aniListClient.FetchListAsync(account, cancellationToken);
+        if (!fetch.Succeeded)
+        {
+            logger.LogWarning("Sync fetch failed for {Source}: {Reason}", source, fetch.FailureReason);
+            await RecordAsync(profileId, source, startedAt, Failed(fetch.FailureReason!), cancellationToken);
+            return Failure(source, fetch.FailureReason!);
+        }
+
+        progress?.Report(new OperationProgress("Reading the response"));
+
+        var parsed = await ParseAsync(fetch, cancellationToken);
+
+        // A rejected parse is a fetch that cannot be trusted, not an empty list. The
+        // distinction is the whole of D19's safety: an empty list means the user
+        // deleted everything, and acting on that reading is unrecoverable.
+        if (parsed.IsFileRejected)
+        {
+            var reason = parsed.Problems.Count > 0
+                ? parsed.Problems[0].Message
+                : "The response could not be read.";
+            logger.LogWarning("Sync response rejected for {Source}: {Reason}", source, reason);
+            await RecordAsync(profileId, source, startedAt, Failed(reason), cancellationToken);
+            return Failure(source, reason);
+        }
+
+        var preview = await importService.PreviewAsync(
+            parsed, aniListParser.FormatName, profileId, progress, cancellationToken);
+
+        var result = new SyncFetchResult { Source = source, Preview = preview };
+
+        // Recorded now only because there is nothing left to happen. A preview with
+        // changes or conflicts in it is a run still waiting on a person, and
+        // recording it would let the Sources page report the library as up to date
+        // while those changes sit unconfirmed on screen.
+        if (result.IsComplete)
+        {
+            await RecordAsync(
+                profileId,
+                source,
+                startedAt,
+                new SyncRun { Outcome = SyncOutcome.NothingToDo, Skipped = preview.UnchangedCount },
+                cancellationToken);
+        }
+
+        return result;
+    }
+
+    public async Task<SyncApplyResult> ApplyAsync(
+        ImportPreview preview,
+        int profileId,
+        AnimeSource source,
+        IProgress<OperationProgress>? progress = null,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(preview);
+        RequireSyncable(source);
+
+        var startedAt = DateTimeOffset.UtcNow;
+
+        var commit = await importService.CommitAsync(preview, profileId, progress, cancellationToken);
+
+        var held = preview.Items.Count(i =>
+            i.Action == ImportAction.Conflict && i.Resolution == ConflictResolution.Skip);
+
+        await RecordAsync(
+            profileId,
+            source,
+            startedAt,
+            new SyncRun
+            {
+                Outcome = commit.Created + commit.Updated > 0
+                    ? SyncOutcome.Succeeded
+                    : SyncOutcome.NothingToDo,
+                Created = commit.Created,
+                Updated = commit.Updated,
+                Skipped = commit.Skipped,
+                ConflictsHeld = held,
+                SlotsReleased = commit.QueueSlotsReleased
+            },
+            cancellationToken);
+
+        logger.LogInformation(
+            "Sync applied for {Source}: {Created} created, {Updated} updated, {Held} conflicts held",
+            source,
+            commit.Created,
+            commit.Updated,
+            held);
+
+        return new SyncApplyResult { Commit = commit, ConflictsHeld = held };
+    }
+
+    public async Task<IReadOnlyList<SourceSyncStatus>> GetStatusAsync(
+        int profileId,
+        CancellationToken cancellationToken = default)
+    {
+        await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
+
+        var settings = await context.SourceSyncSettings
+            .AsNoTracking()
+            .Where(s => s.ProfileId == profileId)
+            .ToDictionaryAsync(s => s.Source, cancellationToken);
+
+        var account = options.CurrentValue.AniList.UserName;
+        var statuses = new List<SourceSyncStatus>(SyncableSources.Length);
+
+        foreach (var source in SyncableSources)
+        {
+            // Newest run first, and only completed ones exist — nothing writes a row
+            // until a run has reached a terminal state.
+            //
+            // Ordered by key rather than by StartedAt: SQLite cannot order by a
+            // DateTimeOffset at all, and this table is only ever appended to, so the
+            // key is insertion order and insertion order is chronological.
+            var lastRun = await context.SyncRuns
+                .AsNoTracking()
+                .Where(r => r.ProfileId == profileId && r.Source == source)
+                .OrderByDescending(r => r.Id)
+                .FirstOrDefaultAsync(cancellationToken);
+
+            statuses.Add(new SourceSyncStatus
+            {
+                Source = source,
+                Settings = settings.TryGetValue(source, out var stored)
+                    ? stored
+                    : DefaultSettings(profileId, source),
+                IsConfigured = !string.IsNullOrWhiteSpace(account),
+                Account = string.IsNullOrWhiteSpace(account) ? null : account,
+                LastRun = lastRun
+            });
+        }
+
+        return statuses;
+    }
+
+    public async Task SaveSettingsAsync(
+        SourceSyncSettings settings,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(settings);
+        RequireSyncable(settings.Source);
+
+        await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
+
+        var stored = await context.SourceSyncSettings.FirstOrDefaultAsync(
+            s => s.ProfileId == settings.ProfileId && s.Source == settings.Source, cancellationToken);
+
+        if (stored is null)
+        {
+            context.SourceSyncSettings.Add(settings);
+        }
+        else
+        {
+            // Copied field by field rather than attached, because the instance the
+            // page edited came back through a page render and carries no identity
+            // this context would recognise.
+            stored.IsEnabled = settings.IsEnabled;
+            stored.PrecedenceRank = settings.PrecedenceRank;
+            stored.ApplyUnattended = settings.ApplyUnattended;
+            stored.ConflictPolicy = settings.ConflictPolicy;
+            stored.AbsencePolicy = settings.AbsencePolicy;
+        }
+
+        await context.SaveChangesAsync(cancellationToken);
+
+        logger.LogInformation("Sync settings saved for {Source}", settings.Source);
+    }
+
+    public async Task SavePreferredTitleLanguageAsync(
+        int profileId,
+        TitleLanguage language,
+        CancellationToken cancellationToken = default)
+    {
+        await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
+
+        var settings = await context.ProfileSettings
+            .FirstOrDefaultAsync(s => s.ProfileId == profileId, cancellationToken);
+
+        if (settings is null)
+        {
+            // Nothing has created a settings row for this profile yet. The rest of
+            // the defaults come from the entity, which is where they are documented.
+            settings = new ProfileSettings { ProfileId = profileId, DisplayName = "AniQueue" };
+            context.ProfileSettings.Add(settings);
+        }
+
+        settings.PreferredTitleLanguage = language;
+        await context.SaveChangesAsync(cancellationToken);
+
+        await RewriteDisplayTitlesAsync(context, language, cancellationToken);
+
+        logger.LogInformation("Title language set to {Language}", language);
+    }
+
+    /// <summary>
+    /// Recomputes every stored display title from the variants beside it.
+    /// </summary>
+    /// <remarks>
+    /// This is what makes the preference a preference. It used to take effect only
+    /// when the next sync happened to rewrite the row, which meant a library already
+    /// up to date could not change language at all without re-fetching the whole list
+    /// — a display choice wearing a sync's clothes (D22).
+    ///
+    /// One statement rather than a load-modify-save loop: this touches every row in
+    /// the catalogue, and a few thousand tracked entities to write one column each is
+    /// a poor trade for a setting somebody flips while looking at the page.
+    ///
+    /// Rows with no variants — every manual entry, everything from a MyAnimeList
+    /// export — keep the only title they have, because the coalesce falls through to
+    /// it. That is why the Sources page can say those titles are unaffected.
+    /// </remarks>
+    private static async Task RewriteDisplayTitlesAsync(
+        AniQueueDbContext context,
+        TitleLanguage language,
+        CancellationToken cancellationToken)
+    {
+        // The chain matches TitleSelection.Resolve, and the pair are tested together
+        // so the two cannot drift into showing different languages on different pages.
+        await (language switch
+        {
+            TitleLanguage.English => context.Anime.ExecuteUpdateAsync(
+                s => s.SetProperty(a => a.Title, a => a.TitleEnglish ?? a.TitleRomaji ?? a.TitleNative ?? a.Title),
+                cancellationToken),
+
+            TitleLanguage.Native => context.Anime.ExecuteUpdateAsync(
+                s => s.SetProperty(a => a.Title, a => a.TitleNative ?? a.TitleRomaji ?? a.TitleEnglish ?? a.Title),
+                cancellationToken),
+
+            _ => context.Anime.ExecuteUpdateAsync(
+                s => s.SetProperty(a => a.Title, a => a.TitleRomaji ?? a.TitleEnglish ?? a.TitleNative ?? a.Title),
+                cancellationToken)
+        });
+    }
+
+    public Task<TitleLanguage> GetPreferredTitleLanguageAsync(
+        int profileId,
+        CancellationToken cancellationToken = default) =>
+        LoadPreferredTitleLanguageAsync(profileId, cancellationToken);
+
+    /// <summary>
+    /// Parses every payload of one fetch and merges them into the single result the
+    /// preview takes.
+    /// </summary>
+    /// <remarks>
+    /// No title preference passes through here. The parser carries every variant the
+    /// source published and the import resolves which to display, so one parse serves
+    /// any preference and changing it later needs no fetch at all (D22).
+    /// </remarks>
+    private async Task<ParseResult> ParseAsync(AniListFetch fetch, CancellationToken cancellationToken)
+    {
+        var parts = new List<ParseResult>(fetch.Payloads.Count);
+
+        foreach (var payload in fetch.Payloads)
+        {
+            using var stream = new MemoryStream(payload, writable: false);
+            parts.Add(await aniListParser.ParseAsync(stream, cancellationToken));
+        }
+
+        return ParseResult.Merge(parts);
+    }
+
+    private async Task<TitleLanguage> LoadPreferredTitleLanguageAsync(
+        int profileId,
+        CancellationToken cancellationToken)
+    {
+        await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
+
+        var preference = await context.ProfileSettings
+            .AsNoTracking()
+            .Where(s => s.ProfileId == profileId)
+            .Select(s => (TitleLanguage?)s.PreferredTitleLanguage)
+            .FirstOrDefaultAsync(cancellationToken);
+
+        // A profile with no settings row gets romaji, which is what a MyAnimeList
+        // library already holds — so the absence of a preference never rewrites
+        // titles (D22).
+        return preference ?? TitleLanguage.Romaji;
+    }
+
+    private async Task<SourceSyncSettings> LoadSettingsAsync(
+        int profileId,
+        AnimeSource source,
+        CancellationToken cancellationToken)
+    {
+        await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
+
+        var stored = await context.SourceSyncSettings
+            .AsNoTracking()
+            .FirstOrDefaultAsync(s => s.ProfileId == profileId && s.Source == source, cancellationToken);
+
+        // Defaults in memory rather than a row written on first read. A settings row
+        // is the user's statement about a source; the sync creating one silently
+        // would make "configured" indistinguishable from "looked at once".
+        return stored ?? DefaultSettings(profileId, source);
+    }
+
+    private static SourceSyncSettings DefaultSettings(int profileId, AnimeSource source) =>
+        new() { ProfileId = profileId, Source = source };
+
+    private async Task RecordAsync(
+        int profileId,
+        AnimeSource source,
+        DateTimeOffset startedAt,
+        SyncRun run,
+        CancellationToken cancellationToken)
+    {
+        await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
+
+        run.ProfileId = profileId;
+        run.Source = source;
+        run.StartedAt = startedAt;
+        run.FinishedAt = DateTimeOffset.UtcNow;
+
+        context.SyncRuns.Add(run);
+        await context.SaveChangesAsync(cancellationToken);
+    }
+
+    private static SyncRun Failed(string reason) => new()
+    {
+        Outcome = SyncOutcome.Failed,
+
+        // Truncated to the column's width rather than left to the database to
+        // reject. A failure record that itself fails to save would lose the only
+        // evidence of what went wrong.
+        FailureReason = reason.Length > 500 ? reason[..500] : reason
+    };
+
+    private static SyncFetchResult Failure(AnimeSource source, string reason) =>
+        new() { Source = source, FailureReason = reason };
+
+    private static void RequireSyncable(AnimeSource source)
+    {
+        if (!SyncableSources.Contains(source))
+        {
+            // A programming error rather than a user-facing failure: nothing offers
+            // MyAnimeList as something to sync, because there is no list to fetch.
+            throw new ArgumentOutOfRangeException(
+                nameof(source), source, "This source cannot be synced.");
+        }
+    }
+}

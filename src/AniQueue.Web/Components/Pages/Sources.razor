@@ -1,0 +1,427 @@
+@page "/sources"
+@using AniQueue.Infrastructure.Sync
+@using Microsoft.Extensions.Options
+@inject ISyncService SyncService
+@inject IOptionsMonitor<SyncOptions> SyncConfiguration
+@inject ILogger<Sources> Logger
+
+<PageTitle>Sources — AniQueue</PageTitle>
+
+<div class="page-header">
+    <h1>Sources</h1>
+    <p>
+        Where your library comes from. Syncing reads only — AniQueue never writes
+        anything back to your account.
+    </p>
+</div>
+
+@if (_error is not null)
+{
+    <div class="notice error" role="alert">@_error</div>
+}
+
+@* A finished sync reports at the top, where the button that started it is, rather
+   than below the source cards. There is nothing to scroll to — the result *is*
+   that no tables appeared — so a message further down the page reads as the click
+   having done nothing at all. *@
+@if (_nothingToDo)
+{
+    <div class="notice success" role="status">
+        Already up to date — your library matches this source, so there is nothing to apply.
+    </div>
+}
+
+@if (!SyncConfiguration.CurrentValue.Enabled)
+{
+    @* The operator's kill switch. Said out loud because otherwise a Sync Now that
+       refuses looks like a broken button rather than a deliberate setting. *@
+    <div class="notice info" role="status">
+        Syncing is turned off in this deployment's configuration
+        (<code>Sync:Enabled</code>). Nothing here will fetch until it is turned
+        back on.
+    </div>
+}
+
+@foreach (var status in _statuses)
+{
+    <div class="card">
+        <h2>@status.Source</h2>
+
+        @if (!status.IsConfigured)
+        {
+            <p class="muted">
+                No account is configured. Set <code>Sync:AniList:UserName</code> — in
+                <code>appsettings.json</code>, as an environment variable, or in
+                <code>userconfig.json</code> beside your database — and restart. The
+                list must be public; AniQueue does not sign in.
+            </p>
+        }
+        else
+        {
+            <p class="muted">
+                Reading the public list of <strong>@status.Account</strong> &middot;
+                @LastRunText(status.LastRun)
+            </p>
+
+            <div class="toolbar">
+                <button class="primary" disabled="@(_busy.IsRunning || !CanSync(status))"
+                        @onclick="() => SyncAsync(status)">
+                    Sync now
+                </button>
+
+                @if (_preview is not null)
+                {
+                    <button @onclick="Reset" disabled="@_busy.IsRunning">Discard this preview</button>
+                }
+            </div>
+
+            @if (status.LastRun is { Outcome: SyncOutcome.Failed } failed && failed.FailureReason is not null)
+            {
+                @* Kept visible until a later run succeeds. A sync that stopped
+                   working must never read as up to date (§4). *@
+                <div class="notice error" role="status">Last attempt failed: @failed.FailureReason</div>
+            }
+
+            @if (status.LastRun is { ConflictsHeld: > 0 } held)
+            {
+                <div class="notice info" role="status">
+                    @held.ConflictsHeld @(held.ConflictsHeld == 1 ? "conflict was" : "conflicts were")
+                    left undecided. Syncing again brings them back — nothing about them has changed.
+                </div>
+            }
+        }
+
+        <details class="source-settings">
+            <summary>Settings</summary>
+
+            <div class="field">
+                <label for="@($"enabled-{status.Source}")">
+                    <input type="checkbox" id="@($"enabled-{status.Source}")"
+                           checked="@status.Settings.IsEnabled"
+                           @onchange="e => Update(status, s => s.IsEnabled = (bool)(e.Value ?? false))" />
+                    Sync this source
+                </label>
+            </div>
+
+            <div class="field">
+                <label for="@($"precedence-{status.Source}")">Authority over watch data</label>
+                <select id="@($"precedence-{status.Source}")" value="@status.Settings.PrecedenceRank"
+                        @onchange="e => Update(status, s => s.PrecedenceRank = ParseInt(e.Value, s.PrecedenceRank))">
+                    <option value="0">Primary — this source decides status, progress and score</option>
+                    <option value="1">Secondary — may add titles, but not overwrite watch data</option>
+                </select>
+                <p class="muted">
+                    Only consulted where two sources both know a title. With one source it
+                    never applies. A secondary source still fills in episode length, release
+                    year and cover art, because those are facts about the title rather than
+                    your record of watching it.
+                </p>
+            </div>
+
+            <div class="field">
+                <label for="title-language">Show titles in</label>
+                <select id="title-language" value="@_titleLanguage"
+                        @onchange="OnTitleLanguageChangedAsync">
+                    <option value="@TitleLanguage.Romaji">Romaji — Shingeki no Kyojin</option>
+                    <option value="@TitleLanguage.English">English — Attack on Titan</option>
+                    <option value="@TitleLanguage.Native">Native — 進撃の巨人</option>
+                </select>
+                <p class="muted">
+                    Applies immediately, to titles this source has told AniQueue about in more
+                    than one language. Titles that came from a file import or were added by hand
+                    have only one name and keep it. Where a preferred language is missing — English
+                    is, for roughly one title in seven — the closest one is shown instead.
+                </p>
+            </div>
+
+            @* Everything below configures runs that nobody is watching, which do not
+               happen yet. Grouped and labelled rather than hidden: they are the
+               settings a user will look for after reading what unattended sync will
+               do, and an empty section reads worse than an honest one. *@
+            <fieldset>
+                <legend>When syncing runs on its own</legend>
+                <p class="muted">
+                    AniQueue does not sync on a schedule yet — every run is one you started.
+                    These decide what happens when it does.
+                </p>
+
+                <div class="field">
+                    <label for="@($"unattended-{status.Source}")">
+                        <input type="checkbox" id="@($"unattended-{status.Source}")"
+                               checked="@status.Settings.ApplyUnattended"
+                               @onchange="e => Update(status, s => s.ApplyUnattended = (bool)(e.Value ?? false))" />
+                        Apply changes without asking
+                    </label>
+                    <p class="muted">
+                        Only the unambiguous ones. Anything AniQueue cannot confidently
+                        identify is held for you either way.
+                    </p>
+                </div>
+
+                <div class="field">
+                    <label for="@($"conflicts-{status.Source}")">Conflicts</label>
+                    <select id="@($"conflicts-{status.Source}")" value="@status.Settings.ConflictPolicy"
+                            @onchange="e => Update(status, s => s.ConflictPolicy = Parse(e.Value, s.ConflictPolicy))">
+                        <option value="@SyncConflictPolicy.HoldForReview">Hold for me to decide</option>
+                        <option value="@SyncConflictPolicy.LinkToExisting">Link when the titles match exactly</option>
+                    </select>
+                    <p class="muted">
+                        Linking automatically is opting into merging by title. The test is exact,
+                        letter for letter, and an ambiguous match is still held.
+                    </p>
+                </div>
+
+                <div class="field">
+                    <label for="@($"absence-{status.Source}")">Titles removed from the source</label>
+                    <select id="@($"absence-{status.Source}")" value="@status.Settings.AbsencePolicy"
+                            @onchange="e => Update(status, s => s.AbsencePolicy = Parse(e.Value, s.AbsencePolicy))">
+                        <option value="@SyncAbsencePolicy.Flag">Flag them for me</option>
+                        <option value="@SyncAbsencePolicy.Ignore">Leave them alone</option>
+                        <option value="@SyncAbsencePolicy.Remove">Remove them here too</option>
+                    </select>
+                    <p class="muted">
+                        Only titles this source has listed before are ever in scope. Anything
+                        it has never known about — imported from a file, or added by hand — is
+                        never touched, whatever this says.
+                    </p>
+                </div>
+            </fieldset>
+        </details>
+    </div>
+}
+
+@if (_applied is { } applied)
+{
+    <div class="notice success" role="status">@SummaryText(applied)</div>
+
+    @if (AdvancementText(applied.Commit) is { } advancement)
+    {
+        <div class="notice info" role="status">
+            @advancement
+            <a href="up-next">See what is next</a>.
+        </div>
+    }
+
+    <div class="toolbar">
+        <a class="button primary" href="backlog">View backlog</a>
+        <button @onclick="Reset">Done</button>
+    </div>
+}
+
+@if (_preview is not null)
+{
+    <ImportPreviewView Preview="_preview" IsEditable="@(_applied is null)">
+        <Actions>
+            <div class="card">
+                @* Before and after are two different statements. Until it is applied
+                   this describes something that has not happened; afterwards the same
+                   tables are the record of something that has, and "nothing has been
+                   saved" sitting under a green "Added 745" is a straight contradiction. *@
+                @if (_applied is null)
+                {
+                    <h2>What syncing would change</h2>
+                    <p class="muted">
+                        Nothing has been saved. @_preview.CompletedCount completed &middot;
+                        @_preview.WatchingCount watching &middot; @_preview.PlanningCount planning
+                    </p>
+
+                    <div class="toolbar">
+                        <button class="primary" disabled="@(_busy.IsRunning || !_preview.HasApplicableChanges)"
+                                @onclick="ApplyAsync">
+                            @ApplyButtonText(_preview)
+                        </button>
+                        <button @onclick="Reset" disabled="@_busy.IsRunning">Cancel</button>
+                    </div>
+                }
+                else
+                {
+                    <h2>What the sync changed</h2>
+                    <p class="muted">
+                        Saved to your library. @_preview.CompletedCount completed &middot;
+                        @_preview.WatchingCount watching &middot; @_preview.PlanningCount planning
+                    </p>
+                }
+            </div>
+        </Actions>
+    </ImportPreviewView>
+}
+
+@* Blocking rather than a disabled button: a real list takes seconds to fetch and
+   compare, during which the page would otherwise look frozen. *@
+<BusyDialog State="_busy" />
+
+@code {
+    private IReadOnlyList<SourceSyncStatus> _statuses = [];
+    private ImportPreview? _preview;
+    private AnimeSource? _previewSource;
+    private SyncApplyResult? _applied;
+    private TitleLanguage _titleLanguage;
+    private bool _nothingToDo;
+    private string? _error;
+
+    private BusyScope _busy = null!;
+
+    protected override void OnInitialized() =>
+        _busy = new BusyScope(() => InvokeAsync(StateHasChanged));
+
+    protected override Task OnInitializedAsync() => LoadAsync();
+
+    private async Task LoadAsync()
+    {
+        _statuses = await SyncService.GetStatusAsync(Profile.DefaultProfileId);
+        _titleLanguage = await SyncService.GetPreferredTitleLanguageAsync(Profile.DefaultProfileId);
+    }
+
+    private bool CanSync(SourceSyncStatus status) =>
+        SyncConfiguration.CurrentValue.Enabled && status.IsConfigured && status.Settings.IsEnabled;
+
+    private async Task SyncAsync(SourceSyncStatus status)
+    {
+        Reset();
+
+        var fetch = await _busy.RunAsync(
+            $"Syncing with {status.Source}",
+            progress => SyncService.FetchAsync(Profile.DefaultProfileId, status.Source, progress));
+
+        if (!fetch.Succeeded)
+        {
+            _error = fetch.FailureReason;
+        }
+        else if (fetch.IsComplete)
+        {
+            // Already over: the list matched what is here, and the run has been
+            // recorded as such. Showing empty tables would suggest otherwise.
+            _nothingToDo = true;
+        }
+        else
+        {
+            _preview = fetch.Preview;
+            _previewSource = status.Source;
+        }
+
+        await LoadAsync();
+    }
+
+    private async Task ApplyAsync()
+    {
+        if (_preview is null || _previewSource is not { } source)
+        {
+            return;
+        }
+
+        var count = _preview.CreateCount + _preview.UpdateCount + _preview.ResolvedConflictCount;
+
+        try
+        {
+            _applied = await _busy.RunAsync(
+                $"Applying {count} {(count == 1 ? "change" : "changes")}",
+                progress => SyncService.ApplyAsync(_preview, Profile.DefaultProfileId, source, progress));
+        }
+        catch (Exception ex)
+        {
+            // The transaction has already rolled back; what the user needs to know
+            // is that the library is unchanged rather than half written.
+            Logger.LogError(ex, "Sync apply failed");
+            _error = "The sync could not be applied. Your library has not been changed.";
+        }
+
+        await LoadAsync();
+    }
+
+    /// <summary>
+    /// Writes one settings change immediately rather than behind a save button.
+    /// </summary>
+    /// <remarks>
+    /// There is no draft state worth protecting here — each control is one
+    /// independent decision, and a save button on a page whose main action is a
+    /// different button is an easy thing to leave unpressed.
+    /// </remarks>
+    private async Task Update(SourceSyncStatus status, Action<SourceSyncSettings> change)
+    {
+        change(status.Settings);
+        await SyncService.SaveSettingsAsync(status.Settings);
+        await LoadAsync();
+    }
+
+    private async Task OnTitleLanguageChangedAsync(ChangeEventArgs e)
+    {
+        if (!Enum.TryParse<TitleLanguage>(e.Value?.ToString(), out var language))
+        {
+            return;
+        }
+
+        _titleLanguage = language;
+        await SyncService.SavePreferredTitleLanguageAsync(Profile.DefaultProfileId, language);
+    }
+
+    private static int ParseInt(object? value, int fallback) =>
+        int.TryParse(value?.ToString(), out var parsed) ? parsed : fallback;
+
+    private static TEnum Parse<TEnum>(object? value, TEnum fallback) where TEnum : struct, Enum =>
+        Enum.TryParse<TEnum>(value?.ToString(), out var parsed) ? parsed : fallback;
+
+    /// <summary>
+    /// Says when the source was last read, and how it went.
+    /// </summary>
+    /// <remarks>
+    /// Three outcomes rather than a timestamp alone, because "synced 4 minutes ago"
+    /// next to a run that failed is a lie a user would act on (§4).
+    /// </remarks>
+    private static string LastRunText(SyncRun? run) => run switch
+    {
+        null => "never synced",
+        { Outcome: SyncOutcome.Failed } => $"last attempt {Ago(run.StartedAt)}, and it failed",
+        { Outcome: SyncOutcome.NothingToDo } => $"checked {Ago(run.StartedAt)}, nothing to change",
+        _ => $"synced {Ago(run.StartedAt)}"
+    };
+
+    private static string Ago(DateTimeOffset moment)
+    {
+        var elapsed = DateTimeOffset.UtcNow - moment;
+
+        return elapsed switch
+        {
+            { TotalMinutes: < 1 } => "just now",
+            { TotalMinutes: < 60 } => $"{(int)elapsed.TotalMinutes} min ago",
+            { TotalHours: < 24 } => $"{(int)elapsed.TotalHours} h ago",
+            _ => $"{(int)elapsed.TotalDays} d ago"
+        };
+    }
+
+    private static string ApplyButtonText(ImportPreview preview)
+    {
+        if (!preview.HasApplicableChanges)
+        {
+            return "Nothing to apply";
+        }
+
+        var total = preview.CreateCount + preview.UpdateCount + preview.ResolvedConflictCount;
+        return $"Apply {total} {(total == 1 ? "change" : "changes")}";
+    }
+
+    private static string SummaryText(SyncApplyResult result)
+    {
+        var text = $"Added {result.Commit.Created} and updated {result.Commit.Updated}";
+        return result.ConflictsHeld > 0
+            ? $"{text}, leaving {result.ConflictsHeld} for you to decide later."
+            : $"{text}.";
+    }
+
+    /// <summary>Explains a queue that just got shorter (D12).</summary>
+    private static string? AdvancementText(ImportCommitResult result) =>
+        result.QueueSlotsReleased switch
+        {
+            0 => null,
+            1 => "One title left Up Next because you have started or finished it.",
+            var n => $"{n} titles left Up Next because you have started or finished them."
+        };
+
+    private void Reset()
+    {
+        _preview = null;
+        _previewSource = null;
+        _applied = null;
+        _nothingToDo = false;
+        _error = null;
+    }
+}
