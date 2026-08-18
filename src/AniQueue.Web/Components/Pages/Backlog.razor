@@ -10,6 +10,11 @@
     <p>What you intend to watch. Narrow it down, then send things to Up Next.</p>
 </div>
 
+@* Rows here change under a background sync too — a title's status moves, or a new
+   one appears — and the filters make it worse: a page filtered to Planning can be
+   showing something that finished watching an hour ago. *@
+<StaleLibraryNotice OnRefresh="ReloadAsync" />
+
 <BusyDialog State="_busy" />
 
 @if (Facets is null || Page is null)
@@ -316,6 +321,20 @@ else
     {
         Facets ??= await LibraryService.GetFacetsAsync(Profile.DefaultProfileId);
         Page ??= await LibraryService.GetPageAsync(Profile.DefaultProfileId, _query);
+    }
+
+    /// <summary>
+    /// Re-runs the current query, keeping the filters and the page the user is on.
+    /// </summary>
+    /// <remarks>
+    /// The facets come back too: a background sync can add the first title of a
+    /// decade or the first with a known runtime, and those decide which filter
+    /// controls exist at all.
+    /// </remarks>
+    private async Task ReloadAsync()
+    {
+        Facets = await LibraryService.GetFacetsAsync(Profile.DefaultProfileId);
+        await ApplyAsync(_query, resetPaging: false);
     }
 
     private async Task ApplyAsync(LibraryQuery query, bool resetPaging = true)

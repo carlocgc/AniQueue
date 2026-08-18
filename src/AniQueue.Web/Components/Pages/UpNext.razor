@@ -18,6 +18,13 @@
     </p>
 </div>
 
+<SyncHealthBanner />
+
+@* The queue is the surface a background sync visibly changes — slots leave it
+   without anyone pressing anything (D12) — so this page is the one where an open
+   tab most needs telling that what it shows has moved on. *@
+<StaleLibraryNotice OnRefresh="RefreshAsync" />
+
 <BusyDialog State="_busy" />
 
 @* Outside the branches below: removing the last slot empties the queue, and the

@@ -67,8 +67,14 @@ public sealed class UserConfigTemplate(ILogger<UserConfigTemplate> logger)
         // beside the database, so a path set here could not be read until it was
         // already in use. Set that one in appsettings.json or the environment.
         {
-          // false refuses every sync, however it was triggered — the switch to reach
-          // for when syncing is doing something you want stopped now.
+          // false refuses every sync, however it was triggered — Sync now, and any
+          // schedule you have set. The switch to reach for when syncing is doing
+          // something you want stopped now, and the one that works when AniQueue's
+          // own pages cannot be reached.
+          //
+          // How often a source is read on its own is not here: that is a preference,
+          // set per source on the Sources page and kept in the database, so it is
+          // covered by a backup of your library rather than by a copy of this file.
           // "Sync:Enabled": true,
 
           // The AniList username whose list is read. It must be public: AniQueue does

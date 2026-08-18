@@ -1,0 +1,50 @@
+@inject ISyncService SyncService
+
+@* Up Next is where this belongs, and only here. The page's correctness silently
+   depends on sync running: titles leave the queue when a sync shows they have
+   been started or finished (D12), so a sync that has been failing for a day
+   leaves a queue that looks maintained and is not. Everywhere else, stale data
+   is merely old; here it is misleading. *@
+@foreach (var stalled in _stalled)
+{
+    <div class="notice error" role="alert">
+        <strong>@stalled.Source syncing has failed @stalled.ConsecutiveFailures times in a row.</strong>
+        @LastGood(stalled) Titles will not leave this queue on their own until it works again.
+        @if (stalled.LastFailure?.FailureReason is { } reason)
+        {
+            <div class="muted">@reason</div>
+        }
+        <div><a href="sources">Check your sources</a></div>
+    </div>
+}
+
+@code {
+    private IReadOnlyList<SourceSyncStatus> _stalled = [];
+
+    protected override async Task OnInitializedAsync()
+    {
+        var statuses = await SyncService.GetStatusAsync(Profile.DefaultProfileId);
+
+        // Only sources actually set to run on their own. A source nobody has
+        // scheduled is not stalled when it does not run — that is it doing what it
+        // was told, and a red banner for it would be this page shouting about a
+        // setting the user chose.
+        _stalled = [.. statuses.Where(s => s.IsStalled && s.Settings.Schedule != SyncSchedule.Off)];
+    }
+
+    private static string LastGood(SourceSyncStatus status) => status.LastSuccess is { } success
+        ? $"The last one that worked was {Ago(success.StartedAt)}."
+        : "None has ever worked.";
+
+    private static string Ago(DateTimeOffset moment)
+    {
+        var elapsed = DateTimeOffset.UtcNow - moment;
+
+        return elapsed switch
+        {
+            { TotalMinutes: < 60 } => "less than an hour ago",
+            { TotalHours: < 24 } => $"{(int)elapsed.TotalHours} h ago",
+            _ => $"{(int)elapsed.TotalDays} d ago"
+        };
+    }
+}

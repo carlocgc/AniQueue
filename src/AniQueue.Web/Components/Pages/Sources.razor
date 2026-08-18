@@ -60,7 +60,7 @@
         {
             <p class="muted">
                 Reading the public list of <strong>@status.Account</strong> &middot;
-                @LastRunText(status.LastRun)
+                @LastRunText(status.LastSuccess) &middot; @ScheduleText(status.Settings.Schedule)
             </p>
 
             <div class="toolbar">
@@ -69,17 +69,43 @@
                     Sync now
                 </button>
 
-                @if (_preview is not null)
+                @if (_fetch is not null)
                 {
                     <button @onclick="Reset" disabled="@_busy.IsRunning">Discard this preview</button>
                 }
             </div>
 
-            @if (status.LastRun is { Outcome: SyncOutcome.Failed } failed && failed.FailureReason is not null)
+            @* Failure and success are stated separately, and both survive: "last
+               synced 3 hours ago, last attempt failed because the profile is
+               private" is actionable where either half alone is not. The failure
+               stays until a later run reaches the source, because a sync that
+               stopped working must never read as up to date (§4). *@
+            @if (status.LastFailure is { FailureReason: { } reason } failure
+                 && (status.LastSuccess is null || failure.Id > status.LastSuccess.Id))
             {
-                @* Kept visible until a later run succeeds. A sync that stopped
-                   working must never read as up to date (§4). *@
-                <div class="notice error" role="status">Last attempt failed: @failed.FailureReason</div>
+                <div class="notice @(status.IsStalled ? "error" : "warning")" role="status">
+                    Last attempt @Ago(failure.StartedAt) failed: @reason
+                    @if (status.IsStalled)
+                    {
+                        <text>
+                            This is the @status.ConsecutiveFailures<sup>th</sup> failure in a row, so
+                            what you are looking at is as old as the last success above.
+                        </text>
+                    }
+                </div>
+            }
+
+            @if (status.LastRun is { Outcome: SyncOutcome.HeldForReview, ChangesHeld: > 0 } waiting)
+            {
+                @* The point of recording a held run at all. Without this the page
+                   would say "checked 20 minutes ago, nothing to change" about a run
+                   that found a dozen changes and was told not to apply them. *@
+                <div class="notice info" role="status">
+                    A scheduled run found @waiting.ChangesHeld
+                    @(waiting.ChangesHeld == 1 ? "change" : "changes") and did not apply
+                    @(waiting.ChangesHeld == 1 ? "it" : "them"), because this source is set to
+                    ask first. Sync now to look at @(waiting.ChangesHeld == 1 ? "it" : "them").
+                </div>
             }
 
             @if (status.LastRun is { ConflictsHeld: > 0 } held)
@@ -87,6 +113,18 @@
                 <div class="notice info" role="status">
                     @held.ConflictsHeld @(held.ConflictsHeld == 1 ? "conflict was" : "conflicts were")
                     left undecided. Syncing again brings them back — nothing about them has changed.
+                </div>
+            }
+
+            @if (status.AbsentCount > 0)
+            {
+                @* Named rather than counted, because "3 titles were removed" sends
+                   the user hunting through several hundred rows to find out which. *@
+                <div class="notice warning" role="status">
+                    @status.AbsentCount @(status.AbsentCount == 1 ? "title is" : "titles are")
+                    no longer on @status.Source: @string.Join(", ", status.AbsentTitles)@(status.AbsentCount > status.AbsentTitles.Count ? $" and {status.AbsentCount - status.AbsentTitles.Count} more" : "").
+                    @(status.AbsentCount == 1 ? "It is" : "They are") still in your library and
+                    still queueable — AniQueue does not delete anything a source stops listing.
                 </div>
             }
         }
@@ -134,16 +172,29 @@
                 </p>
             </div>
 
-            @* Everything below configures runs that nobody is watching, which do not
-               happen yet. Grouped and labelled rather than hidden: they are the
-               settings a user will look for after reading what unattended sync will
-               do, and an empty section reads worse than an honest one. *@
             <fieldset>
                 <legend>When syncing runs on its own</legend>
                 <p class="muted">
-                    AniQueue does not sync on a schedule yet — every run is one you started.
-                    These decide what happens when it does.
+                    AniQueue can read this source on a schedule, with nobody watching.
+                    It is off until you turn it on, and these decide what a run may do.
                 </p>
+
+                <div class="field">
+                    <label for="@($"schedule-{status.Source}")">Check this source</label>
+                    <select id="@($"schedule-{status.Source}")" value="@status.Settings.Schedule"
+                            @onchange="e => Update(status, s => s.Schedule = Parse(e.Value, s.Schedule))">
+                        <option value="@SyncSchedule.Off">Only when I press Sync now</option>
+                        <option value="@SyncSchedule.Hourly">Every hour</option>
+                        <option value="@SyncSchedule.EverySixHours">Every six hours</option>
+                        <option value="@SyncSchedule.Daily">Once a day</option>
+                        <option value="@SyncSchedule.Weekly">Once a week</option>
+                    </select>
+                    <p class="muted">
+                        A scheduled run is the same read as Sync now — nothing is ever written
+                        back to your account. Times are approximate, and a run that keeps failing
+                        is retried progressively less often rather than every hour forever.
+                    </p>
+                </div>
 
                 <div class="field">
                     <label for="@($"unattended-{status.Source}")">
@@ -177,12 +228,23 @@
                             @onchange="e => Update(status, s => s.AbsencePolicy = Parse(e.Value, s.AbsencePolicy))">
                         <option value="@SyncAbsencePolicy.Flag">Flag them for me</option>
                         <option value="@SyncAbsencePolicy.Ignore">Leave them alone</option>
-                        <option value="@SyncAbsencePolicy.Remove">Remove them here too</option>
                     </select>
                     <p class="muted">
                         Only titles this source has listed before are ever in scope. Anything
                         it has never known about — imported from a file, or added by hand — is
                         never touched, whatever this says.
+                    </p>
+                    @* "Remove them here too" is a stored value with no option to select
+                       it, deliberately. A truncated response, a paging bug, a mistyped
+                       account and a profile turned private all look identical to "the
+                       user deleted everything", and an emptied library taking the
+                       hand-built queue with it is the one failure here with no recovery
+                       path in the product (D19). Offering the choice before the backup
+                       exists would be offering it before it can be survived. *@
+                    <p class="muted">
+                        Deleting them here as well will be offered once AniQueue can back your
+                        library up and restore it, so that an unlucky sync is something you can
+                        undo.
                     </p>
                 </div>
             </fieldset>
@@ -208,9 +270,9 @@
     </div>
 }
 
-@if (_preview is not null)
+@if (_fetch?.Preview is { } preview)
 {
-    <ImportPreviewView Preview="_preview" IsEditable="@(_applied is null)">
+    <ImportPreviewView Preview="preview" IsEditable="@(_applied is null)">
         <Actions>
             <div class="card">
                 @* Before and after are two different statements. Until it is applied
@@ -221,14 +283,14 @@
                 {
                     <h2>What syncing would change</h2>
                     <p class="muted">
-                        Nothing has been saved. @_preview.CompletedCount completed &middot;
-                        @_preview.WatchingCount watching &middot; @_preview.PlanningCount planning
+                        Nothing has been saved. @preview.CompletedCount completed &middot;
+                        @preview.WatchingCount watching &middot; @preview.PlanningCount planning
                     </p>
 
                     <div class="toolbar">
-                        <button class="primary" disabled="@(_busy.IsRunning || !_preview.HasApplicableChanges)"
+                        <button class="primary" disabled="@(_busy.IsRunning || !preview.HasApplicableChanges)"
                                 @onclick="ApplyAsync">
-                            @ApplyButtonText(_preview)
+                            @ApplyButtonText(preview)
                         </button>
                         <button @onclick="Reset" disabled="@_busy.IsRunning">Cancel</button>
                     </div>
@@ -237,8 +299,8 @@
                 {
                     <h2>What the sync changed</h2>
                     <p class="muted">
-                        Saved to your library. @_preview.CompletedCount completed &middot;
-                        @_preview.WatchingCount watching &middot; @_preview.PlanningCount planning
+                        Saved to your library. @preview.CompletedCount completed &middot;
+                        @preview.WatchingCount watching &middot; @preview.PlanningCount planning
                     </p>
                 }
             </div>
@@ -252,8 +314,7 @@
 
 @code {
     private IReadOnlyList<SourceSyncStatus> _statuses = [];
-    private ImportPreview? _preview;
-    private AnimeSource? _previewSource;
+    private SyncFetchResult? _fetch;
     private SyncApplyResult? _applied;
     private TitleLanguage _titleLanguage;
     private bool _nothingToDo;
@@ -295,8 +356,7 @@
         }
         else
         {
-            _preview = fetch.Preview;
-            _previewSource = status.Source;
+            _fetch = fetch;
         }
 
         await LoadAsync();
@@ -304,18 +364,18 @@
 
     private async Task ApplyAsync()
     {
-        if (_preview is null || _previewSource is not { } source)
+        if (_fetch is not { Preview: { } preview } fetch)
         {
             return;
         }
 
-        var count = _preview.CreateCount + _preview.UpdateCount + _preview.ResolvedConflictCount;
+        var count = preview.CreateCount + preview.UpdateCount + preview.ResolvedConflictCount;
 
         try
         {
             _applied = await _busy.RunAsync(
                 $"Applying {count} {(count == 1 ? "change" : "changes")}",
-                progress => SyncService.ApplyAsync(_preview, Profile.DefaultProfileId, source, progress));
+                progress => SyncService.ApplyAsync(fetch, Profile.DefaultProfileId, progress));
         }
         catch (Exception ex)
         {
@@ -361,18 +421,30 @@
         Enum.TryParse<TEnum>(value?.ToString(), out var parsed) ? parsed : fallback;
 
     /// <summary>
-    /// Says when the source was last read, and how it went.
+    /// Says when the source was last actually read, and what that read found.
     /// </summary>
     /// <remarks>
-    /// Three outcomes rather than a timestamp alone, because "synced 4 minutes ago"
-    /// next to a run that failed is a lie a user would act on (§4).
+    /// Takes the last <em>success</em> rather than the last run, and the failure is
+    /// reported beside it instead of replacing it. A single line that flips to "last
+    /// attempt failed" the moment anything goes wrong loses the fact a user most
+    /// needs while it is going wrong: how old the data they are looking at actually
+    /// is (§4).
     /// </remarks>
     private static string LastRunText(SyncRun? run) => run switch
     {
         null => "never synced",
-        { Outcome: SyncOutcome.Failed } => $"last attempt {Ago(run.StartedAt)}, and it failed",
         { Outcome: SyncOutcome.NothingToDo } => $"checked {Ago(run.StartedAt)}, nothing to change",
+        { Outcome: SyncOutcome.HeldForReview } => $"checked {Ago(run.StartedAt)}, changes waiting",
         _ => $"synced {Ago(run.StartedAt)}"
+    };
+
+    private static string ScheduleText(SyncSchedule schedule) => schedule switch
+    {
+        SyncSchedule.Hourly => "checking every hour",
+        SyncSchedule.EverySixHours => "checking every six hours",
+        SyncSchedule.Daily => "checking once a day",
+        SyncSchedule.Weekly => "checking once a week",
+        _ => "only when you ask"
     };
 
     private static string Ago(DateTimeOffset moment)
@@ -418,8 +490,7 @@
 
     private void Reset()
     {
-        _preview = null;
-        _previewSource = null;
+        _fetch = null;
         _applied = null;
         _nothingToDo = false;
         _error = null;
