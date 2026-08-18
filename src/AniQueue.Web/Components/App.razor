@@ -18,11 +18,34 @@
     <link rel="stylesheet" href="@Assets["app.css"]" />
     <link rel="stylesheet" href="@Assets["AniQueue.Web.styles.css"]" />
     <ImportMap />
-    <HeadOutlet @rendermode="InteractiveServer" />
+
+    @* A real title in the markup, because HeadOutlet no longer prerenders one and a
+       tab labelled with the URL for the first moments of every load is worse than a
+       name that is occasionally one page behind. Page-specific titles replace it as
+       soon as the circuit renders. *@
+    <title>AniQueue</title>
+
+    @* Both roots render only in the circuit, never into the served HTML.
+       (See ROADMAP §9.) The two errors that killed the circuit on load —
+       "insertBefore … parentNode is null" and "No element is currently associated
+       with component 1" — both come from Blazor binding to server-rendered markup a
+       dark-mode extension had rewritten in between. Prerendering is what creates
+       that markup, and the binding step is what fails; without it the components
+       render into an empty document and there is nothing to reconcile.
+
+       The cost is honest and it is paid on every load: nothing is visible until the
+       circuit connects. That is a fraction of a second on the local network this is
+       built for, and the loading shell below covers it. *@
+    <HeadOutlet @rendermode="@(new InteractiveServerRenderMode(prerender: false))" />
 </head>
 
 <body>
-    <Routes @rendermode="InteractiveServer" />
+    @* Shown until the circuit renders the application over it. Hidden by CSS rather
+       than by script, so it cannot outlive the thing it is covering if scripting
+       fails halfway. *@
+    <div class="app-loading" aria-hidden="true">AniQueue</div>
+
+    <Routes @rendermode="@(new InteractiveServerRenderMode(prerender: false))" />
     <ReconnectModal />
     <script src="@Assets["_framework/blazor.web.js"]"></script>
 </body>
