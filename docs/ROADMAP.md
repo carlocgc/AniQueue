@@ -1539,6 +1539,34 @@ the same order for an append-only table. `RecommendationRun` browses newest-firs
 
 ## 9. Risks
 
+**The prerender handoff races the end of the document.** ASP.NET writes the prerendered
+component state as a comment *after* `</html>`, which is past the `blazor.web.js` tag in the
+byte stream. A browser that executes that script the moment it parses it — rather than after
+parsing finishes — starts the circuit with no persisted state, so every component re-runs its
+initialiser and renders its loading state, replacing prerendered markup with a structurally
+different tree at the exact moment the client is binding to it. The attach then fails with
+`TypeError: … insertBefore, n.parentNode is null`, followed by
+`No element is currently associated with component 1`, and the circuit is torn down on load.
+
+Found in Phase 5b, against a clean Firefox profile and a plain `dotnet run` — not an IDE
+artifact, and not the app's own JavaScript. **Firefox loses this race far more readily than
+Chromium**, which never reproduced it in around thirty loads, and anything that slows the
+response widens the window: a debugger attached, a cold start, a first request. That
+asymmetry is why it read as "works on my machine" for as long as it did.
+
+The fix is `defer` on the script tag, which moves execution to after parsing completes so the
+state comment is always in the document before Blazor looks for it. It was diagnosed by
+posting `document.childNodes` back to the server at three points in the page lifecycle: the
+comment is absent when the page's inline script runs and present by `DOMContentLoaded`.
+Adding *any* work before the Blazor script also made it stop reproducing, which is the
+signature of a race rather than a defect in what the components render.
+
+**`[PersistentState]` is what makes a page survive it at all.** Home and Backlog carry it, so
+their trees are identical either side of the handoff; Up Next deliberately does not, because
+a long queue would exceed SignalR's 32 KB receive limit. Any page that re-queries on attach is
+relying on the framework patching a differing tree, which works — until the state comment is
+late and every page does it at once.
+
 **SortableJS vs Blazor's DOM ownership — the real one.** Blazor's renderer diffs against
 its own virtual tree; SortableJS physically moves nodes behind its back, so the next render
 can duplicate or resurrect rows. The working pattern is `@key` on every item plus reverting
