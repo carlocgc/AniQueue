@@ -1422,6 +1422,56 @@ page shows last success and last failure separately, because "last synced 3 hour
 attempt failed: profile is private" is actionable where "sync failed" is not, and sustained
 failure escalates to a banner on Up Next, whose correctness silently depends on sync running.
 
+**What 5c decided that this section did not.** Four things had to be settled while building it,
+and each is load-bearing enough to record rather than leave in the code.
+
+- **The schedule is a fixed set, not a number of minutes** — off, hourly, six-hourly, daily,
+  weekly — stored per source as `SourceSyncSettings.Schedule`. A free-form interval invites
+  "every two minutes" from a user with no way to know the measured rate limit is 30 requests a
+  minute, and every value here is a promise about load on somebody else's service. *This
+  retires the poll-interval floor* that D20 listed as operator configuration: the floor existed
+  to bound an arbitrary number, and the shortest value offered is now an hour. Adding an inert
+  configuration key ahead of the behaviour that needs it is what D11 argues against, so it was
+  not added. A cron-style schedule is out of the MVP; the floor comes back with it.
+- **It ships switched off.** An installation upgrading with an account already configured does
+  not start fetching on its own — turning it on is the act that carries the intent. That is why
+  the phase's exit criterion is provable rather than automatic: the queue advances with nobody
+  present *once a schedule is set*.
+- **Absence is recorded on `AnimeExternalId`**, as a nullable `MissingFromSourceAt`. Absence is
+  a fact about a title on one service, which is exactly what that row already is — a title
+  dropped from AniList while still on MyAnimeList is absent from one and present on the other,
+  and a flag on the library entry could not say that. It is written during the fetch rather than
+  the commit, because the case absence exists for is a list that is otherwise identical, and
+  such a fetch has nothing to apply. It is cleared the moment the source lists the title again,
+  so it always describes the latest fetch rather than accumulating history — which also makes it
+  the exact population Phase 8's `Remove` will act on.
+- **`SyncOutcome` gains a fourth value, `HeldForReview`, and `SyncRun` a `ChangesHeld` count.**
+  With unattended application switched off, a run that finds twelve changes and applies none had
+  no honest row to write: `NothingToDo` would tell the user their library matches their list,
+  and `Failed` would put a red banner on a setting working exactly as configured. Only the count
+  is stored, per D21 — the changes themselves are recomputed by the visit that reviews them.
+
+**One bug fell out of building it**, in the import path rather than the sync. D21 asserts that a
+genuinely ambiguous match "produces a conflict with no candidate id, which existing code already
+downgrades to skip". That was true of the no-identifier path and *not* of the hand-added-twin
+path, which took the first same-titled row by query order and offered it as the candidate. Under
+`LinkToExisting` an unattended run would have merged into an arbitrary one of two identical rows.
+Two or more unidentified twins now produce a conflict carrying no candidate, which is both the
+honest preview for a person and the thing that keeps the automated resolution unreachable.
+
+**A settings reset belongs to Phase 10, and is recorded here because 5c is where the need
+appeared.** D20's split means a clean slate takes two actions: renaming `userconfig.json` clears
+the operator's half, and the user's half lives in the database. Moving preferences into the file
+would fix that at the cost of a config writer D20 declined — atomic replacement, concurrent-write
+protection and comment-preserving round-tripping — and would put settings outside the backup
+Phase 8 gives the database. The cheaper answer is a **"reset settings to defaults"** action that
+deletes the profile's `SourceSyncSettings` and `ProfileSettings` rows and leaves the library
+alone: no writer, no precedence puzzle, and it resets preferences a *user* set, which renaming an
+operator file never would. Three things make waiting safe — every user-preference default is the
+safe one (absence `Flag`, conflicts `HoldForReview`, schedule `Off`), so "no row" and "clean
+slate" are the same state; and the recovery case that actually matters is already covered
+completely by the kill switch.
+
 ### Phase 6 — Franchises
 Create, rename, add/remove titles, reorder, dissolve. Collapsed card showing entries
 watched, remaining runtime, first entry, AI score and how many of its titles are queued;
@@ -1586,6 +1636,15 @@ Phase 5 adds, and these are load-bearing rather than decorative:
   back at the user, and a server claiming `hasNextChunk` forever failing rather than looping.
 - **The run record.** A failed fetch and a list that already matched each write a row; a preview
   still awaiting a decision writes none; the kill switch writes none.
+- **The unattended subset.** Creates and updates commit; conflicts are held; a source set to ask
+  first writes nothing and records `HeldForReview` with a count. Linking by exact title converges
+  — the second run has nothing left to conflict about — and an ambiguous match is never linked
+  whatever the policy says.
+- **Scheduling, without a clock.** Due-ness and backoff are arithmetic over the status the sync
+  service reports, so the job is tested against a stub: off never runs, a source that has never
+  run is due immediately, each schedule waits its interval, and a failing source is retried at
+  double the interval per failure up to sixteen times it. Scheduling that needed real time to
+  test would be scheduling nobody could test.
 
 No test may depend on a live external API.
 
