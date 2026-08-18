@@ -20,10 +20,46 @@ var databasePath = builder.Configuration[$"{AniQueueDatabaseOptions.SectionName}
 
 var dataDirectory = Path.GetDirectoryName(databasePath);
 
+UserConfigStatus? userConfig = null;
+
 if (!string.IsNullOrEmpty(dataDirectory))
 {
-    builder.Configuration.AddJsonFile(
-        Path.Combine(dataDirectory, UserConfigTemplate.FileName), optional: true, reloadOnChange: true);
+    userConfig = new UserConfigStatus
+    {
+        // Absolute, because the banner naming it is read by someone who has to go
+        // and find the file, and a path relative to the content root is not that.
+        Path = Path.GetFullPath(Path.Combine(dataDirectory, UserConfigTemplate.FileName))
+    };
+
+    // Configured through the source rather than the path overload so that a file
+    // which cannot be parsed is survivable. Without OnLoadException the provider
+    // throws while the host is being built — before logging exists — so one missing
+    // comma in the file an operator edits by hand replaces the application with a
+    // stack trace. Ignoring the load leaves every other configuration source in
+    // place and lets the application start and say what is wrong (D20).
+    //
+    // The provider's own load path is used rather than a parse of our own, because
+    // the two could disagree about what is acceptable: this file is allowed
+    // comments and trailing commas, and the only implementation that defines
+    // exactly which is the one doing the reading.
+    //
+    // This also covers a file broken while the application is running, since a
+    // reload failure arrives the same way.
+    builder.Configuration.AddJsonFile(source =>
+    {
+        source.Path = userConfig.Path;
+        source.Optional = true;
+        source.ReloadOnChange = true;
+        source.OnLoadException = context =>
+        {
+            context.Ignore = true;
+            // The innermost exception is the one carrying the line and position. The two
+            // wrapping it say only which file, which the banner already names.
+            userConfig.Fail(context.Exception.GetBaseException().Message);
+        };
+
+        source.ResolveFileProvider();
+    });
 }
 
 builder.Services.AddRazorComponents()
@@ -40,6 +76,10 @@ builder.Services.Configure<SyncOptions>(
     builder.Configuration.GetSection(SyncOptions.SectionName));
 
 builder.Services.AddAniQueueSync();
+
+// Registered even when the file is fine, so the banner component can ask without
+// caring whether a data directory was configured at all.
+builder.Services.AddSingleton(userConfig ?? new UserConfigStatus { Path = UserConfigTemplate.FileName });
 
 if (builder.Environment.IsDevelopment())
 {
@@ -77,6 +117,17 @@ var app = builder.Build();
 
     app.Lifetime.ApplicationStopped.Register(() =>
         lifetimeLogger.LogInformation("AniQueue has stopped"));
+
+    // Said at startup as well as on the page, because the operator who broke the
+    // file may be watching a console rather than a browser.
+    if (userConfig is { IsBroken: true })
+    {
+        lifetimeLogger.LogWarning(
+            "The settings file at {UserConfigPath} could not be read and was ignored: {Reason}. "
+            + "AniQueue started without it; fix the file and restart to apply it",
+            userConfig.Path,
+            userConfig.Error);
+    }
 }
 
 // Bring the schema up to date before serving traffic. A database that cannot be

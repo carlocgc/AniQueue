@@ -738,12 +738,27 @@ properties make it safe rather than merely helpful, and all three are load-beari
 - **One line per setting, written as a full `Sync:AniList:UserName` path.** The JSON provider
   reads a property name containing colons as the whole key, so this means the same as the nested
   spelling. Uncommenting a line out of a *nested* block leaves its closing braces behind, and a
-  malformed settings file stops AniQueue from starting — a poor property for the file an operator
-  edits when something is already wrong.
+  file that cannot be parsed is a file whose settings are all silently absent — a poor property
+  for the one an operator edits when something is already wrong.
 - **It never overwrites and never fails the boot.** An existing file is the operator's work,
   including one they emptied deliberately. §9's non-root container writing to a root-owned bind
   mount cannot create it at all, and refusing to start over an unwritable convenience file would
   turn a hint into an outage, so failure is a logged warning.
+
+**A file it cannot parse must not stop the application.** By default the JSON provider throws
+while the host is being built — before logging exists — so one missing comma in the file an
+operator edits by hand replaces AniQueue with a stack trace on a console they may not be watching.
+That is precisely backwards for an escape hatch: the file exists to be edited when something is
+already wrong, and editing it is when it will be mistyped.
+
+So the source is configured with `OnLoadException` set to ignore the load. Everything the file
+would have configured is skipped, every other configuration source stands, the application starts,
+and it says what happened — a warning at startup for the console, and a red banner on the
+dashboard naming the file and quoting the parser's own message, which carries the line and
+position. The provider's own load path decides what is acceptable rather than a validation pass of
+ours: this file permits comments and trailing commas, and two implementations of that rule could
+disagree. The same handler covers a file broken while the application is running, since a reload
+failure arrives the same way.
 
 `Database:Path` is deliberately not offered in it: the file is found by looking beside the
 database, so a path set there could not be read until it was already in use.
