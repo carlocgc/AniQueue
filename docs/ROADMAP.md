@@ -849,6 +849,26 @@ the preference is changed before or after the first sync.
 - **MyAnimeList-only and manual rows are unaffected**, since there is no alternative to
   prefer. The Sources page should say so, or the setting reads as broken.
 
+**Challenged in Phase 5b, and the objection is right: this is display, not data.** Both variants
+are already stored, a library that is fully synced has nothing for the next sync to apply anyway,
+and re-fetching an entire list to change which of two strings is shown is a heavy mechanism for a
+user preference. The setting belongs where the theme is.
+
+**It cannot be moved yet, and the reason is in the schema rather than the UI.**
+`Anime.AlternativeTitle` is a bare string with nothing recording *which* language is in it: the
+parser fills it with the next variant that exists and differs, so it holds English for one row and
+native for the next, depending on what AniList returned. A display layer asked to render "native"
+therefore cannot tell whether the column already holds it. Swapping columns would be guessing, and
+D22's original argument against a swap — `Title` is required, and manual and MyAnimeList-only rows
+have nothing to swap with — still stands on top of that.
+
+**So the fix is to store the variants as variants**, each against its language, and make the
+preference a render-time choice that needs no sync and no write. That is a schema change and a
+settings surface, so it belongs to Phase 10 with the rest of the preferences; until then the
+Sources page carries the setting and says plainly that a sync applies it. What must not happen in
+the meantime is a half-measure that switches the rows it can and leaves the rest, which would be
+worse than either end state.
+
 ---
 
 ## 3. Solution structure
@@ -1451,6 +1471,13 @@ General (display name, default queue size, date format, theme System/Light/Dark)
 (show optional franchise entries, default sort/filters), Recommendations (default mode,
 export privacy, weighting), Data (export/import backup, clear recommendation results).
 Destructive actions require explicit confirmation. Accessibility and responsive passes.
+
+**Title language moves here from the Sources page**, and stops needing a sync to take effect. A
+preference about which of two stored strings is displayed should behave like the theme does, not
+like a data migration — see the amendment on D22 for why it could not be done in Phase 5b, which
+is a schema point rather than a UI one: nothing currently records which language
+`Anime.AlternativeTitle` holds. Storing each variant against its language is what makes the
+setting instant, and it retires the "applied by the next sync" wording along with it.
 
 ### Phase 11 — Docker and README
 Multi-stage Dockerfile (SDK build → `aspnet` runtime, no SDK in the final layer), non-root
