@@ -1,4 +1,6 @@
 @inherits LayoutComponentBase
+@using AniQueue.Infrastructure.Sync
+@inject UserConfigStatus UserConfig
 
 <div class="app">
     <header class="sidebar">
@@ -17,6 +19,26 @@
     </header>
 
     <main>
+        @* In the layout rather than on one page, because the application is running
+           on incomplete settings wherever the user happens to be, and the operator
+           is the only one who can change that. Dismissing it is an acknowledgement
+           rather than a fix: it stays until somebody clears it, survives navigating
+           between pages, and returns on the next load while the file is still
+           unreadable. *@
+        @if (UserConfig.IsBroken && !_configWarningDismissed)
+        {
+            <div class="notice error dismissible" role="alert">
+                <button class="dismiss" @onclick="() => _configWarningDismissed = true"
+                        aria-label="Dismiss the settings file warning">&times;</button>
+
+                <strong>Your settings file could not be read, so AniQueue started without it.</strong>
+                Anything configured in <code>@UserConfig.Path</code> is being ignored — everything
+                else, including <code>appsettings.json</code> and environment variables, is
+                unaffected. Fix the file and restart to apply it.
+                <div class="muted">@UserConfig.Error</div>
+            </div>
+        }
+
         @Body
     </main>
 </div>
@@ -26,3 +48,11 @@
     <a href="." class="reload">Reload</a>
     <span class="dismiss">🗙</span>
 </div>
+
+@code {
+    // Layout state, so it outlives navigation: Blazor keeps one layout instance
+    // across route changes, and a warning that reappeared on every click would be
+    // noise rather than an acknowledgement. A full reload brings it back, which is
+    // correct — that is a new session, and the file is still broken.
+    private bool _configWarningDismissed;
+}

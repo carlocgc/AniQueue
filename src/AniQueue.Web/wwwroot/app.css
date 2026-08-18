@@ -517,6 +517,25 @@ button.icon.remove:hover:not(:disabled) {
     border: 1px solid transparent;
 }
 
+/* A notice the user closes rather than one that closes itself. The padding on the
+   right is what keeps the text from running under the button. */
+.notice.dismissible { position: relative; padding-right: 2.4rem; }
+
+.notice .dismiss {
+    position: absolute;
+    top: 0.35rem;
+    right: 0.4rem;
+    padding: 0.1rem 0.4rem;
+    border: none;
+    background: none;
+    color: inherit;
+    opacity: 0.7;
+    font-size: 1.1rem;
+    line-height: 1.2;
+}
+
+.notice .dismiss:hover { opacity: 1; border-color: transparent; }
+
 .notice.info { background: var(--surface-alt); border-color: var(--border); }
 .notice.success { background: var(--success-bg); color: var(--success); }
 .notice.warning { background: var(--warning-bg); color: var(--warning); }

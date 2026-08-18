@@ -1,24 +1,7 @@
 @page "/"
-@using AniQueue.Infrastructure.Sync
 @inject ILibraryService LibraryService
-@inject UserConfigStatus UserConfig
 
 <PageTitle>AniQueue</PageTitle>
-
-@* Above the page's own heading, because it is not about the library: the
-   application is running on incomplete settings and the operator is the only one
-   who can change that. Shown here rather than everywhere so it cannot become
-   wallpaper — the dashboard is where a self-hoster lands. *@
-@if (UserConfig.IsBroken)
-{
-    <div class="notice error" role="alert">
-        <strong>Your settings file could not be read, so AniQueue started without it.</strong>
-        Anything configured in <code>@UserConfig.Path</code> is being ignored — everything
-        else, including <code>appsettings.json</code> and environment variables, is
-        unaffected. Fix the file and restart to apply it.
-        <div class="muted">@UserConfig.Error</div>
-    </div>
-}
 
 <div class="page-header">
     <h1>Dashboard</h1>
