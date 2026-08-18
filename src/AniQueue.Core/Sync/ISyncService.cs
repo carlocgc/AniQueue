@@ -16,6 +16,19 @@ public sealed record SyncFetchResult
     public string? FailureReason { get; init; }
 
     /// <summary>
+    /// Titles this source has stopped listing, marked during the fetch (D19).
+    /// </summary>
+    /// <remarks>
+    /// Already written by the time this is read, unlike everything else on a
+    /// preview. Absence is an observation about the response rather than a change
+    /// the user is being asked to approve, and it has to be recorded where it is
+    /// observed: a fetch whose list is otherwise identical has nothing to apply, so
+    /// deferring the mark to the commit would mean the one case absence exists for
+    /// never records it.
+    /// </remarks>
+    public int AbsentFlagged { get; init; }
+
+    /// <summary>
     /// True when the run is already over — it failed, or the list already matched
     /// the library — so the caller has a result to report rather than a decision to
     /// ask for.
@@ -41,6 +54,42 @@ public sealed record SyncApplyResult
     public required int ConflictsHeld { get; init; }
 }
 
+/// <summary>What one unattended run did, for the log and the staleness notice.</summary>
+/// <remarks>
+/// Deliberately not <see cref="SyncRun"/> itself. The row is the audit trail and
+/// belongs to the database; this is the answer to "did anything happen just now",
+/// which is what the runner logs and what decides whether an open page is told it
+/// has gone stale.
+/// </remarks>
+public sealed record UnattendedSyncResult
+{
+    public required AnimeSource Source { get; init; }
+
+    /// <summary>Null when the run was not due, or was refused before it started.</summary>
+    public SyncOutcome? Outcome { get; init; }
+
+    public int Created { get; init; }
+
+    public int Updated { get; init; }
+
+    public int SlotsReleased { get; init; }
+
+    public int AbsentFlagged { get; init; }
+
+    /// <summary>Unambiguous changes found and not applied, because this source asks first.</summary>
+    public int ChangesHeld { get; init; }
+
+    public int ConflictsHeld { get; init; }
+
+    public string? FailureReason { get; init; }
+
+    /// <summary>Whether an open page is now showing something that is no longer true.</summary>
+    public bool ChangedLibrary => Created + Updated + SlotsReleased + AbsentFlagged > 0;
+
+    /// <summary>The run did not happen: not due, switched off, or nothing configured.</summary>
+    public static UnattendedSyncResult NotRun(AnimeSource source) => new() { Source = source };
+}
+
 /// <summary>How one source stands right now, for the Sources page.</summary>
 public sealed record SourceSyncStatus
 {
@@ -54,8 +103,56 @@ public sealed record SourceSyncStatus
     /// <summary>The account being read, for display. Never a credential — a public username.</summary>
     public string? Account { get; init; }
 
+    /// <summary>How many of this profile's titles the source has stopped listing (D19).</summary>
+    public int AbsentCount { get; init; }
+
+    /// <summary>
+    /// A few of those titles by name, so the notice can be specific rather than
+    /// numeric. Capped: this is a reminder to go and look, not a report.
+    /// </summary>
+    public IReadOnlyList<string> AbsentTitles { get; init; } = [];
+
     /// <summary>The most recent completed run, or null if this source has never finished one.</summary>
     public SyncRun? LastRun { get; init; }
+
+    /// <summary>
+    /// The most recent run that reached the source, whether or not it changed
+    /// anything. Null until one has.
+    /// </summary>
+    /// <remarks>
+    /// Reported separately from <see cref="LastFailure"/> rather than folded into
+    /// one "last run", because "last synced 3 hours ago, last attempt failed:
+    /// profile is private" is actionable where "sync failed" is not — and a page
+    /// that can only show the newer of the two either hides that it is broken or
+    /// hides that it ever worked.
+    /// </remarks>
+    public SyncRun? LastSuccess { get; init; }
+
+    /// <summary>The most recent failed run. Null until one fails.</summary>
+    public SyncRun? LastFailure { get; init; }
+
+    /// <summary>
+    /// Failures since the last run that reached the source. Zero when the last run
+    /// worked.
+    /// </summary>
+    /// <remarks>
+    /// The whole of the backoff state, and deliberately derived rather than stored:
+    /// a counter column would be a second copy of something <see cref="SyncRun"/>
+    /// already records exactly, and one that could disagree with it.
+    /// </remarks>
+    public int ConsecutiveFailures { get; init; }
+
+    /// <summary>
+    /// Whether sync for this source has been failing long enough to be worth
+    /// interrupting the user about.
+    /// </summary>
+    /// <remarks>
+    /// Three in a row rather than one, because one failure is a rate limit or a
+    /// flaky connection and resolves itself. Three is a mistyped account, a list
+    /// turned private, or a service that is genuinely down — none of which fix
+    /// themselves, all of which mean Up Next is quietly running on old data.
+    /// </remarks>
+    public bool IsStalled => ConsecutiveFailures >= 3;
 }
 
 /// <summary>
@@ -89,13 +186,36 @@ public interface ISyncService
         CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Applies a preview the user has reviewed, and records the run.
+    /// Applies a fetch the user has reviewed, and records the run.
     /// </summary>
+    /// <remarks>
+    /// Takes the whole fetch rather than its preview because the run record has to
+    /// state everything the run did, and what a fetch observed about absence is not
+    /// visible in the preview it produced.
+    /// </remarks>
     Task<SyncApplyResult> ApplyAsync(
-        ImportPreview preview,
+        SyncFetchResult fetch,
+        int profileId,
+        IProgress<OperationProgress>? progress = null,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Runs a source end to end with nobody present: fetches, applies what this
+    /// profile's settings allow, holds the rest, and records the run (D21).
+    /// </summary>
+    /// <remarks>
+    /// Returns without doing anything — and without recording a run — when the
+    /// source is not due, has no schedule, is switched off, or has no account
+    /// configured. A log of runs that never ran would bury the failures that did.
+    ///
+    /// The safe subset is not computed here. <c>Create</c> and <c>Update</c> are
+    /// already the unambiguous actions and <c>Conflict</c> is by definition not, so
+    /// this decides only whether to commit that subset and what to do with the
+    /// conflicts — there is no second opinion about what is safe.
+    /// </remarks>
+    Task<UnattendedSyncResult> RunUnattendedAsync(
         int profileId,
         AnimeSource source,
-        IProgress<OperationProgress>? progress = null,
         CancellationToken cancellationToken = default);
 
     /// <summary>

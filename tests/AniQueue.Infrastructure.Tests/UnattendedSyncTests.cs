@@ -1,0 +1,369 @@
+using AniQueue.Core.Domain;
+using Microsoft.EntityFrameworkCore;
+using static AniQueue.Infrastructure.Tests.SyncFixture;
+
+namespace AniQueue.Infrastructure.Tests;
+
+/// <summary>
+/// A sync with nobody watching (D19, D21).
+///
+/// Everything covered here happens while the user is asleep: what an unattended
+/// run may apply, what it must hold, and what it is entitled to conclude from a
+/// title's absence. The last of those has more tests than behaviour, because a
+/// wrong answer to it is the one failure in the product with no recovery path.
+/// </summary>
+public class UnattendedSyncTests
+{
+    private static async Task ConfigureAsync(SyncFixture fixture, Action<SourceSyncSettings> configure)
+    {
+        var status = Assert.Single(await fixture.Service.GetStatusAsync(Profile.DefaultProfileId));
+        configure(status.Settings);
+        await fixture.Service.SaveSettingsAsync(status.Settings);
+    }
+
+    private static string TwoTitles() => ListResponse(
+        [new AniListEntry(900101, "Sora no Kakera"), new AniListEntry(900102, "Yoru no Hate")]);
+
+    private static string OneTitle() => ListResponse([new AniListEntry(900101, "Sora no Kakera")]);
+
+    [Fact]
+    public async Task An_unattended_run_applies_the_unambiguous()
+    {
+        // The safe subset is Phase 2's preview with conflicts withheld, and nothing
+        // here re-decides what "safe" means (D21).
+        await using var fixture = await SyncFixture.CreateAsync(
+            new StubAniListClient(Response(900101, "Sora no Kakera")));
+
+        var result = await fixture.Service.RunUnattendedAsync(
+            Profile.DefaultProfileId, AnimeSource.AniList);
+
+        Assert.Equal(SyncOutcome.Succeeded, result.Outcome);
+        Assert.Equal(1, result.Created);
+        Assert.True(result.ChangedLibrary);
+
+        await using var context = fixture.Database.CreateContext();
+        Assert.Equal(1, await context.Anime.CountAsync());
+
+        var run = await context.SyncRuns.SingleAsync();
+        Assert.Equal(SyncOutcome.Succeeded, run.Outcome);
+        Assert.Equal(1, run.Created);
+    }
+
+    [Fact]
+    public async Task A_source_set_to_ask_first_writes_nothing_and_says_so()
+    {
+        // What the fourth outcome exists for: a run that found changes and applied
+        // none of them is not a run that found nothing, and a page unable to tell
+        // them apart reports a stalled library as up to date (§4).
+        await using var fixture = await SyncFixture.CreateAsync(
+            new StubAniListClient(Response(900101, "Sora no Kakera")));
+
+        await ConfigureAsync(fixture, s => s.ApplyUnattended = false);
+
+        var result = await fixture.Service.RunUnattendedAsync(
+            Profile.DefaultProfileId, AnimeSource.AniList);
+
+        Assert.Equal(SyncOutcome.HeldForReview, result.Outcome);
+        Assert.Equal(1, result.ChangesHeld);
+        Assert.False(result.ChangedLibrary);
+
+        await using var context = fixture.Database.CreateContext();
+        Assert.Equal(0, await context.Anime.CountAsync());
+
+        var run = await context.SyncRuns.SingleAsync();
+        Assert.Equal(SyncOutcome.HeldForReview, run.Outcome);
+        Assert.Equal(1, run.ChangesHeld);
+    }
+
+    [Fact]
+    public async Task Conflicts_are_held_unless_the_user_opted_into_linking()
+    {
+        // Hold for review is the default, and it is what §6 requires: a match the
+        // application cannot confirm is never merged without a person.
+        await using var fixture = await SyncFixture.CreateAsync(
+            new StubAniListClient(Response(900101, "Sora no Kakera")));
+
+        await using (var setup = fixture.Database.CreateContext())
+        {
+            // Hand-added, so it carries no identifier and the incoming entry meets a
+            // same-titled row it cannot confidently claim.
+            var anime = await SeedData.CreateAnimeAsync(setup, "Sora no Kakera");
+            setup.LibraryEntries.Add(SeedData.Entry(Profile.DefaultProfileId, anime.Id));
+            await setup.SaveChangesAsync();
+        }
+
+        var result = await fixture.Service.RunUnattendedAsync(
+            Profile.DefaultProfileId, AnimeSource.AniList);
+
+        Assert.Equal(SyncOutcome.HeldForReview, result.Outcome);
+        Assert.Equal(1, result.ConflictsHeld);
+
+        await using var context = fixture.Database.CreateContext();
+        Assert.Equal(0, await context.AnimeExternalIds.CountAsync());
+    }
+
+    [Fact]
+    public async Task Linking_by_exact_title_converges()
+    {
+        // The only resolution that may be automated, because writing the identifier
+        // is what stops the entry conflicting again on every subsequent run (D21).
+        await using var fixture = await SyncFixture.CreateAsync(
+            new StubAniListClient(Response(900101, "Sora no Kakera")));
+
+        await using (var setup = fixture.Database.CreateContext())
+        {
+            // Cased differently on purpose: the test is exact equality ignoring case,
+            // not the similarity heuristic D10 rejected.
+            var anime = await SeedData.CreateAnimeAsync(setup, "sora no kakera");
+            setup.LibraryEntries.Add(SeedData.Entry(Profile.DefaultProfileId, anime.Id));
+            await setup.SaveChangesAsync();
+        }
+
+        await ConfigureAsync(fixture, s => s.ConflictPolicy = SyncConflictPolicy.LinkToExisting);
+
+        var result = await fixture.Service.RunUnattendedAsync(
+            Profile.DefaultProfileId, AnimeSource.AniList);
+
+        Assert.Equal(SyncOutcome.Succeeded, result.Outcome);
+
+        await using (var context = fixture.Database.CreateContext())
+        {
+            // One title, now carrying the identifier — not a second copy of it.
+            Assert.Equal(1, await context.Anime.CountAsync());
+            Assert.True(await context.AnimeExternalIds.AnyAsync(
+                x => x.Source == AnimeSource.AniList && x.ExternalId == "900101"));
+        }
+
+        // And the next run has nothing left to conflict about, which is the whole
+        // reason this resolution is preferred to skipping.
+        var second = await fixture.Service.RunUnattendedAsync(
+            Profile.DefaultProfileId, AnimeSource.AniList);
+
+        Assert.Equal(0, second.ConflictsHeld);
+    }
+
+    [Fact]
+    public async Task An_ambiguous_conflict_is_never_linked()
+    {
+        // Two local rows with the same name produce a conflict carrying no candidate
+        // at all, so there is nothing for the policy to act on even where the user
+        // has opted into linking.
+        await using var fixture = await SyncFixture.CreateAsync(
+            new StubAniListClient(Response(900101, "Sora no Kakera")));
+
+        await using (var setup = fixture.Database.CreateContext())
+        {
+            foreach (var _ in Enumerable.Range(0, 2))
+            {
+                var anime = await SeedData.CreateAnimeAsync(setup, "Sora no Kakera");
+                setup.LibraryEntries.Add(SeedData.Entry(Profile.DefaultProfileId, anime.Id));
+            }
+
+            await setup.SaveChangesAsync();
+        }
+
+        await ConfigureAsync(fixture, s => s.ConflictPolicy = SyncConflictPolicy.LinkToExisting);
+
+        var result = await fixture.Service.RunUnattendedAsync(
+            Profile.DefaultProfileId, AnimeSource.AniList);
+
+        Assert.Equal(SyncOutcome.HeldForReview, result.Outcome);
+        Assert.Equal(1, result.ConflictsHeld);
+        Assert.Equal(0, result.Created);
+    }
+
+    [Fact]
+    public async Task A_title_the_source_stopped_listing_is_flagged()
+    {
+        await using var fixture = await SyncFixture.CreateAsync(new StubAniListClient(TwoTitles()));
+
+        await fixture.Service.RunUnattendedAsync(Profile.DefaultProfileId, AnimeSource.AniList);
+
+        // The user deletes one of them from their list.
+        fixture.Client.Returns(OneTitle());
+
+        var result = await fixture.Service.RunUnattendedAsync(
+            Profile.DefaultProfileId, AnimeSource.AniList);
+
+        Assert.Equal(1, result.AbsentFlagged);
+
+        await using var context = fixture.Database.CreateContext();
+
+        var flagged = await context.AnimeExternalIds
+            .Where(x => x.Source == AnimeSource.AniList && x.MissingFromSourceAt != null)
+            .ToListAsync();
+
+        Assert.Equal("900102", Assert.Single(flagged).ExternalId);
+
+        // Flagged, and nothing more: the entry and any queue slot survive, because
+        // removal waits for the phase that can undo it (D19).
+        Assert.Equal(2, await context.LibraryEntries.CountAsync());
+
+        var status = Assert.Single(await fixture.Service.GetStatusAsync(Profile.DefaultProfileId));
+        Assert.Equal(1, status.AbsentCount);
+        Assert.Equal("Yoru no Hate", Assert.Single(status.AbsentTitles));
+    }
+
+    [Fact]
+    public async Task A_title_the_source_lists_again_is_unflagged()
+    {
+        await using var fixture = await SyncFixture.CreateAsync(new StubAniListClient(TwoTitles()));
+
+        await fixture.Service.RunUnattendedAsync(Profile.DefaultProfileId, AnimeSource.AniList);
+
+        fixture.Client.Returns(OneTitle());
+        await fixture.Service.RunUnattendedAsync(Profile.DefaultProfileId, AnimeSource.AniList);
+
+        fixture.Client.Returns(TwoTitles());
+        await fixture.Service.RunUnattendedAsync(Profile.DefaultProfileId, AnimeSource.AniList);
+
+        await using var context = fixture.Database.CreateContext();
+
+        // The mark describes the most recent fetch rather than accumulating history,
+        // so a list the user puts back clears without anyone intervening.
+        Assert.False(await context.AnimeExternalIds.AnyAsync(x => x.MissingFromSourceAt != null));
+    }
+
+    [Fact]
+    public async Task A_row_with_no_identifier_for_the_source_is_never_absent()
+    {
+        // The protection D19 calls structural rather than configured: a
+        // MyAnimeList-only title, or one added by hand, cannot be reached by an
+        // AniList policy whatever the setting says.
+        await using var fixture = await SyncFixture.CreateAsync(
+            new StubAniListClient(Response(900101, "Sora no Kakera")));
+
+        await using (var setup = fixture.Database.CreateContext())
+        {
+            var malOnly = await SeedData.CreateAnimeAsync(
+                setup, "Hoshi no Koe", AnimeSource.MyAnimeList, "555");
+            var manual = await SeedData.CreateAnimeAsync(setup, "Something Handwritten");
+
+            setup.LibraryEntries.Add(SeedData.Entry(Profile.DefaultProfileId, malOnly.Id));
+            setup.LibraryEntries.Add(SeedData.Entry(Profile.DefaultProfileId, manual.Id));
+            await setup.SaveChangesAsync();
+        }
+
+        var result = await fixture.Service.RunUnattendedAsync(
+            Profile.DefaultProfileId, AnimeSource.AniList);
+
+        Assert.Equal(0, result.AbsentFlagged);
+
+        await using var context = fixture.Database.CreateContext();
+
+        Assert.False(await context.AnimeExternalIds.AnyAsync(x => x.MissingFromSourceAt != null));
+        Assert.Equal(3, await context.LibraryEntries.CountAsync());
+    }
+
+    [Fact]
+    public async Task An_empty_list_flags_nothing()
+    {
+        // A truncated response, a paging bug, a mistyped account and "the user
+        // deleted everything" are indistinguishable from here, so an empty fetch
+        // concludes nothing at all (D19).
+        await using var fixture = await SyncFixture.CreateAsync(new StubAniListClient(TwoTitles()));
+
+        await fixture.Service.RunUnattendedAsync(Profile.DefaultProfileId, AnimeSource.AniList);
+
+        fixture.Client.Returns(ListResponse([]));
+
+        var result = await fixture.Service.RunUnattendedAsync(
+            Profile.DefaultProfileId, AnimeSource.AniList);
+
+        Assert.Equal(0, result.AbsentFlagged);
+
+        await using var context = fixture.Database.CreateContext();
+        Assert.False(await context.AnimeExternalIds.AnyAsync(x => x.MissingFromSourceAt != null));
+        Assert.Equal(2, await context.LibraryEntries.CountAsync());
+    }
+
+    [Fact]
+    public async Task Ignoring_absence_looks_for_nothing()
+    {
+        await using var fixture = await SyncFixture.CreateAsync(new StubAniListClient(TwoTitles()));
+
+        await fixture.Service.RunUnattendedAsync(Profile.DefaultProfileId, AnimeSource.AniList);
+        await ConfigureAsync(fixture, s => s.AbsencePolicy = SyncAbsencePolicy.Ignore);
+
+        fixture.Client.Returns(OneTitle());
+
+        var result = await fixture.Service.RunUnattendedAsync(
+            Profile.DefaultProfileId, AnimeSource.AniList);
+
+        Assert.Equal(0, result.AbsentFlagged);
+
+        await using var context = fixture.Database.CreateContext();
+        Assert.False(await context.AnimeExternalIds.AnyAsync(x => x.MissingFromSourceAt != null));
+    }
+
+    [Fact]
+    public async Task A_failed_fetch_records_a_failure_and_leaves_the_library_alone()
+    {
+        await using var fixture = await SyncFixture.CreateAsync(
+            new StubAniListClient(Response(900101, "Sora no Kakera"))
+            {
+                FailWith = "AniList has no such user, or the list is private."
+            });
+
+        var result = await fixture.Service.RunUnattendedAsync(
+            Profile.DefaultProfileId, AnimeSource.AniList);
+
+        Assert.Equal(SyncOutcome.Failed, result.Outcome);
+        Assert.False(result.ChangedLibrary);
+
+        var run = await fixture.LastRunAsync();
+        Assert.Equal(SyncOutcome.Failed, run!.Outcome);
+        Assert.Equal("AniList has no such user, or the list is private.", run.FailureReason);
+    }
+
+    [Fact]
+    public async Task The_kill_switch_records_nothing()
+    {
+        // Nothing was attempted, and a log of runs that never ran would bury the
+        // failures that did (D20).
+        await using var fixture = await SyncFixture.CreateAsync(
+            new StubAniListClient(Response(900101, "Sora no Kakera")),
+            Configured(enabled: false));
+
+        var result = await fixture.Service.RunUnattendedAsync(
+            Profile.DefaultProfileId, AnimeSource.AniList);
+
+        Assert.Equal(SyncOutcome.Failed, result.Outcome);
+        Assert.Null(await fixture.LastRunAsync());
+    }
+
+    [Fact]
+    public async Task Status_separates_the_last_success_from_the_last_failure()
+    {
+        // "Last synced 3 hours ago, last attempt failed: profile is private" is
+        // actionable; either half on its own is not.
+        await using var fixture = await SyncFixture.CreateAsync(
+            new StubAniListClient(Response(900101, "Sora no Kakera")));
+
+        await fixture.Service.RunUnattendedAsync(Profile.DefaultProfileId, AnimeSource.AniList);
+
+        fixture.Client.FailWith = "AniList returned 502.";
+
+        foreach (var _ in Enumerable.Range(0, 3))
+        {
+            await fixture.Service.RunUnattendedAsync(Profile.DefaultProfileId, AnimeSource.AniList);
+        }
+
+        var status = Assert.Single(await fixture.Service.GetStatusAsync(Profile.DefaultProfileId));
+
+        Assert.Equal(SyncOutcome.Succeeded, status.LastSuccess!.Outcome);
+        Assert.Equal(SyncOutcome.Failed, status.LastFailure!.Outcome);
+        Assert.Equal(3, status.ConsecutiveFailures);
+        Assert.True(status.IsStalled);
+
+        // And it recovers: one run that reaches the source clears the count, so the
+        // banner goes away without anybody dismissing it.
+        fixture.Client.FailWith = null;
+        await fixture.Service.RunUnattendedAsync(Profile.DefaultProfileId, AnimeSource.AniList);
+
+        var recovered = Assert.Single(await fixture.Service.GetStatusAsync(Profile.DefaultProfileId));
+        Assert.Equal(0, recovered.ConsecutiveFailures);
+        Assert.False(recovered.IsStalled);
+        Assert.NotNull(recovered.LastFailure);
+    }
+}

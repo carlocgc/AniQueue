@@ -52,6 +52,29 @@ public class SyncRun
     public int SlotsReleased { get; set; }
 
     /// <summary>
+    /// Unambiguous changes an unattended run found and did not apply, because the
+    /// source is set to ask first (D21).
+    /// </summary>
+    /// <remarks>
+    /// A count and nothing else. What the changes were is not stored: a held
+    /// preview is stale within the hour and the user's visit re-fetches, so
+    /// persisting one would mean showing them a decision computed against a
+    /// library that has since moved.
+    /// </remarks>
+    public int ChangesHeld { get; set; }
+
+    /// <summary>
+    /// Titles this source used to list and no longer does, marked for the user to
+    /// look at (D19).
+    /// </summary>
+    /// <remarks>
+    /// Only ever counts rows carrying this source's identifier, and only when the
+    /// fetch was structurally complete. Under an absence policy of ignore it is
+    /// always zero, because nothing is looked for.
+    /// </remarks>
+    public int AbsentFlagged { get; set; }
+
+    /// <summary>
     /// Why a failed run failed, in plain words. Never a stack trace: this is
     /// rendered to whoever opens the page (§6).
     /// </summary>

@@ -1,6 +1,7 @@
 using System.Net;
 using AniQueue.Core.Domain;
 using AniQueue.Core.Import;
+using AniQueue.Core.Library;
 using AniQueue.Core.Sync;
 using AniQueue.Infrastructure.Sync;
 using Microsoft.Extensions.DependencyInjection;
@@ -38,6 +39,17 @@ public static class SyncServiceCollectionExtensions
         // Runs once at startup, writing the settings file this section's options are
         // read from if the operator has none yet (D20).
         services.AddScoped<Sync.UserConfigTemplate>();
+
+        // Scoped, and resolved once per tick by whatever runs it. The job holds no
+        // state between runs deliberately: what it needs to know about the last one
+        // is in the run record, which survives a restart where a field would not.
+        services.AddScoped<Sync.UnattendedSyncJob>();
+
+        // A singleton because it is a rendezvous between things with no other way to
+        // reach each other: a background scope publishing, and every open circuit
+        // listening. Registered here rather than with the pages that subscribe,
+        // because the publisher is the half that could not otherwise be wired.
+        services.AddSingleton<ILibraryChangeNotifier, Library.LibraryChangeNotifier>();
 
         return services;
     }

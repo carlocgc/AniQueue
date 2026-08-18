@@ -1,0 +1,125 @@
+@implements IDisposable
+@inject ILibraryChangeNotifier Notifier
+
+@* Offered, never taken. The page does not reload itself when a background sync
+   lands: Blazor Server re-renders only when something calls StateHasChanged, so
+   the default is already that an open page holds still, and that default is the
+   right one. Rearranging a list somebody is reading — or moving the row their
+   cursor is over — is worse than showing them something a few minutes old, and
+   Phase 4 made the stale case safe on purpose: every queue mutation resolves
+   against the database inside its transaction and keys on QueueItemId, so acting
+   on a stale row either does the right thing or returns false and logs. *@
+@if (_change is { } change)
+{
+    <div class="notice info" role="status">
+        @Describe(change)
+        <button @onclick="RefreshAsync">Refresh</button>
+    </div>
+}
+
+@code {
+    /// <summary>What the page does when the user accepts the offer.</summary>
+    [Parameter]
+    public EventCallback OnRefresh { get; set; }
+
+    private LibraryChange? _change;
+    private bool _subscribed;
+
+    /// <summary>
+    /// Subscribes once the circuit exists, rather than in <c>OnInitialized</c>.
+    /// </summary>
+    /// <remarks>
+    /// A prerendered instance of this component is a different object from the
+    /// interactive one, and subscribing during prerender registers a handler for a
+    /// component that will never render again. <c>OnAfterRender</c> does not run
+    /// during prerendering at all, which makes "first render" the exact moment
+    /// there is a live circuit to notify.
+    /// </remarks>
+    protected override void OnAfterRender(bool firstRender)
+    {
+        if (firstRender)
+        {
+            Notifier.Changed += OnChanged;
+            _subscribed = true;
+        }
+    }
+
+    private void OnChanged(LibraryChange change)
+    {
+        _change = change;
+
+        // Fire and forget on purpose: the publisher is a background job holding a
+        // database scope, and it must not wait on a render — nor fail because one
+        // failed. Observed rather than discarded so a circuit that has gone away
+        // does not surface as an unhandled task exception in the log.
+        _ = RenderAsync();
+    }
+
+    private async Task RenderAsync()
+    {
+        try
+        {
+            // Marshalled onto the render thread, because this arrives on whichever
+            // thread the job was running on. Touching component state from there is
+            // exactly the race Blazor's dispatcher exists to prevent.
+            await InvokeAsync(StateHasChanged);
+        }
+        catch (ObjectDisposedException)
+        {
+            // The circuit ended between the notification and the render. Nothing to
+            // tell, and nobody to tell it to.
+        }
+    }
+
+    private async Task RefreshAsync()
+    {
+        _change = null;
+        await OnRefresh.InvokeAsync();
+    }
+
+    private static string Describe(LibraryChange change)
+    {
+        var parts = new List<string>(3);
+
+        if (change.Created > 0)
+        {
+            parts.Add($"{change.Created} added");
+        }
+
+        if (change.Updated > 0)
+        {
+            parts.Add($"{change.Updated} updated");
+        }
+
+        if (change.SlotsReleased > 0)
+        {
+            parts.Add($"{change.SlotsReleased} left Up Next");
+        }
+
+        if (change.AbsentFlagged > 0)
+        {
+            parts.Add($"{change.AbsentFlagged} no longer listed");
+        }
+
+        return parts.Count == 0
+            ? $"AniQueue synced with {change.Source} in the background."
+            : $"AniQueue synced with {change.Source} in the background: {string.Join(", ", parts)}.";
+    }
+
+    /// <summary>
+    /// Unsubscribes, which is not optional.
+    /// </summary>
+    /// <remarks>
+    /// The notifier is a singleton and outlives every circuit. A handler left
+    /// registered keeps a disposed component — and the whole render tree behind it —
+    /// alive for the life of the process, and every navigation would add another.
+    /// </remarks>
+    public void Dispose()
+    {
+        if (_subscribed)
+        {
+            Notifier.Changed -= OnChanged;
+            _subscribed = false;
+        }
+    }
+}

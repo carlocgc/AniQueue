@@ -41,4 +41,26 @@ public class AnimeExternalId
     /// <see cref="Library.SourceLinkBuilder"/> does before putting one in a URL.
     /// </remarks>
     public required string ExternalId { get; set; }
+
+    /// <summary>
+    /// When a structurally complete fetch from <see cref="Source"/> last came back
+    /// without this title, or null while the source is still listing it (D19).
+    /// </summary>
+    /// <remarks>
+    /// Absence is a fact about a title <i>on one service</i>, which is exactly what
+    /// this row already is, so it is recorded here rather than on the library entry
+    /// — a title dropped from AniList while still on MyAnimeList is absent from one
+    /// and present on the other, and one flag on the entry could not say that.
+    ///
+    /// It is written by the flag policy and cleared the moment the source lists the
+    /// title again, so it always describes the most recent fetch rather than
+    /// accumulating history. Only rows that have one of these are ever in scope for
+    /// absence at all, which is the structural protection D19 depends on: a
+    /// MyAnimeList-only title has no AniList row here, so no AniList policy can
+    /// reach it whatever the user sets.
+    ///
+    /// It is also the exact population Phase 8's <see cref="SyncAbsencePolicy.Remove"/>
+    /// will act on, once a backup exists to make removal recoverable.
+    /// </remarks>
+    public DateTimeOffset? MissingFromSourceAt { get; set; }
 }

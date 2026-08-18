@@ -61,8 +61,24 @@ public class SourceSyncSettings
     /// <summary>What happens when this source stops listing a title it once listed (D19).</summary>
     public SyncAbsencePolicy AbsencePolicy { get; set; } = SyncAbsencePolicy.Flag;
 
-    // Deliberately absent until the phase that reads them: the poll interval, whose
-    // floor is operator configuration (D20), and the sync watermark, which is
-    // bookkeeping for the runner rather than a user preference. Adding columns
-    // ahead of their behaviour is what D11 argues against.
+    /// <summary>
+    /// How often an unattended run reads this source. Defaults to
+    /// <see cref="SyncSchedule.Off"/>.
+    /// </summary>
+    /// <remarks>
+    /// Off by default rather than on, and that is a deliberate cost: the phase
+    /// that added scheduled reads ships them switched off, so an installation
+    /// upgrading with an account already configured does not silently start
+    /// fetching. Turning it on is the act that carries the intent.
+    ///
+    /// A user preference rather than operator configuration, because it is a
+    /// choice about how closely their library tracks their list — not about the
+    /// deployment. The operator's control over unattended runs is the kill switch,
+    /// which stops every path into sync regardless of what this says (D20).
+    /// </remarks>
+    public SyncSchedule Schedule { get; set; } = SyncSchedule.Off;
+
+    // Deliberately still absent: the sync watermark, which is bookkeeping for the
+    // runner rather than a user preference — and is not needed, because the runner
+    // reads when it last ran from SyncRun, which has to be written anyway.
 }

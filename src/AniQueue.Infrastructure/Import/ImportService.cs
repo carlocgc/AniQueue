@@ -418,18 +418,36 @@ public sealed class ImportService(
             // No identifier match, but a same-titled entry with no identifier of its
             // own is very likely the title the user added by hand before importing.
             // Creating a second copy would be a silent duplicate, so it is surfaced.
-            var manualTwin = library.Anime.FirstOrDefault(a =>
-                !library.Identified.Contains(a.Id) &&
-                string.Equals(a.Title, entry.Title, StringComparison.OrdinalIgnoreCase));
+            var manualTwins = library.Anime
+                .Where(a => !library.Identified.Contains(a.Id)
+                    && string.Equals(a.Title, entry.Title, StringComparison.OrdinalIgnoreCase))
+                .ToList();
 
-            if (manualTwin is not null)
+            // More than one, and there is no candidate to name: picking the first
+            // would be answering a question nobody asked, and the row it picked would
+            // be decided by query order. Reported without an id, which is also what
+            // stops an unattended run from linking it — a resolution needs a
+            // candidate, and this deliberately has none (D21).
+            if (manualTwins.Count > 1)
             {
                 return new ImportPreviewItem
                 {
                     Entry = entry,
                     Action = ImportAction.Conflict,
-                    ExistingAnimeId = manualTwin.Id,
-                    ExistingTitle = manualTwin.Title,
+                    ConflictReason =
+                        $"{manualTwins.Count} entries with this title already exist without a "
+                        + "source identifier, so there is no way to tell which one this is."
+                };
+            }
+
+            if (manualTwins.Count == 1)
+            {
+                return new ImportPreviewItem
+                {
+                    Entry = entry,
+                    Action = ImportAction.Conflict,
+                    ExistingAnimeId = manualTwins[0].Id,
+                    ExistingTitle = manualTwins[0].Title,
                     ConflictReason =
                         "An entry with this title already exists without a source identifier. "
                         + "Importing would create a duplicate."
