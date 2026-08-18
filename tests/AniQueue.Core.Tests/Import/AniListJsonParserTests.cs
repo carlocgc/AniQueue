@@ -30,11 +30,10 @@ public class AniListJsonParserTests
 
     private static Stream Json(string json) => new MemoryStream(Encoding.UTF8.GetBytes(json));
 
-    private static async Task<ParseResult> ParseFixtureAsync(
-        TitleLanguage preferred = TitleLanguage.Romaji)
+    private static async Task<ParseResult> ParseFixtureAsync()
     {
         await using var stream = Fixture();
-        return await Parser.ParseAsync(stream, preferred);
+        return await Parser.ParseAsync(stream);
     }
 
     private static ParsedLibraryEntry Entry(ParseResult result, string aniListId) =>
@@ -177,32 +176,36 @@ public class AniListJsonParserTests
     }
 
     [Fact]
-    public async Task A_missing_english_title_falls_back_rather_than_writing_null()
+    public async Task A_missing_english_title_is_null_rather_than_invented()
     {
-        // English is absent for roughly one title in seven. Title is a required
-        // column, so a preference without a fallback would push null into it for
-        // every one of them (D22).
-        var result = await ParseFixtureAsync(TitleLanguage.English);
+        // English is absent for roughly one title in seven, and the column says so
+        // rather than borrowing another language to fill it. What the reader sees
+        // when they prefer English is decided later, by the fallback chain, from
+        // variants that each know what they are (D22).
+        var result = await ParseFixtureAsync();
         var entry = Entry(result, "900102");
 
-        Assert.Equal("Yoake Cafe", entry.Title);
-        Assert.Equal("夜明けカフェ", entry.AlternativeTitle);
+        Assert.Equal("Yoake Cafe", entry.TitleRomaji);
+        Assert.Null(entry.TitleEnglish);
+        Assert.Equal("夜明けカフェ", entry.TitleNative);
     }
 
-    [Theory]
-    [InlineData(TitleLanguage.Romaji, "Sora no Kakera", "Fragments of Sky")]
-    [InlineData(TitleLanguage.English, "Fragments of Sky", "Sora no Kakera")]
-    [InlineData(TitleLanguage.Native, "空の欠片", "Sora no Kakera")]
-    public async Task The_preferred_variant_is_the_title_and_another_is_kept_beside_it(
-        TitleLanguage preferred,
-        string expectedTitle,
-        string expectedAlternative)
+    [Fact]
+    public async Task Every_variant_is_carried_against_its_own_language()
     {
-        var result = await ParseFixtureAsync(preferred);
+        // The parser has no opinion about which to display. It used to take the
+        // preference and resolve one, which is why the stored alternative could not
+        // be identified later and the preference needed a full re-fetch to change.
+        var result = await ParseFixtureAsync();
         var entry = Entry(result, "900101");
 
-        Assert.Equal(expectedTitle, entry.Title);
-        Assert.Equal(expectedAlternative, entry.AlternativeTitle);
+        Assert.Equal("Sora no Kakera", entry.TitleRomaji);
+        Assert.Equal("Fragments of Sky", entry.TitleEnglish);
+        Assert.Equal("空の欠片", entry.TitleNative);
+
+        // And a fallback for the required column, whatever the preference turns out
+        // to be — romaji, because AniList almost always has it.
+        Assert.Equal("Sora no Kakera", entry.Title);
     }
 
     [Fact]

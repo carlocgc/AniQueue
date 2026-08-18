@@ -258,9 +258,15 @@ public sealed class LibraryService(
 
             // Translated to SQL LIKE; SQLite's LIKE is case-insensitive for ASCII,
             // which is the behaviour a search box wants.
+            //
+            // Every variant is searched, not only the displayed one: someone reading
+            // English titles still knows the show as Shingeki no Kyojin, and a search
+            // box that cannot find it by the name they typed is the wrong answer (D22).
             filtered = filtered.Where(e =>
                 EF.Functions.Like(e.Anime!.Title, $"%{term}%") ||
-                (e.Anime!.AlternativeTitle != null && EF.Functions.Like(e.Anime.AlternativeTitle, $"%{term}%")));
+                (e.Anime!.TitleRomaji != null && EF.Functions.Like(e.Anime.TitleRomaji, $"%{term}%")) ||
+                (e.Anime!.TitleEnglish != null && EF.Functions.Like(e.Anime.TitleEnglish, $"%{term}%")) ||
+                (e.Anime!.TitleNative != null && EF.Functions.Like(e.Anime.TitleNative, $"%{term}%")));
         }
 
         if (query.MediaType is { } mediaType)

@@ -24,7 +24,7 @@ namespace AniQueue.Infrastructure.Sync;
 public sealed class SyncService(
     IDbContextFactory<AniQueueDbContext> contextFactory,
     IAniListClient aniListClient,
-    AniListJsonParser aniListParser,
+    [Microsoft.Extensions.DependencyInjection.FromKeyedServices(AnimeSource.AniList)] IAnimeListParser aniListParser,
     IImportService importService,
     IOptionsMonitor<SyncOptions> options,
     ILogger<SyncService> logger) : ISyncService
@@ -80,7 +80,7 @@ public sealed class SyncService(
 
         progress?.Report(new OperationProgress("Reading the response"));
 
-        var parsed = await ParseAsync(profileId, fetch, cancellationToken);
+        var parsed = await ParseAsync(fetch, cancellationToken);
 
         // A rejected parse is a fetch that cannot be trusted, not an empty list. The
         // distinction is the whole of D19's safety: an empty list means the user
@@ -257,6 +257,50 @@ public sealed class SyncService(
 
         settings.PreferredTitleLanguage = language;
         await context.SaveChangesAsync(cancellationToken);
+
+        await RewriteDisplayTitlesAsync(context, language, cancellationToken);
+
+        logger.LogInformation("Title language set to {Language}", language);
+    }
+
+    /// <summary>
+    /// Recomputes every stored display title from the variants beside it.
+    /// </summary>
+    /// <remarks>
+    /// This is what makes the preference a preference. It used to take effect only
+    /// when the next sync happened to rewrite the row, which meant a library already
+    /// up to date could not change language at all without re-fetching the whole list
+    /// — a display choice wearing a sync's clothes (D22).
+    ///
+    /// One statement rather than a load-modify-save loop: this touches every row in
+    /// the catalogue, and a few thousand tracked entities to write one column each is
+    /// a poor trade for a setting somebody flips while looking at the page.
+    ///
+    /// Rows with no variants — every manual entry, everything from a MyAnimeList
+    /// export — keep the only title they have, because the coalesce falls through to
+    /// it. That is why the Sources page can say those titles are unaffected.
+    /// </remarks>
+    private static async Task RewriteDisplayTitlesAsync(
+        AniQueueDbContext context,
+        TitleLanguage language,
+        CancellationToken cancellationToken)
+    {
+        // The chain matches TitleSelection.Resolve, and the pair are tested together
+        // so the two cannot drift into showing different languages on different pages.
+        await (language switch
+        {
+            TitleLanguage.English => context.Anime.ExecuteUpdateAsync(
+                s => s.SetProperty(a => a.Title, a => a.TitleEnglish ?? a.TitleRomaji ?? a.TitleNative ?? a.Title),
+                cancellationToken),
+
+            TitleLanguage.Native => context.Anime.ExecuteUpdateAsync(
+                s => s.SetProperty(a => a.Title, a => a.TitleNative ?? a.TitleRomaji ?? a.TitleEnglish ?? a.Title),
+                cancellationToken),
+
+            _ => context.Anime.ExecuteUpdateAsync(
+                s => s.SetProperty(a => a.Title, a => a.TitleRomaji ?? a.TitleEnglish ?? a.TitleNative ?? a.Title),
+                cancellationToken)
+        });
     }
 
     public Task<TitleLanguage> GetPreferredTitleLanguageAsync(
@@ -265,21 +309,22 @@ public sealed class SyncService(
         LoadPreferredTitleLanguageAsync(profileId, cancellationToken);
 
     /// <summary>
-    /// Parses every payload of one fetch, in the user's preferred title language,
-    /// and merges them into the single result the preview takes.
+    /// Parses every payload of one fetch and merges them into the single result the
+    /// preview takes.
     /// </summary>
-    private async Task<ParseResult> ParseAsync(
-        int profileId,
-        AniListFetch fetch,
-        CancellationToken cancellationToken)
+    /// <remarks>
+    /// No title preference passes through here. The parser carries every variant the
+    /// source published and the import resolves which to display, so one parse serves
+    /// any preference and changing it later needs no fetch at all (D22).
+    /// </remarks>
+    private async Task<ParseResult> ParseAsync(AniListFetch fetch, CancellationToken cancellationToken)
     {
-        var preferredTitle = await LoadPreferredTitleLanguageAsync(profileId, cancellationToken);
         var parts = new List<ParseResult>(fetch.Payloads.Count);
 
         foreach (var payload in fetch.Payloads)
         {
             using var stream = new MemoryStream(payload, writable: false);
-            parts.Add(await aniListParser.ParseAsync(stream, preferredTitle, cancellationToken));
+            parts.Add(await aniListParser.ParseAsync(stream, cancellationToken));
         }
 
         return ParseResult.Merge(parts);

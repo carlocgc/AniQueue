@@ -326,6 +326,75 @@ public class SyncServiceTests
     }
 
     [Fact]
+    public async Task Changing_the_title_language_takes_effect_without_a_sync()
+    {
+        // The point of storing each title against its language. Before, the setting
+        // only landed when a later sync happened to rewrite the row — so a library
+        // already up to date could not change language at all without re-fetching
+        // the entire list, which is a data migration wearing a preference's clothes
+        // (D22).
+        await using var fixture = await SyncFixture.CreateAsync(
+            new StubAniListClient(Response(900101, "Sora no Kakera", english: "Fragments of Sky")));
+
+        var fetch = await fixture.Service.FetchAsync(Profile.DefaultProfileId, AnimeSource.AniList);
+        await fixture.Service.ApplyAsync(fetch.Preview!, Profile.DefaultProfileId, AnimeSource.AniList);
+
+        await using (var before = fixture.Database.CreateContext())
+        {
+            Assert.Equal("Sora no Kakera", (await before.Anime.SingleAsync()).Title);
+        }
+
+        await fixture.Service.SavePreferredTitleLanguageAsync(
+            Profile.DefaultProfileId, TitleLanguage.English);
+
+        await using (var after = fixture.Database.CreateContext())
+        {
+            var anime = await after.Anime.SingleAsync();
+
+            Assert.Equal("Fragments of Sky", anime.Title);
+
+            // The variants are untouched by the switch, which is what lets it go
+            // back again.
+            Assert.Equal("Sora no Kakera", anime.TitleRomaji);
+            Assert.Equal("ネイティブ", anime.TitleNative);
+        }
+
+        // And back, with no fetch in between either direction.
+        await fixture.Service.SavePreferredTitleLanguageAsync(
+            Profile.DefaultProfileId, TitleLanguage.Romaji);
+
+        await using var restored = fixture.Database.CreateContext();
+        Assert.Equal("Sora no Kakera", (await restored.Anime.SingleAsync()).Title);
+
+        // One fetch in the whole test: the two language switches asked the source for
+        // nothing at all.
+        Assert.Single(fixture.Client.RequestedAccounts);
+    }
+
+    [Fact]
+    public async Task A_title_with_only_one_name_is_left_alone_by_the_switch()
+    {
+        // Every manual entry and everything from a MyAnimeList export is in this
+        // position, which is why the Sources page can promise they are unaffected.
+        await using var fixture = await SyncFixture.CreateAsync(
+            new StubAniListClient(Response(900101, "Sora no Kakera")));
+
+        await using (var setup = fixture.Database.CreateContext())
+        {
+            await SeedData.CreateAnimeAsync(setup, "Hand Added", AnimeSource.Manual);
+        }
+
+        await fixture.Service.SavePreferredTitleLanguageAsync(
+            Profile.DefaultProfileId, TitleLanguage.Native);
+
+        await using var context = fixture.Database.CreateContext();
+        var manual = await context.Anime.SingleAsync(a => a.Source == AnimeSource.Manual);
+
+        Assert.Equal("Hand Added", manual.Title);
+    }
+
+
+    [Fact]
     public async Task The_title_preference_decides_which_name_the_library_shows()
     {
         // D22 in one assertion: the same response writes a different Title depending
@@ -352,7 +421,8 @@ public class SyncServiceTests
         var anime = await context.Anime.SingleAsync();
 
         Assert.Equal("Fragments of Sky", anime.Title);
-        Assert.Equal("Sora no Kakera", anime.AlternativeTitle);
+        Assert.Equal("Sora no Kakera", anime.TitleRomaji);
+        Assert.Equal("Fragments of Sky", anime.TitleEnglish);
     }
 
     [Fact]

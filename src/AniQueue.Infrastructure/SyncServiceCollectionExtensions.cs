@@ -21,16 +21,11 @@ public static class SyncServiceCollectionExtensions
     /// </remarks>
     public static IServiceCollection AddAniQueueSync(this IServiceCollection services)
     {
-        // Registered twice, deliberately, and sharing one instance. The keyed
-        // registration is how every parser is resolved (a bare IAnimeListParser
-        // would silently rebind whichever was registered last); the concrete one
-        // exists because a sync passes the user's title-language preference, and
-        // that argument has no place on an interface a MyAnimeList export also
-        // implements (D22).
-        services.AddSingleton<AniListJsonParser>();
-        services.AddKeyedSingleton<IAnimeListParser>(
-            AnimeSource.AniList,
-            (serviceProvider, _) => serviceProvider.GetRequiredService<AniListJsonParser>());
+        // Keyed like every other parser, and only keyed. It briefly needed a second,
+        // concrete registration so a sync could pass the title-language preference to
+        // an overload the interface could not express; storing each title against its
+        // language removed the reason for both (D22).
+        services.AddKeyedSingleton<IAnimeListParser, AniListJsonParser>(AnimeSource.AniList);
 
         services.AddSingleton<IAniListClient>(serviceProvider => new AniListClient(
             CreateHttpClient(),

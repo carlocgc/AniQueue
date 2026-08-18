@@ -826,9 +826,13 @@ displayed name of most of the library — *Shingeki no Kyojin* becoming *Attack 
 every row, queue slot and franchise — driven by a choice nobody made. Meanwhile
 `AlternativeTitle` has existed since Phase 1 with nothing ever written to it.
 
-**Decision:** the preferred language is a user setting — romaji, English or native. The
-preferred variant is written to `Title` and another to `AlternativeTitle`, and **changing the
-preference triggers a sync** rather than swapping the columns.
+**Decision:** the preferred language is a user setting — romaji, English or native. Each variant
+is stored against its language and the preferred one is resolved into `Title`, so **changing the
+preference rewrites the displayed titles immediately**, from what is already stored.
+
+*As originally written this decision said a sync applied the change, on the reasoning below. That
+was revisited in Phase 5b and is recorded after it — the reasoning was sound for the storage it
+assumed, and the storage was the thing worth fixing.*
 
 Triggering a sync is what makes this cheap. The next fetch rewrites `Title` through the same
 `ApplyCatalogueFields` that set it originally, so there is no bulk update, no migration, and
@@ -843,31 +847,47 @@ the preference is changed before or after the first sync.
   than "occasionally" — **111 of 753 entries**, nearly one in seven, in the measured library. A
   preference of English without a fallback would push null into a `required` column for every
   one of them. One chain — romaji, English, native — is applied from whichever the preference
-  names, and `AlternativeTitle` stays null rather than duplicating `Title`.
+  names, over variants that each know which language they are.
 - **`userPreferred` is not offered.** It depends on the AniList account's display setting,
   which would make captured test fixtures irreproducible.
 - **MyAnimeList-only and manual rows are unaffected**, since there is no alternative to
   prefer. The Sources page should say so, or the setting reads as broken.
 
-**Challenged in Phase 5b, and the objection is right: this is display, not data.** Both variants
-are already stored, a library that is fully synced has nothing for the next sync to apply anyway,
-and re-fetching an entire list to change which of two strings is shown is a heavy mechanism for a
-user preference. The setting belongs where the theme is.
+**Challenged in Phase 5b, and fixed there rather than deferred: this is display, not data.**
+Re-fetching an entire list to change which of two stored strings is shown is a heavy mechanism for
+a preference, and a library already up to date had nothing for the next sync to apply — so the
+setting could not take effect at all until something else changed. The setting now behaves like
+the theme does.
 
-**It cannot be moved yet, and the reason is in the schema rather than the UI.**
-`Anime.AlternativeTitle` is a bare string with nothing recording *which* language is in it: the
-parser fills it with the next variant that exists and differs, so it holds English for one row and
-native for the next, depending on what AniList returned. A display layer asked to render "native"
-therefore cannot tell whether the column already holds it. Swapping columns would be guessing, and
-D22's original argument against a swap — `Title` is required, and manual and MyAnimeList-only rows
-have nothing to swap with — still stands on top of that.
+**What made it impossible was the schema, and that is what changed.** `AlternativeTitle` was a
+bare string with nothing recording which language it held: the parser filled it with the next
+variant that existed and differed, so it carried English for one row and native for the next.
+Nothing could switch between them without guessing. Titles are now stored one column per language
+— `TitleRomaji`, `TitleEnglish`, `TitleNative` — with `Title` kept as the resolved display value.
 
-**So the fix is to store the variants as variants**, each against its language, and make the
-preference a render-time choice that needs no sync and no write. That is a schema change and a
-settings surface, so it belongs to Phase 10 with the rest of the preferences; until then the
-Sources page carries the setting and says plainly that a sync applies it. What must not happen in
-the meantime is a half-measure that switches the rows it can and leaves the rest, which would be
-worse than either end state.
+- **Typed columns rather than a title-per-row table**, for the reason D7 gives about settings: the
+  set is fixed and known. Keeping the denormalised `Title` alongside them is what leaves the
+  backlog's search, sort and paging as plain SQL over one column, where a join per query would
+  have bought nothing.
+- **Changing the preference rewrites `Title` in one statement**, from the variants already stored.
+  No fetch, no network, no review list — and it reverses just as cheaply, because the variants
+  are untouched by the switch.
+- **The parser stopped having an opinion about language.** It used to take the preference, which
+  needed an overload `IAnimeListParser` could not express and a second DI registration to reach.
+  Both are gone: one parse now serves every preference.
+- **The old column is dropped, not renamed.** The migration scaffolder proposed renaming it to
+  `TitleRomaji`, which would assert that its contents are romaji — precisely the guess these
+  columns exist to prevent. `Title` is untouched, so every library reads exactly as it did, and
+  the next sync fills the variants in properly; a row whose variants are not yet known is in the
+  same position a MyAnimeList-only title is in permanently.
+- **Storing a variant counts as a change** in the preview, so an already-synced library actually
+  records them on its next sync rather than resolving to the same displayed title and being
+  skipped as unchanged.
+- **Search reads every variant**, not only the displayed one: somebody reading English titles
+  still knows the show as *Shingeki no Kyojin*.
+
+*What is left for Phase 10* is only where the control lives — beside the theme, rather than on the
+Sources page under a source that no longer has anything to do with it.
 
 ---
 
@@ -923,7 +943,7 @@ erDiagram
 
 ### Anime
 
-`Id, Title, AlternativeTitle?, MediaType, EpisodeCount?, EpisodeDurationMinutes?,
+`Id, Title, TitleRomaji?, TitleEnglish?, TitleNative?, MediaType, EpisodeCount?, EpisodeDurationMinutes?,
 ReleaseYear?, CoverImageUrl?, Description?, Source, FranchiseId?,
 FranchiseOrder?, OptionalWithinFranchise, CreatedAt, UpdatedAt`
 
@@ -932,8 +952,10 @@ FranchiseOrder?, OptionalWithinFranchise, CreatedAt, UpdatedAt`
   `AnimeExternalId`.
 - `OptionalWithinFranchise` (brief §21) belongs here, not on `Franchise` — it describes an
   individual entry's role within its group.
-- `AlternativeTitle` holds the non-preferred title variant (D22). Null for manual and
-  MyAnimeList-only rows, which have only one title.
+- `Title` is the **resolved display title**, and the only one anything else reads — the backlog
+  searches, sorts and pages on it in SQL. The three variants beside it each know their own
+  language, which is what lets the preference be switched without a sync (D22); they are null for
+  manual and MyAnimeList-only rows, which have one name and keep it.
 - `EpisodeDurationMinutes` and `ReleaseYear` are first populated in Phase 5b. A MyAnimeList
   export carries neither, so before that phase they are null on every imported row and every
   runtime and decade feature in Phase 3 is inert by design.
@@ -1065,9 +1087,9 @@ pipeline blaming them for its own paging.
 singly, so adding a second implementation would silently rebind the first and start feeding XML
 to the wrong parser.
 
-*And the AniList parser is registered twice, sharing one instance* — keyed like every other, and
-concretely for the sync, which passes the title-language preference as an argument to an overload
-rather than putting an AniList concern on the interface a MyAnimeList export also implements
+*The AniList parser is keyed like every other, and only keyed.* It briefly needed a second,
+concrete registration so a sync could pass the title-language preference to an overload the
+interface could not express; storing each title against its language removed the reason for both
 (D22).
 
 **A parsed entry carries a set of identifiers, not one.** `ParsedLibraryEntry` holds a single
@@ -1322,12 +1344,10 @@ section and the code:
   a rotated CDN path, and reporting it would turn an idle sync into a library-wide review list —
   the churn D21 assumes away when it says a sync that changes nothing writes nothing. Gaining art
   where there was none is reported.
-- **The title preference reaches the parser as an argument, not through the interface.**
-  `AniListJsonParser` exposes an overload taking `TitleLanguage`; `IAnimeListParser.ParseAsync`
-  keeps its shape and defaults to romaji. A preference has no business on the interface a
-  MyAnimeList export also implements, so the parser is registered twice sharing one instance —
-  keyed as `IAnimeListParser` like every other, and concretely for the sync that passes the
-  argument.
+- **The parser has no opinion about title language.** It briefly took the preference through an
+  overload `IAnimeListParser` could not express, which needed a second DI registration to reach.
+  Storing each title against its language removed the reason for both: the parser carries every
+  variant the source published, and the import resolves which to display (D22).
 - **Chunk following belongs to the client, with a hard ceiling of 20 requests.** `hasNextChunk`
   is the other end's word, so an unbounded loop is a request loop with no exit. Hitting the
   ceiling **fails the fetch** rather than keeping what arrived, and `ParseResult.Merge` enforces
@@ -1472,12 +1492,10 @@ General (display name, default queue size, date format, theme System/Light/Dark)
 export privacy, weighting), Data (export/import backup, clear recommendation results).
 Destructive actions require explicit confirmation. Accessibility and responsive passes.
 
-**Title language moves here from the Sources page**, and stops needing a sync to take effect. A
-preference about which of two stored strings is displayed should behave like the theme does, not
-like a data migration — see the amendment on D22 for why it could not be done in Phase 5b, which
-is a schema point rather than a UI one: nothing currently records which language
-`Anime.AlternativeTitle` holds. Storing each variant against its language is what makes the
-setting instant, and it retires the "applied by the next sync" wording along with it.
+**Title language moves here from the Sources page**, where Phase 5b left it. The behaviour is
+already right — each title is stored against its language and changing the preference rewrites the
+displayed one immediately, with no sync (D22) — so what is left is only that the control sits
+under a source it no longer has anything to do with. It belongs beside the theme.
 
 ### Phase 11 — Docker and README
 Multi-stage Dockerfile (SDK build → `aspnet` runtime, no SDK in the final layer), non-root

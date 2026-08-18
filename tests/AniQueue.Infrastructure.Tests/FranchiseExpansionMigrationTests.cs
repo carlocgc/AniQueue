@@ -107,6 +107,36 @@ public class FranchiseExpansionMigrationTests
             await command.ExecuteNonQueryAsync();
         }
 
+        /// <summary>
+        /// Writes a catalogue row as SQL, for the same reason the entry above is.
+        /// </summary>
+        /// <remarks>
+        /// The assumption broke a second time when the title variants replaced
+        /// AlternativeTitle, so the columns are named explicitly here too. A test
+        /// that seeds an old schema has to speak that schema.
+        /// </remarks>
+        public async Task<int> InsertAnimeAsync(string title, int? franchiseId, int? order, bool optional)
+        {
+            await using var command = _connection.CreateCommand();
+            command.CommandText =
+                """
+                INSERT INTO "Anime"
+                    ("Title", "MediaType", "Source", "FranchiseId", "FranchiseOrder",
+                     "OptionalWithinFranchise", "CreatedAt", "UpdatedAt")
+                VALUES
+                    ($title, 0, 0, $franchise, $order, $optional,
+                     '2026-01-01 00:00:00+00:00', '2026-01-01 00:00:00+00:00');
+                SELECT last_insert_rowid();
+                """;
+
+            command.Parameters.AddWithValue("$title", title);
+            command.Parameters.AddWithValue("$franchise", (object?)franchiseId ?? DBNull.Value);
+            command.Parameters.AddWithValue("$order", (object?)order ?? DBNull.Value);
+            command.Parameters.AddWithValue("$optional", optional ? 1 : 0);
+
+            return Convert.ToInt32(await command.ExecuteScalarAsync(), System.Globalization.CultureInfo.InvariantCulture);
+        }
+
         public ValueTask DisposeAsync() => _connection.DisposeAsync();
     }
 
@@ -122,17 +152,10 @@ public class FranchiseExpansionMigrationTests
         var franchise = await SeedData.CreateFranchiseAsync(context, "Slayers");
         var ids = new Dictionary<string, int>();
 
-        foreach (var (title, order, optional, status) in members)
+        foreach (var (title, order, optional, _) in members)
         {
-            var anime = await SeedData.CreateAnimeAsync(context, title);
-            anime.FranchiseId = franchise.Id;
-            anime.FranchiseOrder = order;
-            anime.OptionalWithinFranchise = optional;
-
-            ids[title] = anime.Id;
+            ids[title] = await database.InsertAnimeAsync(title, franchise.Id, order, optional);
         }
-
-        await context.SaveChangesAsync();
 
         // After the catalogue rows are saved, because the entries reference them
         // and go in outside the change tracker.
@@ -230,20 +253,23 @@ public class FranchiseExpansionMigrationTests
             ("Slayers", 1, false, LibraryStatus.Planning),
             ("Slayers Next", 2, false, LibraryStatus.Planning));
 
+        // Catalogue rows and entries both go in as SQL, for the same reason as
+        // everywhere else here: the current model maps columns this schema version
+        // does not have.
+        // Standalone: no franchise, so the expansion has nothing to do with them and
+        // their positions are what the test is about.
+        var firstId = await database.InsertAnimeAsync("Gunbuster", franchiseId: null, order: null, optional: false);
+        var lastId = await database.InsertAnimeAsync("Nichijou", franchiseId: null, order: null, optional: false);
+
         await using (var context = database.CreateContext())
         {
-            var first = await SeedData.CreateAnimeAsync(context, "Gunbuster");
-            var last = await SeedData.CreateAnimeAsync(context, "Nichijou");
-
-            context.QueueItems.Add(SeedData.QueueSlot(seeded.ProfileId, position: 0, first.Id));
-            context.QueueItems.Add(SeedData.QueueSlot(seeded.ProfileId, position: 2, last.Id));
+            context.QueueItems.Add(SeedData.QueueSlot(seeded.ProfileId, position: 0, firstId));
+            context.QueueItems.Add(SeedData.QueueSlot(seeded.ProfileId, position: 2, lastId));
             await context.SaveChangesAsync();
-
-            // Entries go in as SQL for the same reason as everywhere else here: the
-            // current model maps columns this schema version does not have.
-            await database.InsertLibraryEntryAsync(seeded.ProfileId, first.Id, LibraryStatus.Planning);
-            await database.InsertLibraryEntryAsync(seeded.ProfileId, last.Id, LibraryStatus.Planning);
         }
+
+        await database.InsertLibraryEntryAsync(seeded.ProfileId, firstId, LibraryStatus.Planning);
+        await database.InsertLibraryEntryAsync(seeded.ProfileId, lastId, LibraryStatus.Planning);
 
         await database.InsertFranchiseSlotAsync(seeded.ProfileId, position: 1, seeded.FranchiseId);
 

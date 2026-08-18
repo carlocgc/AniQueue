@@ -38,13 +38,23 @@ public sealed record ParsedLibraryEntry
     /// </remarks>
     public IReadOnlyList<ExternalIdentifier> ExternalIds { get; init; } = [];
 
+    /// <summary>
+    /// The title to fall back on: whatever single name the format publishes.
+    /// </summary>
+    /// <remarks>
+    /// Every source has one of these. Only some publish the variants below, and a
+    /// parser never decides which of them to display — that is the profile's
+    /// preference, applied where the row is written, so the same parse serves a
+    /// user reading romaji and a user reading English.
+    /// </remarks>
     public required string Title { get; init; }
 
-    /// <summary>
-    /// The title variant the user did not ask to see (D22). Null for any source
-    /// that publishes only one — which is every MyAnimeList export.
-    /// </summary>
-    public string? AlternativeTitle { get; init; }
+    /// <summary>Variants, each against its language, for sources that publish them (D22).</summary>
+    public string? TitleRomaji { get; init; }
+
+    public string? TitleEnglish { get; init; }
+
+    public string? TitleNative { get; init; }
 
     public MediaType MediaType { get; init; } = MediaType.Unknown;
 

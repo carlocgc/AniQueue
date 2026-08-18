@@ -25,28 +25,18 @@ public sealed class AniListJsonParser(ImportLimits? limits = null) : IAnimeListP
     public string FormatName => "AniList";
 
     /// <summary>
-    /// Parses using the default title language.
+    /// Parses the response. Every title variant it publishes is carried through;
+    /// which one is displayed is decided where the row is written, from the
+    /// profile's preference (D22).
     /// </summary>
     /// <remarks>
-    /// The interface has no room for a preference, and giving it one would push an
-    /// AniList concern onto a MyAnimeList export that publishes a single title. A
-    /// sync knows the user's setting and calls the overload below; this exists so
-    /// the parser is still resolvable as an <see cref="IAnimeListParser"/> like any
-    /// other, and romaji is the right default because it is what a MyAnimeList
-    /// library already holds — so the fallback never rewrites titles unasked (D22).
+    /// The parser deliberately has no opinion about language. It used to take one,
+    /// which meant an overload the interface could not express and a second DI
+    /// registration to reach it — machinery that existed only because the storage
+    /// could not tell romaji from English. Now that it can, this is a plain parser
+    /// again.
     /// </remarks>
-    public Task<ParseResult> ParseAsync(Stream input, CancellationToken cancellationToken = default) =>
-        ParseAsync(input, TitleLanguage.Romaji, cancellationToken);
-
-    /// <summary>
-    /// Parses, writing the requested title variant to
-    /// <see cref="ParsedLibraryEntry.Title"/> and another to
-    /// <see cref="ParsedLibraryEntry.AlternativeTitle"/> (D22).
-    /// </summary>
-    public async Task<ParseResult> ParseAsync(
-        Stream input,
-        TitleLanguage preferredTitle,
-        CancellationToken cancellationToken = default)
+    public async Task<ParseResult> ParseAsync(Stream input, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(input);
 
@@ -62,7 +52,7 @@ public sealed class AniListJsonParser(ImportLimits? limits = null) : IAnimeListP
             try
             {
                 using var document = await JsonDocument.ParseAsync(buffered, cancellationToken: cancellationToken);
-                return Parse(document.RootElement, preferredTitle);
+                return Parse(document.RootElement);
             }
             catch (JsonException ex)
             {
@@ -75,7 +65,7 @@ public sealed class AniListJsonParser(ImportLimits? limits = null) : IAnimeListP
         }
     }
 
-    private ParseResult Parse(JsonElement root, TitleLanguage preferredTitle)
+    private ParseResult Parse(JsonElement root)
     {
         // GraphQL reports failure inside a 200. An errors array means the response
         // is not a list — it is an explanation of why there is no list — and reading
@@ -132,7 +122,7 @@ public sealed class AniListJsonParser(ImportLimits? limits = null) : IAnimeListP
                         break;
                     }
 
-                    var parsed = MapEntry(entry, preferredTitle, recordNumber, seen, ref duplicates, problems);
+                    var parsed = MapEntry(entry, recordNumber, seen, ref duplicates, problems);
                     if (parsed is not null)
                     {
                         entries.Add(parsed);
@@ -165,7 +155,6 @@ public sealed class AniListJsonParser(ImportLimits? limits = null) : IAnimeListP
 
     private static ParsedLibraryEntry? MapEntry(
         JsonElement entry,
-        TitleLanguage preferredTitle,
         int recordNumber,
         HashSet<int> seen,
         ref int duplicates,
@@ -199,8 +188,19 @@ public sealed class AniListJsonParser(ImportLimits? limits = null) : IAnimeListP
             return null;
         }
 
-        var (title, alternativeTitle) = ResolveTitles(media, preferredTitle);
-        if (title is null)
+        string? romaji = null, english = null, native = null;
+        if (media.TryGetProperty("title", out var titles) && titles.ValueKind == JsonValueKind.Object)
+        {
+            romaji = Text(titles, "romaji");
+            english = Text(titles, "english");
+            native = Text(titles, "native");
+        }
+
+        // Something has to be stored in the required column even when the profile
+        // prefers a variant this title lacks. Romaji first because it is the one
+        // AniList almost always has, and the one a MyAnimeList library already holds.
+        var fallback = romaji ?? english ?? native;
+        if (fallback is null)
         {
             problems.Add(new ImportProblem("Skipped: the entry has no title in any language.", recordNumber));
             return null;
@@ -232,7 +232,7 @@ public sealed class AniListJsonParser(ImportLimits? limits = null) : IAnimeListP
             problems.Add(new ImportProblem(
                 $"Watched {watched} of a stated {episodeCount} episodes; the episode count was ignored.",
                 recordNumber,
-                title));
+                fallback));
             episodeCount = null;
         }
 
@@ -240,69 +240,24 @@ public sealed class AniListJsonParser(ImportLimits? limits = null) : IAnimeListP
         {
             Source = AnimeSource.AniList,
             ExternalIds = identifiers,
-            Title = title,
-            AlternativeTitle = alternativeTitle,
+            Title = fallback,
+            TitleRomaji = romaji,
+            TitleEnglish = english,
+            TitleNative = native,
             MediaType = MapFormat(Text(media, "format")),
             EpisodeCount = episodeCount,
             EpisodeDurationMinutes = Positive(media, "duration"),
             ReleaseYear = Positive(media, "seasonYear"),
             CoverImageUrl = MapCoverImage(media),
-            Status = MapStatus(Text(entry, "status"), title, recordNumber, problems),
+            Status = MapStatus(Text(entry, "status"), fallback, recordNumber, problems),
             EpisodesWatched = watched,
-            UserScore = MapScore(entry, title, recordNumber, problems),
+            UserScore = MapScore(entry, fallback, recordNumber, problems),
             DateStarted = MapFuzzyDate(entry, "startedAt"),
             DateCompleted = MapFuzzyDate(entry, "completedAt"),
             TimesRewatched = Math.Max(0, Number(entry, "repeat") ?? 0)
         };
     }
 
-    /// <summary>
-    /// Picks the title the user asked to read, and one other to keep alongside it.
-    /// </summary>
-    /// <remarks>
-    /// A fallback chain rather than the preferred variant alone, because
-    /// <c>english</c> is null for 111 of 753 entries in the measured library —
-    /// nearly one in seven. Writing null into a required column for every one of
-    /// them is what a preference without a fallback would do (D22).
-    ///
-    /// The alternative is the next variant that exists and differs, so a title
-    /// identical across two variants leaves it null rather than duplicating itself.
-    /// </remarks>
-    private static (string? Title, string? Alternative) ResolveTitles(
-        JsonElement media,
-        TitleLanguage preferred)
-    {
-        if (!media.TryGetProperty("title", out var titles) || titles.ValueKind != JsonValueKind.Object)
-        {
-            return (null, null);
-        }
-
-        // Preference first, then the rest in a fixed order so the result never
-        // depends on which variants happen to be present.
-        string[] order = preferred switch
-        {
-            TitleLanguage.English => ["english", "romaji", "native"],
-            TitleLanguage.Native => ["native", "romaji", "english"],
-            _ => ["romaji", "english", "native"]
-        };
-
-        var available = order
-            .Select(name => Text(titles, name))
-            .OfType<string>()
-            .ToList();
-
-        if (available.Count == 0)
-        {
-            return (null, null);
-        }
-
-        var title = available[0];
-        var alternative = available
-            .Skip(1)
-            .FirstOrDefault(t => !string.Equals(t, title, StringComparison.Ordinal));
-
-        return (title, alternative);
-    }
 
     private static MediaType MapFormat(string? format) => format?.ToUpperInvariant() switch
     {

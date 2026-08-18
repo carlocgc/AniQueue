@@ -67,6 +67,10 @@ public sealed class ImportService(
 
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
 
+        // Which title variant this profile reads, so the preview compares — and the
+        // commit writes — the name the user will actually see (D22).
+        var preferredTitle = await LoadPreferredTitleAsync(context, profileId, cancellationToken);
+
         progress?.Report(new OperationProgress("Comparing against your library"));
         var library = await LoadMatchCandidatesAsync(context, profileId, cancellationToken);
 
@@ -81,7 +85,7 @@ public sealed class ImportService(
 
         foreach (var entry in parsed.Entries)
         {
-            items.Add(BuildPreviewItem(entry, library, claimed));
+            items.Add(BuildPreviewItem(entry, library, claimed, preferredTitle));
 
             foreach (var identifier in entry.ExternalIds)
             {
@@ -154,6 +158,8 @@ public sealed class ImportService(
             .Where(s => s.ProfileId == profileId)
             .ToDictionaryAsync(s => s.Source, s => s.PrecedenceRank, cancellationToken);
 
+        var preferredTitle = await LoadPreferredTitleAsync(context, profileId, cancellationToken);
+
         foreach (var item in preview.Items)
         {
             processed++;
@@ -176,7 +182,7 @@ public sealed class ImportService(
 
                 if (item.Resolution == ConflictResolution.LinkToExisting)
                 {
-                    var linked = await LinkToExistingAsync(context, item, now, cancellationToken);
+                    var linked = await LinkToExistingAsync(context, item, now, preferredTitle, cancellationToken);
                     if (linked is null)
                     {
                         // The record the user chose has since gone. Skipping is safer
@@ -201,14 +207,14 @@ public sealed class ImportService(
 
             if (anime is null)
             {
-                anime = CreateAnime(item.Entry, now);
+                anime = CreateAnime(item.Entry, now, preferredTitle);
                 context.Anime.Add(anime);
                 await context.SaveChangesAsync(cancellationToken);
                 created++;
             }
             else
             {
-                ApplyCatalogueFields(anime, item.Entry, now);
+                ApplyCatalogueFields(anime, item.Entry, now, preferredTitle);
                 updated++;
             }
 
@@ -250,6 +256,45 @@ public sealed class ImportService(
         };
     }
 
+
+    /// <summary>
+    /// The title to display for this entry, under this profile's preference (D22).
+    /// </summary>
+    /// <remarks>
+    /// Resolved where the row is written rather than by the parser, so one parse
+    /// serves every preference and changing the preference later needs no re-fetch —
+    /// only a recompute from the variants stored alongside.
+    /// </remarks>
+    private static string DisplayTitle(ParsedLibraryEntry entry, TitleLanguage preferred) =>
+        TitleSelection.Resolve(
+            preferred, entry.TitleRomaji, entry.TitleEnglish, entry.TitleNative, entry.Title);
+
+    /// <summary>
+    /// Whether this entry knows a title variant the stored row does not.
+    /// </summary>
+    private static bool StoresNewVariants(ParsedLibraryEntry entry, AnimeSnapshot existing) =>
+        IsNew(entry.TitleRomaji, existing.TitleRomaji) ||
+        IsNew(entry.TitleEnglish, existing.TitleEnglish) ||
+        IsNew(entry.TitleNative, existing.TitleNative);
+
+    private static bool IsNew(string? incoming, string? stored) =>
+        incoming is not null && !string.Equals(incoming, stored, StringComparison.Ordinal);
+
+    /// <summary>
+    /// Which title variant this profile reads. Romaji for a profile with no settings
+    /// row, which is what a MyAnimeList library already holds — so the absence of a
+    /// preference never rewrites a title.
+    /// </summary>
+    private static async Task<TitleLanguage> LoadPreferredTitleAsync(
+        AniQueueDbContext context,
+        int profileId,
+        CancellationToken cancellationToken) =>
+        await context.ProfileSettings
+            .AsNoTracking()
+            .Where(s => s.ProfileId == profileId)
+            .Select(s => (TitleLanguage?)s.PreferredTitleLanguage)
+            .FirstOrDefaultAsync(cancellationToken) ?? TitleLanguage.Romaji;
+
     /// <summary>
     /// Loads a projection of every title plus this profile's entries.
     ///
@@ -270,7 +315,9 @@ public sealed class ImportService(
                 a.Id,
                 a.Source,
                 a.Title,
-                a.AlternativeTitle,
+                a.TitleRomaji,
+                a.TitleEnglish,
+                a.TitleNative,
                 a.MediaType,
                 a.EpisodeCount,
                 a.EpisodeDurationMinutes,
@@ -308,7 +355,8 @@ public sealed class ImportService(
     private static ImportPreviewItem BuildPreviewItem(
         ParsedLibraryEntry entry,
         MatchCandidates library,
-        Dictionary<ExternalIdentifier, string> claimed)
+        Dictionary<ExternalIdentifier, string> claimed,
+        TitleLanguage preferredTitle)
     {
         if (entry.ExternalIds.Count > 0)
         {
@@ -364,7 +412,7 @@ public sealed class ImportService(
             if (resolved.Count == 1)
             {
                 var existing = library.Anime.First(a => a.Id == resolved[0]);
-                return CompareWithExisting(entry, existing, library);
+                return CompareWithExisting(entry, existing, library, preferredTitle);
             }
 
             // No identifier match, but a same-titled entry with no identifier of its
@@ -423,13 +471,15 @@ public sealed class ImportService(
     private static ImportPreviewItem CompareWithExisting(
         ParsedLibraryEntry entry,
         AnimeSnapshot existing,
-        MatchCandidates library)
+        MatchCandidates library,
+        TitleLanguage preferredTitle)
     {
         var changes = new List<string>();
+        var title = DisplayTitle(entry, preferredTitle);
 
-        if (!string.Equals(existing.Title, entry.Title, StringComparison.Ordinal))
+        if (!string.Equals(existing.Title, title, StringComparison.Ordinal))
         {
-            changes.Add($"Title: '{existing.Title}' → '{entry.Title}'");
+            changes.Add($"Title: '{existing.Title}' → '{title}'");
         }
 
         if (existing.MediaType != entry.MediaType && entry.MediaType != MediaType.Unknown)
@@ -437,10 +487,14 @@ public sealed class ImportService(
             changes.Add($"Type: {existing.MediaType} → {entry.MediaType}");
         }
 
-        if (entry.AlternativeTitle is not null &&
-            !string.Equals(existing.AlternativeTitle, entry.AlternativeTitle, StringComparison.Ordinal))
+        // Reported so the row becomes an update, which is what actually stores them.
+        // Without this a library already synced under the old single-alternative
+        // column would resolve to the same displayed title, count as unchanged, and
+        // never record which language its titles are — leaving the preference unable
+        // to switch anything (D22).
+        if (StoresNewVariants(entry, existing))
         {
-            changes.Add($"Also known as: '{entry.AlternativeTitle}'");
+            changes.Add("Records its title in each language");
         }
 
         // Only an actual value replaces a known one; an import that has forgotten
@@ -545,6 +599,7 @@ public sealed class ImportService(
         AniQueueDbContext context,
         ImportPreviewItem item,
         DateTimeOffset now,
+        TitleLanguage preferredTitle,
         CancellationToken cancellationToken)
     {
         if (item.ExistingAnimeId is not { } existingId)
@@ -558,7 +613,7 @@ public sealed class ImportService(
             return null;
         }
 
-        ApplyCatalogueFields(existing, item.Entry, now);
+        ApplyCatalogueFields(existing, item.Entry, now, preferredTitle);
 
         await context.SaveChangesAsync(cancellationToken);
         return existing;
@@ -661,10 +716,12 @@ public sealed class ImportService(
         }
     }
 
-    private static Anime CreateAnime(ParsedLibraryEntry entry, DateTimeOffset now) => new()
+    private static Anime CreateAnime(ParsedLibraryEntry entry, DateTimeOffset now, TitleLanguage preferredTitle) => new()
     {
-        Title = entry.Title,
-        AlternativeTitle = entry.AlternativeTitle,
+        Title = DisplayTitle(entry, preferredTitle),
+        TitleRomaji = entry.TitleRomaji,
+        TitleEnglish = entry.TitleEnglish,
+        TitleNative = entry.TitleNative,
         Source = entry.Source,
         MediaType = entry.MediaType,
         EpisodeCount = entry.EpisodeCount,
@@ -687,14 +744,17 @@ public sealed class ImportService(
     /// one after an AniList sync must not blank all three (D18 draws the same line
     /// for tracking data, guarded by precedence rather than by nullness).
     /// </remarks>
-    private static void ApplyCatalogueFields(Anime anime, ParsedLibraryEntry entry, DateTimeOffset now)
+    private static void ApplyCatalogueFields(
+        Anime anime,
+        ParsedLibraryEntry entry,
+        DateTimeOffset now,
+        TitleLanguage preferredTitle)
     {
-        anime.Title = entry.Title;
+        anime.Title = DisplayTitle(entry, preferredTitle);
 
-        if (entry.AlternativeTitle is not null)
-        {
-            anime.AlternativeTitle = entry.AlternativeTitle;
-        }
+        anime.TitleRomaji = entry.TitleRomaji ?? anime.TitleRomaji;
+        anime.TitleEnglish = entry.TitleEnglish ?? anime.TitleEnglish;
+        anime.TitleNative = entry.TitleNative ?? anime.TitleNative;
 
         if (entry.MediaType != MediaType.Unknown)
         {
@@ -818,7 +878,9 @@ public sealed class ImportService(
         int Id,
         AnimeSource Source,
         string Title,
-        string? AlternativeTitle,
+        string? TitleRomaji,
+        string? TitleEnglish,
+        string? TitleNative,
         MediaType MediaType,
         int? EpisodeCount,
         int? EpisodeDurationMinutes,

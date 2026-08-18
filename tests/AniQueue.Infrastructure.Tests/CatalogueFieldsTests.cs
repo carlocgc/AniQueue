@@ -24,7 +24,7 @@ public class CatalogueFieldsTests
     private static ParseResult Fetched(
         string aniListId,
         string title,
-        string? alternativeTitle = "Shingeki no Kyojin",
+        string? englishTitle = "Attack on Titan",
         int? durationMinutes = 24,
         int? releaseYear = 2013,
         string? coverImageUrl = "https://example.invalid/cover.jpg") =>
@@ -37,7 +37,9 @@ public class CatalogueFieldsTests
                     Source = AnimeSource.AniList,
                     ExternalIds = [new ExternalIdentifier(AnimeSource.AniList, aniListId)],
                     Title = title,
-                    AlternativeTitle = alternativeTitle,
+                    TitleRomaji = title,
+                    TitleEnglish = englishTitle,
+                    TitleNative = "進撃の巨人",
                     MediaType = MediaType.Tv,
                     EpisodeCount = 25,
                     EpisodeDurationMinutes = durationMinutes,
@@ -85,7 +87,8 @@ public class CatalogueFieldsTests
         Assert.Equal(24, anime.EpisodeDurationMinutes);
         Assert.Equal(2013, anime.ReleaseYear);
         Assert.Equal("https://example.invalid/cover.jpg", anime.CoverImageUrl);
-        Assert.Equal("Shingeki no Kyojin", anime.AlternativeTitle);
+        Assert.Equal("Attack on Titan", anime.TitleEnglish);
+        Assert.Equal("進撃の巨人", anime.TitleNative);
     }
 
     [Fact]
