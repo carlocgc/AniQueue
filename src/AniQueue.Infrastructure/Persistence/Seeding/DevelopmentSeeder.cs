@@ -36,13 +36,28 @@ public sealed class DevelopmentSeeder(
         // Several seasons of one series, plus a film and an OVA. They are ordinary
         // titles like every other row here (D23) — what makes them a series is the
         // relations AniList publishes about them, not anything stored locally.
+        //
+        // Which is why they carry AniList identifiers: the relation graph is keyed
+        // by them (D24), so without one there is nothing for the edges below to
+        // attach to and the backlog's expansion cannot be seen in the inner loop at
+        // all.
+        //
+        // **The identifiers are invented, and deliberately far outside the range
+        // AniList issues.** A guessed-but-plausible id would be worse than an
+        // obviously fake one: the row links out to AniList, and a link that lands
+        // confidently on somebody else's show is a bug that looks like data.
         var slayersEntries = new[]
         {
-            NewAnime("Slayers", MediaType.Tv, 26, 24, 1995),
-            NewAnime("Slayers Next", MediaType.Tv, 26, 24, 1996),
-            NewAnime("Slayers Try", MediaType.Tv, 26, 24, 1997),
-            NewAnime("Slayers: The Motion Picture", MediaType.Movie, 1, 75, 1995),
-            NewAnime("Slayers Special", MediaType.Ova, 3, 30, 1996)
+            NewAnime("Slayers", MediaType.Tv, 26, 24, 1995,
+                AnimeSource.AniList, "900001", new DateOnly(1995, 4, 7)),
+            NewAnime("Slayers Next", MediaType.Tv, 26, 24, 1996,
+                AnimeSource.AniList, "900002", new DateOnly(1996, 4, 5)),
+            NewAnime("Slayers Try", MediaType.Tv, 26, 24, 1997,
+                AnimeSource.AniList, "900003", new DateOnly(1997, 4, 4)),
+            NewAnime("Slayers: The Motion Picture", MediaType.Movie, 1, 75, 1995,
+                AnimeSource.AniList, "900004", new DateOnly(1995, 7, 15)),
+            NewAnime("Slayers Special", MediaType.Ova, 3, 30, 1996,
+                AnimeSource.AniList, "900005", new DateOnly(1996, 6, 25))
         };
 
         // Completed, with a deliberate spread of scores — recommendation quality
@@ -83,6 +98,20 @@ public sealed class DevelopmentSeeder(
         {
             context.LibraryEntries.Add(Planning(entry));
         }
+
+        // The graph the relation backfill would have written, seeded so the backlog
+        // has something to expand without anyone having to sync a real account.
+        //
+        // Written the way the source states them rather than tidied into one
+        // direction (D24), and the untidiness is the point: the edge from Try is
+        // stored *only* from Try's side, so Next finds its own sequel through the
+        // reverse index and inverts it. That path carries half a real graph and is
+        // the half a hand-written seed would otherwise never exercise.
+        context.AnimeRelations.AddRange(
+            Edge("900001", RelationType.Sequel, "900002"),
+            Edge("900003", RelationType.Prequel, "900002"),
+            Edge("900001", RelationType.SideStory, "900004"),
+            Edge("900005", RelationType.Parent, "900001"));
 
         // A hand-ordered queue with an unrelated title deliberately sitting between
         // two seasons of the same series. That arrangement is the point of D15: a
@@ -157,6 +186,14 @@ public sealed class DevelopmentSeeder(
             LastUpdated = now
         };
 
+        static AnimeRelation Edge(string externalId, RelationType type, string relatedExternalId) => new()
+        {
+            Source = AnimeSource.AniList,
+            ExternalId = externalId,
+            RelationType = type,
+            RelatedExternalId = relatedExternalId
+        };
+
         RecommendationRunItem RankItem(int animeId, int rank, double score, double confidence, string reason) => new()
         {
             AnimeId = animeId,
@@ -173,17 +210,34 @@ public sealed class DevelopmentSeeder(
             int? durationMinutes,
             int? year,
             AnimeSource source = AnimeSource.Manual,
-            string? sourceId = null) => new()
+            string? sourceId = null,
+            DateOnly? startDate = null) => new()
             {
                 Title = title,
                 MediaType = mediaType,
                 EpisodeCount = episodes,
                 EpisodeDurationMinutes = durationMinutes,
                 ReleaseYear = year,
+
+                // Written for the titles that are related to something, because that
+                // is the only place it is read: an expansion orders by air date, and
+                // a year cannot separate two halves of a split cour (D24).
+                StartDate = startDate,
                 Source = source,
                 ExternalIds = sourceId is null
                     ? []
-                    : [new AnimeExternalId { Source = source, ExternalId = sourceId }],
+                    : [new AnimeExternalId
+                        {
+                            Source = source,
+                            ExternalId = sourceId,
+
+                            // Seeded as already asked about, so the relation backfill
+                            // stays idle. Without this every F5 would spend real
+                            // requests against a real rate limit asking AniList about
+                            // identifiers this file invented — and the answer would be
+                            // silence, every time.
+                            RelationsFetchedAt = source == AnimeSource.AniList ? now.UtcDateTime : null
+                        }],
                 CreatedAt = now,
                 UpdatedAt = now
             };

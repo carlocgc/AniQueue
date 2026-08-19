@@ -68,6 +68,24 @@ public sealed record LibraryQuery
 
     public AnimeSource? Source { get; init; }
 
+    /// <summary>
+    /// Only titles with no prequel and no sequel — something self-contained.
+    /// </summary>
+    /// <remarks>
+    /// The surviving half of the brief's franchise/standalone pair, redefined by
+    /// D24: there are no franchises to filter for, but "is this a commitment or an
+    /// evening" is a real decision, and it sits naturally beside the runtime filter.
+    ///
+    /// Counted over <b>all</b> edges rather than only owned ones. A series whose
+    /// later seasons the user does not own is still a series, and calling it
+    /// standalone because of what happens to be in the library would answer a
+    /// question about the show with a fact about the collection.
+    ///
+    /// Only <c>PREQUEL</c> and <c>SEQUEL</c> count. A film with a recap, a spin-off
+    /// or an alternative version is still watchable on its own; a season two is not.
+    /// </remarks>
+    public bool StandaloneOnly { get; init; }
+
     public int? MinUserScore { get; init; }
 
     /// <summary>Minimum AI confidence, 0–1. The "high confidence" quick filter.</summary>
@@ -92,6 +110,7 @@ public sealed record LibraryQuery
         || Decade is not null
         || MaxRuntimeMinutes is not null
         || Source is not null
+        || StandaloneOnly
         || MinUserScore is not null
         || MinRecommendationConfidence is not null
         || HasRecommendation is not null

@@ -41,6 +41,12 @@ public static class PersistenceServiceCollectionExtensions
         services.AddScoped<DatabaseInitializer>();
         services.AddScoped<Core.Import.IImportService, Import.ImportService>();
         services.AddScoped<Core.Library.ILibraryService, Library.LibraryService>();
+
+        // Registered beside the library rather than with the sync services, because
+        // it reads the graph rather than fills it: the backfill is outbound traffic
+        // gated on a kill switch, this is a query the backlog makes (D24).
+        services.AddScoped<Core.Library.IRelationService, Library.RelationService>();
+
         services.AddScoped<Core.Queue.IQueueService, Queue.QueueService>();
 
         // Parsers are pure and stateless, so a singleton is sufficient (D9), and

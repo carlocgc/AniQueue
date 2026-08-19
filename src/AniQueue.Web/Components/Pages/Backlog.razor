@@ -1,6 +1,8 @@
 @page "/backlog"
+@using System.Globalization
 @using AniQueue.Core.Queue
 @inject ILibraryService LibraryService
+@inject IRelationService RelationService
 @inject IQueueService QueueService
 
 <PageTitle>Backlog — AniQueue</PageTitle>
@@ -81,6 +83,16 @@ else
                         @onclick="() => ToggleRuntimeAsync(120)">Under 2 hours</button>
                 <button class="chip @Active(_query.MaxRuntimeMinutes == 360)"
                         @onclick="() => ToggleRuntimeAsync(360)">Under 6 hours</button>
+            }
+
+            @* Beside the runtime chips on purpose: both answer "what can I start
+               tonight without signing up for something". Offered only once the
+               relation graph holds a prequel or sequel edge, or it would match every
+               row and read as "my whole library is standalone" (D24). *@
+            @if (Facets.HasSequelEdges)
+            {
+                <button class="chip @Active(_query.StandaloneOnly)"
+                        @onclick="ToggleStandaloneAsync">Standalone</button>
             }
 
             @foreach (var mediaType in Facets.MediaTypes)
@@ -177,6 +189,9 @@ else
                                        checked="@AllOnPageSelected"
                                        @onchange="ToggleSelectAll" />
                             </th>
+                            @* No header text: the column holds a control per row and
+                               naming it would put a word above fifty chevrons. *@
+                            <th class="expand-col"></th>
                             <th>Title</th>
                             <th>Type</th>
                             <th class="numeric">Year</th>
@@ -199,6 +214,32 @@ else
                                            aria-label="@($"Select {item.Title}")"
                                            checked="@_selected.Contains(item.AnimeId)"
                                            @onchange="() => ToggleSelection(item.AnimeId)" />
+                                </td>
+                                <td class="expand-col">
+                                    @* Drawn only when there is something to open. A
+                                       control that sometimes does nothing teaches
+                                       people to stop pressing it, which would cost
+                                       exactly the discoverability this phase is for
+                                       (D24). *@
+                                    @if (RelatedCount(item.AnimeId) is { } count)
+                                    {
+                                        @* aria-expanded is spelled out rather than bound to
+                                           the bool: Blazor renders a true bool attribute with
+                                           an empty value and omits a false one, and an absent
+                                           aria-expanded means "this does not expand" rather
+                                           than "closed". aria-controls is set only while the
+                                           row it names exists, since a dangling one points
+                                           assistive technology at nothing. *@
+                                        <button class="expander @(IsExpanded(item.AnimeId) ? "open" : null)"
+                                                @onclick="() => ToggleRelatedAsync(item.AnimeId)"
+                                                aria-expanded="@(IsExpanded(item.AnimeId) ? "true" : "false")"
+                                                aria-controls="@(IsExpanded(item.AnimeId) ? RelatedRowId(item.AnimeId) : null)"
+                                                title="@RelatedLabel(item, count, IsExpanded(item.AnimeId))"
+                                                aria-label="@RelatedLabel(item, count, IsExpanded(item.AnimeId))">
+                                            <span class="chevron" aria-hidden="true"></span>
+                                            <span class="count">@count</span>
+                                        </button>
+                                    }
                                 </td>
                                 <td>
                                     <div class="title-cell">
@@ -250,6 +291,56 @@ else
                                     <td class="numeric">@(item.RecommendationScore?.ToString("0.0") ?? "—")</td>
                                 }
                             </tr>
+
+                            @if (IsExpanded(item.AnimeId))
+                            {
+                                @* A row of its own rather than a floating panel: the
+                                   relatives belong to the title above them, and
+                                   anything that detached them from it would be a
+                                   grouping by another name (D24). *@
+                                <tr class="relations-row" id="@RelatedRowId(item.AnimeId)">
+                                    <td></td>
+                                    <td colspan="@(ColumnCount - 1)">
+                                        @if (_relations.TryGetValue(item.AnimeId, out var relatives))
+                                        {
+                                            @if (relatives.Count == 0)
+                                            {
+                                                @* Reachable only if the library changed
+                                                   under the page between the count and
+                                                   the expansion. *@
+                                                <p class="muted">Nothing related that you own.</p>
+                                            }
+                                            else
+                                            {
+                                                <ul class="relations">
+                                                    @foreach (var relative in relatives)
+                                                    {
+                                                        <li>
+                                                            @* The tag first, because it is
+                                                               what the row is being read
+                                                               for: the question is "how is
+                                                               this connected", not "what
+                                                               else exists". *@
+                                                            <span class="badge relation">@relative.Label</span>
+                                                            <span class="relation-title">@relative.Title</span>
+                                                            <span class="badge @relative.Status.ToString().ToLowerInvariant()">@relative.Status</span>
+                                                            @if (relative.IsQueued)
+                                                            {
+                                                                <span class="badge queued" title="Already in Up Next">Queued</span>
+                                                            }
+                                                            <span class="muted">@RelativeMeta(relative)</span>
+                                                        </li>
+                                                    }
+                                                </ul>
+                                            }
+                                        }
+                                        else
+                                        {
+                                            <p class="muted" aria-live="polite">Loading…</p>
+                                        }
+                                    </td>
+                                </tr>
+                            }
                         }
                     </tbody>
                 </table>
@@ -294,6 +385,17 @@ else
 
     private LibraryQuery _query = new() { Take = PageSize };
     private readonly HashSet<int> _selected = [];
+
+    // How many relatives each visible row has, so a row with none draws no chevron
+    // at all. One grouped query per page, loaded with it (D24).
+    private IReadOnlyDictionary<int, int> _relatedCounts = new Dictionary<int, int>();
+
+    // Which rows are open, and what they are showing. Detail is fetched on expand
+    // rather than with the page: fifty rows' worth of relatives is a great deal of
+    // data to fetch for the one row somebody opens.
+    private readonly HashSet<int> _expanded = [];
+    private readonly Dictionary<int, IReadOnlyList<RelatedTitle>> _relations = [];
+
     private string? _actionMessage;
     private BusyScope _busy = null!;
 
@@ -308,7 +410,33 @@ else
     protected override async Task OnInitializedAsync()
     {
         Facets ??= await LibraryService.GetFacetsAsync(Profile.DefaultProfileId);
-        Page ??= await LibraryService.GetPageAsync(Profile.DefaultProfileId, _query);
+
+        if (Page is null)
+        {
+            await LoadPageAsync();
+        }
+    }
+
+    /// <summary>
+    /// Loads the current query's page, and the one thing every row needs to know
+    /// about its relatives: whether it has any.
+    /// </summary>
+    /// <remarks>
+    /// Open expansions do not survive this. Reload, paging and every filter change
+    /// come through here, and each of them means the rows on screen are a different
+    /// set — a panel left open would be showing relatives of a title that has
+    /// scrolled out of the result, which is worse than closing it.
+    /// </remarks>
+    private async Task LoadPageAsync()
+    {
+        Page = await LibraryService.GetPageAsync(Profile.DefaultProfileId, _query);
+
+        _relatedCounts = await RelationService.GetRelatedCountsAsync(
+            Profile.DefaultProfileId,
+            [.. Page.Items.Select(i => i.AnimeId)]);
+
+        _expanded.Clear();
+        _relations.Clear();
     }
 
     /// <summary>
@@ -330,7 +458,7 @@ else
         // Any change to what is being shown returns to the first page. Staying on
         // page four of a result set that no longer exists shows an empty table.
         _query = resetPaging ? query with { Skip = 0 } : query;
-        Page = await LibraryService.GetPageAsync(Profile.DefaultProfileId, _query);
+        await LoadPageAsync();
     }
 
     private Task OnSearchChangedAsync(ChangeEventArgs e) =>
@@ -379,6 +507,99 @@ else
 
     private Task ToggleHiddenAsync() =>
         ApplyAsync(_query with { IncludeHidden = !_query.IncludeHidden });
+
+    private Task ToggleStandaloneAsync() =>
+        ApplyAsync(_query with { StandaloneOnly = !_query.StandaloneOnly });
+
+    private int? RelatedCount(int animeId) =>
+        _relatedCounts.TryGetValue(animeId, out var count) ? count : null;
+
+    private bool IsExpanded(int animeId) => _expanded.Contains(animeId);
+
+    private static string RelatedRowId(int animeId) => $"related-{animeId}";
+
+    /// <summary>
+    /// Opens or closes a row's relatives, fetching them the first time.
+    /// </summary>
+    /// <remarks>
+    /// Cached for as long as the page lasts, which is until any reload clears it.
+    /// Collapsing and reopening the same row is a common way to compare two of
+    /// them, and re-querying for it would make the second look slower than the
+    /// first for no reason.
+    ///
+    /// Not routed through <see cref="BusyScope"/>: this is one small indexed read
+    /// against a row already on screen, and a modal covering the page to report it
+    /// would be far more disruptive than the wait it describes.
+    /// </remarks>
+    private async Task ToggleRelatedAsync(int animeId)
+    {
+        if (!_expanded.Add(animeId))
+        {
+            _expanded.Remove(animeId);
+            return;
+        }
+
+        if (_relations.ContainsKey(animeId))
+        {
+            return;
+        }
+
+        _relations[animeId] = await RelationService.GetRelatedAsync(Profile.DefaultProfileId, animeId);
+    }
+
+    /// <summary>
+    /// The accessible name of a chevron, which has to say whose relatives and how
+    /// many — "expand", announced fifty times down a table, says neither.
+    /// </summary>
+    private static string RelatedLabel(LibraryListItem item, int count, bool expanded)
+    {
+        var verb = expanded ? "Hide" : "Show";
+
+        return count == 1
+            ? $"{verb} the one related title you own for {item.Title}"
+            : $"{verb} the {count} related titles you own for {item.Title}";
+    }
+
+    /// <summary>
+    /// The trailing detail on a relative: type, year, runtime, and progress where
+    /// there is any. Absent parts are dropped rather than dashed — an expansion is
+    /// prose beside a table, and a run of em dashes in it reads as damage.
+    /// </summary>
+    private static string RelativeMeta(RelatedTitle relative)
+    {
+        var parts = new List<string>(4);
+
+        if (relative.MediaType != MediaType.Unknown)
+        {
+            parts.Add(MediaTypeLabel(relative.MediaType));
+        }
+
+        if (relative.ReleaseYear is { } year)
+        {
+            parts.Add(year.ToString(CultureInfo.InvariantCulture));
+        }
+
+        if (RuntimeCalculator.Format(relative.EstimatedRuntimeMinutes) is { } runtime)
+        {
+            parts.Add(runtime);
+        }
+
+        if (relative.EpisodesWatched > 0)
+        {
+            parts.Add(relative.EpisodeCount is { } total
+                ? $"{relative.EpisodesWatched} / {total} watched"
+                : $"{relative.EpisodesWatched} watched");
+        }
+
+        return string.Join(" · ", parts);
+    }
+
+    /// <summary>
+    /// How wide an expansion has to stretch. Derived rather than written down,
+    /// because a hard-coded number is a colspan that silently goes wrong the next
+    /// time a column is added.
+    /// </summary>
+    private int ColumnCount => Facets is { HasRecommendations: true } ? 10 : 9;
 
     private void ToggleSelection(int animeId)
     {
@@ -456,7 +677,7 @@ else
         // Facets are refreshed too: hiding the last hidden entry, or priorities
         // appearing for the first time, changes which controls should be offered.
         Facets = await LibraryService.GetFacetsAsync(Profile.DefaultProfileId);
-        Page = await LibraryService.GetPageAsync(Profile.DefaultProfileId, _query);
+        await LoadPageAsync();
     }
 
     /// <summary>

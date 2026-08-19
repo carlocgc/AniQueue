@@ -36,7 +36,7 @@ public sealed class LibraryService(
 
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
 
-        var filtered = ApplyFilters(context.LibraryEntries.AsNoTracking(), profileId, query);
+        var filtered = ApplyFilters(context, context.LibraryEntries.AsNoTracking(), profileId, query);
         var total = await filtered.CountAsync(cancellationToken);
 
         // Loaded once for the page rather than joined per row: the queue is small
@@ -164,6 +164,14 @@ public sealed class LibraryService(
             HasUnrankedEntries = await entries.AnyAsync(e => e.RecommendationScore == null, cancellationToken),
             HasUserScores = await entries.AnyAsync(e => e.UserScore != null, cancellationToken),
             HasHiddenEntries = await entries.AnyAsync(e => e.IsHidden, cancellationToken),
+
+            // Asked of the graph rather than of the library, and not narrowed to
+            // owned titles: it is the same population the filter reads, so the chip
+            // appears exactly when pressing it could change the list.
+            HasSequelEdges = await context.AnimeRelations.AnyAsync(
+                r => r.RelationType == RelationType.Prequel || r.RelationType == RelationType.Sequel,
+                cancellationToken),
+
             CountByStatus = countByStatus
         };
     }
@@ -233,6 +241,7 @@ public sealed class LibraryService(
     }
 
     private static IQueryable<LibraryEntry> ApplyFilters(
+        AniQueueDbContext context,
         IQueryable<LibraryEntry> source,
         int profileId,
         LibraryQuery query)
@@ -298,6 +307,28 @@ public sealed class LibraryService(
             filtered = source1 == AnimeSource.Manual
                 ? filtered.Where(e => !e.Anime!.ExternalIds.Any())
                 : filtered.Where(e => e.Anime!.ExternalIds.Any(x => x.Source == source1));
+        }
+
+        if (query.StandaloneOnly)
+        {
+            // An indexed EXISTS in both directions, which is the whole cost of it:
+            // an edge is stored exactly as fetched (D24), so a title with a sequel
+            // may be named at either end of the row that says so.
+            //
+            // Both halves of the OR are covered — the unique index leads on
+            // ExternalId, the reverse index on RelatedExternalId — so this stays a
+            // pair of index lookups rather than the scan the shape suggests.
+            //
+            // Counted over every edge rather than only owned ones, deliberately.
+            // "Can I watch this on its own tonight" is a question about the show,
+            // and answering it from what the library happens to contain would call a
+            // series standalone until its second season was imported.
+            filtered = filtered.Where(e => !e.Anime!.ExternalIds.Any(x =>
+                x.Source == AnimeSource.AniList
+                && context.AnimeRelations.Any(r =>
+                    r.Source == AnimeSource.AniList
+                    && (r.RelationType == RelationType.Prequel || r.RelationType == RelationType.Sequel)
+                    && (r.ExternalId == x.ExternalId || r.RelatedExternalId == x.ExternalId))));
         }
 
         if (query.MinUserScore is { } minScore)

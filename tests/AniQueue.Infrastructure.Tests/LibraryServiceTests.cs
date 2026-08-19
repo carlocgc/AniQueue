@@ -323,6 +323,124 @@ public class LibraryServiceTests
         Assert.False(facets.HasRuntimeData);
     }
 
+    /// <summary>
+    /// The surviving half of the brief's franchise/standalone pair, redefined by
+    /// D24 as "no prequel and no sequel edge at all".
+    /// </summary>
+    /// <remarks>
+    /// The edge is stored exactly as the source stated it, so a title with a sequel
+    /// may be named at <i>either</i> end of the row that says so — which is why the
+    /// filter looks at both columns, and why both directions are asserted here
+    /// rather than one being assumed to imply the other.
+    /// </remarks>
+    [Fact]
+    public async Task Standalone_excludes_a_title_at_either_end_of_a_sequel_edge()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+
+        await using (var context = fixture.Database.CreateContext())
+        {
+            await AddAsync(context, "Season one", source: AnimeSource.AniList, sourceId: "100");
+            await AddAsync(context, "Season two", source: AnimeSource.AniList, sourceId: "200");
+            await AddAsync(context, "A film", source: AnimeSource.AniList, sourceId: "300");
+
+            // Written once, from season one's perspective, exactly as the backfill
+            // stores it. Both titles are disqualified by it.
+            await RelateAsync(context, "100", RelationType.Sequel, "200");
+
+            // A recap is not a commitment: only PREQUEL and SEQUEL disqualify.
+            await RelateAsync(context, "300", RelationType.Summary, "400");
+        }
+
+        var page = await fixture.Library.GetPageAsync(
+            Profile.DefaultProfileId,
+            new LibraryQuery { StandaloneOnly = true });
+
+        Assert.Equal("A film", Assert.Single(page.Items).Title);
+    }
+
+    /// <summary>
+    /// Counted over every edge rather than only owned ones. A series whose later
+    /// seasons the user does not own is still a series, and answering a question
+    /// about the show from what the library happens to contain would call it
+    /// standalone until season two was imported.
+    /// </summary>
+    [Fact]
+    public async Task Standalone_counts_sequels_the_library_does_not_own()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+
+        await using (var context = fixture.Database.CreateContext())
+        {
+            await AddAsync(context, "Season one", source: AnimeSource.AniList, sourceId: "100");
+            await RelateAsync(context, "100", RelationType.Sequel, "999");
+        }
+
+        var page = await fixture.Library.GetPageAsync(
+            Profile.DefaultProfileId,
+            new LibraryQuery { StandaloneOnly = true });
+
+        Assert.Empty(page.Items);
+    }
+
+    [Fact]
+    public async Task The_standalone_filter_is_offered_only_once_the_graph_can_answer_it()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+
+        await using (var context = fixture.Database.CreateContext())
+        {
+            await AddAsync(context, "Season one", source: AnimeSource.AniList, sourceId: "100");
+        }
+
+        // Nothing has been fetched yet, so the filter would match every row — a
+        // control that appears to work and changes nothing, which reads as "my whole
+        // library is standalone".
+        Assert.False((await fixture.Library.GetFacetsAsync(Profile.DefaultProfileId)).HasSequelEdges);
+
+        await using (var context = fixture.Database.CreateContext())
+        {
+            await RelateAsync(context, "100", RelationType.Sequel, "200");
+        }
+
+        Assert.True((await fixture.Library.GetFacetsAsync(Profile.DefaultProfileId)).HasSequelEdges);
+    }
+
+    /// <summary>
+    /// A side story is not a continuation, so a graph made only of those leaves the
+    /// standalone filter with nothing to exclude and the chip unoffered.
+    /// </summary>
+    [Fact]
+    public async Task Relations_that_are_not_continuations_do_not_offer_the_filter()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+
+        await using (var context = fixture.Database.CreateContext())
+        {
+            await AddAsync(context, "A series", source: AnimeSource.AniList, sourceId: "100");
+            await RelateAsync(context, "100", RelationType.SideStory, "200");
+        }
+
+        Assert.False((await fixture.Library.GetFacetsAsync(Profile.DefaultProfileId)).HasSequelEdges);
+    }
+
+    private static async Task RelateAsync(
+        AniQueueDbContext context,
+        string externalId,
+        RelationType type,
+        string relatedExternalId)
+    {
+        context.AnimeRelations.Add(new AnimeRelation
+        {
+            Source = AnimeSource.AniList,
+            ExternalId = externalId,
+            RelationType = type,
+            RelatedExternalId = relatedExternalId
+        });
+
+        await context.SaveChangesAsync();
+    }
+
     [Fact]
     public async Task Hiding_is_reversible_and_keeps_the_entry()
     {
