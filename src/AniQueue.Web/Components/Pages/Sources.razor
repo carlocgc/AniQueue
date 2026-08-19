@@ -135,12 +135,39 @@
                application doing its job. What it does answer is the question a user
                with a new library actually asks — why some rows have no related
                titles yet. *@
-            @if (status.Source == AnimeSource.AniList && _relations is { IsComplete: false, Total: > 0 } coverage)
+            @if (status.Source == AnimeSource.AniList && _relations is { Total: > 0 } coverage)
             {
-                <p class="muted">
-                    Related titles known for @coverage.Known of @coverage.Total titles.
-                    The rest fill in on their own.
-                </p>
+                <div class="toolbar">
+                    @* Stated before it is pressed, because "refresh" is otherwise a
+                       button with no visible effect: relations rarely change, so the
+                       honest outcome of most presses is that nothing happens. *@
+                    <span class="muted">
+                        @if (coverage.IsComplete)
+                        {
+                            <text>
+                                Related titles known for all @coverage.Total titles, and re-read
+                                every 30 days. Refresh if you know something has changed.
+                            </text>
+                        }
+                        else
+                        {
+                            <text>
+                                Related titles known for @coverage.Known of @coverage.Total titles.
+                                The rest fill in on their own.
+                            </text>
+                        }
+                    </span>
+
+                    <button disabled="@(_busy.IsRunning || !CanSync(status))"
+                            @onclick="RefreshRelationsAsync">
+                        Refresh related titles
+                    </button>
+                </div>
+
+                @if (_refreshed is { } refreshed)
+                {
+                    <div class="notice success" role="status">@RefreshText(refreshed)</div>
+                }
             }
         }
 
@@ -333,6 +360,7 @@
     private SyncApplyResult? _applied;
     private TitleLanguage _titleLanguage;
     private RelationCoverage? _relations;
+    private RelationBackfillResult? _refreshed;
     private bool _nothingToDo;
     private string? _error;
 
@@ -511,5 +539,62 @@
         _applied = null;
         _nothingToDo = false;
         _error = null;
+        _refreshed = null;
     }
+
+    /// <summary>
+    /// Forgets every answer and asks again, now.
+    /// </summary>
+    /// <remarks>
+    /// The only user-triggered path into any of the relation machinery. It exists
+    /// because the automatic answer is deliberately slow — thirty days — and
+    /// somebody who has just seen a sequel announced should not have to wait that
+    /// long for the application to notice.
+    ///
+    /// A full pass is roughly fifteen requests spread two seconds apart, so this is
+    /// half a minute of waiting. Run behind the busy dialog with a count rather than
+    /// in the background, because a button whose effect is invisible for half a
+    /// minute reads as a button that did not work.
+    /// </remarks>
+    private async Task RefreshRelationsAsync()
+    {
+        Reset();
+
+        _refreshed = await _busy.RunAsync(
+            "Reading related titles",
+            progress => RelationBackfill.RefreshAsync(RefreshRequestCeiling, progress));
+
+        _relations = await RelationBackfill.GetCoverageAsync();
+    }
+
+    /// <summary>
+    /// Enough requests for a library several times the size of a realistic one, so
+    /// the button normally finishes what it started.
+    /// </summary>
+    /// <remarks>
+    /// Higher than the background job's ceiling on purpose: that one is spending a
+    /// tick it shares with nothing, while this one has somebody watching a dialog
+    /// and expecting it to be over when the dialog closes.
+    /// </remarks>
+    private const int RefreshRequestCeiling = 60;
+
+    private static string RefreshText(RelationBackfillResult result) => result switch
+    {
+        { FailureReason: { } reason } => $"Stopped after {result.Requested} titles: {reason}",
+
+        // The common outcome, and worth saying plainly rather than leaving the page
+        // looking as though nothing happened. Relations change rarely; that is the
+        // feature working, not the button failing.
+        { ChangedAnything: false } => $"Re-read {result.Requested} titles. Nothing had changed.",
+
+        { EdgesRemoved: 0 } => $"Re-read {result.Requested} titles and found {result.EdgesWritten} new "
+            + $"{(result.EdgesWritten == 1 ? "relation" : "relations")}.",
+
+        { EdgesWritten: 0 } => $"Re-read {result.Requested} titles. {result.EdgesRemoved} "
+            + $"{(result.EdgesRemoved == 1 ? "relation is" : "relations are")} no longer published and "
+            + $"{(result.EdgesRemoved == 1 ? "was" : "were")} removed.",
+
+        _ => $"Re-read {result.Requested} titles: {result.EdgesWritten} new, "
+            + $"{result.EdgesRemoved} no longer published."
+    };
 }

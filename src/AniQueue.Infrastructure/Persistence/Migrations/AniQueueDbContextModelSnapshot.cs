@@ -98,7 +98,7 @@ namespace AniQueue.Infrastructure.Persistence.Migrations
                     b.Property<DateTimeOffset?>("MissingFromSourceAt")
                         .HasColumnType("TEXT");
 
-                    b.Property<DateTimeOffset?>("RelationsFetchedAt")
+                    b.Property<DateTime?>("RelationsFetchedAt")
                         .HasColumnType("TEXT");
 
                     b.Property<int>("Source")

@@ -1,4 +1,5 @@
 using AniQueue.Core.Domain;
+using AniQueue.Core.Progress;
 using AniQueue.Core.Sync;
 using AniQueue.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
@@ -41,6 +42,29 @@ public sealed class RelationBackfillService(
     /// </remarks>
     private const AnimeSource Source = AnimeSource.AniList;
 
+    /// <summary>
+    /// How long an answer is trusted before the title is asked about again.
+    /// </summary>
+    /// <remarks>
+    /// Relations are near-static but not static: editors reclassify a side story as
+    /// a spin-off, add a recap film's link, or correct an edge that was wrong. The
+    /// case a refresh exists for is <b>both ends already owned</b> — a brand new
+    /// sequel needs no refresh at all, because it arrives as a new title with no
+    /// marker and its own edges point back at what it follows.
+    ///
+    /// Thirty days rather than seven, and fixed rather than configurable. The graph
+    /// changes on the timescale of production announcements, and "how often should
+    /// relation metadata be re-read" is a question nobody has an opinion about — a
+    /// setting for it would be a control that is never touched and a migration to
+    /// carry it. The button on the Sources page covers impatience.
+    ///
+    /// Deliberately <i>not</i> narrowed to titles still airing, which would cut the
+    /// population by most of it: the interesting case is a finished show from 2005
+    /// gaining a sequel announced in 2026, and status-based targeting misses exactly
+    /// that.
+    /// </remarks>
+    public static readonly TimeSpan StaleAfter = TimeSpan.FromDays(30);
+
     private readonly TimeProvider _time = timeProvider ?? TimeProvider.System;
 
     public async Task<RelationCoverage> GetCoverageAsync(CancellationToken cancellationToken = default)
@@ -61,8 +85,29 @@ public sealed class RelationBackfillService(
         return new RelationCoverage(known, total);
     }
 
+    public async Task<RelationBackfillResult> RefreshAsync(
+        int maxRequests,
+        IProgress<OperationProgress>? progress = null,
+        CancellationToken cancellationToken = default)
+    {
+        // Forgetting the markers is the whole of it: everything downstream already
+        // knows how to ask about a title with no answer, so a refresh is the
+        // ordinary pass over a library that has just become entirely unanswered.
+        await using (var context = await contextFactory.CreateDbContextAsync(cancellationToken))
+        {
+            await context.AnimeExternalIds
+                .Where(x => x.Source == Source)
+                .ExecuteUpdateAsync(
+                    s => s.SetProperty(x => x.RelationsFetchedAt, (DateTime?)null),
+                    cancellationToken);
+        }
+
+        return await RunAsync(maxRequests, progress, cancellationToken);
+    }
+
     public async Task<RelationBackfillResult> RunAsync(
         int maxRequests,
+        IProgress<OperationProgress>? progress = null,
         CancellationToken cancellationToken = default)
     {
         if (maxRequests <= 0)
@@ -79,9 +124,20 @@ public sealed class RelationBackfillService(
             return RelationBackfillResult.Idle;
         }
 
+        var outstanding = await OutstandingAsync(cancellationToken);
+
+        if (outstanding == 0)
+        {
+            return RelationBackfillResult.Idle;
+        }
+
+        const string Message = "Reading related titles";
+        progress?.Report(new OperationProgress(Message, 0, outstanding));
+
         var requested = 0;
         var answered = 0;
         var edges = 0;
+        var removed = 0;
 
         // What the last response said about the budget. Local to the visit: a
         // remaining count is a fact about a window that has long since rolled over
@@ -125,7 +181,7 @@ public sealed class RelationBackfillService(
                     requested,
                     fetch.FailureReason);
 
-                return new RelationBackfillResult(requested, answered, edges, fetch.FailureReason);
+                return new RelationBackfillResult(requested, answered, edges, removed, fetch.FailureReason);
             }
 
             var parsed = AniListRelationsParser.Parse(fetch.Payload);
@@ -137,42 +193,81 @@ public sealed class RelationBackfillService(
                     requested,
                     parsed.FailureReason);
 
-                return new RelationBackfillResult(requested, answered, edges, parsed.FailureReason);
+                return new RelationBackfillResult(requested, answered, edges, removed, parsed.FailureReason);
             }
+
+            var applied = await ApplyAsync(batch, parsed.Titles, cancellationToken);
 
             requested += batch.Count;
             answered += parsed.Titles.Count;
-            edges += await ApplyAsync(batch, parsed.Titles, cancellationToken);
+            edges += applied.Written;
+            removed += applied.Removed;
+
+            progress?.Report(new OperationProgress(Message, requested, outstanding));
         }
 
         if (requested > 0)
         {
             logger.LogInformation(
-                "Relation backfill asked about {Requested} titles and stored {Edges} edge(s)",
+                "Relation backfill asked about {Requested} titles, stored {Edges} and removed {Removed} edge(s)",
                 requested,
-                edges);
+                edges,
+                removed);
         }
 
-        return new RelationBackfillResult(requested, answered, edges);
+        return new RelationBackfillResult(requested, answered, edges, removed);
     }
 
     /// <summary>
-    /// The next titles nobody has asked about.
+    /// How many titles are waiting to be asked about, so progress has a denominator.
     /// </summary>
     /// <remarks>
-    /// Ordered by key so a run that is interrupted resumes where it stopped rather
-    /// than re-drawing an arbitrary slice, and unfiltered by library status: a
-    /// completed prequel has to be displayable as somebody else's relative, so its
-    /// edges are as necessary as a planned title's.
+    /// Counted once at the start rather than recomputed per batch. It goes out of
+    /// date as the pass commits — which is the point, since a bar that recounted its
+    /// own remaining work would never move.
+    /// </remarks>
+    private async Task<int> OutstandingAsync(CancellationToken cancellationToken)
+    {
+        await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
+
+        var staleBefore = (_time.GetUtcNow() - StaleAfter).UtcDateTime;
+
+        return await context.AnimeExternalIds
+            .AsNoTracking()
+            .CountAsync(
+                x => x.Source == Source
+                    && (x.RelationsFetchedAt == null || x.RelationsFetchedAt < staleBefore),
+                cancellationToken);
+    }
+
+    /// <summary>
+    /// The next titles to ask about: never asked first, then anything whose answer
+    /// has gone stale.
+    /// </summary>
+    /// <remarks>
+    /// Unfiltered by library status, because a completed prequel has to be
+    /// displayable as somebody else's relative — its edges are as necessary as a
+    /// planned title's.
+    ///
+    /// <b>Never ordered by the marker itself.</b> SQLite cannot <c>ORDER BY</c> a
+    /// <c>DateTimeOffset</c>: EF stores it as text with an offset and throws at query
+    /// time rather than returning a wrong order (§8). Sorting on <i>whether</i> it is
+    /// null is a boolean and translates fine, which is all the ordering this needs —
+    /// within either group the key is an arbitrary but stable tiebreak, and a stale
+    /// title that gets refreshed stops being eligible, so nothing starves.
     /// </remarks>
     private async Task<List<string>> NextBatchAsync(CancellationToken cancellationToken)
     {
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
 
+        var staleBefore = (_time.GetUtcNow() - StaleAfter).UtcDateTime;
+
         return await context.AnimeExternalIds
             .AsNoTracking()
-            .Where(x => x.Source == Source && x.RelationsFetchedAt == null)
-            .OrderBy(x => x.Id)
+            .Where(x => x.Source == Source
+                && (x.RelationsFetchedAt == null || x.RelationsFetchedAt < staleBefore))
+            .OrderBy(x => x.RelationsFetchedAt != null)
+            .ThenBy(x => x.Id)
             .Select(x => x.ExternalId)
             .Take(AniListClient.MaxRelationIdsPerRequest)
             .ToListAsync(cancellationToken);
@@ -187,7 +282,7 @@ public sealed class RelationBackfillService(
     /// design wants: partial progress is progress, because the marker makes
     /// resumption free.
     /// </remarks>
-    private async Task<int> ApplyAsync(
+    private async Task<(int Written, int Removed)> ApplyAsync(
         IReadOnlyCollection<string> asked,
         IReadOnlyList<ParsedRelations> titles,
         CancellationToken cancellationToken)
@@ -195,7 +290,7 @@ public sealed class RelationBackfillService(
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
         await using var transaction = await context.Database.BeginTransactionAsync(cancellationToken);
 
-        var now = _time.GetUtcNow();
+        var now = _time.GetUtcNow().UtcDateTime;
         var written = 0;
 
         // Read once for the batch rather than per edge. Fifty titles produce a few
@@ -203,12 +298,39 @@ public sealed class RelationBackfillService(
         // beats several hundred round trips to discover that nothing has changed.
         var existing = await context.AnimeRelations
             .Where(r => r.Source == Source && asked.Contains(r.ExternalId))
-            .Select(r => new { r.ExternalId, r.RelationType, r.RelatedExternalId })
             .ToListAsync(cancellationToken);
 
         var known = existing
             .Select(r => (r.ExternalId, r.RelationType, r.RelatedExternalId))
             .ToHashSet();
+
+        // What the source published this time, for the titles it published anything
+        // about. This is what makes a refresh worth doing: without it the pass could
+        // only ever add, so an edge AniList corrected or withdrew would be confirmed
+        // rather than removed, and re-asking would achieve less than half its purpose.
+        var stated = titles
+            .SelectMany(t => t.Relations.Select(r => (t.ExternalId, r.Type, r.RelatedExternalId)))
+            .ToHashSet();
+
+        var answered = titles.Select(t => t.ExternalId).ToHashSet();
+
+        // Scoped exactly as D19 scopes absence: the source's silence is authoritative
+        // only where it spoke. A title this response did not mention keeps every edge
+        // it had — the batch may simply not have covered it, and deleting on that
+        // basis would be reading a gap as a statement.
+        var withdrawn = existing
+            .Where(r => answered.Contains(r.ExternalId)
+                && !stated.Contains((r.ExternalId, r.RelationType, r.RelatedExternalId)))
+            .ToList();
+
+        if (withdrawn.Count > 0)
+        {
+            logger.LogInformation(
+                "{Count} relation(s) are no longer published and were removed",
+                withdrawn.Count);
+
+            context.AnimeRelations.RemoveRange(withdrawn);
+        }
 
         foreach (var title in titles)
         {
@@ -275,6 +397,6 @@ public sealed class RelationBackfillService(
         await context.SaveChangesAsync(cancellationToken);
         await transaction.CommitAsync(cancellationToken);
 
-        return written;
+        return (written, withdrawn.Count);
     }
 }

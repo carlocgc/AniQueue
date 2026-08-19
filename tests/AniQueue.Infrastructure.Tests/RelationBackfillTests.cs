@@ -77,7 +77,14 @@ public class RelationBackfillTests
     /// </remarks>
     private sealed class ImmediateTimeProvider : TimeProvider
     {
+        private DateTimeOffset _now = DateTimeOffset.UtcNow;
+
         public List<TimeSpan> Waits { get; } = [];
+
+        public override DateTimeOffset GetUtcNow() => _now;
+
+        /// <summary>Moves the clock, which is how a test ages an answer past its cutoff.</summary>
+        public void Advance(TimeSpan by) => _now += by;
 
         public override ITimer CreateTimer(TimerCallback callback, object? state, TimeSpan dueTime, TimeSpan period)
         {
@@ -268,7 +275,7 @@ public class RelationBackfillTests
         await using (var context = fixture.Database.CreateContext())
         {
             await context.AnimeExternalIds.ExecuteUpdateAsync(
-                s => s.SetProperty(x => x.RelationsFetchedAt, (DateTimeOffset?)null));
+                s => s.SetProperty(x => x.RelationsFetchedAt, (DateTime?)null));
         }
 
         var second = await fixture.Backfill.RunAsync(maxRequests: 1);
@@ -432,6 +439,141 @@ public class RelationBackfillTests
         }
 
         var result = await fixture.Backfill.RunAsync(maxRequests: 1);
+
+        Assert.False(result.DidWork);
+        Assert.Empty(client.Requests);
+    }
+
+    // --- Re-reading (the 30-day refresh) ---------------------------------
+
+    [Fact]
+    public async Task An_answer_is_re_read_once_it_has_gone_stale()
+    {
+        // The case a refresh exists for is both ends already owned: a relation added
+        // or corrected between two titles the library already has. A new sequel needs
+        // no refresh, because it arrives as a new title whose own edges point back.
+        var client = new StubRelationClient(Response(("100", "")));
+        await using var fixture = await Fixture.CreateAsync(client);
+
+        await fixture.SeedAsync("100");
+        await fixture.Backfill.RunAsync(maxRequests: 1);
+
+        Assert.Single(client.Requests);
+
+        // A day short of the cutoff is still trusted.
+        fixture.Time.Advance(RelationBackfillService.StaleAfter - TimeSpan.FromDays(1));
+        await fixture.Backfill.RunAsync(maxRequests: 1);
+
+        Assert.Single(client.Requests);
+
+        fixture.Time.Advance(TimeSpan.FromDays(2));
+        await fixture.Backfill.RunAsync(maxRequests: 1);
+
+        Assert.Equal(2, client.Requests.Count);
+    }
+
+    [Fact]
+    public async Task A_relation_the_source_no_longer_publishes_is_removed()
+    {
+        // Without this the pass could only ever add, so a corrected or withdrawn edge
+        // would be confirmed rather than removed — and re-reading would achieve less
+        // than half of what it is for.
+        var client = new StubRelationClient(
+            Response(("100", $"{Edge("SEQUEL", "200")},{Edge("SIDE_STORY", "300")}")),
+            Response(("100", Edge("SEQUEL", "200"))));
+
+        await using var fixture = await Fixture.CreateAsync(client);
+
+        await fixture.SeedAsync("100");
+        await fixture.Backfill.RunAsync(maxRequests: 1);
+
+        Assert.Equal(2, (await fixture.RelationsAsync()).Count);
+
+        fixture.Time.Advance(RelationBackfillService.StaleAfter + TimeSpan.FromDays(1));
+        var second = await fixture.Backfill.RunAsync(maxRequests: 1);
+
+        Assert.Equal(0, second.EdgesWritten);
+        Assert.Equal(1, second.EdgesRemoved);
+
+        var remaining = Assert.Single(await fixture.RelationsAsync());
+        Assert.Equal("200", remaining.RelatedExternalId);
+    }
+
+    [Fact]
+    public async Task A_title_the_response_did_not_mention_keeps_every_edge_it_had()
+    {
+        // D19's scoping, applied to edges: the source's silence is authoritative only
+        // where it spoke. A batch that simply did not cover a title is a gap, not a
+        // statement, and deleting on that basis would read one as the other.
+        var client = new StubRelationClient(
+            Response(("100", Edge("SEQUEL", "200")), ("101", Edge("SEQUEL", "201"))),
+            Response(("100", Edge("SEQUEL", "200"))));
+
+        await using var fixture = await Fixture.CreateAsync(client);
+
+        await fixture.SeedAsync("100", "101");
+        await fixture.Backfill.RunAsync(maxRequests: 1);
+
+        fixture.Time.Advance(RelationBackfillService.StaleAfter + TimeSpan.FromDays(1));
+        var second = await fixture.Backfill.RunAsync(maxRequests: 1);
+
+        Assert.Equal(0, second.EdgesRemoved);
+        Assert.Equal(2, (await fixture.RelationsAsync()).Count);
+    }
+
+    [Fact]
+    public async Task A_failed_re_read_removes_nothing()
+    {
+        var client = new StubRelationClient(Response(("100", Edge("SEQUEL", "200"))));
+        await using var fixture = await Fixture.CreateAsync(client);
+
+        await fixture.SeedAsync("100");
+        await fixture.Backfill.RunAsync(maxRequests: 1);
+
+        fixture.Time.Advance(RelationBackfillService.StaleAfter + TimeSpan.FromDays(1));
+        client.FailWith = "AniList could not be reached.";
+
+        var second = await fixture.Backfill.RunAsync(maxRequests: 1);
+
+        Assert.NotNull(second.FailureReason);
+        Assert.Equal(0, second.EdgesRemoved);
+        Assert.Single(await fixture.RelationsAsync());
+    }
+
+    [Fact]
+    public async Task Refreshing_forgets_every_answer_and_asks_again_now()
+    {
+        // The one user-triggered path. Somebody who has just seen a sequel announced
+        // should not have to wait a month for the application to notice.
+        var client = new StubRelationClient(Response(("100", Edge("SEQUEL", "200"))));
+        await using var fixture = await Fixture.CreateAsync(client);
+
+        await fixture.SeedAsync("100");
+        await fixture.Backfill.RunAsync(maxRequests: 1);
+
+        Assert.Single(client.Requests);
+
+        // No clock movement at all: the point is that it does not wait for staleness.
+        var refreshed = await fixture.Backfill.RefreshAsync(maxRequests: 4);
+
+        Assert.Equal(2, client.Requests.Count);
+        Assert.Equal(1, refreshed.Requested);
+        Assert.False(refreshed.ChangedAnything);
+        Assert.Empty(await fixture.UnfetchedAsync());
+    }
+
+    [Fact]
+    public async Task A_pass_with_nothing_to_do_reports_progress_to_nobody()
+    {
+        // Guards the denominator: reporting "0 of 0" would render a progress bar for
+        // an operation that never starts.
+        var client = new StubRelationClient(Response(("100", "")));
+        await using var fixture = await Fixture.CreateAsync(client);
+
+        var reports = new List<int?>();
+        var progress = new Progress<AniQueue.Core.Progress.OperationProgress>(p => reports.Add(p.Total));
+
+        var result = await fixture.Backfill.RunAsync(maxRequests: 1, progress);
 
         Assert.False(result.DidWork);
         Assert.Empty(client.Requests);

@@ -1,4 +1,5 @@
 using AniQueue.Core.Domain;
+using AniQueue.Core.Progress;
 
 namespace AniQueue.Core.Sync;
 
@@ -6,16 +7,23 @@ namespace AniQueue.Core.Sync;
 /// <param name="Requested">Titles asked about.</param>
 /// <param name="Answered">Titles the source answered for. Fewer than requested when it dropped some.</param>
 /// <param name="EdgesWritten">New edges stored. Zero is the steady state, and also the common one.</param>
+/// <param name="EdgesRemoved">
+/// Edges the source no longer publishes, for titles it did publish something about.
+/// Only ever non-zero on a re-read, which is the reason re-reading is worth doing.
+/// </param>
 /// <param name="FailureReason">Null when every request completed.</param>
 public sealed record RelationBackfillResult(
     int Requested,
     int Answered,
     int EdgesWritten,
+    int EdgesRemoved = 0,
     string? FailureReason = null)
 {
     public static RelationBackfillResult Idle { get; } = new(0, 0, 0);
 
     public bool DidWork => Requested > 0;
+
+    public bool ChangedAnything => EdgesWritten > 0 || EdgesRemoved > 0;
 }
 
 /// <summary>
@@ -57,7 +65,29 @@ public interface IRelationBackfill
     /// A ceiling on requests in one visit, so a first run against a large library
     /// spreads over several rather than holding one open for minutes.
     /// </param>
-    Task<RelationBackfillResult> RunAsync(int maxRequests, CancellationToken cancellationToken = default);
+    Task<RelationBackfillResult> RunAsync(
+        int maxRequests,
+        IProgress<OperationProgress>? progress = null,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Re-reads everything now, rather than waiting for it to go stale.
+    /// </summary>
+    /// <remarks>
+    /// The one user-triggered path into any of this, and it exists because the
+    /// automatic answer is deliberately slow: a relation added between two titles
+    /// the user already owns is invisible until its answer expires, and somebody who
+    /// knows a sequel was just announced should not have to wait a month to see it.
+    ///
+    /// It forgets every marker and asks again, so what it costs is a full pass — the
+    /// same fifteen-odd requests the first run made. A library larger than one visit
+    /// finishes in the background, which is why this returns what it managed rather
+    /// than promising completeness.
+    /// </remarks>
+    Task<RelationBackfillResult> RefreshAsync(
+        int maxRequests,
+        IProgress<OperationProgress>? progress = null,
+        CancellationToken cancellationToken = default);
 
     /// <summary>How much is known, for display. Two counts, both from the database.</summary>
     Task<RelationCoverage> GetCoverageAsync(CancellationToken cancellationToken = default);

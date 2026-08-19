@@ -11,7 +11,7 @@ namespace AniQueue.Infrastructure.Persistence.Migrations
         /// <inheritdoc />
         protected override void Up(MigrationBuilder migrationBuilder)
         {
-            migrationBuilder.AddColumn<DateTimeOffset>(
+            migrationBuilder.AddColumn<DateTime>(
                 name: "RelationsFetchedAt",
                 table: "AnimeExternalIds",
                 type: "TEXT",

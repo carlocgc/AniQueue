@@ -1714,10 +1714,31 @@ It runs as a second `IBackgroundJob`, which is what that interface was written f
 `Sync:Enabled` kill switch**, being unattended outbound traffic, and it **degrades silently**
 (D25): a count on the Sources page, no `SyncRun` rows, no banner.
 
-**No automatic re-fetch**, and the reason it is safe: a new season arrives as a *new* title with
-no marker, gets fetched, and its own edges point back at the older seasons — which the reverse
-index already finds. The only gap is AniList adding an edge between two titles already held on
-both sides, which a manual refresh can answer later.
+**A new season needs no re-fetch**, and that is worth stating because it is the case everyone
+assumes is the problem: a new season arrives as a *new* title with no marker, gets fetched, and
+its own edges point back at the older seasons — which the reverse index already finds.
+
+**What does need re-reading is both ends already owned:** a relation added or corrected between
+two titles the library already holds. Editors reclassify a side story as a spin-off, add a recap
+film's link, or fix an edge that was wrong. So an answer **expires after thirty days** and the
+title re-enters the same lazy pass, oldest-unanswered first.
+
+Thirty days, and **fixed rather than configurable**. The graph changes on the timescale of
+production announcements, and "how often should relation metadata be re-read" is a question
+nobody has an opinion about or evidence for — a setting would be a control nobody touches and a
+migration to carry it. A **Refresh related titles** button on the Sources page covers impatience,
+and is the only user-triggered path into any of this.
+
+**Re-reading forces reconciliation, and that is not optional.** The first pass could only ever
+add, so a refresh that also only added would *confirm* a withdrawn edge rather than remove it —
+achieving less than half of what re-reading is for. Edges the source no longer publishes are
+deleted, scoped exactly as D19 scopes absence: **only for titles the response actually spoke
+about.** A title a batch did not mention keeps everything it had, because a gap is not a
+statement.
+
+Deliberately **not** narrowed to titles still airing, which would cut the population by most of
+it: the interesting case is a finished show from 2005 gaining a sequel announced in 2026, and
+status-based targeting misses exactly that.
 
 **Scope is every owned title carrying an AniList id**, whatever its status: a Completed prequel
 has to be displayable as a relative. A MyAnimeList-only library reaches none of this until
@@ -1928,6 +1949,10 @@ Phase 6 adds:
 - **The backfill's laziness.** A title with no edges is still marked and never refetched; a
   second run writes no duplicates; the kill switch stops it; batching splits at 50; pacing is
   arithmetic over `TimeProvider`, so no test sleeps.
+- **Re-reading, and what it is allowed to delete.** An answer a day short of thirty days is still
+  trusted and one a day past it is not; an edge the source no longer publishes is removed; an
+  edge belonging to a title the response never mentioned is kept; a failed re-read deletes
+  nothing at all. The clock is moved by a stub rather than waited on.
 - **What an expansion shows.** Counts exclude hidden entries and include every other status;
   only owned relatives are counted, so the badge never promises more than it opens; ordering is
   by release date with unknowns last; a relation read from the far end is inverted; nothing is
@@ -1938,11 +1963,21 @@ Phase 6 adds:
 
 No test may depend on a live external API.
 
-**One SQLite trap worth knowing before Phase 9 meets it.** SQLite cannot `ORDER BY` a
-`DateTimeOffset` — EF stores it as text with an offset and refuses to sort it, throwing at query
-time rather than returning a wrong order. `SyncRun` reads recency from its key instead, which is
-the same order for an append-only table. `RecommendationRun` browses newest-first over
-`CreatedAt` and will hit exactly this.
+**One SQLite trap worth knowing before Phase 9 meets it, and it is wider than first recorded.**
+SQLite cannot `ORDER BY` a `DateTimeOffset` — EF stores it as text with an offset and refuses to
+sort it, throwing at query time rather than returning a wrong order. `SyncRun` reads recency from
+its key instead, which is the same order for an append-only table. `RecommendationRun` browses
+newest-first over `CreatedAt` and will hit exactly this.
+
+**Comparison fails too, which Phase 6b found the hard way.** A `WHERE x < @cutoff` over a
+`DateTimeOffset` does not throw at run time — it fails at *translation* time, with "could not be
+translated", so it is a bug that survives compilation and every test that does not exercise that
+query. The staleness check on `AnimeExternalId.RelationsFetchedAt` needs exactly that comparison,
+which is why that one column is a `DateTime` while every other timestamp in the model is a
+`DateTimeOffset`. **The rule: a timestamp a `WHERE` must compare is a `DateTime` in UTC; a
+timestamp that is only read, displayed or null-checked stays a `DateTimeOffset`.** Filtering in
+memory instead was the alternative, and it was declined — §6 requires the filtering to happen in
+the database.
 
 ---
 

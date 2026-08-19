@@ -80,9 +80,21 @@ public class AnimeExternalId
     /// knows and MyAnimeList does not has one of these and not the other, which a
     /// column on the catalogue row could not say.
     ///
-    /// Nothing clears it on a schedule. A new season arrives as a <i>new</i> title
-    /// with no marker at all, and its own edges point back at the older seasons, so
-    /// the graph converges without re-asking about titles that already answered.
+    /// A new season needs no re-read at all: it arrives as a <i>new</i> title with no
+    /// marker, and its own edges point back at the older seasons. What re-reading is
+    /// for is the other case — a relation added or corrected between two titles the
+    /// library already holds — so this expires after thirty days, and the Sources
+    /// page has a button for anyone who knows something changed sooner.
+    ///
+    /// <b>A <c>DateTime</c> rather than a <c>DateTimeOffset</c>, alone among the
+    /// timestamps here, and the exception is forced.</b> SQLite cannot compare a
+    /// <c>DateTimeOffset</c> at all: EF stores it as text carrying an offset, and
+    /// both <c>ORDER BY</c> and <c>&lt;</c> fail — the latter at translation time,
+    /// with "could not be translated" (§8 records the ordering half of this; the
+    /// comparison half was found here). Every other timestamp in the model is read,
+    /// displayed or null-checked, and this is the only one a <c>WHERE</c> has to
+    /// compare, so it is the only one that pays for the difference. Always written
+    /// as UTC, which is what makes the offset carry nothing worth keeping.
     /// </remarks>
-    public DateTimeOffset? RelationsFetchedAt { get; set; }
+    public DateTime? RelationsFetchedAt { get; set; }
 }

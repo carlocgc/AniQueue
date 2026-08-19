@@ -53,5 +53,5 @@ public sealed class RelationBackfillJob(IRelationBackfill backfill) : IBackgroun
     /// ordinary interval.
     /// </remarks>
     public Task RunAsync(CancellationToken cancellationToken) =>
-        backfill.RunAsync(MaxRequestsPerVisit, cancellationToken);
+        backfill.RunAsync(MaxRequestsPerVisit, progress: null, cancellationToken);
 }

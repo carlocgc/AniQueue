@@ -11,7 +11,7 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace AniQueue.Infrastructure.Persistence.Migrations
 {
     [DbContext(typeof(AniQueueDbContext))]
-    [Migration("20260819182131_AddAnimeRelations")]
+    [Migration("20260819194034_AddAnimeRelations")]
     partial class AddAnimeRelations
     {
         /// <inheritdoc />
@@ -101,7 +101,7 @@ namespace AniQueue.Infrastructure.Persistence.Migrations
                     b.Property<DateTimeOffset?>("MissingFromSourceAt")
                         .HasColumnType("TEXT");
 
-                    b.Property<DateTimeOffset?>("RelationsFetchedAt")
+                    b.Property<DateTime?>("RelationsFetchedAt")
                         .HasColumnType("TEXT");
 
                     b.Property<int>("Source")
