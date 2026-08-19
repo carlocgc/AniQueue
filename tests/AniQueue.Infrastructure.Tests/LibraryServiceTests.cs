@@ -53,8 +53,7 @@ public class LibraryServiceTests
         double? confidence = null,
         AnimeSource source = AnimeSource.MyAnimeList,
         string? sourceId = null,
-        bool hidden = false,
-        int? franchiseId = null)
+        bool hidden = false)
     {
         var now = DateTimeOffset.UtcNow;
 
@@ -79,7 +78,6 @@ public class LibraryServiceTests
                         ?? Random.Shared.Next(100_000, 999_999).ToString(CultureInfo.InvariantCulture)
                 }
             ],
-            FranchiseId = franchiseId,
             CreatedAt = now,
             UpdatedAt = now
         };
@@ -309,7 +307,6 @@ public class LibraryServiceTests
         Assert.False(facets.HasRuntimeData);
         Assert.False(facets.HasRecommendations);
         Assert.False(facets.HasUserScores);
-        Assert.False(facets.HasFranchises);
         Assert.Empty(facets.Decades);
         Assert.True(facets.HasUnrankedEntries);
     }

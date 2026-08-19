@@ -2,14 +2,6 @@ using AniQueue.Core.Domain;
 
 namespace AniQueue.Core.Library;
 
-/// <summary>Whether an entry belongs to a franchise.</summary>
-public enum FranchiseFilter
-{
-    Any = 0,
-    InFranchise = 1,
-    Standalone = 2
-}
-
 /// <summary>How a backlog listing is ordered.</summary>
 public enum LibrarySort
 {
@@ -76,8 +68,6 @@ public sealed record LibraryQuery
 
     public AnimeSource? Source { get; init; }
 
-    public FranchiseFilter Franchise { get; init; } = FranchiseFilter.Any;
-
     public int? MinUserScore { get; init; }
 
     /// <summary>Minimum AI confidence, 0–1. The "high confidence" quick filter.</summary>
@@ -102,7 +92,6 @@ public sealed record LibraryQuery
         || Decade is not null
         || MaxRuntimeMinutes is not null
         || Source is not null
-        || Franchise != FranchiseFilter.Any
         || MinUserScore is not null
         || MinRecommendationConfidence is not null
         || HasRecommendation is not null

@@ -26,8 +26,6 @@ public sealed record LibraryListItem
 
     public bool IsHidden { get; init; }
 
-    public string? FranchiseName { get; init; }
-
     public double? RecommendationScore { get; init; }
 
     public double? RecommendationConfidence { get; init; }

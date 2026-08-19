@@ -366,9 +366,9 @@ public sealed class SyncService(
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
 
         // Restricted to titles this profile actually has an entry for. An identifier
-        // row survives on a catalogue row kept for franchise grouping or
-        // recommendation history, and flagging one of those would count a title the
-        // user does not have as one they have lost.
+        // row survives on a catalogue row kept for recommendation history, and
+        // flagging one of those would count a title the user does not have as one
+        // they have lost.
         var rows = await context.AnimeExternalIds
             .Where(x => x.Source == source
                 && context.LibraryEntries.Any(e => e.ProfileId == profileId && e.AnimeId == x.AnimeId))

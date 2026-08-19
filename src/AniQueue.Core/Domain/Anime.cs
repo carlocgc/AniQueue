@@ -7,6 +7,12 @@ namespace AniQueue.Core.Domain;
 ///
 /// This type is never coupled to a MyAnimeList or AniList DTO. Importers map into
 /// it; it does not mirror any external schema.
+///
+/// Nothing here says which group a title belongs to, and nothing will (D24).
+/// Titles are related to one another rather than gathered into groups: what a
+/// title's relatives are is a fact AniList publishes about that title, so it is
+/// stored as edges elsewhere rather than as membership of a set AniQueue invented
+/// and a user had to maintain.
 /// </summary>
 public class Anime
 {
@@ -89,22 +95,6 @@ public class Anime
     /// matched nothing and conflicted on every title.
     /// </remarks>
     public ICollection<AnimeExternalId> ExternalIds { get; set; } = [];
-
-    public int? FranchiseId { get; set; }
-
-    public Franchise? Franchise { get; set; }
-
-    /// <summary>Position in the franchise's viewing order. Null when unsequenced.</summary>
-    public int? FranchiseOrder { get; set; }
-
-    /// <summary>
-    /// Marks a side entry — a special or bonus OVA — that should not prevent its
-    /// franchise from counting as substantially complete.
-    ///
-    /// This lives on the entry rather than the franchise because it describes an
-    /// individual title's role within the group.
-    /// </summary>
-    public bool OptionalWithinFranchise { get; set; }
 
     public DateTimeOffset CreatedAt { get; set; }
 

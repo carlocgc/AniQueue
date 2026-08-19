@@ -22,15 +22,5 @@ public class AnimeConfiguration : IEntityTypeConfiguration<Anime>
         // AnimeExternalId now (D17), because one column could only ever hold one
         // identity — and a library imported from one service then synced from
         // another matched nothing and conflicted on every title.
-
-        builder.HasIndex(a => a.FranchiseId);
-
-        builder
-            .HasOne(a => a.Franchise)
-            .WithMany(f => f.Entries)
-            .HasForeignKey(a => a.FranchiseId)
-            // Dissolving a franchise must not delete the titles in it; they simply
-            // become standalone again.
-            .OnDelete(DeleteBehavior.SetNull);
     }
 }

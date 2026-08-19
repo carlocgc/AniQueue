@@ -28,8 +28,8 @@ public static class RuntimeCalculator
     /// Sums runtimes, ignoring entries that cannot be estimated.
     /// </summary>
     /// <returns>
-    /// The total, and whether anything was skipped — a franchise total built from
-    /// half its entries is misleading unless the UI can say so.
+    /// The total, and whether anything was skipped — a total built from half a
+    /// list's entries is misleading unless the UI can say so.
     /// </returns>
     public static (int? Minutes, bool IsPartial) Sum(IEnumerable<int?> runtimes)
     {

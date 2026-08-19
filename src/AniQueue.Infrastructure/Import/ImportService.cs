@@ -16,8 +16,8 @@ namespace AniQueue.Infrastructure.Import;
 /// 1. <see cref="PreviewAsync"/> never writes. The user has to see the consequence
 ///    and confirm before anything changes.
 /// 2. An import brings catalogue data and watch progress. It never touches what
-///    the user curated here — notes, queue position, franchise membership, hidden
-///    flag, recommendation data. Re-importing an export must not undo an evening
+///    the user curated here — notes, queue position, hidden flag, recommendation
+///    data. Re-importing an export must not undo an evening
 ///    spent organising the backlog.
 ///
 /// The one thing an import does change about the queue is which slots are still
@@ -603,7 +603,7 @@ public sealed class ImportService(
     /// title, and returns it so its identifiers can be written.
     ///
     /// Attaching the identifier is the substance of the operation: it is what stops
-    /// the entry conflicting again on every subsequent import. Franchise grouping on
+    /// the entry conflicting again on every subsequent import. Everything else on
     /// the existing record is left alone, as with any other import.
     /// </summary>
     /// <remarks>
@@ -751,8 +751,8 @@ public sealed class ImportService(
     };
 
     /// <summary>
-    /// Refreshes catalogue metadata only. Franchise membership and ordering are
-    /// the user's grouping decisions and are never touched by an import.
+    /// Refreshes catalogue metadata only. Nothing the user decided locally is
+    /// touched by an import.
     /// </summary>
     /// <remarks>
     /// Every field here follows one rule: a value replaces what is stored, and a
@@ -851,8 +851,8 @@ public sealed class ImportService(
         entry.DateCompleted = parsed.DateCompleted ?? entry.DateCompleted;
 
         // Deliberately untouched: PersonalNotes, IsHidden and every
-        // Recommendation* field, along with queue membership and franchise grouping
-        // held on other tables. These are the user's work, not the source's.
+        // Recommendation* field, along with queue membership held on another
+        // table. These are the user's work, not the source's.
     }
 
     /// <summary>

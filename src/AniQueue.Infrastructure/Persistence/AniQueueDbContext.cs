@@ -22,8 +22,6 @@ public class AniQueueDbContext(DbContextOptions<AniQueueDbContext> options) : Db
 
     public DbSet<AnimeExternalId> AnimeExternalIds => Set<AnimeExternalId>();
 
-    public DbSet<Franchise> Franchises => Set<Franchise>();
-
     public DbSet<LibraryEntry> LibraryEntries => Set<LibraryEntry>();
 
     public DbSet<QueueItem> QueueItems => Set<QueueItem>();

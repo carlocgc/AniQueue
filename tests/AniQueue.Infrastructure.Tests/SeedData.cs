@@ -40,15 +40,6 @@ internal static class SeedData
         return anime;
     }
 
-    public static async Task<Franchise> CreateFranchiseAsync(AniQueueDbContext context, string name)
-    {
-        var now = DateTimeOffset.UtcNow;
-        var franchise = new Franchise { Name = name, CreatedAt = now, UpdatedAt = now };
-        context.Franchises.Add(franchise);
-        await context.SaveChangesAsync();
-        return franchise;
-    }
-
     public static QueueItem QueueSlot(int profileId, int position, int animeId) =>
         new()
         {

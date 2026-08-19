@@ -6,7 +6,7 @@ namespace AniQueue.Core.Domain;
 /// A MyAnimeList export publishes one title, roughly romaji; AniList publishes
 /// three, so the first sync would otherwise rewrite the displayed name of most of
 /// the library — <i>Shingeki no Kyojin</i> becoming <i>Attack on Titan</i> across
-/// every row, queue slot and franchise — driven by a choice nobody made. This is
+/// every row and queue slot — driven by a choice nobody made. This is
 /// that choice, made explicitly.
 ///
 /// <c>userPreferred</c> is deliberately not offered: it resolves against the

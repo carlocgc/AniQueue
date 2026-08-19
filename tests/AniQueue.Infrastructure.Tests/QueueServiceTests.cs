@@ -398,258 +398,6 @@ public class QueueServiceTests
         Assert.Equal(1, result.Unavailable);
     }
 
-    /// <summary>
-    /// The defect this rule closes: the two ways into the queue used to disagree.
-    /// Expansion filtered on Planning; adding the same titles individually did not.
-    /// </summary>
-    [Fact]
-    public async Task Both_ways_into_the_queue_apply_the_same_rule()
-    {
-        await using var fixture = await Fixture.CreateAsync();
-        var franchiseId = await SeedSlayersAsync(fixture, firstSeasonStatus: LibraryStatus.Completed);
-
-        List<int> allMembers;
-        await using (var context = fixture.Database.CreateContext())
-        {
-            allMembers = await context.Anime
-                .Where(a => a.FranchiseId == franchiseId)
-                .OrderBy(a => a.FranchiseOrder)
-                .Select(a => a.Id)
-                .ToListAsync();
-        }
-
-        // Every member, watched and optional alike, offered directly.
-        var direct = await fixture.Queue.AddAnimeAsync(fixture.ProfileId, allMembers);
-        var queuedDirectly = await fixture.OrderAsync();
-
-        // The completed first season is refused by both paths. The optional special
-        // is the one difference, and it is deliberate: expansion excludes it by
-        // default, while asking for it by name is an explicit choice.
-        Assert.Equal(1, direct.NoLongerPlanned);
-        Assert.Equal("Slayers Next Slayers Try Slayers Special", queuedDirectly);
-
-        await using var verify = fixture.Database.CreateContext();
-        Assert.Equal(3, await verify.QueueItems.CountAsync());
-    }
-
-    // --- Franchise expansion (D15) ---------------------------------------
-
-    /// <summary>
-    /// Seeds a Slayers franchise: three ordinary seasons in viewing order plus one
-    /// optional special, all Planning unless overridden.
-    /// </summary>
-    private static async Task<int> SeedSlayersAsync(
-        Fixture fixture,
-        LibraryStatus firstSeasonStatus = LibraryStatus.Planning)
-    {
-        await using var context = fixture.Database.CreateContext();
-
-        var franchise = await SeedData.CreateFranchiseAsync(context, "Slayers");
-
-        var titles = new[]
-        {
-            ("Slayers", 1, false),
-            ("Slayers Next", 2, false),
-            ("Slayers Try", 3, false),
-            ("Slayers Special", 4, true)
-        };
-
-        var first = true;
-
-        foreach (var (title, order, optional) in titles)
-        {
-            var anime = await SeedData.CreateAnimeAsync(context, title);
-            anime.FranchiseId = franchise.Id;
-            anime.FranchiseOrder = order;
-            anime.OptionalWithinFranchise = optional;
-
-            var entry = SeedData.Entry(fixture.ProfileId, anime.Id);
-            entry.Status = first ? firstSeasonStatus : LibraryStatus.Planning;
-            context.LibraryEntries.Add(entry);
-
-            first = false;
-        }
-
-        await context.SaveChangesAsync();
-        return franchise.Id;
-    }
-
-    /// <summary>
-    /// The mechanic D15 replaces the franchise slot with. One click still expresses
-    /// one decision, but what lands is a run of watchable titles in viewing order.
-    /// </summary>
-    [Fact]
-    public async Task Queueing_a_franchise_appends_its_titles_individually_in_viewing_order()
-    {
-        await using var fixture = await Fixture.CreateAsync();
-        var franchiseId = await SeedSlayersAsync(fixture);
-
-        var result = await fixture.Queue.AddFranchiseAsync(fixture.ProfileId, franchiseId);
-
-        // Three, not four: the optional special is left out by default.
-        Assert.Equal(3, result.Added);
-        Assert.Equal("Slayers Slayers Next Slayers Try", await fixture.OrderAsync());
-        await fixture.AssertContiguousAsync();
-    }
-
-    [Fact]
-    public async Task Queueing_a_franchise_can_include_its_optional_entries()
-    {
-        await using var fixture = await Fixture.CreateAsync();
-        var franchiseId = await SeedSlayersAsync(fixture);
-
-        await fixture.Queue.AddFranchiseAsync(fixture.ProfileId, franchiseId, includeOptional: true);
-
-        Assert.Equal("Slayers Slayers Next Slayers Try Slayers Special", await fixture.OrderAsync());
-    }
-
-    [Fact]
-    public async Task Queueing_a_franchise_skips_titles_already_watched()
-    {
-        await using var fixture = await Fixture.CreateAsync();
-        var franchiseId = await SeedSlayersAsync(fixture, firstSeasonStatus: LibraryStatus.Completed);
-
-        await fixture.Queue.AddFranchiseAsync(fixture.ProfileId, franchiseId);
-
-        Assert.Equal("Slayers Next Slayers Try", await fixture.OrderAsync());
-    }
-
-    /// <summary>
-    /// What the whole change is for. Under the old model this was structurally
-    /// impossible: one slot held the entire franchise, so nothing could go between
-    /// two of its seasons.
-    /// </summary>
-    [Fact]
-    public async Task Something_else_can_be_placed_between_two_seasons_of_a_franchise()
-    {
-        await using var fixture = await Fixture.CreateAsync();
-        var franchiseId = await SeedSlayersAsync(fixture);
-
-        await fixture.Queue.AddFranchiseAsync(fixture.ProfileId, franchiseId);
-        await fixture.QueueTitlesAsync("Gunbuster");
-
-        var queue = await fixture.Queue.GetQueueAsync(fixture.ProfileId);
-        var gunbuster = queue.Single(s => s.Title == "Gunbuster");
-
-        Assert.True(await fixture.Queue.ReorderAsync(fixture.ProfileId, gunbuster.QueueItemId, targetPosition: 1));
-
-        Assert.Equal("Slayers Gunbuster Slayers Next Slayers Try", await fixture.OrderAsync());
-        await fixture.AssertContiguousAsync();
-    }
-
-    /// <summary>
-    /// Each season releases on its own, so the next one rises to meet the user.
-    /// Under the old model the whole franchise held position 1 until every entry
-    /// had been watched.
-    /// </summary>
-    [Fact]
-    public async Task Watching_one_season_advances_the_queue_to_the_next()
-    {
-        await using var fixture = await Fixture.CreateAsync();
-        var franchiseId = await SeedSlayersAsync(fixture);
-
-        await fixture.Queue.AddFranchiseAsync(fixture.ProfileId, franchiseId);
-
-        await using (var context = fixture.Database.CreateContext())
-        {
-            var entry = await context.LibraryEntries
-                .Include(e => e.Anime)
-                .SingleAsync(e => e.Anime!.Title == "Slayers");
-
-            entry.Status = LibraryStatus.Watching;
-            await context.SaveChangesAsync();
-        }
-
-        Assert.Equal(1, await fixture.Queue.AdvanceAsync(fixture.ProfileId));
-        Assert.Equal("Slayers Next Slayers Try", await fixture.OrderAsync());
-        await fixture.AssertContiguousAsync();
-    }
-
-    [Fact]
-    public async Task Re_adding_a_franchise_queues_only_what_is_not_already_there()
-    {
-        // What happens when sync brings a new season: one click, one new row.
-        await using var fixture = await Fixture.CreateAsync();
-        var franchiseId = await SeedSlayersAsync(fixture);
-
-        await fixture.Queue.AddFranchiseAsync(fixture.ProfileId, franchiseId);
-
-        await using (var context = fixture.Database.CreateContext())
-        {
-            var revolution = await SeedData.CreateAnimeAsync(context, "Slayers Revolution");
-            revolution.FranchiseId = franchiseId;
-            revolution.FranchiseOrder = 5;
-            context.LibraryEntries.Add(SeedData.Entry(fixture.ProfileId, revolution.Id));
-            await context.SaveChangesAsync();
-        }
-
-        var result = await fixture.Queue.AddFranchiseAsync(fixture.ProfileId, franchiseId);
-
-        Assert.Equal(1, result.Added);
-        Assert.Equal("Slayers Slayers Next Slayers Try Slayers Revolution", await fixture.OrderAsync());
-    }
-
-    [Fact]
-    public async Task Members_with_no_viewing_order_are_queued_last_rather_than_first()
-    {
-        // A null FranchiseOrder means nobody has said where it goes — which is not
-        // a claim that it goes before the first season.
-        await using var fixture = await Fixture.CreateAsync();
-        var franchiseId = await SeedSlayersAsync(fixture);
-
-        await using (var context = fixture.Database.CreateContext())
-        {
-            var unsequenced = await SeedData.CreateAnimeAsync(context, "Slayers Premium");
-            unsequenced.FranchiseId = franchiseId;
-            unsequenced.FranchiseOrder = null;
-            context.LibraryEntries.Add(SeedData.Entry(fixture.ProfileId, unsequenced.Id));
-            await context.SaveChangesAsync();
-        }
-
-        await fixture.Queue.AddFranchiseAsync(fixture.ProfileId, franchiseId);
-
-        Assert.Equal("Slayers Slayers Next Slayers Try Slayers Premium", await fixture.OrderAsync());
-    }
-
-    [Fact]
-    public async Task A_franchise_with_nothing_left_to_queue_is_not_offered()
-    {
-        await using var fixture = await Fixture.CreateAsync();
-        var slayersId = await SeedSlayersAsync(fixture);
-
-        await using (var context = fixture.Database.CreateContext())
-        {
-            var other = await SeedData.CreateFranchiseAsync(context, "Patlabor");
-            var patlabor = await SeedData.CreateAnimeAsync(context, "Patlabor");
-            patlabor.FranchiseId = other.Id;
-            context.LibraryEntries.Add(SeedData.Entry(fixture.ProfileId, patlabor.Id));
-
-            // No titles at all, so nothing a click could add.
-            await SeedData.CreateFranchiseAsync(context, "Nothing In Here");
-            await context.SaveChangesAsync();
-        }
-
-        var before = await fixture.Queue.GetQueueableFranchisesAsync(fixture.ProfileId);
-
-        // The count offered is what the click will actually add — three, not the
-        // four titles Slayers contains, because one of them is optional.
-        Assert.Equal(["Patlabor", "Slayers"], before.Select(f => f.Name).Order());
-        Assert.Equal(3, before.Single(f => f.Name == "Slayers").QueueableCount);
-
-        await fixture.Queue.AddFranchiseAsync(fixture.ProfileId, slayersId);
-
-        // Now fully queued apart from its optional entry, so it drops off the list
-        // rather than being offered and doing nothing.
-        var after = await fixture.Queue.GetQueueableFranchisesAsync(fixture.ProfileId);
-        Assert.Equal(["Patlabor"], after.Select(f => f.Name));
-
-        // Unless the optional entries are asked for, which brings it back.
-        var withOptional = await fixture.Queue.GetQueueableFranchisesAsync(
-            fixture.ProfileId, includeOptional: true);
-
-        Assert.Equal(1, withOptional.Single(f => f.Name == "Slayers").QueueableCount);
-    }
-
     // --- Advancement (D12) -----------------------------------------------
 
     /// <summary>
@@ -733,34 +481,6 @@ public class QueueServiceTests
         Assert.Equal("Orphan", await fixture.OrderAsync());
     }
 
-    /// <summary>
-    /// Dissolving a franchise is a decision about labels, not about the queue. Its
-    /// titles stay queued in the order the user put them in — under the old model
-    /// the franchise's slot was deleted along with it, silently taking that
-    /// ordering with it.
-    /// </summary>
-    [Fact]
-    public async Task Dissolving_a_franchise_leaves_its_titles_queued_in_place()
-    {
-        await using var fixture = await Fixture.CreateAsync();
-        var franchiseId = await SeedSlayersAsync(fixture);
-
-        await fixture.Queue.AddFranchiseAsync(fixture.ProfileId, franchiseId);
-
-        await using (var context = fixture.Database.CreateContext())
-        {
-            context.Franchises.Remove(await context.Franchises.SingleAsync(f => f.Id == franchiseId));
-            await context.SaveChangesAsync();
-        }
-
-        Assert.Equal("Slayers Slayers Next Slayers Try", await fixture.OrderAsync());
-        Assert.Equal(0, await fixture.Queue.AdvanceAsync(fixture.ProfileId));
-
-        // The badge is all that is lost.
-        var queue = await fixture.Queue.GetQueueAsync(fixture.ProfileId);
-        Assert.All(queue, slot => Assert.Null(slot.FranchiseName));
-    }
-
     [Fact]
     public async Task Advancement_leaves_another_profiles_queue_untouched()
     {
@@ -794,14 +514,11 @@ public class QueueServiceTests
 
         await using (var context = fixture.Database.CreateContext())
         {
-            var franchise = await SeedData.CreateFranchiseAsync(context, "Hinamatsuri");
-
             var anime = await SeedData.CreateAnimeAsync(context, "Hinamatsuri", AnimeSource.MyAnimeList, "36296");
             anime.MediaType = MediaType.Tv;
             anime.EpisodeCount = 12;
             anime.EpisodeDurationMinutes = 23;
             anime.ReleaseYear = 2018;
-            anime.FranchiseId = franchise.Id;
 
             var entry = SeedData.Entry(fixture.ProfileId, anime.Id);
             entry.EpisodesWatched = 4;
@@ -825,9 +542,6 @@ public class QueueServiceTests
         Assert.Equal(4, slot.EpisodesWatched);
         Assert.Equal(12 * 23, slot.EstimatedRuntimeMinutes);
         Assert.NotEmpty(slot.SourceLinks);
-
-        // The franchise's only presence in the queue: a name to badge the row with.
-        Assert.Equal("Hinamatsuri", slot.FranchiseName);
     }
 
     [Fact]

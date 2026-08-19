@@ -48,44 +48,36 @@ public class DevelopmentSeederTests
     }
 
     [Fact]
-    public async Task The_queue_interleaves_franchise_seasons_with_standalone_titles()
+    public async Task The_queue_interleaves_seasons_of_one_series_with_unrelated_titles()
     {
-        // The arrangement D15 exists for: two seasons of one franchise with
-        // something else deliberately between them. If this cannot be seeded, the
-        // queue model has taken the ordering away from the user.
+        // The arrangement D15 exists for: two seasons of one series with something
+        // else deliberately between them. If this cannot be seeded, the queue model
+        // has taken the ordering away from the user.
+        //
+        // Matched on title rather than on any stored grouping, because since D23
+        // there is none: what makes these rows a series is AniList's relation data,
+        // and the seeder does not invent local relationships to stand in for it.
         await using var database = await SeededDatabaseAsync();
         await using var context = database.CreateContext();
 
         var slots = await context.QueueItems
             .OrderBy(q => q.Position)
-            .Select(q => new { q.Position, q.Anime!.FranchiseId })
+            .Select(q => new { q.Position, q.Anime!.Title })
             .ToListAsync();
 
         Assert.Equal(Enumerable.Range(0, slots.Count), slots.Select(s => s.Position));
 
-        var franchisePositions = slots.Where(s => s.FranchiseId is not null).Select(s => s.Position).ToList();
+        var seasonPositions = slots
+            .Where(s => s.Title.StartsWith("Slayers", StringComparison.Ordinal))
+            .Select(s => s.Position)
+            .ToList();
 
-        Assert.True(franchisePositions.Count >= 2, "the seed needs at least two entries of one franchise queued");
+        Assert.True(seasonPositions.Count >= 2, "the seed needs at least two seasons of one series queued");
 
-        // Not adjacent — something standalone sits in the gap.
+        // Not adjacent — something unrelated sits in the gap.
         Assert.True(
-            franchisePositions.Max() - franchisePositions.Min() > franchisePositions.Count - 1,
-            $"franchise entries were queued as one contiguous block at {string.Join(", ", franchisePositions)}");
-    }
-
-    [Fact]
-    public async Task A_franchise_contains_optional_side_entries()
-    {
-        // Franchise completion maths is only interesting when some entries are
-        // optional, so the seed has to include them.
-        await using var database = await SeededDatabaseAsync();
-        await using var context = database.CreateContext();
-
-        var entries = await context.Anime.Where(a => a.FranchiseId != null).ToListAsync();
-
-        Assert.Contains(entries, a => a.OptionalWithinFranchise);
-        Assert.Contains(entries, a => !a.OptionalWithinFranchise);
-        Assert.All(entries, a => Assert.NotNull(a.FranchiseOrder));
+            seasonPositions.Max() - seasonPositions.Min() > seasonPositions.Count - 1,
+            $"the seasons were queued as one contiguous block at {string.Join(", ", seasonPositions)}");
     }
 
     [Fact]
