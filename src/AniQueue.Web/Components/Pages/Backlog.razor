@@ -17,7 +17,10 @@
    showing something that finished watching an hour ago. *@
 <StaleLibraryNotice OnRefresh="ReloadAsync" />
 
-<BusyDialog State="_busy" />
+@* No busy dialog here any more (D26). Every write this page makes is now one row's
+   worth, so a modal covering the page to announce it would be more disruptive than
+   the wait it describes — and it was the bulk actions, gone with the checkboxes,
+   that needed to be kept off the circuit thread. *@
 
 @if (Facets is null || Page is null)
 {
@@ -136,29 +139,11 @@ else
         </div>
     </div>
 
-    @if (_selected.Count > 0)
-    {
-        <div class="card selection-bar" role="region" aria-label="Bulk actions">
-            <div class="toolbar">
-                <strong>@_selected.Count selected</strong>
-                <button class="primary" @onclick="AddSelectedToQueueAsync">Add to Up Next</button>
-                <button @onclick="() => SetSelectedHiddenAsync(true)">Hide</button>
-                @if (_query.IncludeHidden)
-                {
-                    <button @onclick="() => SetSelectedHiddenAsync(false)">Unhide</button>
-                }
-                <button @onclick="ClearSelection">Clear selection</button>
-            </div>
-            @if (_actionMessage is not null)
-            {
-                <div class="notice success" role="status">@_actionMessage</div>
-            }
-        </div>
-    }
-    else if (_actionMessage is not null)
-    {
-        <div class="notice success" role="status">@_actionMessage</div>
-    }
+    @* No selection bar, and nothing appears above the table when a row is acted on
+       (D26). Every action lives on the row it acts on: a control that materialises
+       at the top of a fifty-row page is out of reach of the row that summoned it,
+       and the feedback is the row changing under the cursor rather than a sentence
+       somewhere else. *@
 
     @if (Page.Items.Count == 0)
     {
@@ -184,13 +169,9 @@ else
                 <table>
                     <thead>
                         <tr>
-                            <th class="select-col">
-                                <input type="checkbox" aria-label="Select all on this page"
-                                       checked="@AllOnPageSelected"
-                                       @onchange="ToggleSelectAll" />
-                            </th>
-                            @* No header text: the column holds a control per row and
-                               naming it would put a word above fifty chevrons. *@
+                            @* No header text on either control column: each holds a
+                               control per row, and naming them would put a word above
+                               fifty chevrons. *@
                             <th class="expand-col"></th>
                             <th>Title</th>
                             <th>Type</th>
@@ -203,18 +184,13 @@ else
                             {
                                 <th class="numeric">AI</th>
                             }
+                            <th class="actions-col"></th>
                         </tr>
                     </thead>
                     <tbody>
                         @foreach (var item in Page.Items)
                         {
-                            <tr class="@(_selected.Contains(item.AnimeId) ? "selected" : null)">
-                                <td class="select-col">
-                                    <input type="checkbox"
-                                           aria-label="@($"Select {item.Title}")"
-                                           checked="@_selected.Contains(item.AnimeId)"
-                                           @onchange="() => ToggleSelection(item.AnimeId)" />
-                                </td>
+                            <tr class="@(IsHidden(item) ? "row-hidden" : null)">
                                 <td class="expand-col">
                                     @* Drawn only when there is something to open. A
                                        control that sometimes does nothing teaches
@@ -244,11 +220,15 @@ else
                                 <td>
                                     <div class="title-cell">
                                         <span>@item.Title</span>
-                                        @if (item.IsQueued)
+                                        @* Both badges read the page's own state rather than
+                                           what the query returned, so a row acted on says so
+                                           immediately without the list being re-read under
+                                           the cursor (D26). *@
+                                        @if (IsQueued(item.AnimeId))
                                         {
                                             <span class="badge queued" title="Already in Up Next">Queued</span>
                                         }
-                                        @if (item.IsHidden)
+                                        @if (IsHidden(item))
                                         {
                                             <span class="badge">Hidden</span>
                                         }
@@ -290,6 +270,27 @@ else
                                 {
                                     <td class="numeric">@(item.RecommendationScore?.ToString("0.0") ?? "—")</td>
                                 }
+                                <td class="actions-col">
+                                    <div class="row-actions" role="group" aria-label="@($"Actions for {item.Title}")">
+                                        @* Present on every row and disabled where it cannot
+                                           work, rather than absent: a control that comes and
+                                           goes down a column is harder to aim at than one
+                                           that is always in the same place, and a disabled
+                                           button carries the reason in its tooltip where an
+                                           absent one carries nothing. *@
+                                        <button class="icon add"
+                                                disabled="@(!CanQueue(item.Status, item.AnimeId))"
+                                                title="@QueueActionLabel(item.Title, item.Status, item.AnimeId)"
+                                                aria-label="@QueueActionLabel(item.Title, item.Status, item.AnimeId)"
+                                                @onclick="() => QueueAsync(item.AnimeId)">+</button>
+                                        <button class="icon"
+                                                title="@(IsHidden(item) ? "Show again in listings" : "Hide from listings")"
+                                                aria-label="@(IsHidden(item)
+                                                    ? $"Show {item.Title} in listings again"
+                                                    : $"Hide {item.Title} from listings")"
+                                                @onclick="() => SetHiddenAsync(item, !IsHidden(item))">@(IsHidden(item) ? "↺" : "⊘")</button>
+                                    </div>
+                                </td>
                             </tr>
 
                             @if (IsExpanded(item.AnimeId))
@@ -324,11 +325,24 @@ else
                                                             <span class="badge relation">@relative.Label</span>
                                                             <span class="relation-title">@relative.Title</span>
                                                             <span class="badge @relative.Status.ToString().ToLowerInvariant()">@relative.Status</span>
-                                                            @if (relative.IsQueued)
+                                                            @if (IsQueued(relative.AnimeId))
                                                             {
                                                                 <span class="badge queued" title="Already in Up Next">Queued</span>
                                                             }
                                                             <span class="muted">@RelativeMeta(relative)</span>
+
+                                                            @* The whole point of finding a
+                                                               sequel here is being able to
+                                                               act on it (D26). Queueing it
+                                                               from the expansion leaves the
+                                                               panel open, so the next one
+                                                               down is still in front of the
+                                                               user. *@
+                                                            <button class="icon add"
+                                                                    disabled="@(!CanQueue(relative.Status, relative.AnimeId))"
+                                                                    title="@QueueActionLabel(relative.Title, relative.Status, relative.AnimeId)"
+                                                                    aria-label="@QueueActionLabel(relative.Title, relative.Status, relative.AnimeId)"
+                                                                    @onclick="() => QueueAsync(relative.AnimeId)">+</button>
                                                         </li>
                                                     }
                                                 </ul>
@@ -384,7 +398,19 @@ else
     public LibraryFacets? Facets { get; set; }
 
     private LibraryQuery _query = new() { Take = PageSize };
-    private readonly HashSet<int> _selected = [];
+
+    // What the page has done since it was loaded, overlaid on what the query
+    // returned (D26). A row acted on has to say so at once, and re-reading the list
+    // to find that out would move rows under the cursor, close every expansion and
+    // lose the reader's place — to report a change they just made.
+    //
+    // Queue membership is a set because it only ever grows here — nothing on this
+    // page takes a title out of Up Next. Hiding goes both ways within one visit, so
+    // it is an override keyed by title rather than a second set: "no answer" has to
+    // stay distinguishable from "hidden false", or unhiding a row would be
+    // indistinguishable from never having touched it.
+    private readonly HashSet<int> _queued = [];
+    private readonly Dictionary<int, bool> _hiddenOverride = [];
 
     // How many relatives each visible row has, so a row with none draws no chevron
     // at all. One grouped query per page, loaded with it (D24).
@@ -396,16 +422,7 @@ else
     private readonly HashSet<int> _expanded = [];
     private readonly Dictionary<int, IReadOnlyList<RelatedTitle>> _relations = [];
 
-    private string? _actionMessage;
-    private BusyScope _busy = null!;
-
     private string _statusValue => _query.Status?.ToString() ?? string.Empty;
-
-    private bool AllOnPageSelected =>
-        Page is { Items.Count: > 0 } && Page.Items.All(i => _selected.Contains(i.AnimeId));
-
-    protected override void OnInitialized() =>
-        _busy = new BusyScope(() => InvokeAsync(StateHasChanged));
 
     protected override async Task OnInitializedAsync()
     {
@@ -437,6 +454,17 @@ else
 
         _expanded.Clear();
         _relations.Clear();
+
+        // The overlay is discarded rather than merged: what just came back from the
+        // database is now the truth about these rows, and keeping a local answer on
+        // top of it is how a page starts disagreeing with itself.
+        _queued.Clear();
+        _hiddenOverride.Clear();
+
+        foreach (var item in Page.Items.Where(i => i.IsQueued))
+        {
+            _queued.Add(item.AnimeId);
+        }
     }
 
     /// <summary>
@@ -544,7 +572,17 @@ else
             return;
         }
 
-        _relations[animeId] = await RelationService.GetRelatedAsync(Profile.DefaultProfileId, animeId);
+        var relatives = await RelationService.GetRelatedAsync(Profile.DefaultProfileId, animeId);
+
+        _relations[animeId] = relatives;
+
+        // Folded into the same set the rows read, so a relative queued from one
+        // expansion shows as queued in another that also lists it — and on its own
+        // row further down the page.
+        foreach (var relative in relatives.Where(r => r.IsQueued))
+        {
+            _queued.Add(relative.AnimeId);
+        }
     }
 
     /// <summary>
@@ -601,124 +639,84 @@ else
     /// </summary>
     private int ColumnCount => Facets is { HasRecommendations: true } ? 10 : 9;
 
-    private void ToggleSelection(int animeId)
-    {
-        if (!_selected.Remove(animeId))
-        {
-            _selected.Add(animeId);
-        }
+    private bool IsQueued(int animeId) => _queued.Contains(animeId);
 
-        _actionMessage = null;
+    private bool IsHidden(LibraryListItem item) =>
+        _hiddenOverride.TryGetValue(item.AnimeId, out var hidden) ? hidden : item.IsHidden;
+
+    /// <summary>
+    /// Whether the plus button on a row can do anything.
+    /// </summary>
+    /// <remarks>
+    /// It answers the same two questions <see cref="IQueueService.AddAnimeAsync"/>
+    /// answers server-side, so pressing an enabled button always works and pressing
+    /// a disabled one was never going to. Deciding it here rather than reporting the
+    /// refusal afterwards is what lets this page drop its message banner entirely:
+    /// the only outcomes left are "queued" and "the button was greyed out and said
+    /// why".
+    ///
+    /// Both cases are ordinary rather than exotic. The status filter widens the
+    /// backlog past Planning, and an expansion deliberately shows every status — a
+    /// Completed prequel is the most useful thing it can say, and it is also the one
+    /// thing there that cannot be queued.
+    /// </remarks>
+    private bool CanQueue(LibraryStatus status, int animeId) =>
+        status == LibraryStatus.Planning && !IsQueued(animeId);
+
+    private string QueueActionLabel(string title, LibraryStatus status, int animeId) =>
+        IsQueued(animeId) ? $"{title} is already in Up Next"
+        : status != LibraryStatus.Planning ? $"{title} is {status.ToString().ToLowerInvariant()}, so it is not waiting to be watched"
+        : $"Add {title} to Up Next";
+
+    /// <summary>
+    /// Queues one title, from a row or from an expansion.
+    /// </summary>
+    /// <remarks>
+    /// Nothing is re-read afterwards, and that is the point of doing it this way
+    /// (D26). The row is already showing everything the add changed, so re-running
+    /// the query would move rows under the cursor, close every open expansion and
+    /// lose the reader's place — to tell them about a change they just made.
+    ///
+    /// The result is still inspected rather than assumed: the page's idea of a
+    /// title's status can be a few seconds behind a background sync, so a refusal
+    /// leaves the badge alone rather than claiming a slot that was not taken.
+    /// </remarks>
+    private async Task QueueAsync(int animeId)
+    {
+        var result = await QueueService.AddAnimeAsync(Profile.DefaultProfileId, [animeId]);
+
+        if (result.Added > 0 || result.AlreadyQueued > 0)
+        {
+            _queued.Add(animeId);
+        }
     }
 
-    private void ToggleSelectAll()
+    /// <summary>
+    /// Hides or restores one entry, in place.
+    /// </summary>
+    /// <remarks>
+    /// The row stays where it is rather than vanishing, wearing the Hidden badge
+    /// until the list is next read. A row that disappeared the instant it was hidden
+    /// would look like a delete, and hiding is the one action here that has to be
+    /// obviously reversible — so the button that did it stays under the cursor,
+    /// offering to undo it.
+    ///
+    /// The facets are re-read because hiding the first entry is what makes the
+    /// "Show hidden" chip exist at all, and unhiding the last is what should take it
+    /// away.
+    /// </remarks>
+    private async Task SetHiddenAsync(LibraryListItem item, bool hidden)
     {
-        if (Page is null)
+        var result = await LibraryService.SetHiddenAsync(Profile.DefaultProfileId, [item.AnimeId], hidden);
+
+        if (result.Affected == 0)
         {
             return;
         }
 
-        if (AllOnPageSelected)
-        {
-            foreach (var item in Page.Items)
-            {
-                _selected.Remove(item.AnimeId);
-            }
-        }
-        else
-        {
-            foreach (var item in Page.Items)
-            {
-                _selected.Add(item.AnimeId);
-            }
-        }
+        _hiddenOverride[item.AnimeId] = hidden;
 
-        _actionMessage = null;
-    }
-
-    private void ClearSelection()
-    {
-        _selected.Clear();
-        _actionMessage = null;
-    }
-
-    private async Task AddSelectedToQueueAsync()
-    {
-        var ids = _selected.ToList();
-
-        var result = await _busy.RunAsync(
-            $"Adding {ids.Count} to Up Next",
-            progress => QueueService.AddAnimeAsync(Profile.DefaultProfileId, ids, progress));
-
-        _actionMessage = QueueAddText(result);
-
-        await AfterBulkActionAsync();
-    }
-
-    private async Task SetSelectedHiddenAsync(bool hidden)
-    {
-        var ids = _selected.ToList();
-
-        var result = await _busy.RunAsync(
-            hidden ? $"Hiding {ids.Count}" : $"Restoring {ids.Count}",
-            progress => LibraryService.SetHiddenAsync(Profile.DefaultProfileId, ids, hidden, progress));
-
-        _actionMessage = hidden
-            ? $"Hid {result.Affected} entries. They are still in your library."
-            : $"Restored {result.Affected} entries.";
-
-        await AfterBulkActionAsync();
-    }
-
-    private async Task AfterBulkActionAsync()
-    {
-        _selected.Clear();
-
-        // Facets are refreshed too: hiding the last hidden entry, or priorities
-        // appearing for the first time, changes which controls should be offered.
         Facets = await LibraryService.GetFacetsAsync(Profile.DefaultProfileId);
-        await LoadPageAsync();
-    }
-
-    /// <summary>
-    /// Reports what was added, and accounts for anything that was not.
-    /// </summary>
-    /// <remarks>
-    /// Every reason is named. Selecting eight titles and being told five were added
-    /// leaves the user to guess at the other three, and the likeliest guess — that
-    /// the application dropped them — is the wrong one. This is reachable in normal
-    /// use: the status filter widens the backlog past Planning, and Up Next only
-    /// holds what is still planned.
-    /// </remarks>
-    private static string QueueAddText(QueueAddResult result)
-    {
-        var added = result.Added == 1
-            ? "Added one title to Up Next."
-            : $"Added {result.Added} titles to Up Next.";
-
-        if (result.Skipped == 0)
-        {
-            return added;
-        }
-
-        var reasons = new List<string>();
-
-        if (result.AlreadyQueued > 0)
-        {
-            reasons.Add($"{result.AlreadyQueued} already there");
-        }
-
-        if (result.NoLongerPlanned > 0)
-        {
-            reasons.Add($"{result.NoLongerPlanned} already started or finished");
-        }
-
-        if (result.Unavailable > 0)
-        {
-            reasons.Add($"{result.Unavailable} no longer in your library");
-        }
-
-        return $"{added} Skipped {result.Skipped}: {string.Join(", ", reasons)}.";
     }
 
     private static string Active(bool isActive) => isActive ? "active" : string.Empty;
