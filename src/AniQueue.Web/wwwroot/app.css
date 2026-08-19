@@ -342,6 +342,14 @@ button.icon.add { font-size: 1.05rem; line-height: 1.2; }
 
 button.icon.add:hover:not(:disabled) { color: var(--accent); border-color: var(--accent); }
 
+/* Already queued, so the same button now offers to undo it. It stays a state
+   rather than becoming a warning — nothing is lost by leaving the queue, the title
+   is still in the library — so it takes the muted treatment of the row's other
+   reversible control instead of the danger colour Up Next gives its remove. */
+button.icon.add.dequeue { color: var(--accent); }
+
+button.icon.add.dequeue:hover:not(:disabled) { color: var(--text); border-color: var(--border); }
+
 /* Restoring is the one thing anybody comes to the hidden list to do, so it reads as
    the affirmative action there rather than as the same muted glyph that put the row
    in the list. */

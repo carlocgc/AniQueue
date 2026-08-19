@@ -198,22 +198,49 @@ public sealed class QueueService(
         return ids.ToHashSet();
     }
 
-    public async Task<bool> RemoveAsync(
+    public Task<bool> RemoveAsync(
         int profileId,
         int queueItemId,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default) =>
+        RemoveSlotAsync(profileId, q => q.Id == queueItemId, "slot", queueItemId, cancellationToken);
+
+    public Task<bool> RemoveAnimeAsync(
+        int profileId,
+        int animeId,
+        CancellationToken cancellationToken = default) =>
+        RemoveSlotAsync(profileId, q => q.AnimeId == animeId, "title", animeId, cancellationToken);
+
+    /// <summary>
+    /// Takes out whichever slot matches and closes the gap it leaves.
+    /// </summary>
+    /// <remarks>
+    /// Shared by both removals because the difference between them is only how the
+    /// slot is named — by its own id from the queue page, by the title it holds from
+    /// the backlog, which never sees a slot id. Everything after the lookup is the
+    /// invariant, and the invariant is the part that must not exist twice.
+    /// </remarks>
+    private async Task<bool> RemoveSlotAsync(
+        int profileId,
+        Predicate<QueueItem> match,
+        string lookupKind,
+        int identifier,
+        CancellationToken cancellationToken)
     {
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
         await using var transaction = await context.Database.BeginTransactionAsync(cancellationToken);
 
         var slots = await LoadOrderedAsync(context, profileId, cancellationToken);
-        var slot = slots.Find(q => q.Id == queueItemId);
+        var slot = slots.Find(match);
 
         if (slot is null)
         {
+            // One constant template with the lookup as a value, rather than a
+            // template built per caller: a message that varies between calls cannot
+            // be grouped by anything reading structured logs.
             logger.LogWarning(
-                "Queue removal ignored: slot {QueueItemId} is not in profile {ProfileId}'s queue",
-                queueItemId,
+                "Queue removal ignored: no slot matched {LookupKind} {Identifier} in profile {ProfileId}'s queue",
+                lookupKind,
+                identifier,
                 profileId);
 
             return false;
@@ -231,7 +258,7 @@ public sealed class QueueService(
 
         logger.LogInformation(
             "Queue changed: slot {QueueItemId} removed, {Rewritten} positions closed up",
-            queueItemId,
+            slot.Id,
             rewritten);
 
         return true;

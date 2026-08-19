@@ -1113,12 +1113,33 @@ means reading row forty, moving to the top of the page, and pressing a button th
 which row it is about. That is the specific complaint, and it is not a layout detail: a control
 that materialises somewhere else has already broken the connection to the thing it acts on.
 
-**A disabled button beats a message.** With one title per press, the two reasons an add can be
-declined — already queued, no longer Planning — are both knowable before the click, so the
-button is disabled and its tooltip says which. The whole `QueueAddText` apparatus that
-enumerated skipped counts goes with the selection that made it necessary, and the page loses
-its status banner entirely. `QueueAddResult` keeps its per-reason counts: **6d still adds a run
-of sequels in one press**, and that is the case a summary was written for.
+**A disabled button beats a message.** With one title per press, the reason an add can be
+declined — no longer Planning — is knowable before the click, so the button is disabled and its
+tooltip says which. The whole `QueueAddText` apparatus that enumerated skipped counts goes with
+the selection that made it necessary, and the page loses its status banner entirely.
+`QueueAddResult` keeps its per-reason counts: **6d still adds a run of sequels in one press**,
+and that is the case a summary was written for.
+
+**The button is a toggle, not a one-way add**, showing `+` or `−` for the two states a title
+can be in. A backlog row is where the mistake is noticed, and undoing it used to mean leaving
+for Up Next, finding the row again there, and pressing a different control with a different
+glyph — for something the row was already reporting with its own badge. So `IQueueService`
+gains `RemoveAnimeAsync`: the same removal addressed by title, because a listing of titles
+never sees a slot id and should not have to carry one to undo itself.
+
+*Leaving the queue is allowed whatever the status*, unlike joining it. A title that stopped
+being Planning while it sat in a slot is exactly the row somebody would want to clear by hand
+rather than wait for the next sync to advance past.
+
+*Plus and minus rather than Up Next's cross*, and the difference is not cosmetic. That page's
+subject is an ordered list, and its cross removes a position from one. Here the pair reads as a
+single state — in the queue or not — which is all a backlog row has to say about it. Neither
+touches the library, and neither is `AdvanceAsync`: advancement releases a slot because a title
+stopped being planned, which is an observation (D12), while this is the user changing their
+mind about the order, which is the one thing AniQueue authors (D11).
+
+*Re-adding goes to the back.* Position is authored rather than remembered, so restoring a
+title's old place would be AniQueue holding an opinion about the order.
 
 **Nothing is re-read after a press.** The row already shows everything the action changed, so
 re-running the query would move rows under the cursor, close every open expansion and lose the
@@ -1135,7 +1156,12 @@ neighbours in one actions cell, which put the action done constantly a few pixel
 that takes a title out of the list — two icon buttons of the same size, with nothing but aim
 between them. Frequency decides the position: the plus goes where the eye already is, at the
 start of the row beside the title being judged, and hiding goes to the far edge where a rare
-action belongs.
+action belongs. **The relatives inside an expansion lead with theirs too**, so one run of queue
+buttons goes down the page whether a title is on a row or inside a panel — the control is the
+same control, and it lives in the same place.
+
+Both are the same component for that reason. Two copies of *when may this be pressed, and what
+does it say it will do* is how a row's badge and its button start disagreeing.
 
 **Hidden becomes a view in the status picker, and the "Show hidden" chip is deleted.** The chip
 put the only route back to a set-aside title in the same row as *Under 2 hours* — findable if

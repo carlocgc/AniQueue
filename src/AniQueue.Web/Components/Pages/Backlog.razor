@@ -222,11 +222,9 @@ else
                                        that is always in the same place, and a disabled
                                        button carries the reason in its tooltip where an
                                        absent one carries nothing. *@
-                                    <button class="icon add"
-                                            disabled="@(!CanQueue(item.Status, item.AnimeId))"
-                                            title="@QueueActionLabel(item.Title, item.Status, item.AnimeId)"
-                                            aria-label="@QueueActionLabel(item.Title, item.Status, item.AnimeId)"
-                                            @onclick="() => QueueAsync(item.AnimeId)">+</button>
+                                    <QueueButton AnimeId="item.AnimeId" Title="@item.Title"
+                                                 Status="item.Status" IsQueued="IsQueued(item.AnimeId)"
+                                                 OnToggle="ToggleQueuedAsync" />
                                 </td>
                                 <td class="expand-col">
                                     @* Drawn only when there is something to open. A
@@ -343,8 +341,23 @@ else
                                                     @foreach (var relative in relatives)
                                                     {
                                                         <li>
-                                                            @* The tag first, because it is
-                                                               what the row is being read
+                                                            @* Leads the line, under the
+                                                               column the rows put it in, so
+                                                               one run of buttons goes down
+                                                               the page whether a title is on
+                                                               a row or inside an expansion.
+                                                               The whole point of finding a
+                                                               sequel here is being able to
+                                                               act on it (D26), and acting
+                                                               leaves the panel open so the
+                                                               next one down is still in
+                                                               front of the user. *@
+                                                            <QueueButton AnimeId="relative.AnimeId" Title="@relative.Title"
+                                                                         Status="relative.Status" IsQueued="IsQueued(relative.AnimeId)"
+                                                                         OnToggle="ToggleQueuedAsync" />
+
+                                                            @* Then the tag, because it is
+                                                               what the line is being read
                                                                for: the question is "how is
                                                                this connected", not "what
                                                                else exists". *@
@@ -356,19 +369,6 @@ else
                                                                 <span class="badge queued" title="Already in Up Next">Queued</span>
                                                             }
                                                             <span class="muted">@RelativeMeta(relative)</span>
-
-                                                            @* The whole point of finding a
-                                                               sequel here is being able to
-                                                               act on it (D26). Queueing it
-                                                               from the expansion leaves the
-                                                               panel open, so the next one
-                                                               down is still in front of the
-                                                               user. *@
-                                                            <button class="icon add"
-                                                                    disabled="@(!CanQueue(relative.Status, relative.AnimeId))"
-                                                                    title="@QueueActionLabel(relative.Title, relative.Status, relative.AnimeId)"
-                                                                    aria-label="@QueueActionLabel(relative.Title, relative.Status, relative.AnimeId)"
-                                                                    @onclick="() => QueueAsync(relative.AnimeId)">+</button>
                                                         </li>
                                                     }
                                                 </ul>
@@ -430,11 +430,11 @@ else
     // to find that out would move rows under the cursor, close every expansion and
     // lose the reader's place — to report a change they just made.
     //
-    // Queue membership is a set because it only ever grows here — nothing on this
-    // page takes a title out of Up Next. Hiding goes both ways within one visit, so
-    // it is an override keyed by title rather than a second set: "no answer" has to
-    // stay distinguishable from "hidden false", or unhiding a row would be
-    // indistinguishable from never having touched it.
+    // Queue membership can be a plain set because a title is either in Up Next or it
+    // is not, and the page can say which for anything on screen. Hiding needs an
+    // override keyed by title instead: "no answer" has to stay distinguishable from
+    // "hidden false", or unhiding a row would be indistinguishable from never having
+    // touched it.
     private readonly HashSet<int> _queued = [];
     private readonly Dictionary<int, bool> _hiddenOverride = [];
 
@@ -706,50 +706,40 @@ else
         _hiddenOverride.TryGetValue(item.AnimeId, out var hidden) ? hidden : item.IsHidden;
 
     /// <summary>
-    /// Whether the plus button on a row can do anything.
-    /// </summary>
-    /// <remarks>
-    /// It answers the same two questions <see cref="IQueueService.AddAnimeAsync"/>
-    /// answers server-side, so pressing an enabled button always works and pressing
-    /// a disabled one was never going to. Deciding it here rather than reporting the
-    /// refusal afterwards is what lets this page drop its message banner entirely:
-    /// the only outcomes left are "queued" and "the button was greyed out and said
-    /// why".
-    ///
-    /// Both cases are ordinary rather than exotic. The status filter widens the
-    /// backlog past Planning, and an expansion deliberately shows every status — a
-    /// Completed prequel is the most useful thing it can say, and it is also the one
-    /// thing there that cannot be queued.
-    /// </remarks>
-    private bool CanQueue(LibraryStatus status, int animeId) =>
-        status == LibraryStatus.Planning && !IsQueued(animeId);
-
-    private string QueueActionLabel(string title, LibraryStatus status, int animeId) =>
-        IsQueued(animeId) ? $"{title} is already in Up Next"
-        : status != LibraryStatus.Planning ? $"{title} is {status.ToString().ToLowerInvariant()}, so it is not waiting to be watched"
-        : $"Add {title} to Up Next";
-
-    /// <summary>
-    /// Queues one title, from a row or from an expansion.
+    /// Puts one title into Up Next or takes it out again, from a row or from an
+    /// expansion.
     /// </summary>
     /// <remarks>
     /// Nothing is re-read afterwards, and that is the point of doing it this way
-    /// (D26). The row is already showing everything the add changed, so re-running
+    /// (D26). The row is already showing everything the press changed, so re-running
     /// the query would move rows under the cursor, close every open expansion and
     /// lose the reader's place — to tell them about a change they just made.
     ///
     /// The result is still inspected rather than assumed: the page's idea of a
     /// title's status can be a few seconds behind a background sync, so a refusal
-    /// leaves the badge alone rather than claiming a slot that was not taken.
+    /// leaves the badge alone rather than claiming a slot that was never taken.
+    /// Adding something already queued counts as success, because the end state is
+    /// the one the button asked for.
     /// </remarks>
-    private async Task QueueAsync(int animeId)
+    private async Task ToggleQueuedAsync((int AnimeId, bool Queued) request)
     {
-        var result = await QueueService.AddAnimeAsync(Profile.DefaultProfileId, [animeId]);
-
-        if (result.Added > 0 || result.AlreadyQueued > 0)
+        if (request.Queued)
         {
-            _queued.Add(animeId);
+            var result = await QueueService.AddAnimeAsync(Profile.DefaultProfileId, [request.AnimeId]);
+
+            if (result.Added > 0 || result.AlreadyQueued > 0)
+            {
+                _queued.Add(request.AnimeId);
+            }
+
+            return;
         }
+
+        // False means the title held no slot, which is the same end state the press
+        // asked for — so the button settles rather than staying stuck on "remove".
+        await QueueService.RemoveAnimeAsync(Profile.DefaultProfileId, request.AnimeId);
+
+        _queued.Remove(request.AnimeId);
     }
 
     /// <summary>

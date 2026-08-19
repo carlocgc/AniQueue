@@ -140,6 +140,27 @@ public interface IQueueService
         CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Releases whatever slot a title holds, if it holds one.
+    /// </summary>
+    /// <remarks>
+    /// The same removal addressed by title rather than by slot, because the backlog
+    /// never sees a slot id — it lists titles, and its queue button has to undo
+    /// itself. Making it look the slot up first would mean either a second round
+    /// trip or a slot id carried through a listing that has no other use for one.
+    ///
+    /// This is <b>not</b> the counterpart of <see cref="AdvanceAsync"/> and must not
+    /// grow into it. Advancement releases a slot because the title stopped being
+    /// planned, which is an observation (D12); this is the user saying they changed
+    /// their mind about the order, which is authorship — the one thing AniQueue does
+    /// own (D11). Neither touches the library entry.
+    /// </remarks>
+    /// <returns>False when the title holds no slot in this profile's queue.</returns>
+    Task<bool> RemoveAnimeAsync(
+        int profileId,
+        int animeId,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Releases the slots of anything that is no longer waiting to be watched, and
     /// closes the gaps, so that whatever is next really is next.
     /// </summary>

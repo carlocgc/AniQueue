@@ -1,0 +1,65 @@
+@* One title's whole relationship with Up Next, in one control.
+
+   A toggle rather than a one-way add, because a backlog row is where the mistake
+   is noticed: queueing something and immediately reconsidering used to mean
+   leaving the page for Up Next, finding the row again there, and pressing a
+   different button with a different glyph. The row already says "Queued", so the
+   control beside it has to be able to undo that.
+
+   Plus and minus rather than a cross, and the distinction is not cosmetic. The
+   cross on Up Next removes a slot from an ordered list, which is that page's
+   subject; here the pair reads as one state — in the queue, or not — which is the
+   only thing a backlog row has to say about it. Neither touches the library.
+
+   It exists as a component because the backlog row and the relatives inside an
+   expansion need exactly the same three states, and two copies of "when may this
+   be pressed" is how the badge and the button start disagreeing. *@
+
+<button class="icon add @(IsQueued ? "dequeue" : null)"
+        disabled="@(!Enabled)"
+        title="@Label"
+        aria-label="@Label"
+        @onclick="ToggleAsync">@(IsQueued ? "−" : "+")</button>
+
+@code {
+    [Parameter, EditorRequired]
+    public int AnimeId { get; set; }
+
+    /// <summary>Named in the accessible label, because "add" alone says nothing on a page of fifty.</summary>
+    [Parameter, EditorRequired]
+    public string Title { get; set; } = string.Empty;
+
+    [Parameter, EditorRequired]
+    public LibraryStatus Status { get; set; }
+
+    [Parameter]
+    public bool IsQueued { get; set; }
+
+    /// <summary>Called with the title and where it should end up.</summary>
+    [Parameter]
+    public EventCallback<(int AnimeId, bool Queued)> OnToggle { get; set; }
+
+    /// <summary>
+    /// Whether pressing it can do anything.
+    /// </summary>
+    /// <remarks>
+    /// It answers the same question <see cref="IQueueService.AddAnimeAsync"/>
+    /// answers server-side, so an enabled press always works and a disabled one was
+    /// never going to. Deciding it here rather than reporting the refusal afterwards
+    /// is what lets the backlog have no message banner at all: the outcomes are
+    /// "queued", "unqueued", and "the button was greyed out and said why".
+    ///
+    /// Leaving the queue is always allowed, whatever the status. A title that stopped
+    /// being planned while it sat in a slot is exactly the row somebody would want to
+    /// clear by hand rather than wait for the next sync to advance past.
+    /// </remarks>
+    private bool Enabled => IsQueued || Status == LibraryStatus.Planning;
+
+    private string Label =>
+        IsQueued ? $"Remove {Title} from Up Next"
+        : Status != LibraryStatus.Planning
+            ? $"{Title} is {Status.ToString().ToLowerInvariant()}, so it is not waiting to be watched"
+            : $"Add {Title} to Up Next";
+
+    private Task ToggleAsync() => OnToggle.InvokeAsync((AnimeId, !IsQueued));
+}
