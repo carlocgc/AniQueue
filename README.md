@@ -6,8 +6,9 @@ AniQueue is not a MyAnimeList or AniList replacement. It assumes your library al
 somewhere and answers the question those tools answer badly: **what do I actually watch
 next?**
 
-- Import your existing library (MyAnimeList XML export, or AniQueue JSON).
-- Group franchise seasons, films, OVAs and specials into a single backlog decision.
+- Import a MyAnimeList XML export, or sync a public AniList list on a schedule.
+- See what each title is related to — prequels, sequels, side stories, spin-offs — on the row
+  itself, and queue a show and its sequels in one click.
 - Maintain a deliberate, hand-ordered **Up Next** queue.
 - Rank the backlog against **your own historical scores**, not global popularity — using an
   external LLM of your choice, with **no API key required**.
@@ -24,12 +25,10 @@ architectural decisions and acceptance criteria. Nothing here is installable yet
 | 1 | Domain model, EF Core + SQLite, migrations, seed data | **complete** |
 | 2 | MyAnimeList XML import → preview → commit → backlog | **complete** |
 | 3 | Backlog page — filters, sorting, bulk actions | **complete** |
-| 4 | Up Next queue — manual ordering, drag and drop | next |
-| 5–11 | Franchises → watching → AI ranking → Docker | planned |
-
-## Screenshots
-
-_To be added once the UI exists._
+| 4 | Up Next queue — manual ordering, drag and drop | **complete** |
+| 5 | AniList read sync — reconciliation, on demand, then unattended | **complete** |
+| 6 | Relations — a title's prequels, sequels and spin-offs | next |
+| 7–11 | Dashboard → interchange → AI ranking → artwork → Docker | planned |
 
 ## Documentation
 
@@ -60,9 +59,9 @@ dotnet run --project src/AniQueue.Web
 ```
 
 The development database is created at `src/AniQueue.Web/data/aniqueue.db` on first run,
-along with sample data covering completed, watching and planning titles, a franchise, an
-ordered queue and an applied AI ranking. Delete that directory to start clean. Production
-databases are never seeded.
+along with sample data covering completed, watching and planning titles, several seasons of
+one series, an ordered queue and an applied AI ranking. Delete that directory to start clean.
+Production databases are never seeded.
 
 ## Importing a MyAnimeList export
 
@@ -74,13 +73,30 @@ databases are never seeded.
 4. Confirm.
 
 Nothing is written until you confirm. Re-importing the same export is a no-op, and an
-import never overwrites what you curated here — personal notes, manual priority, hidden
-flag, franchise grouping, queue position and recommendation data are all left alone.
-Entries that cannot be confidently identified are reported as conflicts and skipped rather
-than merged.
+import never overwrites what you curated here — personal notes, hidden flag, queue position
+and recommendation data are all left alone. Entries that cannot be confidently identified are
+reported as conflicts and skipped rather than merged.
 
-Installation, configuration, Docker deployment, backup/restore, MAL import and the AI
-ranking workflow will be documented here as the corresponding phases land.
+## Syncing an AniList list
+
+AniList lists are read without authentication, so there is no OAuth and no API key. Two
+settings, in two places, deliberately:
+
+- **Which account to read** is operator configuration. Set `Sync:AniList:UserName` — as an
+  environment variable (`Sync__AniList__UserName`), in `appsettings.json`, or by uncommenting
+  the line in the `userconfig.json` written beside the database on first run.
+- **How often, and what to do with conflicts and disappearances** are your settings, on the
+  **Sources** page.
+
+`Sync:Enabled=false` is the kill switch. It is a configuration key rather than a toggle in the
+application because the moment it is needed is the moment the UI cannot be reached.
+
+Only your list is read. Nothing is ever written back to AniList or MyAnimeList.
+
+---
+
+Installation, Docker deployment, backup/restore and the AI ranking workflow will be documented
+here as the corresponding phases land.
 
 ## Licence
 

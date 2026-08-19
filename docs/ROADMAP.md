@@ -14,7 +14,10 @@ Problems in scope:
 
 - Plan-to-Watch lists grow large and unordered.
 - There is no deliberate, hand-curated "watch this next" queue.
-- Franchise seasons, OVAs, films and specials clutter the backlog as separate decisions.
+- Franchise seasons, OVAs, films and specials arrive in the backlog with nothing saying they
+  are related. *Amended by D24: the answer is to surface each title's relations on its own
+  row rather than to collapse them into one, so this reads as a missing-context problem
+  rather than a clutter problem.*
 - Prioritisation should follow *your* historical scores, not global popularity.
 - It must run on your own hardware with no cloud dependency.
 
@@ -76,10 +79,12 @@ Numbered so they can be cited in code comments, PRs and future amendments.
 
 ### D1 — The queue gets its own table; `LibraryEntry.QueuePosition` is dropped
 
-> **Superseded in part by D15.** A franchise no longer occupies a queue slot, so the
-> exclusive-or below is gone and `QueueItem.AnimeId` is required. The conclusion — a separate
-> table — still stands, for the different reasons D15 gives. The rest of this entry is kept
-> as the record of why the queue was modelled this way first.
+> **Superseded in part by D15, and finally by D23.** A franchise no longer occupies a queue
+> slot, so the exclusive-or below is gone and `QueueItem.AnimeId` is required; D23 then removed
+> franchises from the application altogether, so there is no longer any second kind of thing a
+> slot could hold. The conclusion — a separate table — still stands, for the different reasons
+> D15 gives. The rest of this entry is kept as the record of why the queue was modelled this
+> way first.
 
 *Brief §4 vs §5 contradict each other.* §4 puts `QueuePosition` on `LibraryEntry`; §5
 requires that an anime **or an entire franchise** can occupy a queue slot. There is no
@@ -179,6 +184,13 @@ entries the migration carried over were removed — this solution only ever buil
 Minimum tooling this implies: VS 2026 (or VS 2022 17.14+) and the .NET 10 SDK. Both are
 already the baseline in §0, so nothing is lost.
 
+### D9 — Parsing lives in Core, and the parser does not build the preview
+
+**Recorded in §5**, beside the import pipeline it describes, rather than repeated here. This
+stub exists because the number is cited from code — `IAniListClient` and `AniListClient` both
+point at it — and a decision that cannot be found from its own register is a decision nobody
+will check before contradicting it.
+
 ### D10 — Franchise grouping waits for authoritative relation data
 
 A MyAnimeList export carries no relationship data at all. Its 23 fields per entry are
@@ -213,6 +225,15 @@ over by Phase 5. Because relations come from a separate query rather than riding
 list (see Phase 6), they have no coupling to list sync, and fetching them one phase before
 anything consumed them split one feature across two phases for no benefit. The wait is
 unchanged in substance: authoritative relations still precede any grouping proposal.
+
+**Amended finally by D23 and D24, and the change is a reversal rather than a delay.** This
+decision said grouping waits for authoritative data. The answer is now that grouping does not
+happen at all: AniQueue never groups titles, curated or proposed, because grouping is
+authorship and membership is not AniQueue's to author (D11 applied one level down). The
+relation data this entry was waiting for is still fetched and is still the foundation of
+Phase 6 — it is shown per title rather than resolved into groups. What survives intact is the
+warning: **do not re-propose title-similarity detection.** It was wrong when the alternative
+was curation and it is wrong now that the alternative is authoritative edges.
 
 ### D11 — The AI orders a closed set. It does not choose what is in it.
 
@@ -301,9 +322,12 @@ public list data without authentication, which if true removes OAuth from the MV
 Design for it, verify before relying on it.
 
 **A consequence for D10:** franchise grouping was deferred for want of authoritative relation
-data. Promoting AniList read access supplies it, so franchises can use real relations inside
-the MVP rather than waiting. The phase order below puts AniList before franchises for exactly
+data. Promoting AniList read access supplies it, so grouping can use real relations inside
+the MVP rather than waiting. The phase order below puts AniList before relations for exactly
 this reason.
+
+*Amended by D23 and D24.* The relation data promoted here is still the point, but nothing
+groups with it: relations are shown per title, and the franchise entity is gone.
 
 **Scope, revised once the design was worked through.** Three things changed and are recorded
 here rather than left as drift between this entry and the phase plan:
@@ -397,6 +421,12 @@ Two details worth keeping in mind when removing anything similar:
   without exercising the tiebreak at all. It was re-pointed at a sort that genuinely collides.
 
 ### D15 — A franchise groups titles and queues them. It is not a queue item.
+
+> **Superseded in part by D23.** Everything below about what a queue slot is remains in force
+> and is the reason the queue survived franchises being deleted without a single change to its
+> table. What is withdrawn is the other half — the franchise as a grouping, its curation, its
+> collapsed card, `OptionalWithinFranchise`, and expansion taking a franchise id. The one-click
+> expansion itself survives, rooted at a title and walking the relation graph forward (D24).
 
 *Reverses the central claim of D1, and declines §262 of the brief — while still meeting the
 acceptance criterion that rested on it.*
@@ -528,10 +558,14 @@ which the result can be displayed or sorted. This costs nothing real: D11 alread
 candidate set from the user's library, and every candidate in it is a `LibraryEntry`, so
 franchises were never going to appear there in the first place.
 
-**Not changed:** `Anime.FranchiseId`, `FranchiseOrder`, `OptionalWithinFranchise` and the
-`Franchise` entity all stand. Franchises remain a grouping, a backlog collapse and a queueing
-action (D15) — they are simply not a unit of ranking, exactly as they are not a unit of
-watching.
+**Not changed at the time:** `Anime.FranchiseId`, `FranchiseOrder`, `OptionalWithinFranchise`
+and the `Franchise` entity all stood. Franchises remained a grouping, a backlog collapse and a
+queueing action (D15) — they were simply not a unit of ranking, exactly as they were not a unit
+of watching.
+
+*That sentence is now false in every part: D23 deleted all four.* The reasoning above is
+unaffected and, read in hindsight, was the first half of the same argument — a franchise turned
+out to be not a unit of ranking, not a unit of watching, and finally not a unit of anything.
 
 ### D17 — External identity is a set, not a field
 
@@ -675,7 +709,7 @@ defaulting to **flag**. The default is safe for identical-list and consolidated-
 alike, so correctness never depends on the user finding a setting.
 
 - **Only the `LibraryEntry` and its queue slot are ever removed**, never the `Anime`. The
-  catalogue row is shared with franchise grouping and `RecommendationRunItem` history.
+  catalogue row is shared with relation edges and `RecommendationRunItem` history.
 - **Removing an entry must remove its queue slot in the same transaction.** `AdvanceAsync`
   deliberately treats a missing library entry as *unknown, not watched*, and keeps the slot.
   Deleting the entry alone destroys the only evidence that could ever release it, leaving a
@@ -823,7 +857,7 @@ loss. It is recommended, not required.
 `Media.title` has four variants; a MyAnimeList export has one, roughly romaji.
 `ApplyCatalogueFields` assigns `Title` unconditionally, so a first AniList sync rewrites the
 displayed name of most of the library — *Shingeki no Kyojin* becoming *Attack on Titan* across
-every row, queue slot and franchise — driven by a choice nobody made. Meanwhile
+every row and queue slot — driven by a choice nobody made. Meanwhile
 `AlternativeTitle` has existed since Phase 1 with nothing ever written to it.
 
 **Decision:** the preferred language is a user setting — romaji, English or native. Each variant
@@ -889,6 +923,175 @@ Nothing could switch between them without guessing. Titles are now stored one co
 *What is left for Phase 10* is only where the control lives — beside the theme, rather than on the
 Sources page under a source that no longer has anything to do with it.
 
+### D23 — Grouping is observed, never authored. The franchise entity is deleted.
+
+*Generalises D12, withdraws the surviving half of D15, reverses D10, and declines acceptance
+criterion 8 outright.*
+
+D12 established that AniQueue observes watched status rather than authoring it. The same
+sentence is now true of grouping, and after it **AniQueue authors exactly one thing: order.**
+Everything else — what is on the list, whether it has been watched, what belongs with what —
+is a fact about the user's library held somewhere that already maintains it.
+
+`Franchise`, `Anime.FranchiseId`, `Anime.FranchiseOrder` and `Anime.OptionalWithinFranchise`
+are deleted, along with `ProfileSettings.ShowOptionalFranchiseEntries`, `FranchiseFilter`,
+`LibraryFacets.HasFranchises`, `AddFranchiseAsync`, `QueueableFranchise` and both
+`FranchiseName` projections. Nothing replaces them under a different name.
+
+**The argument is D11's, one level down.** D11 says the external service owns list membership
+and AniQueue owns order. A franchise is membership of a set — the same kind of claim, made
+about a different collection, and equally not ours to make. Once that is seen, curation stops
+looking like a feature and starts looking like the work D10 already refused to hand the user:
+at 752 titles, grouping by hand is data entry.
+
+**It also removes the last thing in the model a user had to maintain.** Every other local
+concept is either derived from a source or is the ordering itself. A franchise was neither: it
+was a structure the user built, kept up to date as new seasons arrived, and lost if they ever
+started again. That is friction inside an application whose entire purpose is answering one
+question quickly.
+
+**What replaces it is nothing, and that is the point.** Not automatic grouping either — D24
+explains why derived groups were also rejected — but relations shown against the titles they
+are facts about.
+
+**Acceptance criterion 8 is declined**, in the same way and for the same kind of reason D12
+declined 13 and 14: *"create/edit franchises"* asks for an authoring surface this application
+should not have. Criterion 9 is answered differently rather than declined, and D24 states how.
+The brief's §810 — *"franchises are central to the application"* — is the strongest claim this
+roadmap has contradicted, and it is contradicted knowingly: what is central is the decision,
+and franchises were one attempt at serving it.
+
+**One loss, stated plainly.** A MyAnimeList-only library gets nothing from Phase 6 at all.
+Relations are an AniList query keyed by AniList ids, and a library imported from a MAL export
+carries none. Such a user previously had manual tools; now they have neither. The fix is the
+id-mapping job in D25, and until it ships this is a real gap rather than an oversight.
+
+**Also gone: user-created titles.** Nothing in the application ever created one — there is no
+such page, and `AnimeSource.Manual` survives only as provenance on rows that arrived carrying
+no identifier — so this costs no code. It is recorded because it is the same principle: a
+title AniQueue invented would have no external identity, no relations and no membership
+anywhere, which makes it exactly the kind of thing this application has decided not to own.
+
+### D24 — Relations are a property of a title, not a grouping of titles
+
+*Settles what replaces the franchise, and declines acceptance criterion 9's stated form.*
+
+Having deleted curated grouping (D23), the obvious next move is to derive groups from AniList
+relation edges — connected components over a chosen set of relation types, each collapsed to
+one backlog row. **That was designed and then rejected.** There are no groups, derived or
+otherwise. Every title keeps its own backlog row, and each row expands to show what it is
+related to, every relative tagged with its actual relationship: prequel, sequel, side story,
+spin-off, alternative, recap.
+
+**AniList publishes no franchises.** It publishes edges and types. A derived group is therefore
+not source parity — it is still AniQueue's inference, and the traversal rule behind it would be
+a product decision with nothing behind it, since a wrong group cannot be unpicked once curation
+is gone. That is a reason for caution rather than for abandonment. What decides it is next.
+
+**Artwork and collapse are substitutes, and the roadmap had them as complements.** §10 argues
+that a backlog of several hundred rows is a wall of text and that recognising a show by its art
+is faster than reading its title — then cites that as *supporting* the case for grouping. It
+does the opposite. Both solve the same problem, so making the wall scannable with art removes
+most of the reason to shorten it by hiding rows. The art is measured and already in hand:
+`coverImage.extraLarge` is null for **0 of 753** titles and Phase 5b already fetches it.
+
+**And hiding rows costs discoverability, which is half of what a backlog is for.** A collapsed
+group shows one title where the user owns five. The other four stop being visible objects — no
+art, no year, no runtime, no AI score — and a later season the user might want to start is
+reachable only by expanding something. A backlog is not only a queue of decisions waiting to be
+made; it is where interest is provoked. Collapsing optimises the first at the expense of the
+second.
+
+**Consequences, all of which make the build smaller:**
+
+- **No components, no lead-row selection, no group key, no group name.** The naming problem
+  disappears with the group: no synthesised label to get wrong, and no stored name to fall out
+  of step with D22 when the title language changes.
+- **Two edge sets, for two jobs.** *Display* — `PREQUEL, SEQUEL, SIDE_STORY, PARENT,
+  ALTERNATIVE, SPIN_OFF, SUMMARY, COMPILATION, CONTAINS` — is deliberately wide, because
+  nothing is merged and everything is labelled. *Queue expansion* is `SEQUEL` walked forward
+  only, skipping `SUMMARY` and `COMPILATION`. `CHARACTER`, `ADAPTATION`, `SOURCE` and `OTHER`
+  are in neither: the first links unrelated shows through a shared character, the next two
+  point at manga, and the last has no meaning to label it with.
+- **Expansion survives D15, rooted at a title.** "Queue this and what follows" walks `SEQUEL`
+  forward from the title in front of the user and appends what is still Planning, in release
+  order. It is strictly better than franchise expansion was, because it never proposes the
+  prequels they have already watched.
+- **`OptionalWithinFranchise` is not replaced by another flag.** What it meant is derived: a
+  recap or a compilation is skippable because of what the edge says it is, not because somebody
+  ticked a box.
+- **A standalone filter survives, redefined.** Brief §345 asked for franchise/standalone; the
+  useful half is *standalone*, computed as "no `PREQUEL` or `SEQUEL` edge at all" — a real
+  decision (*something self-contained tonight*) sitting naturally beside the runtime filter.
+  Counted over all edges rather than only owned ones: a series whose later seasons the user
+  does not own is still a commitment.
+- **An expansion lists owned titles only.** Relations reach thousands of titles the user has
+  never expressed interest in, and putting those into the decision surface is what D11 forbids
+  — doubly so while there is no write-back, since the only available action would be "go add
+  this somewhere else yourself".
+
+**Ordering inside an expansion is release order, and is not claimed to be anything else.**
+AniList publishes no viewing sequence. A topological sort along prequel edges produces *story*
+order, which is frequently the wrong watch order — AniList marks `Fate/Zero` as a prequel of
+`Fate/stay night`, so story order puts it first. Release order is a fact the source supplies;
+story order is a curatorial opinion, and D23 has just finished establishing that those are not
+ours to author. It needs a date finer than `ReleaseYear`, since split-cour seasons share one.
+
+**Acceptance criterion 9 — *"collapse sequels into them"* — is declined in its stated form.**
+What it wanted is met differently: sequels are visibly related, labelled, and one click from
+the queue. What is not met is the collapsing, and the roadmap's third problem statement is
+amended to match rather than quietly left standing.
+
+**Left open deliberately:** an opt-in *"hide sequels I can't start yet"* filter — the lead-row
+selection this decision rejected as a page shape, offered as a toggle instead. Not built.
+Recorded so that if a large backlog does prove noisy, the answer is a filter the user chooses
+rather than a structure imposed on everyone.
+
+### D25 — Enrichment is a chain of gated jobs, and it is unauthenticated
+
+*Promotes §10's artwork tiers from stretch-goal prose into a planned shape, and fixes what the
+relation backfill in Phase 6 is the first instance of.*
+
+AniQueue ends up fetching several kinds of metadata a list sync never hands over: relations
+(Phase 6), cross-service identifiers, and artwork. `IBackgroundJob` was written anticipating
+exactly this. Four rules, decided once:
+
+- **Each job gates on its own precondition; sequencing is emergent.** The relation job takes
+  titles whose relations are not yet known, the id-mapping job takes titles with no mapping,
+  the artwork job takes titles with a mapping and no cached image. Nothing orchestrates them,
+  order falls out of data readiness, and each is idle when its input is empty — so a job can be
+  added, disabled or rerun without touching the others.
+- **No authentication, ever, for enrichment.** Catalogue metadata is public, which is what
+  keeps OAuth out of the MVP (D13). Authentication would buy private lists and write-back, and
+  write-back is the one direction that can damage a list the user maintains elsewhere. If OAuth
+  ever arrives it arrives for its own reasons, argued on their own terms, rather than smuggled
+  in by a metadata pass.
+- **Enrichment degrades silently.** Every use of it is an enhancement, so a failed fetch logs
+  and retries rather than raising a banner. Deliberately unlike sync, where D21 makes a stalled
+  run visible: a stalled sync means the library is wrong, while a stalled backfill means one
+  row is missing a detail.
+- **Enrichment may only add.** D18 already governs this — a primary source owns tracking data
+  and others may only fill gaps — so an enrichment job never touches status, progress or score.
+
+**Two schema warnings carried forward from §10 so they are not rediscovered late.** TVDB and
+TMDB identifiers **do not fit `AnimeExternalId`**: they are many-to-one and meaningless without
+the season the mapping dataset supplies alongside them, so storing them as peers of an AniList
+id would claim an identity they do not have. And more than one image per title **kills
+`Anime.CoverImageUrl`** — poster, banner, logo and backdrop are a set, which is the arity-1
+mistake D17 has just finished undoing for identity. Both want their own tables.
+
+**Artwork is promoted out of stretch goals**, because it is a primary decision input rather
+than decoration, and because §10's own argument for it is stronger than the section it was
+filed under. It splits by cost: `coverImage.color` is six bytes at 92% coverage and rides along
+with Phase 6's query change; cached cover rendering becomes its own slice inside the MVP,
+before Phase 10, so the accessibility and responsive pass happens on the layout that actually
+ships; richer TMDB and TVDB art stays post-MVP with the id-mapping job. The middle tier is the
+real work, and its cost is the filesystem cache under `/data` that §9's non-root bind-mount
+problem already blocks for the database.
+
+*Unverified, and blocking nothing until it is:* the `Fribb/anime-lists` licence has still not
+been read, and vendoring it would be redistribution in a public repository.
+
 ---
 
 ## 3. Solution structure
@@ -936,7 +1139,6 @@ erDiagram
     Profile ||--o{ SyncRun : records
     Anime ||--o{ LibraryEntry : "referenced by"
     Anime ||--o{ AnimeExternalId : "identified by"
-    Franchise ||--o{ Anime : groups
     Anime ||--o| QueueItem : "queued as"
     RecommendationRun ||--o{ RecommendationRunItem : contains
 ```
@@ -944,14 +1146,13 @@ erDiagram
 ### Anime
 
 `Id, Title, TitleRomaji?, TitleEnglish?, TitleNative?, MediaType, EpisodeCount?, EpisodeDurationMinutes?,
-ReleaseYear?, CoverImageUrl?, Description?, Source, FranchiseId?,
-FranchiseOrder?, OptionalWithinFranchise, CreatedAt, UpdatedAt`
+ReleaseYear?, CoverImageUrl?, Description?, Source, CreatedAt, UpdatedAt`
 
 - `MediaType`: `Unknown, Tv, Movie, Ova, Ona, Special, Music`
 - `Source`: `Manual, MyAnimeList, AniList` — **provenance only** since D17. Identity lives on
   `AnimeExternalId`.
-- `OptionalWithinFranchise` (brief §21) belongs here, not on `Franchise` — it describes an
-  individual entry's role within its group.
+- **Nothing here records grouping**, and nothing will (D23, D24). Relations are stored as edges
+  between external identifiers; there is no membership column and no group to be a member of.
 - `Title` is the **resolved display title**, and the only one anything else reads — the backlog
   searches, sorts and pages on it in SQL. The three variants beside it each know their own
   language, which is what lets the preference be switched without a sync (D22); they are null for
@@ -1007,20 +1208,11 @@ this table should be able to describe. `StartedAt` times the work the row record
 whole visit — for a reviewed sync that is the apply, since the gap between fetching and confirming
 is a person thinking, not a sync running. Recency is read from the key, not this column: see §8.
 
-### Franchise
-
-`Id, Name, Description?, ManualSortOrder`. Anime→Franchise is 0..1 for MVP. Internal
-ordering is `Anime.FranchiseOrder`. User can create, rename, add/remove titles, reorder and
-dissolve. **No automatic franchise detection in v1.**
-
-A franchise groups titles; it is never itself queued (D15). Its role in the queue is to
-expand into its members, and to badge them once they are there.
-
 ### QueueItem
 
-`Id, ProfileId, Position, AnimeId, AddedAt`. See D2 and D15. A slot is always exactly one
+`Id, ProfileId, Position, AnimeId, AddedAt`. See D2, D15 and D23. A slot is always exactly one
 title, so the unique index on `(ProfileId, AnimeId)` needs no filter and there is no check
-constraint. Queueing a franchise appends its titles individually (D15).
+constraint. Queueing a run of seasons appends them individually (D15, D24).
 
 A slot's release depends on its `LibraryEntry` existing, because `AdvanceAsync` treats a missing
 entry as unknown rather than watched. Anything that deletes an entry must therefore delete its
@@ -1047,7 +1239,7 @@ carries `ProfileId` so multi-user — post-MVP per §10 — stays possible. Sett
 |---|---|---|
 | `ILibraryService` | Infrastructure | CRUD, status transitions, progress, scoring, filter/page |
 | `IQueueService` | Infrastructure | add/remove/reorder, normalise positions, transactional |
-| `IFranchiseService` | Infrastructure | membership, ordering, dissolve, next-unwatched |
+| `IRelationService` | Infrastructure | a title's relations, tagged and ordered; the sequel walk (D24) |
 | `IImportService` | Infrastructure | orchestrates the import pipeline |
 | `IRecommendationService` | Infrastructure | build request, validate/apply result, run history |
 | `IAnimeListParser` | **Core** (incl. impls) | `MyAnimeListXmlParser`, `AniListJsonParser`, `AniQueueJsonParser` — pure, no database |
@@ -1055,8 +1247,8 @@ carries `ProfileId` so multi-user — post-MVP per §10 — stays possible. Sett
 | `ISyncService` | Infrastructure | Orchestrates fetch → preview → apply per source; owns `SyncRun` |
 | `IAiRecommendationProvider` | Core | `ManualJsonRecommendationProvider` only in MVP |
 | `IRankingCalculator` | **Core** | hybrid ranking formula — pure, testable |
-| `IRuntimeCalculator` | **Core** | episode×duration maths, franchise sums, formatting |
-| `ICoverImageResolver` | Core | **Post-MVP; nothing builds or consumes it yet.** Kept in this table because the reason it was drawn — art must be served by AniQueue rather than hotlinked — is a real constraint, recorded in §10 |
+| `IRuntimeCalculator` | **Core** | episode×duration maths, sums, formatting |
+| `ICoverImageResolver` | Core | **Phase 9.5**, promoted from post-MVP by D25. The reason it was drawn — art must be served by AniQueue rather than hotlinked — is measured in §10 |
 
 Import splits at the point where a database is first needed:
 
@@ -1139,7 +1331,7 @@ The UI states plainly what is being sent.
 **Data integrity on import.** Match on external identity first — every identifier the incoming
 entry supplies, in source-precedence order (D17) — then title matching only cautiously and never
 silently merging ambiguous matches. An import must not overwrite manual queue position, personal
-notes, franchise grouping, hidden flag, or recommendation history unless explicitly requested.
+notes, hidden flag, or recommendation history unless explicitly requested.
 Where a title is known to more than one source, D18 decides which one's tracking data stands.
 
 **Outbound HTTP.** One fixed endpoint, held as a constant, never composed from user input, so
@@ -1168,10 +1360,14 @@ onward even if later phases slip.
 | 5a | Reconciliation groundwork | External identity is a set; precedence honoured; MAL import unchanged and green |
 | 5b | AniList read sync, on demand | Sync Now lands the user's list; runtime and decade filters work for the first time |
 | 5c | Unattended sync | Queue advances with nobody present; stalled sync is visible |
-| 6 | Franchises | Management plus grouping from real relation data |
+| 6a | Retire franchises | Entity, columns and surfaces deleted; migration applies; suite green |
+| 6b | Relations + backfill | Edges land from a paced pass that is idle in the steady state |
+| 6c | Related titles | Every row expands to its relations, tagged; standalone filter returns |
+| 6d | Queue what follows | One click queues a title and its unwatched sequels, in release order |
 | 7 | Dashboard + decision mode | Summary counts, Suggested Next, "What should I watch?" |
 | 8 | JSON interchange | Full library export → wipe → restore round-trip |
 | 9 | AI recommendation | Export request, import ranking, apply — manual order provably intact |
+| 9.5 | Artwork | Covers cached under `/data` and rendered; no hotlinking (D25) |
 | 10 | Settings + polish | Settings, theme, confirmations, a11y and responsive pass |
 | 11 | Docker + README | Migrations squashed to one baseline; compose up, health check, container recreated without data loss |
 
@@ -1186,7 +1382,7 @@ entity. Indexes per §4. Initial migration. `IDbContextFactory` registration (D3
 `busy_timeout` applied at startup. Migrate-on-boot with explicit, readable failure logging
 and graceful startup failure if the database is unreachable. Development-only seeder —
 **never** auto-seeds production — covering completed titles with varied scores, planning,
-watching, a franchise, a queue and a recommendation result.
+watching, several seasons of one series, a queue and a recommendation result.
 
 ### Phase 2 — Vertical slice (the brief's §45 deliverable)
 MAL XML import end to end. Secure XML settings, `0000-00-00` → null, status mapping,
@@ -1199,8 +1395,8 @@ here — the preview-then-commit split, the field-preservation rules, the confli
 what Phase 5 reuses rather than replaces.
 
 ### Phase 3 — Backlog page
-Server-side search, filtering, sorting, paging/virtualisation. Filters: status, franchise/
-standalone, media type, decade, runtime, score, source. Quick filters (Under 2h,
+Server-side search, filtering, sorting, paging/virtualisation. Filters: status, media type,
+decade, runtime, score, source. Quick filters (Under 2h,
 Under 6h, Movie, OVA, TV, decades, High AI confidence, Not yet ranked) — **each rendered
 only when the backing metadata exists**. Bulk selection, bulk queue-add and bulk hide.
 Anime cards degrade cleanly instead of printing rows of "N/A".
@@ -1232,9 +1428,10 @@ awaited inline freezes the entire circuit rather than just the page.
 `QueueService`: add, remove, move to top/up/down/bottom, transactional reorder with
 position normalisation. Buttons first, then SortableJS interop (D5, §9).
 
-A franchise is queued by **expansion** (D15) — its unwatched, non-optional members appended
-individually in viewing order — rather than by occupying a slot of its own. Every slot is one
-title, which is what lets the user put something between two seasons.
+A run of seasons is queued by **expansion** (D15) — appended individually rather than as one
+slot. Every slot is one title, which is what lets the user put something between two seasons.
+*Amended by D23 and D24:* what expansion takes is a title rather than a franchise id, and what
+it walks is the relation graph. Phase 4 shipped the franchise form; Phase 6d replaces it.
 
 Also **queue advancement** (D12): when an import or sync reports that a queued title is no
 longer Planning, its slot is released and positions are normalised, so the next item becomes
@@ -1472,36 +1669,81 @@ safe one (absence `Flag`, conflicts `HoldForReview`, schedule `Off`), so "no row
 slate" are the same state; and the recovery case that actually matters is already covered
 completely by the kill switch.
 
-### Phase 6 — Franchises
-Create, rename, add/remove titles, reorder, dissolve. Collapsed card showing entries
-watched, remaining runtime, first entry, AI score and how many of its titles are queued;
-expanding shows viewing order. `OptionalWithinFranchise` respected in completion and runtime
-maths, and it already governs what queueing a franchise adds (D15).
+### Phase 6 — Relations
 
-Grouping in the **backlog** is the other half, and it is where the brief's §264 complaint
-actually lives: five Slayers rows collapse into one decision on the surface where decisions
-are made, while the queue keeps them separate so they can be ordered (D15).
+*Formerly "Franchises". D23 deleted the entity and D24 settled what replaces it, so this phase
+now builds the thing franchises were an attempt at: a title's relatives, shown against the
+title, with no grouping anywhere.*
 
-**Relation data is fetched here**, not handed over by Phase 5. It comes from a separate query
-rather than riding along with the list, so it has no coupling to sync — and it *should* be
-separate, because relations are near-static while the list changes constantly. Inlining them
-would refetch an immutable graph on every poll inside the response that also carries the data
-that does change. A batched pass over titles whose relations are not yet known costs roughly
-fifteen requests for a 750-title library, once, and zero in the steady state.
+Split into four parts, because they fail for different reasons — deletion is mechanical, the
+backfill is the only part that can be defeated by something outside the repository, and the two
+surfaces on top of it are ordinary UI work.
 
-**Pace that pass.** The measured rate limit is 30 requests a minute, not the documented 90, so a
+**6a — Retire franchises.** `Franchise`, the three `Anime` columns, `ShowOptionalFranchiseEntries`,
+`FranchiseFilter`, `LibraryFacets.HasFranchises`, `AddFranchiseAsync`, `QueueableFranchise` and
+both `FranchiseName` projections, with the migration that drops them. The queue is untouched by
+design: since D15 a slot has referenced a title directly, which is why this is a straight drop
+rather than the data migration `FranchisesAreNotQueueItems` had to be. D23, D24 and D25 land in
+the same PR, per §12.
+
+**6b — Relations and the backfill.** `AnimeRelation` stores edges as **external ids** —
+`(Source, ExternalId, RelationType, RelatedExternalId)` — rather than as `AnimeId` pairs, unique
+on all four, with a second index on `(Source, RelatedExternalId)` because both ends are queried.
+Relations routinely point at titles the user does not own, and resolving at write time would
+discard those. Edges are stored **exactly as fetched** and inverted on read: AniList states an
+edge from the perspective of the media queried, so normalising at write time would lose which
+end spoke.
+
+The fetch is a separate query rather than a field on the list query, and *should* be: relations
+are near-static while a list changes constantly, so inlining them would refetch an immutable
+graph on every poll. A batched pass — `media(id_in: [...])`, 50 per request — costs roughly
+fifteen requests for a 750-title library once, and zero in the steady state. It also carries
+`startDate` (release ordering needs a date finer than `ReleaseYear`, since split-cour seasons
+share a year) and `coverImage.color` (six bytes, 92% coverage, and the query is already being
+edited — D25).
+
+**Pace it.** The measured rate limit is 30 requests a minute, not the documented 90, so a
 fifteen-request backfill is half a minute's budget in one burst. Honour `X-RateLimit-Remaining`
-and spread it rather than discovering the limit through 429s.
+and `Retry-After` and spread it, rather than discovering the limit through 429s. Tested against
+`TimeProvider` rather than by sleeping, the same way 5c tests scheduling.
 
-Store edges as **external ids** — `(Source, ExternalId, RelationType, RelatedExternalId)` —
-rather than as `AnimeId` pairs. Relations routinely point at titles the user does not own: an
-unwatched middle season, a spin-off never planned. Resolving at write time would discard those,
-and then two owned seasons connecting *through* an unowned one could not be grouped. External
-ids resolve through `AnimeExternalId` with a join when needed and survive titles arriving in any
-order.
+It runs as a second `IBackgroundJob`, which is what that interface was written for. Work is
+"any `AnimeExternalId` with a null `RelationsFetchedAt`" — a marker meaning **we asked**, not
+*we got edges*, or a title with no relations is refetched forever. It **respects the
+`Sync:Enabled` kill switch**, being unattended outbound traffic, and it **degrades silently**
+(D25): a count on the Sources page, no `SyncRun` rows, no banner.
 
-Grouping may now be proposed from that relation data, which is what D10 was waiting for.
-Proposals are still confirmed by the user; nothing is grouped silently.
+**No automatic re-fetch**, and the reason it is safe: a new season arrives as a *new* title with
+no marker, gets fetched, and its own edges point back at the older seasons — which the reverse
+index already finds. The only gap is AniList adding an edge between two titles already held on
+both sides, which a manual refresh can answer later.
+
+**Scope is every owned title carrying an AniList id**, whatever its status: a Completed prequel
+has to be displayable as a relative. A MyAnimeList-only library reaches none of this until
+D25's id-mapping job ships — stated in D23 as a real gap.
+
+**6c — Related titles in the backlog.** Every title keeps its own row; each row expands to its
+relatives, owned only, tagged with the relation type where a direct edge exists and "Related"
+where the connection is transitive — season 5 is not the sequel of season 1. One edge out from
+the title, never transitive, or the expansion walks the whole graph. Ordered by release date,
+unknown dates last. Hidden entries are excluded; every other status is included, because an
+expansion is context rather than results.
+
+The page gains **one** query: a grouped count of displayable relatives for the fifty visible
+rows, so a row with no relatives shows **no chevron at all**. A control that sometimes does
+nothing teaches people to stop pressing it, which would kill the discoverability the phase
+exists for. Detail loads on expand.
+
+The **standalone filter** returns here in D24's redefined form — no `PREQUEL` or `SEQUEL` edge,
+counted over all edges rather than only owned ones — as an indexed `EXISTS`, the same shape as
+the filters already in `LibraryService`.
+
+**6d — Queue what follows.** `AddWithSequelsAsync(profileId, animeId)` walks `SEQUEL` forward
+from one title and appends what is still Planning, in release order, skipping `SUMMARY` and
+`COMPILATION`. It traverses **through** titles it will not queue — a Completed season four
+between three and five must not stop the walk — and it writes nothing itself, handing the
+ordered set to `AddAnimeAsync` so the contiguity invariant keeps one home. Individual adds from
+an expansion are the other half, and the two together replace what `AddFranchiseAsync` did.
 
 ### Phase 7 — Dashboard and decision mode
 Currently Watching with progress bars, Up Next top 5–10, backlog summary counts and
@@ -1536,9 +1778,24 @@ title, rank, predicted score, confidence, reason. Apply writes to `LibraryEntry`
 mutates `QueueItem.Position`. Hybrid ranking is a simple, transparent, explainable formula
 — the UI shows why an item ranks where it does. No black box.
 
+### Phase 9.5 — Artwork
+*Promoted out of §10's stretch goals by D25, and numbered between rather than appended because
+where it sits is the argument: it must land before Phase 10, or the accessibility and responsive
+passes are done against a text layout that is then replaced.*
+
+Covers rendered on the backlog and Up Next, served from a filesystem cache under `/data` rather
+than hotlinked — §10's Tier 2, whose four reasons for not hotlinking are measured there.
+
+**The cache is the whole cost**, and it lands on a problem already known: §9's non-root
+bind-mount permissions under `/data`, which the database has too. Solve it once.
+
+`coverImage.color` arrives earlier, in 6b, and earns its place here too: a themed card with no
+image loading at all is the degradation this phase needs anyway, for a cover that is missing,
+unfetched or still downloading.
+
 ### Phase 10 — Settings and polish
 General (display name, default queue size, date format, theme System/Light/Dark), Backlog
-(show optional franchise entries, default sort/filters), Recommendations (default mode,
+(default sort/filters), Recommendations (default mode,
 export privacy, weighting), Data (export/import backup, clear recommendation results).
 Destructive actions require explicit confirmation. Accessibility and responsive passes.
 
@@ -1592,8 +1849,8 @@ Allocated to whichever project can run each test fastest.
 **Core.Tests — no database, milliseconds.** MAL XML parsing; malformed XML; `0000-00-00`;
 XXE rejection; status mapping; JSON schema validation; AI result validation (unknown
 candidate, duplicate, missing candidate, rank collision, out-of-range predicted score,
-out-of-range confidence); runtime calculations including unknown-duration cases; franchise
-runtime with optional entries; hybrid ranking; weighted-random selection bounds.
+out-of-range confidence); runtime calculations including unknown-duration cases and partial
+sums; hybrid ranking; weighted-random selection bounds.
 
 AniList parsing is tested the same way, against a committed JSON fixture: every scoring system
 normalising into 1–10, a `POINT_100` score below 5 clamping to 1 rather than to null, `REPEATING`
@@ -1614,8 +1871,8 @@ and no custom list, so a capture would have tested none of the mappings most lik
 The EF `InMemory` provider is not used at all — it does not enforce the constraints under
 test. Covers: migrations apply cleanly; dedup on external identity; import
 idempotency; import preserves local fields; **queue reorder edge cases and the contiguity
-invariant** (load-bearing per D2); franchise ordering; completion transitions; applying AI
-recommendations leaves `QueueItem` untouched.
+invariant** (load-bearing per D2); completion transitions; applying AI recommendations leaves
+`QueueItem` untouched.
 
 Phase 5 adds, and these are load-bearing rather than decorative:
 
@@ -1645,6 +1902,27 @@ Phase 5 adds, and these are load-bearing rather than decorative:
   run is due immediately, each schedule waits its interval, and a failing source is retried at
   double the interval per failure up to sixteen times it. Scheduling that needed real time to
   test would be scheduling nobody could test.
+
+Phase 6 adds:
+
+- **6a proves a subtraction.** Nothing new is asserted; the franchise tests are deleted with
+  their subjects rather than ported. What must stay green is the migration applying to a fresh
+  database and to a pre-D15 one — `FranchiseExpansionMigrationTests` now upgrades through both
+  the expansion and the drop in one run, seeding entirely in SQL because the current model can
+  express none of it.
+- **Parsing relations**, in Core against a committed fixture that is structurally faithful and
+  fictional per §0: relation types mapped, unknown types dropped rather than stored as `Other`,
+  manga nodes filtered out, a missing `startDate`, and **edge direction preserved as fetched**.
+- **The backfill's laziness.** A title with no edges is still marked and never refetched; a
+  second run writes no duplicates; the kill switch stops it; batching splits at 50; pacing is
+  arithmetic over `TimeProvider`, so no test sleeps.
+- **What an expansion shows.** Counts exclude hidden entries and include every other status;
+  only owned relatives are counted, so the badge never promises more than it opens; ordering is
+  by release date with unknowns last; a relation read from the far end is inverted; nothing is
+  ever transitive beyond one edge.
+- **The sequel walk.** It traverses *through* a Completed middle season without queueing it,
+  appends only Planning titles in release order, reports `QueueAddResult` categories correctly,
+  is a no-op when re-run, and leaves positions contiguous.
 
 No test may depend on a live external API.
 
@@ -1788,12 +2066,13 @@ one milestone is the main schedule risk; the phase ordering exists to avoid it.
 
 **Not in MVP** (brief §41): MAL/AniList OAuth, live two-way sync, built-in OpenAI calls,
 Ollama integration, user registration, social features, comments, public profiles, mobile
-native apps, automatic metadata scraping, automatic franchise detection, streaming
+native apps, automatic metadata scraping, franchise grouping of any kind — curated or
+detected, now permanently, see D23 and D24 — streaming
 integrations. `IAnimeListProvider` and `IAiRecommendationProvider` are the extension
 points; nothing speculative gets built behind them. **No fake AniList integration.**
 
-**Post-MVP** (brief §42, amended by D13): metadata enrichment beyond what a sync already hands
-over, cover art *rendering*, genres and studios ·
+**Post-MVP** (brief §42, amended by D13 and D25): metadata enrichment beyond what a sync already
+hands over, richer artwork keyed to TMDB/TVDB, genres and studios ·
 optional AI providers, OpenAI-compatible endpoints, Ollama/LM Studio, scheduled re-ranking ·
 MAL API sync · **write-back to AniList or MAL** · multi-user, authentication, household
 profiles.
@@ -1802,8 +2081,9 @@ profiles.
 fetch data AniQueue was not given — a separate call, a separate concern — and that stays
 post-MVP. `duration`, `seasonYear` and `coverImage` arrive in the same response as `episodes`,
 which Phase 5b already consumes, so declining them would mean discarding fields already in hand
-to honour a boundary drawn before AniList was in the MVP. They are taken; rendering cover art is
-not. `description` is declined outright — it is read once and never filtered on, so the source
+to honour a boundary drawn before AniList was in the MVP. They are taken — and D25 has since
+brought their *rendering* into the MVP as well, as Phase 9.5. `description` is declined
+outright — it is read once and never filtered on, so the source
 links already answer it.
 
 **Genres and studios: deferred, with the shape decided so it is not re-litigated.** They are the
@@ -1829,15 +2109,19 @@ and should be approached carefully: it is the one direction that can damage a li
 maintains elsewhere, and every safeguard in the import pipeline exists to protect data
 flowing the other way.
 
-### Stretch goals — artwork and the visual decision
+### Artwork — measured here, built in Phase 9.5
+
+> **No longer a stretch goal** — see D25 for where each tier landed. Kept intact because
+> everything below is measured, and the measurements are what those phases are costed against.
 
 **The premise is accepted as real rather than decorative.** A backlog of several hundred rows is
 a wall of text, and recognising a show by its art is faster than reading its title — which makes
-artwork a decision aid on the surface where decisions are made, not styling. That is the same
-argument §7 makes for grouping franchises in the backlog.
+artwork a decision aid on the surface where decisions are made, not styling.
 
-It is a stretch goal anyway, because nothing in the MVP renders an image and Phase 5 is already
-split for size. What follows is written down so the cost is understood before it is started.
+*This section used to add: "that is the same argument §7 makes for grouping franchises in the
+backlog." D24 found that exactly backwards.* Art and collapsing solve the same problem, so they
+are substitutes rather than allies — and making the wall scannable is the better of the two,
+because it does not hide anything to do it. That reversal is the argument that ended grouping.
 
 **Tier 1 — AniList already supplies more than we ask for, at no extra cost.** Measured against a
 real 753-entry list:
@@ -1996,8 +2280,9 @@ The brief's 25 criteria, mapped so completion is measurable.
 |---|---|
 | 1–2 `docker compose up -d`, open in browser | 11 |
 | 3–7 Upload MAL XML, preview, confirm, see statuses and scores | 2 |
-| 8–9 Create/edit franchises, collapse sequels into them | 6 |
-| 10–12 Add to Up Next, drag to exact order, persist across restart | 4 + 11 — adding a franchise expands it into its titles (D15) |
+| 8 Create/edit franchises | **declined — see D23** |
+| 9 Collapse sequels into them | **declined in its stated form — see D24**; sequels are shown related and tagged on each row, and are one click from the queue |
+| 10–12 Add to Up Next, drag to exact order, persist across restart | 4 + 11 — one click also queues a title and its unwatched sequels (D15, D24) |
 | 13–14 Track progress, complete with a score | **declined — see D12** |
 | 15 Filter backlog usefully | 3 |
 | 16–22 AI request export, prompt, import, preview, apply, manual order intact | 9 |
@@ -2009,8 +2294,16 @@ accept a score, which D12 declines: those belong to the service that already tra
 a second copy here would drift within a day. Progress and scores are still *shown* — the
 importer writes them — so criteria 6 and 7, seeing statuses and historical scores, are met.
 
-This is the one place the brief and the built application deliberately part company, so it is
-stated here rather than quietly reported as done.
+**Criteria 8 and 9 join them, for a related reason.** D23 declines 8 outright: *"create/edit
+franchises"* asks for an authoring surface, and AniQueue authors order and nothing else. D24
+declines 9's stated form and answers what it wanted differently — sequels are visibly related,
+labelled with what they are, and one click from the queue, but they are not collapsed into one
+row. The roadmap's third problem statement is amended to match rather than left standing.
+
+These are the places the brief and the built application deliberately part company, so they are
+stated here rather than quietly reported as done. Between them, 13, 14 and 8 all decline the
+same kind of thing: a surface on which the user maintains data some other service already
+maintains, or that nobody should have to maintain at all.
 
 ---
 
@@ -2023,6 +2316,8 @@ stated here rather than quietly reported as done.
 - Rebase onto `development` and resolve conflicts locally before opening a PR.
 - No new third-party dependency without explicit approval. SortableJS is the only one
   pre-approved, and only for Phase 4.
+- **Phase 6 needs no new dependency either.** Pacing the relation backfill is tested against
+  `TimeProvider`, which is in the box, so nothing was needed to avoid sleeping in tests.
 - **Phase 5 needs no new dependency**, which is worth recording because two were considered and
   both declined. YamlDotNet was declined by D20 in favour of the in-box JSON configuration
   provider; a GraphQL client library was declined because a GraphQL request is an HTTP POST with

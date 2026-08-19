@@ -7,8 +7,8 @@ namespace AniQueue.Infrastructure.Persistence.Seeding;
 /// <summary>
 /// Populates a development database with enough data to exercise every concept:
 /// completed titles with a spread of scores, a title in progress, planning
-/// entries, a franchise containing optional side entries, a manually ordered
-/// queue mixing a franchise with standalone titles, and an applied AI ranking.
+/// entries, several seasons of one series, a manually ordered queue with something
+/// deliberately sitting between two of those seasons, and an applied AI ranking.
 ///
 /// This is never invoked automatically. The caller decides, and the only caller
 /// is guarded by a development-environment check — production databases are
@@ -33,30 +33,17 @@ public sealed class DevelopmentSeeder(
         var now = DateTimeOffset.UtcNow;
         var profileId = Profile.DefaultProfileId;
 
-        // A franchise whose later entries are optional, so franchise completion and
-        // remaining-runtime maths have something meaningful to work against.
-        var slayers = new Franchise
-        {
-            Name = "Slayers",
-            Description = "Comedic sword-and-sorcery series, plus films and specials.",
-            ManualSortOrder = 0,
-            CreatedAt = now,
-            UpdatedAt = now
-        };
-
+        // Several seasons of one series, plus a film and an OVA. They are ordinary
+        // titles like every other row here (D23) — what makes them a series is the
+        // relations AniList publishes about them, not anything stored locally.
         var slayersEntries = new[]
         {
-            NewAnime("Slayers", MediaType.Tv, 26, 24, 1995, order: 1),
-            NewAnime("Slayers Next", MediaType.Tv, 26, 24, 1996, order: 2),
-            NewAnime("Slayers Try", MediaType.Tv, 26, 24, 1997, order: 3),
-            NewAnime("Slayers: The Motion Picture", MediaType.Movie, 1, 75, 1995, order: 4, optional: true),
-            NewAnime("Slayers Special", MediaType.Ova, 3, 30, 1996, order: 5, optional: true)
+            NewAnime("Slayers", MediaType.Tv, 26, 24, 1995),
+            NewAnime("Slayers Next", MediaType.Tv, 26, 24, 1996),
+            NewAnime("Slayers Try", MediaType.Tv, 26, 24, 1997),
+            NewAnime("Slayers: The Motion Picture", MediaType.Movie, 1, 75, 1995),
+            NewAnime("Slayers Special", MediaType.Ova, 3, 30, 1996)
         };
-
-        foreach (var entry in slayersEntries)
-        {
-            entry.Franchise = slayers;
-        }
 
         // Completed, with a deliberate spread of scores — recommendation quality
         // depends on the model seeing both what the user liked and what they did not.
@@ -74,7 +61,6 @@ public sealed class DevelopmentSeeder(
         var dragonMaid = NewAnime("Miss Kobayashi's Dragon Maid", MediaType.Tv, 13, 24, 2017, source: AnimeSource.MyAnimeList, sourceId: "33206");
         var unknownRuntime = NewAnime("Serial Experiments Lain", MediaType.Tv, 13, null, 1998, source: AnimeSource.MyAnimeList, sourceId: "339");
 
-        context.Franchises.Add(slayers);
         context.Anime.AddRange(slayersEntries);
         context.Anime.AddRange(
             goldenBoy, gunbuster, nichijou, konosuba, mediocre,
@@ -98,10 +84,10 @@ public sealed class DevelopmentSeeder(
             context.LibraryEntries.Add(Planning(entry));
         }
 
-        // A hand-ordered queue with a standalone title deliberately sitting between
-        // two seasons of the same franchise. That arrangement is the point of D15:
-        // franchises group titles rather than occupying a slot, so the user can
-        // space a long series out instead of committing to it in one block.
+        // A hand-ordered queue with an unrelated title deliberately sitting between
+        // two seasons of the same series. That arrangement is the point of D15: a
+        // slot is one title, so the user can space a long series out instead of
+        // committing to it in one block.
         context.QueueItems.AddRange(
             new QueueItem { ProfileId = profileId, Position = 0, AnimeId = hinamatsuri.Id, AddedAt = now },
             new QueueItem { ProfileId = profileId, Position = 1, AnimeId = slayersEntries[0].Id, AddedAt = now },
@@ -134,7 +120,7 @@ public sealed class DevelopmentSeeder(
         await ApplyRunToLibraryAsync(context, run, cancellationToken);
 
         logger.LogInformation(
-            "Seeded development data: {AnimeCount} titles, 1 franchise, {QueueCount} queue entries",
+            "Seeded development data: {AnimeCount} titles, {QueueCount} queue entries",
             slayersEntries.Length + 9,
             3);
 
@@ -186,8 +172,6 @@ public sealed class DevelopmentSeeder(
             int? episodes,
             int? durationMinutes,
             int? year,
-            int? order = null,
-            bool optional = false,
             AnimeSource source = AnimeSource.Manual,
             string? sourceId = null) => new()
             {
@@ -196,8 +180,6 @@ public sealed class DevelopmentSeeder(
                 EpisodeCount = episodes,
                 EpisodeDurationMinutes = durationMinutes,
                 ReleaseYear = year,
-                FranchiseOrder = order,
-                OptionalWithinFranchise = optional,
                 Source = source,
                 ExternalIds = sourceId is null
                     ? []
@@ -213,8 +195,8 @@ public sealed class DevelopmentSeeder(
         CancellationToken cancellationToken)
     {
         // Every item is a title, so there is nothing to filter out. This used to skip
-        // items with no AnimeId — which was the franchise case, and the fact that
-        // applying a run had to discard those is what D16 acted on.
+        // items with no AnimeId — the group case, and the fact that applying a run
+        // had to discard those is what D16 acted on.
         foreach (var item in run.Items)
         {
             var entry = await context.LibraryEntries

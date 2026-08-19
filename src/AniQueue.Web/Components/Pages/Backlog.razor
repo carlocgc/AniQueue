@@ -95,14 +95,6 @@ else
                         @onclick="() => ToggleDecadeAsync(decade)">@DecadeLabel(decade)</button>
             }
 
-            @if (Facets.HasFranchises)
-            {
-                <button class="chip @Active(_query.Franchise == FranchiseFilter.InFranchise)"
-                        @onclick="() => ToggleFranchiseAsync(FranchiseFilter.InFranchise)">In a franchise</button>
-                <button class="chip @Active(_query.Franchise == FranchiseFilter.Standalone)"
-                        @onclick="() => ToggleFranchiseAsync(FranchiseFilter.Standalone)">Standalone</button>
-            }
-
             @if (Facets.HasRecommendations)
             {
                 <button class="chip @Active(_query.MinRecommendationConfidence is not null)"
@@ -221,10 +213,6 @@ else
                                         }
                                     </div>
                                     <div class="row-meta">
-                                        @if (item.FranchiseName is not null)
-                                        {
-                                            <span class="badge">@item.FranchiseName</span>
-                                        }
                                         @* Free: the identifiers are already stored, so this is
                                            formatting rather than a lookup.
 
@@ -379,9 +367,6 @@ else
 
     private Task ToggleSourceAsync(AnimeSource source) =>
         ApplyAsync(_query with { Source = _query.Source == source ? null : source });
-
-    private Task ToggleFranchiseAsync(FranchiseFilter filter) =>
-        ApplyAsync(_query with { Franchise = _query.Franchise == filter ? FranchiseFilter.Any : filter });
 
     private Task ToggleHighConfidenceAsync() =>
         ApplyAsync(_query with

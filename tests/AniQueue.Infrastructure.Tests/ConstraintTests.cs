@@ -15,8 +15,7 @@ public class ConstraintTests
     public async Task A_queue_slot_holds_one_title()
     {
         // Since D15 that is all a slot can be. The XOR check constraint that let it
-        // hold a franchise instead is gone, along with the franchise slot itself —
-        // a franchise is a grouping and an action, not a thing you watch.
+        // hold a group instead is gone, and since D23 so is the group.
         await using var database = await SqliteTestDatabase.CreateAsync();
         await using var context = database.CreateContext();
 
@@ -45,30 +44,6 @@ public class ConstraintTests
         context.QueueItems.Add(SeedData.QueueSlot(profile.Id, position: 1, animeId: anime.Id));
 
         await Assert.ThrowsAsync<DbUpdateException>(() => context.SaveChangesAsync());
-    }
-
-    [Fact]
-    public async Task Deleting_a_franchise_leaves_its_titles_queued()
-    {
-        // Dissolving a grouping is a curation decision about labels. It must not
-        // silently empty the queue — under the old model the franchise's slot went
-        // with it, taking the user's ordering along.
-        await using var database = await SqliteTestDatabase.CreateAsync();
-        await using var context = database.CreateContext();
-
-        var profile = await SeedData.CreateProfileAsync(context);
-        var franchise = await SeedData.CreateFranchiseAsync(context, "Slayers");
-        var anime = await SeedData.CreateAnimeAsync(context, "Slayers Next");
-
-        anime.FranchiseId = franchise.Id;
-        context.QueueItems.Add(SeedData.QueueSlot(profile.Id, position: 0, animeId: anime.Id));
-        await context.SaveChangesAsync();
-
-        context.Franchises.Remove(franchise);
-        await context.SaveChangesAsync();
-
-        var slot = await context.QueueItems.SingleAsync();
-        Assert.Equal(anime.Id, slot.AnimeId);
     }
 
     /// <summary>
@@ -103,8 +78,8 @@ public class ConstraintTests
     [Fact]
     public async Task A_valid_run_item_is_stored_against_its_title()
     {
-        // Since D16 a placement is always one title; there is no franchise variant
-        // and no exclusive-or constraint to satisfy.
+        // Since D16 a placement is always one title; there is no group variant and
+        // no exclusive-or constraint to satisfy.
         await using var database = await SqliteTestDatabase.CreateAsync();
         await using var context = database.CreateContext();
 
@@ -296,26 +271,5 @@ public class ConstraintTests
         await context.SaveChangesAsync();
 
         Assert.Equal(1, await context.LibraryEntries.CountAsync());
-    }
-
-    [Fact]
-    public async Task Dissolving_a_franchise_keeps_its_titles()
-    {
-        // Franchises are a grouping decision, not ownership. Removing the grouping
-        // must never remove the library.
-        await using var database = await SqliteTestDatabase.CreateAsync();
-        await using var context = database.CreateContext();
-
-        var franchise = await SeedData.CreateFranchiseAsync(context, "Slayers");
-        var anime = await SeedData.CreateAnimeAsync(context, "Slayers Next");
-        anime.FranchiseId = franchise.Id;
-        await context.SaveChangesAsync();
-
-        context.Franchises.Remove(franchise);
-        await context.SaveChangesAsync();
-
-        var survivor = await context.Anime.SingleAsync();
-        Assert.Equal("Slayers Next", survivor.Title);
-        Assert.Null(survivor.FranchiseId);
     }
 }

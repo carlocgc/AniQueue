@@ -33,9 +33,6 @@ public sealed record LibraryFacets
     /// <summary>True when any entry is missing an AI score — the "not yet ranked" filter.</summary>
     public required bool HasUnrankedEntries { get; init; }
 
-    /// <summary>True when any title belongs to a franchise.</summary>
-    public required bool HasFranchises { get; init; }
-
     /// <summary>True when the user has scored anything.</summary>
     public required bool HasUserScores { get; init; }
 
@@ -53,7 +50,6 @@ public sealed record LibraryFacets
         HasRuntimeData = false,
         HasRecommendations = false,
         HasUnrankedEntries = false,
-        HasFranchises = false,
         HasUserScores = false,
         HasHiddenEntries = false,
         CountByStatus = new Dictionary<LibraryStatus, int>()

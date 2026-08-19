@@ -94,15 +94,6 @@ else
                                     {
                                         <span class="badge @status.ToString().ToLowerInvariant()">@status</span>
                                     }
-                                    @* The whole of a franchise's presence in the
-                                       queue (D15): seasons of one series are grouped
-                                       to the eye by a shared badge, while remaining
-                                       independent to the ordering — which is what
-                                       lets something else sit between two of them. *@
-                                    @if (item.FranchiseName is { } franchise)
-                                    {
-                                        <span class="badge">@franchise</span>
-                                    }
                                     @* One per site: a bridged title is known to both (D17). *@
                                     @foreach (var link in item.SourceLinks)
                                     {
@@ -155,42 +146,6 @@ else
     </div>
 }
 
-@* Offered only when there is something to offer — a franchise already watched or
-   already queued is absent rather than present and inert. Until the franchise page
-   arrives in Phase 6 this is the one place to queue one. *@
-@if (_franchises is { Count: > 0 })
-{
-    <div class="card">
-        <h2>Queue a whole franchise</h2>
-        @* States what expansion does before it happens (D15). "Add Slayers"
-           producing four new rows is only surprising if nobody said so. *@
-        <p class="muted">
-            Adds each unwatched season as its own row, in viewing order, so you can
-            still put something else between them.
-        </p>
-
-        <div class="toolbar">
-            <select @bind="_selectedFranchiseId" aria-label="Franchise to queue">
-                @foreach (var franchise in _franchises)
-                {
-                    <option value="@franchise.FranchiseId">
-                        @franchise.Name (@franchise.QueueableCount @(franchise.QueueableCount == 1 ? "title" : "titles"))
-                    </option>
-                }
-            </select>
-            <button @onclick="AddFranchiseAsync">Add to Up Next</button>
-
-            @* Re-reads on change, because the counts beside each name are the count
-               this checkbox decides. Leaving it to the next Add would show a number
-               that contradicts the setting sitting next to it. *@
-            <label class="inline-check">
-                <input type="checkbox" @bind="_includeOptional" @bind:after="RefreshAsync" />
-                Include specials and side films
-            </label>
-        </div>
-    </div>
-}
-
 @code {
     // Not persisted across the prerender handoff, for the reason recorded on the
     // backlog page: persisted state is serialised into the page and posted back
@@ -199,9 +154,6 @@ else
     // was avoiding.
     private IReadOnlyList<QueueListItem>? Queue { get; set; }
 
-    private IReadOnlyList<QueueableFranchise>? _franchises;
-    private int _selectedFranchiseId;
-    private bool _includeOptional;
     private string? _actionMessage;
     private BusyScope _busy = null!;
 
@@ -407,51 +359,9 @@ else
         }
     }
 
-    private async Task AddFranchiseAsync()
-    {
-        if (_selectedFranchiseId == 0)
-        {
-            return;
-        }
-
-        // Captured before the edit: refreshing drops the franchise from the offered
-        // list once it is fully queued, so afterwards there is no name left to report.
-        var name = _franchises?.FirstOrDefault(f => f.FranchiseId == _selectedFranchiseId)?.Name;
-        var count = 0;
-
-        var added = await ApplyAsync(
-            "Adding a franchise to Up Next",
-            async () =>
-            {
-                var result = await QueueService.AddFranchiseAsync(
-                    Profile.DefaultProfileId, _selectedFranchiseId, _includeOptional);
-
-                count = result.Added;
-                return count > 0;
-            });
-
-        if (added && name is not null)
-        {
-            // Says how many rows appeared. The queue growing by four when the user
-            // clicked one button needs accounting for.
-            _actionMessage = count == 1
-                ? $"Added one {name} title to the end of Up Next."
-                : $"Added {count} {name} titles to the end of Up Next, in viewing order.";
-        }
-    }
-
     private async Task RefreshAsync()
     {
         Queue = await QueueService.GetQueueAsync(Profile.DefaultProfileId);
-        _franchises = await QueueService.GetQueueableFranchisesAsync(
-            Profile.DefaultProfileId, _includeOptional);
-
-        // The select keeps its selection where it still exists; otherwise it falls
-        // back to whatever is now first, so the button never acts on a stale id.
-        if (_franchises.All(f => f.FranchiseId != _selectedFranchiseId))
-        {
-            _selectedFranchiseId = _franchises.Count > 0 ? _franchises[0].FranchiseId : 0;
-        }
     }
 
     /// <summary>

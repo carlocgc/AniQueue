@@ -3,10 +3,12 @@ namespace AniQueue.Core.Domain;
 /// <summary>
 /// One user's relationship with one title: status, progress, score and notes.
 ///
-/// Note the absence of a QueuePosition column (D1). The brief placed one here,
-/// but the Up Next queue must also be able to hold a whole franchise, and no
-/// column on this table can express that — a franchise has no LibraryEntry row.
-/// Queue membership therefore lives in <see cref="QueueItem"/>.
+/// Note the absence of a QueuePosition column (D1). The argument that put queue
+/// membership on its own table has since been withdrawn twice over — first by D15
+/// and then by D23 — but the conclusion outlived both: reordering would write to
+/// wide library rows that imports contend for on a single-writer database, the
+/// column would be null on most rows, and the queue has its own lifecycle. Queue
+/// membership therefore lives in <see cref="QueueItem"/>.
 /// </summary>
 public class LibraryEntry
 {

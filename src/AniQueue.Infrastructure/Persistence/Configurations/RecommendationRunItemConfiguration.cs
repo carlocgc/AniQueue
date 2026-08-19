@@ -20,10 +20,10 @@ public class RecommendationRunItemConfiguration : IEntityTypeConfiguration<Recom
             .HasForeignKey(i => i.AnimeId)
             .OnDelete(DeleteBehavior.Cascade);
 
-        // No franchise reference and no exclusive-or constraint: a ranked candidate
-        // is always one title (D16). A franchise placement had nowhere to be applied
-        // to, because applying a run caches onto LibraryEntry and a franchise has no
-        // LibraryEntry row.
+        // No group reference and no exclusive-or constraint: a ranked candidate is
+        // always one title (D16). A group's placement had nowhere to be applied to,
+        // because applying a run caches onto LibraryEntry and a group had no
+        // LibraryEntry row — and since D23 there are no groups at all.
 
         // These arrive from an external model. Range-checking at the database
         // boundary means a validation gap upstream cannot persist nonsense.

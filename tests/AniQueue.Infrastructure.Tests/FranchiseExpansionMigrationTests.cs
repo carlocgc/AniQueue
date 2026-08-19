@@ -15,6 +15,12 @@ namespace AniQueue.Infrastructure.Tests;
 /// against nothing and proves nothing. These tests migrate to the version before
 /// it, write the franchise slots that version allowed, and then migrate up — the
 /// only way to find out whether an existing queue survives the change.
+///
+/// They still matter after D23 retired franchises, and arguably matter more: an
+/// upgrade from a pre-D15 database now passes through both migrations in one run,
+/// so what these assert is that a queue built under the oldest model survives
+/// expansion and the subsequent drop with its ordering intact. Everything is
+/// seeded as SQL, because the current model can express none of it.
 /// </summary>
 public class FranchiseExpansionMigrationTests
 {
@@ -56,6 +62,25 @@ public class FranchiseExpansionMigrationTests
         {
             await using var context = new AniQueueDbContext(Options);
             await context.Database.MigrateAsync();
+        }
+
+        /// <summary>
+        /// Writes a franchise, which the current model no longer has at all (D23),
+        /// so it goes in as SQL against the schema this test migrated to.
+        /// </summary>
+        public async Task<int> InsertFranchiseAsync(string name)
+        {
+            await using var command = _connection.CreateCommand();
+            command.CommandText =
+                """
+                INSERT INTO "Franchises" ("Name", "ManualSortOrder", "CreatedAt", "UpdatedAt")
+                VALUES ($name, 0, '2026-01-01 00:00:00+00:00', '2026-01-01 00:00:00+00:00');
+                SELECT last_insert_rowid();
+                """;
+
+            command.Parameters.AddWithValue("$name", name);
+
+            return Convert.ToInt32(await command.ExecuteScalarAsync(), System.Globalization.CultureInfo.InvariantCulture);
         }
 
         /// <summary>
@@ -149,12 +174,12 @@ public class FranchiseExpansionMigrationTests
         await using var context = database.CreateContext();
 
         var profile = await SeedData.CreateProfileAsync(context);
-        var franchise = await SeedData.CreateFranchiseAsync(context, "Slayers");
+        var franchiseId = await database.InsertFranchiseAsync("Slayers");
         var ids = new Dictionary<string, int>();
 
         foreach (var (title, order, optional, _) in members)
         {
-            ids[title] = await database.InsertAnimeAsync(title, franchise.Id, order, optional);
+            ids[title] = await database.InsertAnimeAsync(title, franchiseId, order, optional);
         }
 
         // After the catalogue rows are saved, because the entries reference them
@@ -164,7 +189,7 @@ public class FranchiseExpansionMigrationTests
             await database.InsertLibraryEntryAsync(profile.Id, ids[title], status);
         }
 
-        return new Seeded(profile.Id, franchise.Id, ids);
+        return new Seeded(profile.Id, franchiseId, ids);
     }
 
     /// <summary>The queue in display order, which is all the ordering has to preserve.</summary>

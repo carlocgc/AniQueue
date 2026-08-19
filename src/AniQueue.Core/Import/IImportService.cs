@@ -72,8 +72,8 @@ public interface IImportService
     ///
     /// Only <see cref="ImportAction.Create"/> and <see cref="ImportAction.Update"/>
     /// items are applied; conflicts and unchanged rows are counted as skipped.
-    /// Local curation — queue position, notes, franchise membership, hidden flag
-    /// and recommendation data — is never overwritten by an import.
+    /// Local curation — queue position, notes, hidden flag and recommendation data
+    /// — is never overwritten by an import.
     /// </summary>
     Task<ImportCommitResult> CommitAsync(
         ImportPreview preview,

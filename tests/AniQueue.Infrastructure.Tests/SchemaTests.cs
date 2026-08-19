@@ -34,7 +34,8 @@ public class SchemaTests
     // Queue ordering reads (D2 — intentionally not unique).
     [InlineData("IX_QueueItems_ProfileId_Position")]
     // No title may occupy two queue slots. Since D15 a slot is always one title,
-    // so this index is no longer filtered and there is no franchise counterpart.
+    // so this index is unfiltered, and since D23 there is no other kind of slot it
+    // could ever need a counterpart for.
     [InlineData("IX_QueueItems_ProfileId_AnimeId")]
     public async Task Expected_index_exists(string indexName)
     {

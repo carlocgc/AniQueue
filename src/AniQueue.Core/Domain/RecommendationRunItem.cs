@@ -4,12 +4,11 @@ namespace AniQueue.Core.Domain;
 /// One candidate's placement within a <see cref="RecommendationRun"/>. Retaining
 /// these is what makes "compare this ranking to the previous one" possible.
 ///
-/// A ranked candidate is always a single title (D16). It cannot be a franchise, and
-/// the reason is structural rather than a matter of taste: applying a run caches its
-/// result on <see cref="LibraryEntry"/>, a franchise has no such row, so a franchise
-/// placement could be stored and then never applied to anything. The same
-/// granularity argument as D15 also holds — ranking a twelve-season group against a
-/// single film compares a project to an evening.
+/// A ranked candidate is always a single title (D16). It could not be a group, and
+/// the reason was structural rather than a matter of taste: applying a run caches
+/// its result on <see cref="LibraryEntry"/>, a group had no such row, so a group's
+/// placement could be stored and then never applied to anything. D23 has since
+/// removed groups altogether, which settles it from the other direction too.
 ///
 /// Everything here originates from an external model and is treated as untrusted
 /// data: values are validated on import and never executed or interpreted.

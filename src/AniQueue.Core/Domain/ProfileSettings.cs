@@ -51,12 +51,6 @@ public class ProfileSettings
 
     // Backlog
 
-    /// <summary>
-    /// Whether entries flagged <see cref="Anime.OptionalWithinFranchise"/> — specials,
-    /// side OVAs — appear in backlog listings and count toward franchise completion.
-    /// </summary>
-    public bool ShowOptionalFranchiseEntries { get; set; }
-
     // Recommendations
 
     public RecommendationMode DefaultRecommendationMode { get; set; } = RecommendationMode.Manual;

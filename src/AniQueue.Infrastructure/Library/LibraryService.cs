@@ -64,7 +64,6 @@ public sealed class LibraryService(
                 e.EpisodesWatched,
                 e.UserScore,
                 e.IsHidden,
-                FranchiseName = e.Anime.Franchise != null ? e.Anime.Franchise.Name : null,
                 e.RecommendationScore,
                 e.RecommendationConfidence,
                 e.Anime.Source,
@@ -93,7 +92,6 @@ public sealed class LibraryService(
                 EpisodesWatched = i.EpisodesWatched,
                 UserScore = i.UserScore,
                 IsHidden = i.IsHidden,
-                FranchiseName = i.FranchiseName,
                 RecommendationScore = i.RecommendationScore,
                 RecommendationConfidence = i.RecommendationConfidence,
                 Source = i.Source,
@@ -164,7 +162,6 @@ public sealed class LibraryService(
 
             HasRecommendations = await entries.AnyAsync(e => e.RecommendationScore != null, cancellationToken),
             HasUnrankedEntries = await entries.AnyAsync(e => e.RecommendationScore == null, cancellationToken),
-            HasFranchises = await entries.AnyAsync(e => e.Anime!.FranchiseId != null, cancellationToken),
             HasUserScores = await entries.AnyAsync(e => e.UserScore != null, cancellationToken),
             HasHiddenEntries = await entries.AnyAsync(e => e.IsHidden, cancellationToken),
             CountByStatus = countByStatus
@@ -302,13 +299,6 @@ public sealed class LibraryService(
                 ? filtered.Where(e => !e.Anime!.ExternalIds.Any())
                 : filtered.Where(e => e.Anime!.ExternalIds.Any(x => x.Source == source1));
         }
-
-        filtered = query.Franchise switch
-        {
-            FranchiseFilter.InFranchise => filtered.Where(e => e.Anime!.FranchiseId != null),
-            FranchiseFilter.Standalone => filtered.Where(e => e.Anime!.FranchiseId == null),
-            _ => filtered
-        };
 
         if (query.MinUserScore is { } minScore)
         {

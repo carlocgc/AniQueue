@@ -3,11 +3,11 @@ namespace AniQueue.Core.Domain;
 /// <summary>
 /// One slot in the manually ordered Up Next queue: a single title, in a position.
 ///
-/// A slot is never a franchise (D15). A franchise is a grouping of titles and an
-/// action that queues them; it is not itself something you sit down and watch, so
-/// it has no place in a list whose whole job is to say what to watch next. Queueing
-/// a franchise appends its titles individually, in viewing order, which is what
-/// makes it possible to put something else between two seasons.
+/// A slot is one title and never a group (D15). A group is not something you sit
+/// down and watch, so it has no place in a list whose whole job is to say what to
+/// watch next — and since D23 there are no groups here to hold anyway. What lines
+/// up a run of seasons appends them individually, which is what makes it possible
+/// to put something else between two of them.
 ///
 /// <see cref="Position"/> is a plain contiguous integer. There is deliberately no
 /// unique index over (ProfileId, Position): SQLite checks uniqueness per statement

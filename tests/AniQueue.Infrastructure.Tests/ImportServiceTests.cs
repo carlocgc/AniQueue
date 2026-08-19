@@ -242,18 +242,6 @@ public class ImportServiceTests
             var anime = await setup.Anime.SingleAsync();
             animeId = anime.Id;
 
-            var franchise = new Franchise
-            {
-                Name = "Curated",
-                CreatedAt = DateTimeOffset.UtcNow,
-                UpdatedAt = DateTimeOffset.UtcNow
-            };
-            setup.Franchises.Add(franchise);
-            await setup.SaveChangesAsync();
-
-            anime.FranchiseId = franchise.Id;
-            anime.FranchiseOrder = 1;
-
             var entry = await setup.LibraryEntries.SingleAsync();
             entry.PersonalNotes = "Recommended by a friend";
             entry.IsHidden = true;
@@ -278,7 +266,6 @@ public class ImportServiceTests
         await fixture.Service.CommitAsync(reimport, Profile.DefaultProfileId);
 
         await using var verify = fixture.Database.CreateContext();
-        var updatedAnime = await verify.Anime.SingleAsync();
         var updatedEntry = await verify.LibraryEntries.SingleAsync();
 
         // Progress did update...
@@ -290,8 +277,6 @@ public class ImportServiceTests
         Assert.True(updatedEntry.IsHidden);
         Assert.Equal(8.7, updatedEntry.RecommendationScore);
         Assert.Equal("Matches your comedy history", updatedEntry.RecommendationReason);
-        Assert.NotNull(updatedAnime.FranchiseId);
-        Assert.Equal(1, updatedAnime.FranchiseOrder);
 
         // The queue slot is the exception, and deliberately so (D12): the import
         // reported this title as Completed, and a queue of things to watch next

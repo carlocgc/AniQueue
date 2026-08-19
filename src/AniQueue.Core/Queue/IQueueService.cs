@@ -69,30 +69,12 @@ public sealed record QueueListItem
     /// <summary>Every service that identifies this title.</summary>
     public IReadOnlyList<ExternalIdentifier> ExternalIds { get; init; } = [];
 
-    /// <summary>
-    /// The franchise this title belongs to, if any.
-    /// </summary>
-    /// <remarks>
-    /// Carried so the queue can badge the seasons of one franchise as visibly
-    /// related. That badge is the whole of a franchise's presence here now: the
-    /// rows are grouped to the eye, and independent to the ordering (D15).
-    /// </remarks>
-    public string? FranchiseName { get; init; }
-
     /// <summary>Estimated minutes to watch, or null when it cannot be known.</summary>
     public int? EstimatedRuntimeMinutes { get; init; }
 
     /// <summary>Links out to every site that knows this title, in a stable order.</summary>
     public IReadOnlyList<SourceLink> SourceLinks => SourceLinkBuilder.ForAnime(ExternalIds);
 }
-
-/// <summary>A franchise with titles that could be queued, for the add control.</summary>
-/// <param name="QueueableCount">
-/// How many titles queueing it would actually add — its members that are still
-/// planned, not already queued, and not optional. Shown rather than the total
-/// membership, because that is the number the click will produce.
-/// </param>
-public sealed record QueueableFranchise(int FranchiseId, string Name, int QueueableCount);
 
 /// <summary>
 /// The manually ordered Up Next queue: the list of what to watch next, in the
@@ -106,8 +88,10 @@ public sealed record QueueableFranchise(int FranchiseId, string Name, int Queuea
 /// one transaction and rewrites positions from the resulting order, which also
 /// repairs a queue that arrived non-contiguous for any other reason.
 ///
-/// Every slot is a single title (D15). Franchises are queued by expansion, not by
-/// occupying a slot of their own.
+/// Every slot is a single title (D15), and there is no other kind. Grouping was
+/// retired entirely by D23, so nothing here takes a set: a queue is built one
+/// title at a time, through one path, which is what keeps the contiguity
+/// invariant in a single place.
 /// </summary>
 public interface IQueueService
 {
@@ -141,41 +125,9 @@ public interface IQueueService
         IProgress<OperationProgress>? progress = null,
         CancellationToken cancellationToken = default);
 
-    /// <summary>
-    /// Queues a franchise by appending its titles individually, in viewing order.
-    /// </summary>
-    /// <remarks>
-    /// This is D15's mechanic, and the reason a franchise needs no slot type of its
-    /// own. One click still expresses one decision — "I want to watch Slayers" —
-    /// but what lands in the queue is a run of things the user can actually sit
-    /// down to, each independently orderable. Putting a film between two seasons
-    /// becomes an ordinary drag rather than something the model forbids.
-    ///
-    /// Three filters, in order: members still <see cref="LibraryStatus.Planning"/>,
-    /// because there is no point queueing what has been watched; members not
-    /// already queued, so re-adding after a new season syncs adds only the new one;
-    /// and, unless <paramref name="includeOptional"/> is set, members not marked
-    /// <see cref="Anime.OptionalWithinFranchise"/> — the specials and side films the
-    /// user has said are skippable.
-    ///
-    /// Ordering is by <see cref="Anime.FranchiseOrder"/>, with unsequenced members
-    /// last and a title tiebreak, so the run is watchable top to bottom.
-    /// </remarks>
-    Task<QueueAddResult> AddFranchiseAsync(
-        int profileId,
-        int franchiseId,
-        bool includeOptional = false,
-        CancellationToken cancellationToken = default);
-
     /// <summary>Which of the profile's titles already occupy a queue slot.</summary>
     Task<IReadOnlySet<int>> GetQueuedAnimeIdsAsync(
         int profileId,
-        CancellationToken cancellationToken = default);
-
-    /// <summary>Franchises that would actually add something, and how much.</summary>
-    Task<IReadOnlyList<QueueableFranchise>> GetQueueableFranchisesAsync(
-        int profileId,
-        bool includeOptional = false,
         CancellationToken cancellationToken = default);
 
     /// <summary>
@@ -206,7 +158,8 @@ public interface IQueueService
     /// Since D15 every slot is one title, so the rule is simply per title — watch
     /// the second season of something and only that row leaves, with the third
     /// rising to meet you. The bespoke "release a franchise once nothing in it is
-    /// still planned" rule this needed under the old model is gone.
+    /// still planned" rule this needed under the older model is gone, and so is
+    /// the franchise it was written for (D23).
     ///
     /// Idempotent, and safe to call when nothing has changed.
     /// </remarks>

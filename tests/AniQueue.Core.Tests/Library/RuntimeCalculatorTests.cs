@@ -47,8 +47,8 @@ public class RuntimeCalculatorTests
 
         Assert.Equal(150, total);
 
-        // Flagged, because a franchise total built from half its entries is
-        // misleading unless the UI can say so.
+        // Flagged, because a total built from half a list's entries is misleading
+        // unless the UI can say so.
         Assert.True(partial);
     }
 

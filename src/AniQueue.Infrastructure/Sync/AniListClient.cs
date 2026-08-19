@@ -52,8 +52,9 @@ public sealed class AniListClient(HttpClient httpClient, ILogger<AniListClient> 
     /// loses nothing and leaves the 1–10 mapping to the parser, where it is tested.
     ///
     /// Everything else is the smallest set the pipeline consumes. <c>relations</c>
-    /// is deliberately absent: franchise grouping is Phase 6, and fetching data for
-    /// a feature that does not exist yet is what D11 argues against.
+    /// is deliberately absent, and stays absent: relations are near-static while a
+    /// list changes constantly, so they belong to a separate, lazy pass rather than
+    /// riding along on every poll of the data that does change (D24).
     /// </remarks>
     private const string ListQuery =
         """
