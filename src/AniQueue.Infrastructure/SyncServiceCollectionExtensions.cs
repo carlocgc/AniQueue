@@ -45,6 +45,12 @@ public static class SyncServiceCollectionExtensions
         // is in the run record, which survives a restart where a field would not.
         services.AddScoped<Sync.UnattendedSyncJob>();
 
+        // The second job, and the first of D25's enrichment passes. It needs no run
+        // record and no schedule setting: what it has left to do is a count of rows
+        // with no marker, which is a question the database answers.
+        services.AddScoped<IRelationBackfill, Sync.RelationBackfillService>();
+        services.AddScoped<Sync.RelationBackfillJob>();
+
         // A singleton because it is a rendezvous between things with no other way to
         // reach each other: a background scope publishing, and every open circuit
         // listening. Registered here rather than with the pages that subscribe,

@@ -82,10 +82,17 @@ builder.Services.AddAniQueueSync();
 // AddAniQueueSync because hosting is the web project's business: Infrastructure
 // supplies the job, this decides that something runs it.
 //
-// One runner per job by design. A second job — metadata or artwork enrichment —
-// is another line here, and its own loop, so a slow job can never delay an
-// unrelated one.
+// One runner per job by design, so a slow job can never delay an unrelated one —
+// which is the line the relation backfill below was written against, and it cost
+// exactly what this comment predicted.
 builder.Services.AddHostedService<BackgroundJobRunner<UnattendedSyncJob>>();
+
+// The relation graph (D24), filled in by the first of D25's enrichment passes. Its
+// own loop rather than a step inside the sync's, because the two have nothing to
+// say to each other: a list changes constantly and relations are near-static, and
+// a backfill spreading itself across a rate limit must never be what delays a
+// queue advancing.
+builder.Services.AddHostedService<BackgroundJobRunner<RelationBackfillJob>>();
 
 // Registered even when the file is fine, so the banner component can ask without
 // caring whether a data directory was configured at all.

@@ -63,4 +63,38 @@ public class AnimeExternalId
     /// will act on, once a backup exists to make removal recoverable.
     /// </remarks>
     public DateTimeOffset? MissingFromSourceAt { get; set; }
+
+    /// <summary>
+    /// When this title's relations were last asked for from <see cref="Source"/>,
+    /// or null while they have never been fetched.
+    /// </summary>
+    /// <remarks>
+    /// It means <b>we asked</b>, not <i>we got edges</i>. Roughly half a library has
+    /// no relations at all, and a marker that only recorded success would put every
+    /// standalone title back in the queue on every pass — a backfill that never
+    /// finishes, against a rate limit, for titles that will never have an answer.
+    ///
+    /// It lives here rather than on <see cref="Anime"/> for the same reason
+    /// <see cref="MissingFromSourceAt"/> does: relations are published per service,
+    /// and this row is already the per-service fact about a title. A title AniList
+    /// knows and MyAnimeList does not has one of these and not the other, which a
+    /// column on the catalogue row could not say.
+    ///
+    /// A new season needs no re-read at all: it arrives as a <i>new</i> title with no
+    /// marker, and its own edges point back at the older seasons. What re-reading is
+    /// for is the other case — a relation added or corrected between two titles the
+    /// library already holds — so this expires after thirty days, and the Sources
+    /// page has a button for anyone who knows something changed sooner.
+    ///
+    /// <b>A <c>DateTime</c> rather than a <c>DateTimeOffset</c>, alone among the
+    /// timestamps here, and the exception is forced.</b> SQLite cannot compare a
+    /// <c>DateTimeOffset</c> at all: EF stores it as text carrying an offset, and
+    /// both <c>ORDER BY</c> and <c>&lt;</c> fail — the latter at translation time,
+    /// with "could not be translated" (§8 records the ordering half of this; the
+    /// comparison half was found here). Every other timestamp in the model is read,
+    /// displayed or null-checked, and this is the only one a <c>WHERE</c> has to
+    /// compare, so it is the only one that pays for the difference. Always written
+    /// as UTC, which is what makes the offset carry nothing worth keeping.
+    /// </remarks>
+    public DateTime? RelationsFetchedAt { get; set; }
 }

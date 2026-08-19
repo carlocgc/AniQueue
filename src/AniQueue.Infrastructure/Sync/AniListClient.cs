@@ -89,6 +89,129 @@ public sealed class AniListClient(HttpClient httpClient, ILogger<AniListClient> 
         }
         """;
 
+    /// <summary>
+    /// The relation query (D24).
+    /// </summary>
+    /// <remarks>
+    /// <c>type: ANIME</c> pins the media selected, but deliberately not the far end
+    /// of an edge — a relation node is whatever the source says it is, and asking
+    /// for its <c>type</c> is what lets the parser drop manga rather than store an
+    /// edge pointing at something this application will never hold.
+    ///
+    /// <c>startDate</c> and <c>coverImage.color</c> ride along because the request is
+    /// being made anyway: release ordering needs a date finer than a year, and the
+    /// colour is six bytes Phase 9.5 will want (D25). Neither justifies a request of
+    /// its own, which is exactly why they are here and not in a pass of their own.
+    ///
+    /// <c>idMal</c> is asked for on the media but not on the node. It costs nothing
+    /// on a row that is already being written, and it is not read on the far end
+    /// because storing an edge under two identities would claim AniList published a
+    /// MyAnimeList relationship, which it did not.
+    /// </remarks>
+    private const string RelationsQuery =
+        """
+        query ($ids: [Int]) {
+          Page(page: 1, perPage: 50) {
+            media(id_in: $ids, type: ANIME) {
+              id
+              idMal
+              startDate { year month day }
+              coverImage { color }
+              relations {
+                edges {
+                  relationType
+                  node { id type }
+                }
+              }
+            }
+          }
+        }
+        """;
+
+    /// <summary>The most ids one request may carry — AniList's page ceiling.</summary>
+    public const int MaxRelationIdsPerRequest = 50;
+
+    public async Task<AniListRelationsFetch> FetchRelationsAsync(
+        IReadOnlyCollection<string> externalIds,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(externalIds);
+
+        // Parsed here rather than passed through as text: the variable is typed
+        // [Int] on the other end, and an identifier that is not a number is one this
+        // query could never have answered for. AnimeExternalId keeps identifiers as
+        // text precisely because they arrive from files and are not trusted to be
+        // numeric (D17), so this is where that assumption gets checked.
+        var ids = externalIds
+            .Select(id => int.TryParse(id, System.Globalization.CultureInfo.InvariantCulture, out var parsed)
+                ? parsed
+                : (int?)null)
+            .Where(id => id is not null)
+            .Select(id => id!.Value)
+            .Distinct()
+            .Take(MaxRelationIdsPerRequest)
+            .ToArray();
+
+        if (ids.Length == 0)
+        {
+            return AniListRelationsFetch.Failed("No AniList identifiers were given.");
+        }
+
+        using var request = new HttpRequestMessage(HttpMethod.Post, Endpoint)
+        {
+            Content = JsonContent.Create(new { query = RelationsQuery, variables = new { ids } })
+        };
+
+        try
+        {
+            using var response = await httpClient.SendAsync(request, cancellationToken);
+
+            var remaining = ReadRemaining(response);
+
+            if (!response.IsSuccessStatusCode)
+            {
+                return new AniListRelationsFetch
+                {
+                    FailureReason = DescribeFailure(response),
+                    RateLimitRemaining = remaining,
+
+                    // Only meaningful alongside a 429, and only then does the server
+                    // send it. Read unconditionally so a rate limit expressed with
+                    // some other status still paces correctly.
+                    RetryAfter = response.Headers.RetryAfter?.Delta
+                };
+            }
+
+            var payload = await response.Content.ReadAsByteArrayAsync(cancellationToken);
+
+            return new AniListRelationsFetch { Payload = payload, RateLimitRemaining = remaining };
+        }
+        catch (HttpRequestException ex)
+        {
+            logger.LogWarning(ex, "AniList relation request failed for {Count} titles", ids.Length);
+            return AniListRelationsFetch.Failed("AniList could not be reached.");
+        }
+        catch (TaskCanceledException ex) when (!cancellationToken.IsCancellationRequested)
+        {
+            logger.LogWarning(ex, "AniList relation request timed out for {Count} titles", ids.Length);
+            return AniListRelationsFetch.Failed("AniList did not respond in time.");
+        }
+    }
+
+    /// <summary>
+    /// Reads <c>X-RateLimit-Remaining</c>, or null when it is absent or unreadable.
+    /// </summary>
+    /// <remarks>
+    /// Absence is reported as absence rather than as zero. Zero means "stop", and a
+    /// proxy that strips the header would otherwise halt a backfill that nothing was
+    /// actually refusing.
+    /// </remarks>
+    private static int? ReadRemaining(HttpResponseMessage response) =>
+        response.Headers.TryGetValues("X-RateLimit-Remaining", out var values) &&
+        int.TryParse(values.FirstOrDefault(), System.Globalization.CultureInfo.InvariantCulture, out var remaining)
+            ? remaining
+            : null;
+
     public async Task<AniListFetch> FetchListAsync(
         string userName,
         CancellationToken cancellationToken = default)

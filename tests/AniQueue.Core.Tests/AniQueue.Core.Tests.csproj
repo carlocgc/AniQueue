@@ -8,6 +8,7 @@
        relative to the runner's working directory. -->
   <ItemGroup>
     <EmbeddedResource Include="Import\Fixtures\*.json" />
+    <EmbeddedResource Include="Sync\Fixtures\*.json" />
   </ItemGroup>
 
   <ItemGroup>

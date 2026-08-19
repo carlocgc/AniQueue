@@ -72,10 +72,38 @@ public class Anime
     public int? ReleaseYear { get; set; }
 
     /// <summary>
+    /// The date the title first aired, where the source published one.
+    /// </summary>
+    /// <remarks>
+    /// A year is not enough to order by (D24). Split-cour seasons share one, and
+    /// putting two halves of the same series in an arbitrary order is exactly the
+    /// case relation ordering exists to get right. <see cref="ReleaseYear"/> stays
+    /// beside it because the decade filter groups on it in SQL and a MyAnimeList
+    /// import supplies nothing finer.
+    ///
+    /// Populated by the relation pass rather than the list sync, which visits every
+    /// title anyway and can carry it for no extra request.
+    /// </remarks>
+    public DateOnly? StartDate { get; set; }
+
+    /// <summary>
     /// Remote URL only. Image binaries are never stored in the database; the
     /// application must render correctly when this is null or unreachable.
     /// </summary>
     public string? CoverImageUrl { get; set; }
+
+    /// <summary>
+    /// The dominant colour of the cover art, as <c>#rrggbb</c>, where the source
+    /// published one.
+    /// </summary>
+    /// <remarks>
+    /// Six bytes, present for 92% of titles, and it gives a themed card with no
+    /// image loading at all — which is both a decision aid on its own and the
+    /// degradation Phase 9.5 needs for a cover that is missing or still downloading
+    /// (D25). Taken here because the relation pass is already asking about every
+    /// title; nothing renders it yet.
+    /// </remarks>
+    public string? CoverImageColor { get; set; }
 
     public string? Description { get; set; }
 

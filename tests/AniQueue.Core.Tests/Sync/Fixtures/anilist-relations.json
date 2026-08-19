@@ -1,0 +1,75 @@
+{
+  "_comment": [
+    "A relation-query response. Structurally faithful to AniList; every title, id,",
+    "date and colour in it is invented, because §0 forbids committing a personal",
+    "export to a public repository and a captured response is one.",
+    "",
+    "Hand-authored rather than captured for a second reason: the cases most likely",
+    "to be got wrong are the ones a real library rarely contains. This one holds a",
+    "manga node, a relation type AniQueue declines, a duplicate edge, a partial",
+    "FuzzyDate, a malformed colour and a title with no relations at all."
+  ],
+  "data": {
+    "Page": {
+      "media": [
+        {
+          "id": 4001,
+          "idMal": 9001,
+          "startDate": { "year": 1995, "month": 4, "day": 7 },
+          "coverImage": { "color": "#E4A15D" },
+          "relations": {
+            "edges": [
+              { "relationType": "SEQUEL", "node": { "id": 4002, "type": "ANIME" } },
+              { "relationType": "SIDE_STORY", "node": { "id": 4010, "type": "ANIME" } },
+              { "relationType": "SUMMARY", "node": { "id": 4011, "type": "ANIME" } },
+              { "relationType": "ADAPTATION", "node": { "id": 7777, "type": "MANGA" } },
+              { "relationType": "CHARACTER", "node": { "id": 4099, "type": "ANIME" } },
+              { "relationType": "OTHER", "node": { "id": 4098, "type": "ANIME" } },
+              { "relationType": "SEQUEL", "node": { "id": 4002, "type": "ANIME" } }
+            ]
+          }
+        },
+        {
+          "id": 4002,
+          "idMal": 9002,
+          "startDate": { "year": 1996, "month": 4, "day": 5 },
+          "coverImage": { "color": "#7fb2d4" },
+          "relations": {
+            "edges": [
+              { "relationType": "PREQUEL", "node": { "id": 4001, "type": "ANIME" } },
+              { "relationType": "SEQUEL", "node": { "id": 4003, "type": "ANIME" } },
+              { "relationType": "SPIN_OFF", "node": { "id": 4050, "type": "ANIME" } },
+              { "relationType": "ALTERNATIVE", "node": { "id": 4060, "type": "ANIME" } }
+            ]
+          }
+        },
+        {
+          "id": 4003,
+          "idMal": null,
+          "startDate": { "year": 1997, "month": null, "day": null },
+          "coverImage": { "color": "not-a-colour" },
+          "relations": {
+            "edges": [
+              { "relationType": "PREQUEL", "node": { "id": 4002, "type": "ANIME" } },
+              { "relationType": "COMPILATION", "node": { "id": 4070, "type": "ANIME" } },
+              { "relationType": "SEQUEL", "node": { "type": "ANIME" } }
+            ]
+          }
+        },
+        {
+          "id": 4020,
+          "idMal": 9020,
+          "startDate": { "year": 2011, "month": 4, "day": 3 },
+          "coverImage": { "color": null },
+          "relations": { "edges": [] }
+        },
+        {
+          "id": 4021,
+          "idMal": 9021,
+          "startDate": null,
+          "coverImage": null
+        }
+      ]
+    }
+  }
+}
