@@ -1239,6 +1239,7 @@ carries `ProfileId` so multi-user — post-MVP per §10 — stays possible. Sett
 |---|---|---|
 | `ILibraryService` | Infrastructure | CRUD, status transitions, progress, scoring, filter/page |
 | `IQueueService` | Infrastructure | add/remove/reorder, normalise positions, transactional |
+| `IRelationBackfill` | Infrastructure | fills the relation graph in, and reports how much of it is known |
 | `IRelationService` | Infrastructure | a title's relations, tagged and ordered; the sequel walk (D24) |
 | `IImportService` | Infrastructure | orchestrates the import pipeline |
 | `IRecommendationService` | Infrastructure | build request, validate/apply result, run history |
@@ -1721,6 +1722,17 @@ both sides, which a manual refresh can answer later.
 **Scope is every owned title carrying an AniList id**, whatever its status: a Completed prequel
 has to be displayable as a relative. A MyAnimeList-only library reaches none of this until
 D25's id-mapping job ships — stated in D23 as a real gap.
+
+**Measured against the live API on 2026-08-19**, with a real 754-title library rather than
+assumed:
+
+| Assumption | Result |
+|---|---|
+| Fifty ids in one request | **Yes.** 49 of 50 media returned in 34 KB; the missing one does not exist, which is the case the marker has to survive |
+| The rate limit is 30, not the documented 90 | **Confirmed again.** `X-RateLimit-Limit: 30`, and `X-RateLimit-Remaining` is present on every response |
+| The declined relation types are not rare | **They are most of the noise.** Of 438 edges in one batch, 79 were `CHARACTER` or `OTHER` and 46 were `ADAPTATION` |
+| The node-type filter is load-bearing | **Yes.** 81 of 438 nodes were `MANGA`, which no other guard would have caught |
+| A whole library converges in one visit | **Yes.** 754 titles asked about, **1,275 edges stored**, and every later tick did nothing at all |
 
 **6c — Related titles in the backlog.** Every title keeps its own row; each row expands to its
 relatives, owned only, tagged with the relation type where a direct edge exists and "Related"

@@ -169,6 +169,15 @@ internal sealed class StubAniListClient(params string[] payloads) : IAniListClie
                 Payloads = [.. _payloads.Select(Encoding.UTF8.GetBytes)]
             });
     }
+
+    /// <summary>
+    /// Relations are a different subsystem with its own stub; a list test that
+    /// reached this would be asking the wrong object.
+    /// </summary>
+    public Task<AniListRelationsFetch> FetchRelationsAsync(
+        IReadOnlyCollection<string> externalIds,
+        CancellationToken cancellationToken = default) =>
+        throw new NotSupportedException("This stub answers list fetches only.");
 }
 
 /// <summary>An options monitor that never changes, which is all these tests need.</summary>

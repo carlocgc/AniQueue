@@ -81,7 +81,12 @@ public sealed class AniListJsonParser(ImportLimits? limits = null) : IAnimeListP
             return ParseResult.Rejected($"AniList rejected the request: {string.Join("; ", messages)}");
         }
 
+        // The ValueKind check on data is load-bearing: TryGetProperty throws rather
+        // than returning false when the element is not an object, so a body of
+        // {"data": null} carrying no errors array left this method by exception
+        // instead of as the rejection every other malformed response produces.
         if (!root.TryGetProperty("data", out var data) ||
+            data.ValueKind != JsonValueKind.Object ||
             !data.TryGetProperty("MediaListCollection", out var collection) ||
             collection.ValueKind != JsonValueKind.Object)
         {

@@ -63,4 +63,26 @@ public class AnimeExternalId
     /// will act on, once a backup exists to make removal recoverable.
     /// </remarks>
     public DateTimeOffset? MissingFromSourceAt { get; set; }
+
+    /// <summary>
+    /// When this title's relations were last asked for from <see cref="Source"/>,
+    /// or null while they have never been fetched.
+    /// </summary>
+    /// <remarks>
+    /// It means <b>we asked</b>, not <i>we got edges</i>. Roughly half a library has
+    /// no relations at all, and a marker that only recorded success would put every
+    /// standalone title back in the queue on every pass — a backfill that never
+    /// finishes, against a rate limit, for titles that will never have an answer.
+    ///
+    /// It lives here rather than on <see cref="Anime"/> for the same reason
+    /// <see cref="MissingFromSourceAt"/> does: relations are published per service,
+    /// and this row is already the per-service fact about a title. A title AniList
+    /// knows and MyAnimeList does not has one of these and not the other, which a
+    /// column on the catalogue row could not say.
+    ///
+    /// Nothing clears it on a schedule. A new season arrives as a <i>new</i> title
+    /// with no marker at all, and its own edges point back at the older seasons, so
+    /// the graph converges without re-asking about titles that already answered.
+    /// </remarks>
+    public DateTimeOffset? RelationsFetchedAt { get; set; }
 }

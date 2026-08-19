@@ -2,6 +2,7 @@
 @using AniQueue.Infrastructure.Sync
 @using Microsoft.Extensions.Options
 @inject ISyncService SyncService
+@inject IRelationBackfill RelationBackfill
 @inject IOptionsMonitor<SyncOptions> SyncConfiguration
 @inject ILogger<Sources> Logger
 
@@ -126,6 +127,20 @@
                     @(status.AbsentCount == 1 ? "It is" : "They are") still in your library and
                     still queueable — AniQueue does not delete anything a source stops listing.
                 </div>
+            }
+
+            @* One line, and only while there is something outstanding. Enrichment
+               degrades silently (D25): a backfill still working through a library is
+               not a problem, and a page that announced it would be announcing the
+               application doing its job. What it does answer is the question a user
+               with a new library actually asks — why some rows have no related
+               titles yet. *@
+            @if (status.Source == AnimeSource.AniList && _relations is { IsComplete: false, Total: > 0 } coverage)
+            {
+                <p class="muted">
+                    Related titles known for @coverage.Known of @coverage.Total titles.
+                    The rest fill in on their own.
+                </p>
             }
         }
 
@@ -317,6 +332,7 @@
     private SyncFetchResult? _fetch;
     private SyncApplyResult? _applied;
     private TitleLanguage _titleLanguage;
+    private RelationCoverage? _relations;
     private bool _nothingToDo;
     private string? _error;
 
@@ -331,6 +347,7 @@
     {
         _statuses = await SyncService.GetStatusAsync(Profile.DefaultProfileId);
         _titleLanguage = await SyncService.GetPreferredTitleLanguageAsync(Profile.DefaultProfileId);
+        _relations = await RelationBackfill.GetCoverageAsync();
     }
 
     private bool CanSync(SourceSyncStatus status) =>
