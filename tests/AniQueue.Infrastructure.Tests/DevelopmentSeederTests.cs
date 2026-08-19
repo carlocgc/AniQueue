@@ -1,4 +1,5 @@
 using AniQueue.Core.Domain;
+using AniQueue.Infrastructure.Library;
 using AniQueue.Infrastructure.Persistence;
 using AniQueue.Infrastructure.Persistence.Seeding;
 using Microsoft.EntityFrameworkCore;
@@ -56,7 +57,7 @@ public class DevelopmentSeederTests
         //
         // Matched on title rather than on any stored grouping, because since D23
         // there is none: what makes these rows a series is AniList's relation data,
-        // and the seeder does not invent local relationships to stand in for it.
+        // which the seeder writes as edges rather than as membership of anything.
         await using var database = await SeededDatabaseAsync();
         await using var context = database.CreateContext();
 
@@ -104,6 +105,50 @@ public class DevelopmentSeederTests
             Assert.Equal(item.Confidence, entry.RecommendationConfidence);
             Assert.Equal(item.Reason, entry.RecommendationReason);
         }
+    }
+
+    /// <summary>
+    /// The seed has to contain a graph, or the backlog's expansion cannot be looked
+    /// at without syncing a real account first — and the inner loop is F5, not a
+    /// network round trip (§13).
+    /// </summary>
+    [Fact]
+    public async Task Seeding_produces_a_relation_graph_the_backlog_can_expand()
+    {
+        await using var database = await SeededDatabaseAsync();
+
+        var relations = new RelationService(database.ContextFactory);
+
+        await using var context = database.CreateContext();
+
+        var seasonTwo = await context.Anime.SingleAsync(a => a.Title == "Slayers Next");
+
+        var related = await relations.GetRelatedAsync(Profile.DefaultProfileId, seasonTwo.Id);
+
+        // Season one is stated from season one's side and season three from season
+        // three's, so finding both proves the reverse index and the inversion that
+        // goes with it — the half of the graph a tidier seed would never exercise.
+        Assert.Equal(
+            [("Slayers", RelationType.Prequel), ("Slayers Try", RelationType.Sequel)],
+            related.Select(r => (r.Title, r.Relation)));
+    }
+
+    /// <summary>
+    /// The seeded identifiers are invented, so the backfill must never go and ask
+    /// about them: a development start would spend a real rate limit on titles that
+    /// do not exist.
+    /// </summary>
+    [Fact]
+    public async Task Seeded_titles_are_marked_as_already_asked_about()
+    {
+        await using var database = await SeededDatabaseAsync();
+        await using var context = database.CreateContext();
+
+        var unanswered = await context.AnimeExternalIds
+            .Where(x => x.Source == AnimeSource.AniList && x.RelationsFetchedAt == null)
+            .CountAsync();
+
+        Assert.Equal(0, unanswered);
     }
 
     [Fact]

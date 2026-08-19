@@ -363,6 +363,68 @@ tbody tr.selected { background: var(--surface-alt); }
 
 .badge.queued { background: var(--accent); color: var(--accent-text); border-color: transparent; }
 
+/* Related titles ---------------------------------------------------------- */
+
+/* The chevron is drawn only for rows that have something to open (D24), so the
+   column is mostly empty — which is the signal. A fixed width stops the title
+   column shifting between rows that have one and rows that do not. */
+.expand-col { width: 1%; white-space: nowrap; padding-right: 0; }
+
+.expander {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+    padding: 0.15rem 0.4rem;
+    background: none;
+    border: 1px solid transparent;
+    color: var(--text-muted);
+    font-variant-numeric: tabular-nums;
+}
+
+.expander:hover, .expander:focus-visible { color: var(--text); border-color: var(--border); }
+
+/* A triangle from a border trick rather than a glyph: a text arrow inherits the
+   font's own idea of alignment and drifts against the row. */
+.expander .chevron {
+    width: 0;
+    height: 0;
+    border-top: 0.3rem solid transparent;
+    border-bottom: 0.3rem solid transparent;
+    border-left: 0.4rem solid currentColor;
+    transition: transform 0.12s ease-out;
+}
+
+.expander.open .chevron { transform: rotate(90deg); }
+
+.expander .count { font-size: 0.8rem; }
+
+/* Tinted rather than bordered: the expansion belongs to the row above it, and a
+   box around it would read as a separate thing on the page. */
+.relations-row > td { background: var(--surface-alt); }
+
+.relations-row:hover > td { background: var(--surface-alt); }
+
+.relations { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.35rem; }
+
+.relations li {
+    display: flex;
+    align-items: center;
+    gap: 0.45rem;
+    flex-wrap: wrap;
+    font-size: 0.9rem;
+}
+
+/* The relation is what the row is being read for, so it gets the accent and a
+   fixed width — the labels line up and the eye can run down them. */
+.badge.relation {
+    background: var(--surface);
+    color: var(--text);
+    min-width: 6.5rem;
+    text-align: center;
+}
+
+.relation-title { font-weight: 500; }
+
 /* Up Next ----------------------------------------------------------------- */
 
 /* The queue is read as an ordered list, so the number is what the eye lands on

@@ -39,6 +39,20 @@ public sealed record LibraryFacets
     /// <summary>True when anything is hidden, so the "show hidden" toggle is worth offering.</summary>
     public required bool HasHiddenEntries { get; init; }
 
+    /// <summary>
+    /// True when the relation graph holds at least one prequel or sequel edge, so
+    /// the standalone filter can exclude something.
+    /// </summary>
+    /// <remarks>
+    /// The exact data the filter reads, rather than "are there any relations at
+    /// all". Before the backfill has run — and forever, for a MyAnimeList-only
+    /// library — a standalone filter would match every row, which is a control that
+    /// appears to work and does nothing. That is the failure this record exists to
+    /// prevent, and it is worse here than an empty result: the user reads an
+    /// unchanged list as "everything I own is standalone".
+    /// </remarks>
+    public required bool HasSequelEdges { get; init; }
+
     /// <summary>Count per status, for the status filter's labels.</summary>
     public required IReadOnlyDictionary<LibraryStatus, int> CountByStatus { get; init; }
 
@@ -52,6 +66,7 @@ public sealed record LibraryFacets
         HasUnrankedEntries = false,
         HasUserScores = false,
         HasHiddenEntries = false,
+        HasSequelEdges = false,
         CountByStatus = new Dictionary<LibraryStatus, int>()
     };
 }

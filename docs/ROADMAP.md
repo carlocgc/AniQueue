@@ -1756,9 +1756,9 @@ assumed:
 | A whole library converges in one visit | **Yes.** 754 titles asked about, **1,275 edges stored**, and every later tick did nothing at all |
 
 **6c — Related titles in the backlog.** Every title keeps its own row; each row expands to its
-relatives, owned only, tagged with the relation type where a direct edge exists and "Related"
-where the connection is transitive — season 5 is not the sequel of season 1. One edge out from
-the title, never transitive, or the expansion walks the whole graph. Ordered by release date,
+relatives, owned only, tagged with the relation type. One edge out from the title, never
+transitive — season 5 is not the sequel of season 1, and a walk that kept going would pull a
+whole franchise into a panel opened to answer a much smaller question. Ordered by release date,
 unknown dates last. Hidden entries are excluded; every other status is included, because an
 expansion is context rather than results.
 
@@ -1769,7 +1769,31 @@ exists for. Detail loads on expand.
 
 The **standalone filter** returns here in D24's redefined form — no `PREQUEL` or `SEQUEL` edge,
 counted over all edges rather than only owned ones — as an indexed `EXISTS`, the same shape as
-the filters already in `LibraryService`.
+the filters already in `LibraryService`. It is offered only once the graph holds a prequel or
+sequel edge: before the backfill has run, and forever for a MyAnimeList-only library, it would
+match every row, and a filter that changes nothing reads as *everything I own is standalone*.
+
+**"Related" was written here as the label for a transitive connection, and it cannot be that.**
+Nothing is transitive, by the sentence immediately after it, so that label could never appear.
+What actually earns it is narrower and real: **the two ends disagree.** AniList publishes
+`PARENT` as the counterpart of both `SIDE_STORY` and `SPIN_OFF`, so one pair routinely arrives
+as a spin-off read from one side and a side story read from the other. Naming a winner would
+state a relationship the source did not, and naming the first one seen would make the label
+depend on row order — so a disagreement is labelled "Related" and nothing else is.
+
+**The development seeder now carries a graph**, because without one the expansion could not be
+looked at without syncing a real account first, and §13 is explicit that the inner loop is `F5`.
+Two things about it are deliberate. Its AniList identifiers are **invented and far outside the
+range AniList issues** — a guessed-but-plausible id would be worse, since the row links out and
+a link landing confidently on somebody else's show is a bug that looks like data. And every
+seeded identifier is written **already marked as asked about**, or a development start would
+spend real requests against a real rate limit asking about titles that do not exist.
+
+**One Razor trap, found the way they all are.** A `@* … *@` comment placed *between attributes*
+inside an element's opening tag compiles without complaint and then fails at render, as
+`setAttribute` rejecting the comment text as an attribute name — a runtime failure that takes
+the circuit down, from markup the compiler accepted. Comments go above the element. Nothing in
+the suite could have caught it: there are no component tests, which is the actual gap.
 
 **6d — Queue what follows.** `AddWithSequelsAsync(profileId, animeId)` walks `SEQUEL` forward
 from one title and appends what is still Planning, in release order, skipping `SUMMARY` and
@@ -1955,8 +1979,9 @@ Phase 6 adds:
   nothing at all. The clock is moved by a stub rather than waited on.
 - **What an expansion shows.** Counts exclude hidden entries and include every other status;
   only owned relatives are counted, so the badge never promises more than it opens; ordering is
-  by release date with unknowns last; a relation read from the far end is inverted; nothing is
-  ever transitive beyond one edge.
+  by release date with unknowns last; a relation read from the far end is inverted; the same
+  pair stated from both ends counts once; two ends that disagree are labelled "Related" rather
+  than arbitrated; nothing is ever transitive beyond one edge.
 - **The sequel walk.** It traverses *through* a Completed middle season without queueing it,
   appends only Planning titles in release order, reports `QueueAddResult` categories correctly,
   is a no-op when re-run, and leaves positions contiguous.
