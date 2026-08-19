@@ -195,9 +195,69 @@ public class LibraryServiceTests
         var normal = await fixture.Library.GetPageAsync(Profile.DefaultProfileId, new LibraryQuery());
         Assert.Equal("Visible", Assert.Single(normal.Items).Title);
 
-        var withHidden = await fixture.Library.GetPageAsync(
-            Profile.DefaultProfileId, new LibraryQuery { IncludeHidden = true });
-        Assert.Equal(2, withHidden.TotalCount);
+        // Only the hidden ones, not both. Mixing them back in among the visible
+        // entries answers no question anybody asks: either the backlog is being
+        // read, where hidden means hidden, or what was set aside is being looked
+        // for, where everything else is noise.
+        var hiddenOnly = await fixture.Library.GetPageAsync(
+            Profile.DefaultProfileId, new LibraryQuery { HiddenOnly = true });
+        Assert.Equal("Hidden", Assert.Single(hiddenOnly.Items).Title);
+    }
+
+    /// <summary>
+    /// The number beside a status is a promise about what choosing it shows, and
+    /// what it shows excludes hidden entries.
+    /// </summary>
+    /// <remarks>
+    /// Harmless while hiding was a bulk action somebody did rarely; not harmless now
+    /// that it is one press on every row (D26), and a picker whose counts do not
+    /// match its own results is worse than one with no counts at all.
+    /// </remarks>
+    [Fact]
+    public async Task Status_counts_exclude_hidden_entries_and_the_hidden_count_holds_them()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+
+        await using (var context = fixture.Database.CreateContext())
+        {
+            await AddAsync(context, "Planned");
+            await AddAsync(context, "Planned but set aside", hidden: true);
+            await AddAsync(context, "Finished", LibraryStatus.Completed);
+        }
+
+        var facets = await fixture.Library.GetFacetsAsync(Profile.DefaultProfileId);
+
+        Assert.Equal(1, facets.CountByStatus.GetValueOrDefault(LibraryStatus.Planning));
+        Assert.Equal(1, facets.CountByStatus.GetValueOrDefault(LibraryStatus.Completed));
+        Assert.Equal(1, facets.HiddenCount);
+        Assert.True(facets.HasHiddenEntries);
+
+        var planning = await fixture.Library.GetPageAsync(
+            Profile.DefaultProfileId, new LibraryQuery { Status = LibraryStatus.Planning });
+
+        Assert.Equal(facets.CountByStatus[LibraryStatus.Planning], planning.TotalCount);
+    }
+
+    /// <summary>
+    /// The hidden list is not narrowed by status, because hiding is orthogonal to
+    /// it — an entry is hidden <i>and</i> Planning.
+    /// </summary>
+    [Fact]
+    public async Task The_hidden_view_shows_every_status()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+
+        await using (var context = fixture.Database.CreateContext())
+        {
+            await AddAsync(context, "Set aside, planned", hidden: true);
+            await AddAsync(context, "Set aside, finished", LibraryStatus.Completed, hidden: true);
+            await AddAsync(context, "Still listed");
+        }
+
+        var hidden = await fixture.Library.GetPageAsync(
+            Profile.DefaultProfileId, new LibraryQuery { HiddenOnly = true, Status = null });
+
+        Assert.Equal(2, hidden.TotalCount);
     }
 
     [Fact]

@@ -317,11 +317,48 @@ td.numeric, th.numeric { text-align: right; font-variant-numeric: tabular-nums; 
     font-weight: 500;
 }
 
-.selection-bar { border-color: var(--accent); border-left-width: 3px; }
+/* Row actions ------------------------------------------------------------- */
 
-.select-col { width: 1%; white-space: nowrap; }
+/* Every action sits on the row it acts on (D26), so the column is narrow and
+   always present rather than a bar that appears above the table once something is
+   selected. Same shape as the queue's actions column, because it is the same
+   idea. */
+/* Shared with Up Next, which had it first: both tables end in a column of controls
+   that must not steal width from the titles. */
+.actions-col { width: 1%; white-space: nowrap; }
 
-tbody tr.selected { background: var(--surface-alt); }
+.row-actions { display: flex; gap: 0.15rem; justify-content: flex-end; }
+
+/* Adding leads the row and hiding ends it, with the table between them. They were
+   neighbours, which put the action done constantly a few pixels from the one that
+   takes a title out of the list, with nothing but aim separating two icon buttons
+   of the same size. */
+.add-col { width: 1%; padding-right: 0.2rem; }
+
+/* Adding is the one action on this page anybody does repeatedly, so it is the one
+   that answers on hover. Disabled it stays put and stays quiet — the tooltip is
+   carrying the reason. */
+button.icon.add { font-size: 1.05rem; line-height: 1.2; }
+
+button.icon.add:hover:not(:disabled) { color: var(--accent); border-color: var(--accent); }
+
+/* Already queued, so the same button now offers to undo it. It stays a state
+   rather than becoming a warning — nothing is lost by leaving the queue, the title
+   is still in the library — so it takes the muted treatment of the row's other
+   reversible control instead of the danger colour Up Next gives its remove. */
+button.icon.add.dequeue { color: var(--accent); }
+
+button.icon.add.dequeue:hover:not(:disabled) { color: var(--text); border-color: var(--border); }
+
+/* Restoring is the one thing anybody comes to the hidden list to do, so it reads as
+   the affirmative action there rather than as the same muted glyph that put the row
+   in the list. */
+button.icon.restore:hover:not(:disabled) { color: var(--accent); border-color: var(--accent); }
+
+/* A hidden row stays in place until the list is next read, so it needs to look
+   set aside rather than merely unremarkable — it is still listed, but it is not
+   coming back next time. */
+tbody tr.row-hidden > td { opacity: 0.55; }
 
 .title-cell { display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap; }
 
@@ -435,8 +472,6 @@ tbody tr.selected { background: var(--surface-alt); }
     font-variant-numeric: tabular-nums;
     color: var(--text-muted);
 }
-
-.queue .actions-col { width: 1%; white-space: nowrap; }
 
 .queue .handle-col { width: 1%; padding-right: 0; }
 

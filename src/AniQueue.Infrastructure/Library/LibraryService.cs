@@ -142,7 +142,11 @@ public sealed class LibraryService(
             sources.Add(AnimeSource.Manual);
         }
 
+        // Counted over what the status options actually list, which excludes hidden
+        // entries — a "Planning (8)" that produces seven rows is a picker lying
+        // about its own options.
         var countByStatus = await entries
+            .Where(e => !e.IsHidden)
             .GroupBy(e => e.Status)
             .Select(g => new { Status = g.Key, Count = g.Count() })
             .ToDictionaryAsync(x => x.Status, x => x.Count, cancellationToken);
@@ -163,7 +167,7 @@ public sealed class LibraryService(
             HasRecommendations = await entries.AnyAsync(e => e.RecommendationScore != null, cancellationToken),
             HasUnrankedEntries = await entries.AnyAsync(e => e.RecommendationScore == null, cancellationToken),
             HasUserScores = await entries.AnyAsync(e => e.UserScore != null, cancellationToken),
-            HasHiddenEntries = await entries.AnyAsync(e => e.IsHidden, cancellationToken),
+            HiddenCount = await entries.CountAsync(e => e.IsHidden, cancellationToken),
 
             // Asked of the graph rather than of the library, and not narrowed to
             // owned titles: it is the same population the filter reads, so the chip
@@ -248,10 +252,11 @@ public sealed class LibraryService(
     {
         var filtered = source.Where(e => e.ProfileId == profileId);
 
-        if (!query.IncludeHidden)
-        {
-            filtered = filtered.Where(e => !e.IsHidden);
-        }
+        // Hidden is a view rather than a filter: either the whole listing is what
+        // was set aside, or none of it is.
+        filtered = query.HiddenOnly
+            ? filtered.Where(e => e.IsHidden)
+            : filtered.Where(e => !e.IsHidden);
 
         if (query.Status is { } status)
         {

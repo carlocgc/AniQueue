@@ -68,6 +68,13 @@ public class QueueServiceTests
             return [.. slots.Select(s => s.QueueItemId)];
         }
 
+        /// <summary>A queued title's anime id, for the removals addressed by title.</summary>
+        public async Task<int> AnimeIdAsync(string title)
+        {
+            await using var context = Database.CreateContext();
+            return (await context.Anime.SingleAsync(a => a.Title == title)).Id;
+        }
+
         /// <summary>The queue's titles in order, as one string for readable assertions.</summary>
         public async Task<string> OrderAsync()
         {
@@ -248,6 +255,56 @@ public class QueueServiceTests
         await fixture.QueueTitlesAsync("A");
 
         Assert.False(await fixture.Queue.RemoveAsync(fixture.ProfileId, queueItemId: 9999));
+    }
+
+    /// <summary>
+    /// The same removal addressed by title, which is how the backlog undoes its own
+    /// queue button — it lists titles and never sees a slot id (D26).
+    /// </summary>
+    [Fact]
+    public async Task Removing_by_title_releases_its_slot_and_closes_the_gap()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        await fixture.QueueTitlesAsync("A", "B", "C");
+
+        var animeId = await fixture.AnimeIdAsync("B");
+
+        Assert.True(await fixture.Queue.RemoveAnimeAsync(fixture.ProfileId, animeId));
+
+        Assert.Equal("A C", await fixture.OrderAsync());
+        await fixture.AssertContiguousAsync();
+
+        await using var context = fixture.Database.CreateContext();
+        Assert.Equal(3, await context.LibraryEntries.CountAsync());
+    }
+
+    /// <summary>
+    /// Adding then removing then adding again lands the title at the back rather
+    /// than where it used to be. Queue position is authored, not remembered (D11) —
+    /// restoring the old one would be AniQueue holding an opinion about the order.
+    /// </summary>
+    [Fact]
+    public async Task A_title_removed_and_re_added_goes_to_the_end()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        await fixture.QueueTitlesAsync("A", "B", "C");
+
+        var animeId = await fixture.AnimeIdAsync("A");
+
+        await fixture.Queue.RemoveAnimeAsync(fixture.ProfileId, animeId);
+        await fixture.Queue.AddAnimeAsync(fixture.ProfileId, [animeId]);
+
+        Assert.Equal("B C A", await fixture.OrderAsync());
+        await fixture.AssertContiguousAsync();
+    }
+
+    [Fact]
+    public async Task Removing_a_title_that_holds_no_slot_reports_failure()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        await fixture.QueueTitlesAsync("A");
+
+        Assert.False(await fixture.Queue.RemoveAnimeAsync(fixture.ProfileId, animeId: 9999));
     }
 
     // --- Profile isolation -----------------------------------------------

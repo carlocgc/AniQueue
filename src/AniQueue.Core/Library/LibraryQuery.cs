@@ -51,8 +51,23 @@ public sealed record LibraryQuery
     /// <summary>Case-insensitive substring match on either title.</summary>
     public string? Search { get; init; }
 
-    /// <summary>Hidden entries stay in the library but drop out of listings.</summary>
-    public bool IncludeHidden { get; init; }
+    /// <summary>
+    /// Lists <b>only</b> hidden entries, so what was set aside can be found and
+    /// restored. Otherwise hidden entries stay in the library and out of listings.
+    /// </summary>
+    /// <remarks>
+    /// Two states rather than three, and the missing one is deliberate. This
+    /// replaced an <c>IncludeHidden</c> flag that mixed hidden entries back in
+    /// among the visible ones, which answers no question anybody asks: either the
+    /// user is reading their backlog, where hidden means hidden, or they have gone
+    /// looking for what they set aside, where everything else is noise.
+    ///
+    /// It sits beside <see cref="Status"/> rather than among the filters below
+    /// because it is the same kind of thing — which slice of the library is being
+    /// looked at, not a narrowing of one — and the UI offers it in the same control
+    /// for that reason.
+    /// </remarks>
+    public bool HiddenOnly { get; init; }
 
     public MediaType? MediaType { get; init; }
 
@@ -103,7 +118,16 @@ public sealed record LibraryQuery
 
     public int Take { get; init; } = 50;
 
-    /// <summary>Whether anything beyond the defaults is narrowing the list.</summary>
+    /// <summary>
+    /// Whether anything beyond the defaults is narrowing the list.
+    /// </summary>
+    /// <remarks>
+    /// Neither <see cref="Status"/> nor <see cref="HiddenOnly"/> counts, and for the
+    /// same reason: they choose which slice is being looked at rather than narrow
+    /// one, so "clear filters" leaves both alone. Clearing the view the user
+    /// deliberately switched to would make the button unusable in exactly the place
+    /// it is most wanted — several filters deep inside the hidden list.
+    /// </remarks>
     public bool HasActiveFilters =>
         !string.IsNullOrWhiteSpace(Search)
         || MediaType is not null
@@ -113,6 +137,5 @@ public sealed record LibraryQuery
         || StandaloneOnly
         || MinUserScore is not null
         || MinRecommendationConfidence is not null
-        || HasRecommendation is not null
-        || IncludeHidden;
+        || HasRecommendation is not null;
 }

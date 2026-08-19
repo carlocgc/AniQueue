@@ -1092,6 +1092,114 @@ problem already blocks for the database.
 *Unverified, and blocking nothing until it is:* the `Fribb/anime-lists` licence has still not
 been read, and vendoring it would be redistribution in a public repository.
 
+### D26 — Actions live on the row they act on, and the backlog has no selection
+
+*Reverses the "bulk selection, bulk queue-add and bulk hide" half of Phase 3, on use rather
+than on argument.*
+
+The backlog shipped with a checkbox per row, a select-all in the header, and a bar that
+appeared above the table once anything was ticked, carrying **Add to Up Next**, **Hide** and
+**Clear selection**. Every row now carries its own **+** and its own hide toggle instead, and
+the bar, the checkboxes and the selection state are gone.
+
+**Selection makes a one-title action cost four steps.** Queueing one show meant tick, look up,
+find the bar, press, and then clear the selection before touching anything else. That is the
+*common* case — a backlog is read one interesting row at a time, and the decision it exists to
+support is singular by construction. Bulk was the affordance, and it was priced as though it
+were the default.
+
+**The bar appears where the row is not.** It renders above the table, so acting on row forty
+means reading row forty, moving to the top of the page, and pressing a button that does not say
+which row it is about. That is the specific complaint, and it is not a layout detail: a control
+that materialises somewhere else has already broken the connection to the thing it acts on.
+
+**A disabled button beats a message.** With one title per press, the reason an add can be
+declined — no longer Planning — is knowable before the click, so the button is disabled and its
+tooltip says which. The whole `QueueAddText` apparatus that enumerated skipped counts goes with
+the selection that made it necessary, and the page loses its status banner entirely.
+`QueueAddResult` keeps its per-reason counts: **6d still adds a run of sequels in one press**,
+and that is the case a summary was written for.
+
+**The button is a toggle, not a one-way add**, showing `+` or `−` for the two states a title
+can be in. A backlog row is where the mistake is noticed, and undoing it used to mean leaving
+for Up Next, finding the row again there, and pressing a different control with a different
+glyph — for something the row was already reporting with its own badge. So `IQueueService`
+gains `RemoveAnimeAsync`: the same removal addressed by title, because a listing of titles
+never sees a slot id and should not have to carry one to undo itself.
+
+*Leaving the queue is allowed whatever the status*, unlike joining it. A title that stopped
+being Planning while it sat in a slot is exactly the row somebody would want to clear by hand
+rather than wait for the next sync to advance past.
+
+*Plus and minus rather than Up Next's cross*, and the difference is not cosmetic. That page's
+subject is an ordered list, and its cross removes a position from one. Here the pair reads as a
+single state — in the queue or not — which is all a backlog row has to say about it. Neither
+touches the library, and neither is `AdvanceAsync`: advancement releases a slot because a title
+stopped being planned, which is an observation (D12), while this is the user changing their
+mind about the order, which is the one thing AniQueue authors (D11).
+
+*Re-adding goes to the back.* Position is authored rather than remembered, so restoring a
+title's old place would be AniQueue holding an opinion about the order.
+
+**Nothing is re-read after a press.** The row already shows everything the action changed, so
+re-running the query would move rows under the cursor, close every open expansion and lose the
+reader's place — to report a change they had just made. The page keeps a small overlay of what
+it has done since it loaded, and discards it whenever the list is genuinely re-read.
+
+**Hiding stays in place rather than vanishing.** A row that disappeared the instant it was
+hidden would read as a delete, so it stays, dimmed, wearing its badge, with the button that did
+it offering to undo it. It drops out on the next read, which is when the filter is next
+honestly applied.
+
+**Adding leads the row and hiding ends it, with the table between them.** They shipped as
+neighbours in one actions cell, which put the action done constantly a few pixels from the one
+that takes a title out of the list — two icon buttons of the same size, with nothing but aim
+between them. Frequency decides the position: the plus goes where the eye already is, at the
+start of the row beside the title being judged, and hiding goes to the far edge where a rare
+action belongs. **The relatives inside an expansion lead with theirs too**, so one run of queue
+buttons goes down the page whether a title is on a row or inside a panel — the control is the
+same control, and it lives in the same place.
+
+Both are the same component for that reason. Two copies of *when may this be pressed, and what
+does it say it will do* is how a row's badge and its button start disagreeing.
+
+**Hidden becomes a view in the status picker, and the "Show hidden" chip is deleted.** The chip
+put the only route back to a set-aside title in the same row as *Under 2 hours* — findable if
+you already knew it was there, and not otherwise, which is a poor place for the undo of an
+action that is now one press on every row. It is a view rather than a filter, so it belongs
+with the statuses: *what am I looking at* is one question with one control.
+
+Three consequences, none of them incidental:
+
+- **Two states, not three.** `IncludeHidden` mixed hidden entries back in among the visible
+  ones, which answers no question anybody asks. `HiddenOnly` replaces it: either the backlog is
+  being read, where hidden means hidden, or what was set aside is being looked for, where
+  everything else is noise.
+- **The hidden view ignores the status filter**, because hiding is orthogonal to status — an
+  entry is hidden *and* Planning. Carrying a status into it would answer "what have I set
+  aside" with only part of it, and that list exists to find something to put back.
+- **Status counts now exclude hidden entries.** They did not, so "Planning (8)" produced seven
+  rows. Harmless while hiding was a rare bulk action; not harmless now, and a picker whose
+  counts disagree with its own results is worse than one with no counts at all.
+
+Two smaller things follow. The **hidden option survives unhiding the last entry** while it is
+the one being looked at, or the selected option would vanish from under the user mid-task. And
+an **empty hidden list says "Nothing is hidden"** rather than offering to clear filters: it is
+the expected end state of the job that list exists for, not a dead end.
+
+**What is actually lost is hiding many titles at once**, and that is the honest cost. Queueing
+many was never a real loss — the queue is an *order*, and a batch appended in title order is
+not one, which is why 6d walks sequels in release order rather than offering a bigger
+multi-select. Mass hiding is the case with no per-row equivalent, and it is bet against: hiding
+is how a user says "not this one", which is a judgement made one title at a time. **If a real
+need for it appears** the answer is a filtered bulk action — *hide everything matching these
+filters* — rather than the return of the checkbox, because that is the form the need would
+actually take.
+
+**The busy dialog goes too.** It was there because SQLite's provider is synchronous and a bulk
+write awaited inline freezes the circuit. One row's write is not a bulk write, and a modal
+covering the page to announce it would be more disruptive than the wait it describes.
+
 ---
 
 ## 3. Solution structure
@@ -1402,6 +1510,13 @@ Under 6h, Movie, OVA, TV, decades, High AI confidence, Not yet ranked) — **eac
 only when the backing metadata exists**. Bulk selection, bulk queue-add and bulk hide.
 Anime cards degrade cleanly instead of printing rows of "N/A".
 
+*Amended by D26: the selection is gone.* Every row carries its own add-to-queue and hide
+control, because a backlog is read one interesting row at a time and selection priced the
+common case as though it were the rare one. Mass hiding is the one capability withdrawn, and
+D26 records what would bring it back. The "show hidden" quick filter goes with it: hidden is a
+view in the status picker now, listing only what was set aside, which is the list somebody
+actually wants when they go looking for something to restore.
+
 No priority filter, sort or bulk action: manual priority does not exist (D14).
 
 Defaults to **Planning**, with the status filter able to widen it. The brief defines the
@@ -1423,7 +1538,9 @@ Overseerr later become configuration rather than new machinery.
 
 Bulk actions run through `BusyScope` and off the circuit thread from the start, for the
 reason recorded against the import: SQLite's provider is synchronous, so a bulk write
-awaited inline freezes the entire circuit rather than just the page.
+awaited inline freezes the entire circuit rather than just the page. *Withdrawn from this page
+by D26 along with the bulk actions themselves — one row's write is not a bulk write. The rule
+still holds everywhere it still applies: import, sync, and 6d's sequel walk.*
 
 ### Phase 4 — Up Next
 `QueueService`: add, remove, move to top/up/down/bottom, transactional reorder with
@@ -1801,6 +1918,13 @@ from one title and appends what is still Planning, in release order, skipping `S
 between three and five must not stop the walk — and it writes nothing itself, handing the
 ordered set to `AddAnimeAsync` so the contiguity invariant keeps one home. Individual adds from
 an expansion are the other half, and the two together replace what `AddFranchiseAsync` did.
+
+**The individual half shipped first, and took the checkboxes with it (D26).** Every backlog row
+and every relative in an expansion now carries a **+** that queues that one title, disabled
+where it could not work and saying why. What remains for the sequel walk is the walk: one press
+that queues a title *and what follows it*, which is the only part of 6d a per-row button cannot
+express — and the only part that still needs `QueueAddResult`'s per-reason counts, since a run
+of six can decline five of them for five different reasons.
 
 ### Phase 7 — Dashboard and decision mode
 Currently Watching with progress bars, Up Next top 5–10, backlog summary counts and
