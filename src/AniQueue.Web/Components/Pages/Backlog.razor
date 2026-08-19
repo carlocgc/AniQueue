@@ -33,7 +33,13 @@ else
             <input type="search" placeholder="Search titles" value="@_query.Search"
                    @oninput="OnSearchChangedAsync" aria-label="Search titles" />
 
-            <select value="@_statusValue" @onchange="OnStatusChangedAsync" aria-label="Status">
+            @* One control for "which slice am I looking at", statuses and the hidden
+               list together. Hiding used to be a chip among the filters, which put
+               the only route back to a set-aside title in the same row as "Under 2
+               hours" — findable if you already knew, and not otherwise. It is
+               separated into its own group because it is a different axis: an entry
+               is hidden *and* Planning, not hidden *instead of* it. *@
+            <select value="@_statusValue" @onchange="OnStatusChangedAsync" aria-label="Show">
                 <option value="">All statuses</option>
                 @foreach (var status in Enum.GetValues<LibraryStatus>())
                 {
@@ -43,6 +49,16 @@ else
                     {
                         <option value="@status">@status (@count)</option>
                     }
+                }
+
+                @* Offered while anything is hidden — and while it is being looked at
+                   even once nothing is, because unhiding the last entry must not
+                   pull the selected option out from under the user. *@
+                @if (Facets.HasHiddenEntries || _query.HiddenOnly)
+                {
+                    <optgroup label="Set aside">
+                        <option value="@HiddenValue">Hidden (@Facets.HiddenCount)</option>
+                    </optgroup>
                 }
             </select>
 
@@ -130,12 +146,6 @@ else
                             @onclick="() => ToggleSourceAsync(source)">@source</button>
                 }
             }
-
-            @if (Facets.HasHiddenEntries)
-            {
-                <button class="chip @Active(_query.IncludeHidden)"
-                        @onclick="ToggleHiddenAsync">Show hidden</button>
-            }
         </div>
     </div>
 
@@ -149,7 +159,14 @@ else
     {
         <div class="card">
             <div class="empty-state">
-                @if (_query.HasActiveFilters || _query.Status is not null)
+                @* An empty hidden list is the expected end state rather than a dead
+                   end — it is what unhiding the last entry looks like — so it says
+                   so instead of offering to clear filters that are not the reason. *@
+                @if (_query.HiddenOnly)
+                {
+                    <p>Nothing is hidden.</p>
+                }
+                else if (_query.HasActiveFilters || _query.Status is not null)
                 {
                     <p>Nothing matches those filters.</p>
                     <button @onclick="ClearFiltersAsync">Clear filters</button>
@@ -169,9 +186,16 @@ else
                 <table>
                     <thead>
                         <tr>
-                            @* No header text on either control column: each holds a
+                            @* No header text on any control column: each holds a
                                control per row, and naming them would put a word above
-                               fifty chevrons. *@
+                               fifty chevrons.
+
+                               Adding leads the row and hiding ends it, with the whole
+                               table between them. They were adjacent, which put the
+                               action done constantly a few pixels from the one that
+                               takes a title out of the list — and both are small icon
+                               buttons, so the only thing separating them was aim. *@
+                            <th class="add-col"></th>
                             <th class="expand-col"></th>
                             <th>Title</th>
                             <th>Type</th>
@@ -191,6 +215,19 @@ else
                         @foreach (var item in Page.Items)
                         {
                             <tr class="@(IsHidden(item) ? "row-hidden" : null)">
+                                <td class="add-col">
+                                    @* Present on every row and disabled where it cannot
+                                       work, rather than absent: a control that comes and
+                                       goes down a column is harder to aim at than one
+                                       that is always in the same place, and a disabled
+                                       button carries the reason in its tooltip where an
+                                       absent one carries nothing. *@
+                                    <button class="icon add"
+                                            disabled="@(!CanQueue(item.Status, item.AnimeId))"
+                                            title="@QueueActionLabel(item.Title, item.Status, item.AnimeId)"
+                                            aria-label="@QueueActionLabel(item.Title, item.Status, item.AnimeId)"
+                                            @onclick="() => QueueAsync(item.AnimeId)">+</button>
+                                </td>
                                 <td class="expand-col">
                                     @* Drawn only when there is something to open. A
                                        control that sometimes does nothing teaches
@@ -271,19 +308,8 @@ else
                                     <td class="numeric">@(item.RecommendationScore?.ToString("0.0") ?? "—")</td>
                                 }
                                 <td class="actions-col">
-                                    <div class="row-actions" role="group" aria-label="@($"Actions for {item.Title}")">
-                                        @* Present on every row and disabled where it cannot
-                                           work, rather than absent: a control that comes and
-                                           goes down a column is harder to aim at than one
-                                           that is always in the same place, and a disabled
-                                           button carries the reason in its tooltip where an
-                                           absent one carries nothing. *@
-                                        <button class="icon add"
-                                                disabled="@(!CanQueue(item.Status, item.AnimeId))"
-                                                title="@QueueActionLabel(item.Title, item.Status, item.AnimeId)"
-                                                aria-label="@QueueActionLabel(item.Title, item.Status, item.AnimeId)"
-                                                @onclick="() => QueueAsync(item.AnimeId)">+</button>
-                                        <button class="icon"
+                                    <div class="row-actions">
+                                        <button class="icon @(IsHidden(item) ? "restore" : null)"
                                                 title="@(IsHidden(item) ? "Show again in listings" : "Hide from listings")"
                                                 aria-label="@(IsHidden(item)
                                                     ? $"Show {item.Title} in listings again"
@@ -422,7 +448,18 @@ else
     private readonly HashSet<int> _expanded = [];
     private readonly Dictionary<int, IReadOnlyList<RelatedTitle>> _relations = [];
 
-    private string _statusValue => _query.Status?.ToString() ?? string.Empty;
+    /// <summary>
+    /// The hidden view's option value.
+    /// </summary>
+    /// <remarks>
+    /// Deliberately not a word <see cref="LibraryStatus"/> could ever parse as, so
+    /// that adding a status later cannot silently turn this into one — the parse
+    /// below is the only thing separating the two axes sharing this control.
+    /// </remarks>
+    private const string HiddenValue = "!hidden";
+
+    private string _statusValue =>
+        _query.HiddenOnly ? HiddenValue : _query.Status?.ToString() ?? string.Empty;
 
     protected override async Task OnInitializedAsync()
     {
@@ -492,11 +529,32 @@ else
     private Task OnSearchChangedAsync(ChangeEventArgs e) =>
         ApplyAsync(_query with { Search = e.Value?.ToString() });
 
-    private Task OnStatusChangedAsync(ChangeEventArgs e) =>
-        ApplyAsync(_query with
+    /// <summary>
+    /// Switches which slice of the library is listed: a status, everything, or what
+    /// has been set aside.
+    /// </summary>
+    /// <remarks>
+    /// The hidden view widens the status to everything rather than keeping whatever
+    /// was selected. Hiding is orthogonal to status — an entry is hidden *and*
+    /// Planning — so carrying a status into it would silently answer "what have I
+    /// set aside" with only part of it, which is the wrong answer for a list whose
+    /// whole purpose is finding something to put back.
+    /// </remarks>
+    private Task OnStatusChangedAsync(ChangeEventArgs e)
+    {
+        var value = e.Value?.ToString();
+
+        if (value == HiddenValue)
         {
-            Status = Enum.TryParse<LibraryStatus>(e.Value?.ToString(), out var status) ? status : null
+            return ApplyAsync(_query with { HiddenOnly = true, Status = null });
+        }
+
+        return ApplyAsync(_query with
+        {
+            HiddenOnly = false,
+            Status = Enum.TryParse<LibraryStatus>(value, out var status) ? status : null
         });
+    }
 
     private Task OnSortChangedAsync(ChangeEventArgs e) =>
         ApplyAsync(_query with
@@ -507,8 +565,14 @@ else
     private Task GoToPageAsync(int skip) =>
         ApplyAsync(_query with { Skip = Math.Max(0, skip) }, resetPaging: false);
 
+    /// <summary>Clears the filters, keeping the slice the user chose to look at.</summary>
     private Task ClearFiltersAsync() =>
-        ApplyAsync(new LibraryQuery { Take = PageSize, Status = _query.Status });
+        ApplyAsync(new LibraryQuery
+        {
+            Take = PageSize,
+            Status = _query.Status,
+            HiddenOnly = _query.HiddenOnly
+        });
 
     // Quick filters toggle: pressing an active chip clears it, so a chip is never
     // a trap the user has to hunt for a way out of.
@@ -532,9 +596,6 @@ else
 
     private Task ToggleUnrankedAsync() =>
         ApplyAsync(_query with { HasRecommendation = _query.HasRecommendation == false ? null : false });
-
-    private Task ToggleHiddenAsync() =>
-        ApplyAsync(_query with { IncludeHidden = !_query.IncludeHidden });
 
     private Task ToggleStandaloneAsync() =>
         ApplyAsync(_query with { StandaloneOnly = !_query.StandaloneOnly });
@@ -637,7 +698,7 @@ else
     /// because a hard-coded number is a colspan that silently goes wrong the next
     /// time a column is added.
     /// </summary>
-    private int ColumnCount => Facets is { HasRecommendations: true } ? 10 : 9;
+    private int ColumnCount => Facets is { HasRecommendations: true } ? 11 : 10;
 
     private bool IsQueued(int animeId) => _queued.Contains(animeId);
 

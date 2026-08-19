@@ -329,12 +329,23 @@ td.numeric, th.numeric { text-align: right; font-variant-numeric: tabular-nums; 
 
 .row-actions { display: flex; gap: 0.15rem; justify-content: flex-end; }
 
+/* Adding leads the row and hiding ends it, with the table between them. They were
+   neighbours, which put the action done constantly a few pixels from the one that
+   takes a title out of the list, with nothing but aim separating two icon buttons
+   of the same size. */
+.add-col { width: 1%; padding-right: 0.2rem; }
+
 /* Adding is the one action on this page anybody does repeatedly, so it is the one
    that answers on hover. Disabled it stays put and stays quiet — the tooltip is
    carrying the reason. */
 button.icon.add { font-size: 1.05rem; line-height: 1.2; }
 
 button.icon.add:hover:not(:disabled) { color: var(--accent); border-color: var(--accent); }
+
+/* Restoring is the one thing anybody comes to the hidden list to do, so it reads as
+   the affirmative action there rather than as the same muted glyph that put the row
+   in the list. */
+button.icon.restore:hover:not(:disabled) { color: var(--accent); border-color: var(--accent); }
 
 /* A hidden row stays in place until the list is next read, so it needs to look
    set aside rather than merely unremarkable — it is still listed, but it is not

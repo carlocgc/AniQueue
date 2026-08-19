@@ -36,8 +36,20 @@ public sealed record LibraryFacets
     /// <summary>True when the user has scored anything.</summary>
     public required bool HasUserScores { get; init; }
 
-    /// <summary>True when anything is hidden, so the "show hidden" toggle is worth offering.</summary>
-    public required bool HasHiddenEntries { get; init; }
+    /// <summary>
+    /// How many entries are hidden, so the view that lists them can be offered and
+    /// counted.
+    /// </summary>
+    /// <remarks>
+    /// A count rather than the boolean this replaced, because the control that
+    /// reads it now sits among the status options and those carry counts — an
+    /// unnumbered "Hidden" beside "Planning (214)" would read as a different kind of
+    /// thing, which is exactly what it is not.
+    /// </remarks>
+    public required int HiddenCount { get; init; }
+
+    /// <summary>True when anything is hidden at all.</summary>
+    public bool HasHiddenEntries => HiddenCount > 0;
 
     /// <summary>
     /// True when the relation graph holds at least one prequel or sequel edge, so
@@ -53,7 +65,17 @@ public sealed record LibraryFacets
     /// </remarks>
     public required bool HasSequelEdges { get; init; }
 
-    /// <summary>Count per status, for the status filter's labels.</summary>
+    /// <summary>
+    /// Count per status, for the status filter's labels. <b>Excludes hidden
+    /// entries</b>, which are counted by <see cref="HiddenCount"/> instead.
+    /// </summary>
+    /// <remarks>
+    /// A number in a picker is a promise about what choosing that option shows, and
+    /// the listing behind it excludes hidden entries — so counting them here made
+    /// "Planning (8)" produce seven rows. Harmless while hiding was a bulk action
+    /// somebody did rarely; not harmless now that it is one press on every row
+    /// (D26).
+    /// </remarks>
     public required IReadOnlyDictionary<LibraryStatus, int> CountByStatus { get; init; }
 
     public static LibraryFacets Empty { get; } = new()
@@ -65,7 +87,7 @@ public sealed record LibraryFacets
         HasRecommendations = false,
         HasUnrankedEntries = false,
         HasUserScores = false,
-        HasHiddenEntries = false,
+        HiddenCount = 0,
         HasSequelEdges = false,
         CountByStatus = new Dictionary<LibraryStatus, int>()
     };

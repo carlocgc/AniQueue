@@ -1130,6 +1130,37 @@ hidden would read as a delete, so it stays, dimmed, wearing its badge, with the 
 it offering to undo it. It drops out on the next read, which is when the filter is next
 honestly applied.
 
+**Adding leads the row and hiding ends it, with the table between them.** They shipped as
+neighbours in one actions cell, which put the action done constantly a few pixels from the one
+that takes a title out of the list — two icon buttons of the same size, with nothing but aim
+between them. Frequency decides the position: the plus goes where the eye already is, at the
+start of the row beside the title being judged, and hiding goes to the far edge where a rare
+action belongs.
+
+**Hidden becomes a view in the status picker, and the "Show hidden" chip is deleted.** The chip
+put the only route back to a set-aside title in the same row as *Under 2 hours* — findable if
+you already knew it was there, and not otherwise, which is a poor place for the undo of an
+action that is now one press on every row. It is a view rather than a filter, so it belongs
+with the statuses: *what am I looking at* is one question with one control.
+
+Three consequences, none of them incidental:
+
+- **Two states, not three.** `IncludeHidden` mixed hidden entries back in among the visible
+  ones, which answers no question anybody asks. `HiddenOnly` replaces it: either the backlog is
+  being read, where hidden means hidden, or what was set aside is being looked for, where
+  everything else is noise.
+- **The hidden view ignores the status filter**, because hiding is orthogonal to status — an
+  entry is hidden *and* Planning. Carrying a status into it would answer "what have I set
+  aside" with only part of it, and that list exists to find something to put back.
+- **Status counts now exclude hidden entries.** They did not, so "Planning (8)" produced seven
+  rows. Harmless while hiding was a rare bulk action; not harmless now, and a picker whose
+  counts disagree with its own results is worse than one with no counts at all.
+
+Two smaller things follow. The **hidden option survives unhiding the last entry** while it is
+the one being looked at, or the selected option would vanish from under the user mid-task. And
+an **empty hidden list says "Nothing is hidden"** rather than offering to clear filters: it is
+the expected end state of the job that list exists for, not a dead end.
+
 **What is actually lost is hiding many titles at once**, and that is the honest cost. Queueing
 many was never a real loss — the queue is an *order*, and a batch appended in title order is
 not one, which is why 6d walks sequels in release order rather than offering a bigger
@@ -1456,7 +1487,9 @@ Anime cards degrade cleanly instead of printing rows of "N/A".
 *Amended by D26: the selection is gone.* Every row carries its own add-to-queue and hide
 control, because a backlog is read one interesting row at a time and selection priced the
 common case as though it were the rare one. Mass hiding is the one capability withdrawn, and
-D26 records what would bring it back.
+D26 records what would bring it back. The "show hidden" quick filter goes with it: hidden is a
+view in the status picker now, listing only what was set aside, which is the list somebody
+actually wants when they go looking for something to restore.
 
 No priority filter, sort or bulk action: manual priority does not exist (D14).
 
