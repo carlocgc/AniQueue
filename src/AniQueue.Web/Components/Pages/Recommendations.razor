@@ -45,6 +45,42 @@
             yours rather than a list of what is generally popular.
         </p>
 
+        @* Sized here rather than only in Phase 10's settings, because the right
+           numbers are found by trying a request and seeing whether the model coped.
+           Putting them anywhere else would mean two pages open to answer one
+           question. They are saved, because a model does not change between
+           sessions and retyping them every time is what makes a setting feel like
+           an obstacle. *@
+        <details class="request-size">
+            <summary>How much to send</summary>
+
+            <div class="field">
+                <label for="candidate-limit">Titles to rank</label>
+                <input id="candidate-limit" type="number" min="1" max="5000"
+                       placeholder="All of them" disabled="@_busy.IsRunning"
+                       @bind="_candidateLimit" @bind:event="oninput" />
+                <p class="muted">
+                    Leave this empty to offer everything you are planning to watch. If your
+                    model struggles with a long list, set a number — each request then takes
+                    the titles that have gone longest without a score, so running it again
+                    works through the rest.
+                </p>
+            </div>
+
+            <div class="field">
+                <label for="history-size">Scored titles to send as history</label>
+                <input id="history-size" type="number" min="0" max="5000"
+                       disabled="@_busy.IsRunning"
+                       @bind="_historySize" @bind:event="oninput" />
+                <p class="muted">
+                    Most recently finished first. More history means a ranking that fits your
+                    taste more closely, up to the point where it crowds out the backlog in
+                    your model's context. Zero sends none, and the ranking is then general
+                    rather than yours.
+                </p>
+            </div>
+        </details>
+
         <div class="toolbar">
             <button class="primary" disabled="@_busy.IsRunning" @onclick="BuildAsync">
                 Build the request
@@ -64,7 +100,20 @@
             @_request.Candidates.Count @Plural(_request.Candidates.Count, "title", "titles") to rank,
             with @_request.History.Count of your @_request.HistoryAvailable scored
             @Plural(_request.HistoryAvailable, "title", "titles") as history.
+            @* The size is the number that decides whether a model can read this at
+               all, and nothing else on the page implies it — a count of titles says
+               nothing about how much context they occupy. *@
+            About @Size(_payload!.Length) of text.
         </p>
+
+        @if (_capped is { } capped)
+        {
+            <p class="muted">
+                This request covers @capped of your @_waiting waiting
+                @Plural(_waiting, "title", "titles") — the ones longest without a score.
+                Build it again after applying to work through the rest.
+            </p>
+        }
 
         @if (_request.IsHistoryCapped)
         {
@@ -180,9 +229,9 @@
                                 <td class="numeric">@item.Result.Rank</td>
                                 <td class="title-cell">
                                     @item.Title
-                                    @if (!item.WillApply)
+                                    @if (item.SkippedBecause is { } reason)
                                     {
-                                        <div class="row-meta">Skipped — no longer waiting to be watched</div>
+                                        <div class="row-meta">Skipped — @reason</div>
                                     }
                                 </td>
                                 <td class="numeric">
@@ -260,22 +309,68 @@
 
     private IReadOnlyList<RecommendationRunSummary> _runs = [];
 
+    private int _historySize = ScoringRequestOptions.Default.MaxHistory;
+    private int? _candidateLimit;
+
+    /// <summary>How many titles are waiting, when the request covers only some.</summary>
+    private int _waiting;
+
     private string? _error;
     private string? _copied;
     private string? _applied;
 
+    /// <summary>How many the request covers, or null when it covers all of them.</summary>
+    private int? _capped => _request is { } request && request.IsCandidatesCapped
+        ? request.Candidates.Count
+        : null;
+
+    /// <summary>
+    /// What the request on screen asked about, so a reply is checked against the
+    /// question rather than against the backlog.
+    /// </summary>
+    /// <remarks>
+    /// Null when there is no request in hand — pasting a reply into a freshly opened
+    /// page is legitimate, and the whole visible backlog is the best assumption
+    /// available there.
+    /// </remarks>
+    private IReadOnlyCollection<int>? _offered =>
+        _request?.Candidates.Select(c => c.Id).ToList();
+
     protected override void OnInitialized() =>
         _busy = new BusyScope(() => InvokeAsync(StateHasChanged));
 
-    protected override async Task OnInitializedAsync() => await LoadRunsAsync();
+    protected override async Task OnInitializedAsync()
+    {
+        var options = await Scoring.GetOptionsAsync(Profile.DefaultProfileId);
+
+        _historySize = options.MaxHistory;
+        _candidateLimit = options.MaxCandidates;
+
+        await LoadRunsAsync();
+    }
 
     private async Task BuildAsync()
     {
         Reset();
 
+        var options = ScoringRequestOptions.From(_historySize, _candidateLimit);
+
+        // Saved as a side effect of using them rather than behind a separate button.
+        // These are only ever changed in order to build a request, so a Save the user
+        // has to find afterwards is a step whose only purpose is to be forgotten —
+        // and the effect of the setting is visible immediately either way.
+        await Scoring.SaveOptionsAsync(Profile.DefaultProfileId, options);
+
+        // Clamped values back into the inputs, so a number the storage refused does
+        // not sit on screen looking like it was accepted.
+        _historySize = options.MaxHistory;
+        _candidateLimit = options.MaxCandidates;
+
         _request = await _busy.RunAsync(
             "Building the request",
-            _ => Scoring.BuildRequestAsync(Profile.DefaultProfileId));
+            _ => Scoring.BuildRequestAsync(Profile.DefaultProfileId, options));
+
+        _waiting = _request.CandidatesAvailable;
 
         // Rendered once and held, so the file, the clipboard and the text on screen
         // are three views of one string rather than three builds of it.
@@ -361,7 +456,7 @@
 
         _preview = await _busy.RunAsync(
             "Checking the reply",
-            _ => Scoring.PreviewAsync(Profile.DefaultProfileId, json));
+            _ => Scoring.PreviewAsync(Profile.DefaultProfileId, json, _offered));
     }
 
     private async Task ApplyAsync()
@@ -437,6 +532,21 @@
 
     private static string Score(double value) =>
         value.ToString("0.#", CultureInfo.CurrentCulture);
+
+    /// <summary>
+    /// Roughly how much text a request is, in the units a context window is discussed
+    /// in.
+    /// </summary>
+    /// <remarks>
+    /// Characters rather than tokens, and said as "about". Tokens are what a model
+    /// actually counts, but the ratio depends on its tokeniser and on how much of the
+    /// payload is Japanese — so a token figure would be a precise number that is
+    /// wrong, where an approximate size is honest and still tells someone whether
+    /// they are near their limit.
+    /// </remarks>
+    private static string Size(int characters) => characters < 2048
+        ? $"{characters} characters"
+        : $"{(characters / 1024.0).ToString("0.#", CultureInfo.CurrentCulture)} KB";
 
     private static string Percent(double value) =>
         ((int)Math.Round(value * 100)).ToString(CultureInfo.CurrentCulture) + "%";

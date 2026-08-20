@@ -2322,6 +2322,23 @@ back, preview, apply. Phase 8 automates the carrying and does not replace this: 
 that is switched off is the normal state of a self-hosted install, and this is also the
 fallback whenever a configured endpoint returns something the schema rejects.
 
+**How much to send is the user's, not ours.** Both bounds — how many titles to offer for
+ranking, and how many scored titles to carry as history — are `ProfileSettings` columns edited
+on the Recommendations page itself. They are properties of somebody else's model, which
+AniQueue cannot see; the measured library builds a 105 KB request uncapped and 5.3 KB at five
+candidates, and only the person running the model knows which of those it can read. The page
+states the size for that reason. Phase 10 offers the same two values beside the other
+preferences rather than inventing its own.
+
+**A cap is a page size, not a horizon**, and that is the whole design of the option. A capped
+request takes the titles longest without a score, never-scored first, so running it repeatedly
+sweeps the backlog and then keeps it fresh — where taking the first fifty alphabetically would
+leave the second half of a library unranked however many times it ran. It follows that the
+preview must check a reply against *what was asked* rather than against the backlog: with a cap
+set those differ, and reporting the difference as missing would turn the user's own setting into
+a warning against itself. A ranked title that was never offered is skipped with that reason on
+its row.
+
 **The clipboard is not available where this application runs**, which 7b found and which is
 worth stating because it is a property of the deployment rather than of one page.
 `navigator.clipboard` exists only in a secure context, and a self-hosted AniQueue is reached

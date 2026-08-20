@@ -81,4 +81,32 @@ public class ProfileSettings
     /// asks for them (ROADMAP.md §6, privacy).
     /// </summary>
     public bool IncludePersonalNotesInAiExport { get; set; }
+
+    /// <summary>
+    /// How many scored titles a scoring request carries as history.
+    /// </summary>
+    /// <remarks>
+    /// A preference rather than a constant because the right value is a property of
+    /// somebody else's model, which AniQueue cannot see. Two hundred is what fits a
+    /// modest context alongside a real backlog; a large hosted model can take every
+    /// title the library holds, and a small one may need far fewer. Zero sends none,
+    /// which is a legitimate answer — the ranking is then general rather than
+    /// personal, and the user has said so deliberately.
+    /// </remarks>
+    public int RecommendationHistorySize { get; set; } = 200;
+
+    /// <summary>
+    /// The most titles to offer for ranking at once, or null for all of them.
+    /// </summary>
+    /// <remarks>
+    /// Null rather than zero for "no limit", because zero here would mean a request
+    /// with nothing in it to rank and the two should not share a value.
+    ///
+    /// The default is no limit, which is the behaviour that existed before this was
+    /// configurable. A cap is the user's statement about their model, not something
+    /// to impose on a library it may suit perfectly well — but when it is set, it is
+    /// what turns "my model cannot read 182 titles" from a dead end into several
+    /// smaller runs.
+    /// </remarks>
+    public int? RecommendationCandidateLimit { get; set; }
 }

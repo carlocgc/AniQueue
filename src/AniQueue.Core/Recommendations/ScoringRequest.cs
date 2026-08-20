@@ -151,5 +151,20 @@ public sealed record ScoringRequest
 
     public IReadOnlyList<ScoringCandidate> Candidates { get; init; } = [];
 
+    /// <summary>
+    /// How many titles are waiting to be watched, when the request carries only some
+    /// of them.
+    /// </summary>
+    /// <remarks>
+    /// Stated for the same reason <see cref="HistoryAvailable"/> is, and it earns its
+    /// place twice over: the page needs it to say "50 of your 182, the ones longest
+    /// without a score", and a model reading it knows it is ranking a slice rather
+    /// than a whole backlog — which is the difference between "this is the worst of
+    /// your titles" and "this is the worst of the ones I was shown".
+    /// </remarks>
+    public int CandidatesAvailable { get; init; }
+
     public bool IsHistoryCapped => HistoryAvailable > History.Count;
+
+    public bool IsCandidatesCapped => CandidatesAvailable > Candidates.Count;
 }

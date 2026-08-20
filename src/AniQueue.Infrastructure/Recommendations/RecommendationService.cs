@@ -23,17 +23,39 @@ public sealed class RecommendationService(
         ScoringRequestOptions? options = null,
         CancellationToken cancellationToken = default)
     {
-        options ??= ScoringRequestOptions.Default;
-
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
 
-        var includeNotes = await context.ProfileSettings
+        var settings = await context.ProfileSettings
             .AsNoTracking()
             .Where(s => s.ProfileId == profileId)
-            .Select(s => s.IncludePersonalNotesInAiExport)
+            .Select(s => new
+            {
+                s.IncludePersonalNotesInAiExport,
+                s.RecommendationHistorySize,
+                s.RecommendationCandidateLimit
+            })
             .FirstOrDefaultAsync(cancellationToken);
 
-        var candidates = await ReadCandidatesAsync(context, profileId, includeNotes, cancellationToken);
+        // An explicit argument wins, so a caller can ask for something other than the
+        // stored preference without writing to it first — which is what a "try this
+        // once" control on a page needs, and what Phase 8 will need to retry smaller.
+        options ??= settings is null
+            ? ScoringRequestOptions.Default
+            : ScoringRequestOptions.From(
+                settings.RecommendationHistorySize,
+                settings.RecommendationCandidateLimit);
+
+        var waiting = context.LibraryEntries
+            .AsNoTracking()
+            .Where(e => e.ProfileId == profileId && e.Status == LibraryStatus.Planning && !e.IsHidden);
+
+        var candidatesAvailable = await waiting.CountAsync(cancellationToken);
+
+        var candidates = await ReadCandidatesAsync(
+            waiting,
+            settings?.IncludePersonalNotesInAiExport ?? false,
+            options.MaxCandidates,
+            cancellationToken);
 
         var scored = context.LibraryEntries
             .AsNoTracking()
@@ -77,13 +99,15 @@ public sealed class RecommendationService(
             GeneratedAt = _time.GetUtcNow(),
             Candidates = candidates,
             History = history,
-            HistoryAvailable = available
+            HistoryAvailable = available,
+            CandidatesAvailable = candidatesAvailable
         };
     }
 
     public async Task<ScoringPreview> PreviewAsync(
         int profileId,
         string json,
+        IReadOnlyCollection<int>? offeredAnimeIds = null,
         CancellationToken cancellationToken = default)
     {
         var parsed = parser.Parse(json);
@@ -111,7 +135,12 @@ public sealed class RecommendationService(
             })
             .ToDictionaryAsync(e => e.AnimeId, cancellationToken);
 
-        var candidateCount = await context.LibraryEntries
+        // What the request asked about. Absent when the caller no longer holds it, in
+        // which case the visible backlog is the best available answer and is what
+        // this meant before a candidate limit could make the two differ.
+        var offered = offeredAnimeIds?.ToHashSet();
+
+        var candidateCount = offered?.Count ?? await context.LibraryEntries
             .AsNoTracking()
             .CountAsync(
                 e => e.ProfileId == profileId && e.Status == LibraryStatus.Planning && !e.IsHidden,
@@ -131,14 +160,31 @@ public sealed class RecommendationService(
                 continue;
             }
 
+            string? skipped = null;
+
             if (entry.Status != LibraryStatus.Planning)
             {
                 // Not an error: the ranking was right when it was made, and the user
                 // has simply started watching something since. Skipped rather than
                 // written, because a score computed over a backlog says nothing about
                 // a row that has left it.
+                skipped = "no longer waiting to be watched";
+
                 problems.Add(ScoringProblem.Warning(
                     $"\"{entry.Title}\" is no longer waiting to be watched, so its score is skipped."));
+            }
+            else if (offered is not null && !offered.Contains(result.Id))
+            {
+                // A real title, in the backlog, that this request did not ask about.
+                // Either the model reached past what it was given, or an older reply
+                // is being pasted against a newer request. Warned rather than
+                // rejected — the ranking of what *was* asked for is unaffected — and
+                // skipped, because a score for a title that was never in the question
+                // was not computed against the same set as the rest.
+                skipped = "was not part of this request";
+
+                problems.Add(ScoringProblem.Warning(
+                    $"\"{entry.Title}\" was not in the request, so its score is skipped."));
             }
 
             items.Add(new ScoringPreviewItem
@@ -146,7 +192,8 @@ public sealed class RecommendationService(
                 Result = result,
                 Title = entry.Title,
                 Status = entry.Status,
-                PreviousScore = entry.RecommendationScore
+                PreviousScore = entry.RecommendationScore,
+                SkippedBecause = skipped
             });
         }
 
@@ -160,8 +207,8 @@ public sealed class RecommendationService(
         if (preview is { HasErrors: false, MissingCount: > 0 })
         {
             problems.Add(ScoringProblem.Warning(
-                $"{preview.MissingCount} of your {candidateCount} waiting titles were not ranked, "
-                + "and keep whatever score they already had."));
+                $"{preview.MissingCount} of the {candidateCount} titles in this request were not "
+                + "ranked, and keep whatever score they already had."));
         }
 
         return preview with { Problems = problems };
@@ -306,15 +353,71 @@ public sealed class RecommendationService(
             .ToListAsync(cancellationToken);
     }
 
-    private static async Task<List<ScoringCandidate>> ReadCandidatesAsync(
-        AniQueueDbContext context,
+    public async Task<ScoringRequestOptions> GetOptionsAsync(
         int profileId,
+        CancellationToken cancellationToken = default)
+    {
+        await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
+
+        var stored = await context.ProfileSettings
+            .AsNoTracking()
+            .Where(s => s.ProfileId == profileId)
+            .Select(s => new { s.RecommendationHistorySize, s.RecommendationCandidateLimit })
+            .FirstOrDefaultAsync(cancellationToken);
+
+        return stored is null
+            ? ScoringRequestOptions.Default
+            : ScoringRequestOptions.From(stored.RecommendationHistorySize, stored.RecommendationCandidateLimit);
+    }
+
+    public async Task SaveOptionsAsync(
+        int profileId,
+        ScoringRequestOptions options,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(options);
+
+        await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
+
+        var settings = await context.ProfileSettings
+            .FirstOrDefaultAsync(s => s.ProfileId == profileId, cancellationToken);
+
+        if (settings is null)
+        {
+            // Nothing to write to. A profile without settings is a state the seeder
+            // does not produce, and inventing a row here would be this service
+            // deciding what a display name is.
+            logger.LogWarning("No settings row for profile {ProfileId}; preferences not saved.", profileId);
+            return;
+        }
+
+        // Clamped on the way in as well as on the way out. The page bounds its inputs
+        // too, but a bound the storage does not enforce is one an older page or a
+        // hand-edited row walks straight past.
+        var clamped = ScoringRequestOptions.From(options.MaxHistory, options.MaxCandidates);
+
+        settings.RecommendationHistorySize = clamped.MaxHistory;
+        settings.RecommendationCandidateLimit = clamped.MaxCandidates;
+
+        await context.SaveChangesAsync(cancellationToken);
+    }
+
+    private static async Task<List<ScoringCandidate>> ReadCandidatesAsync(
+        IQueryable<LibraryEntry> waiting,
         bool includeNotes,
+        int? limit,
         CancellationToken cancellationToken)
     {
-        var rows = await context.LibraryEntries
-            .AsNoTracking()
-            .Where(e => e.ProfileId == profileId && e.Status == LibraryStatus.Planning && !e.IsHidden)
+        if (limit is { } take)
+        {
+            var chosen = await ChooseAsync(waiting, take, cancellationToken);
+            waiting = waiting.Where(e => chosen.Contains(e.AnimeId));
+        }
+
+        // Title order in the payload either way. Which titles are in it is decided
+        // above; the order they are read in is decided here, and a person scanning
+        // the request for something they expected to see wants an alphabet.
+        var rows = await waiting
             .OrderBy(e => e.Anime!.Title)
             .Select(e => new
             {
@@ -364,6 +467,45 @@ public sealed class RecommendationService(
             },
             Notes = string.IsNullOrWhiteSpace(row.Notes) ? null : row.Notes
         });
+    }
+
+    /// <summary>
+    /// Picks which waiting titles a capped request carries: never scored first, then
+    /// whatever was scored longest ago.
+    /// </summary>
+    /// <remarks>
+    /// This is what stops a cap becoming a horizon. Taking the first fifty
+    /// alphabetically would leave the second half of a library unranked however many
+    /// times it was run; taking the stalest fifty means running it repeatedly sweeps
+    /// the whole backlog and then keeps it fresh, so the cap is a page size.
+    ///
+    /// <b>Sorted in memory, deliberately.</b> SQLite cannot <c>ORDER BY</c> a
+    /// <c>DateTimeOffset</c> — EF stores it as text with an offset and throws at
+    /// query time — and ordering by the entry key instead would only approximate
+    /// recency until everything had been scored once, after which it would return
+    /// the same rows forever and quietly stop sweeping. What is materialised is two
+    /// columns of the Planning subset, which is the same set the request is drawn
+    /// from and is bounded by it.
+    /// </remarks>
+    private static async Task<HashSet<int>> ChooseAsync(
+        IQueryable<LibraryEntry> waiting,
+        int take,
+        CancellationToken cancellationToken)
+    {
+        var stalest = await waiting
+            .Select(e => new { e.AnimeId, e.RecommendationUpdatedAt })
+            .ToListAsync(cancellationToken);
+
+        return stalest
+            .OrderBy(e => e.RecommendationUpdatedAt.HasValue)
+            .ThenBy(e => e.RecommendationUpdatedAt ?? DateTimeOffset.MinValue)
+
+            // A stable tiebreak, so two runs over an unscored backlog take the same
+            // titles rather than an arbitrary overlap.
+            .ThenBy(e => e.AnimeId)
+            .Take(take)
+            .Select(e => e.AnimeId)
+            .ToHashSet();
     }
 
     private static string? Distinct(string? variant, string displayed) =>
