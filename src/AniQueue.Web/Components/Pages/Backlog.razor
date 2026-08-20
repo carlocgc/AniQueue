@@ -26,6 +26,23 @@
 {
     <div class="empty-state" aria-live="polite">Loading…</div>
 }
+else if (Facets.IsEmpty)
+{
+    @* No filter bar over a library with nothing in it. Beyond being noise — a
+       search box, a sort order and "0 entries" above a message saying there is
+       nothing here — it was actively wrong: the backlog defaults to Planning, and
+       an empty library has no Planning count, so the status picker rendered with a
+       selected value matching none of its options and drew itself blank (D27). *@
+    <div class="card">
+        <div class="empty-state">
+            <p>Your library is empty. Bring it in from wherever it already lives.</p>
+            <div class="toolbar">
+                <a class="button primary" href="sources">Sync from AniList</a>
+                <a class="button" href="import">Import a MyAnimeList export</a>
+            </div>
+        </div>
+    </div>
+}
 else
 {
     <div class="card filters">
@@ -162,19 +179,9 @@ else
                 @* An empty hidden list is the expected end state rather than a dead
                    end — it is what unhiding the last entry looks like — so it says
                    so instead of offering to clear filters that are not the reason. *@
-                @* An empty library is asked first, because the backlog defaults to
-                   Planning — so a brand new install has a filter applied, and
-                   without this its first screen offers to clear one that is not the
-                   reason (D27). *@
-                @if (Facets.IsEmpty)
-                {
-                    <p>Your library is empty. Bring it in from wherever it already lives.</p>
-                    <div class="toolbar">
-                        <a class="button primary" href="sources">Sync from AniList</a>
-                        <a class="button" href="import">Import a MyAnimeList export</a>
-                    </div>
-                }
-                else if (_query.HiddenOnly)
+                @* An empty library never reaches here — it is answered above, before
+                   the filter bar is drawn at all. *@
+                @if (_query.HiddenOnly)
                 {
                     <p>Nothing is hidden.</p>
                 }

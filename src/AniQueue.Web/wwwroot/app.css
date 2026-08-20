@@ -163,12 +163,22 @@ button, .button {
     background: var(--surface-alt);
     color: var(--text);
     cursor: pointer;
+
+    /* An anchor wearing .button is still an anchor, so it arrives underlined and
+       accent-coloured from the link rule. Both are undone here rather than at each
+       call site: something shaped like a button should not also be decorated like
+       prose. */
+    text-decoration: none;
+    display: inline-block;
 }
 
-button:hover:not(:disabled) { border-color: var(--accent); }
+button:hover:not(:disabled), .button:hover { border-color: var(--accent); }
 button:disabled { opacity: 0.5; cursor: not-allowed; }
 
-button.primary {
+/* Not scoped to `button`, which is what it was: every "go and do the main thing"
+   control on an empty state is an anchor, so the one selector that mattered on
+   those screens was the one that did not match. */
+.primary {
     background: var(--accent);
     border-color: var(--accent);
     color: var(--accent-text);
@@ -657,7 +667,15 @@ button.icon.remove:hover:not(:disabled) {
 .notice.error { background: var(--danger-bg); color: var(--danger); }
 
 .muted { color: var(--text-muted); }
+
 .empty-state { padding: 2rem; text-align: center; color: var(--text-muted); }
+
+/* A toolbar inside an empty state is a row of choices under a sentence, not the
+   controls above a table — so it centres under the text it belongs to, and drops
+   the bottom margin that would otherwise leave the card looking bottom-heavy. */
+.empty-state .toolbar { justify-content: center; margin-bottom: 0; }
+
+.empty-state p { margin-top: 0; }
 
 /* Present to screen readers, absent on screen. For labelling a column whose
    header would otherwise be a blank cell — display:none would hide it from both. */

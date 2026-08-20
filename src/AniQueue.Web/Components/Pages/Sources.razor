@@ -187,6 +187,12 @@
             }
         }
 
+        @* Inside the guard, not after it. It was left outside when the rest of the
+           card learned to collapse, so a preview shrank everything except the one
+           section tall enough to matter — settings are the least urgent thing on
+           this page and were the only thing that stayed. *@
+        @if (!IsPreviewing)
+        {
         <details class="source-settings">
             <summary>Settings</summary>
 
@@ -307,6 +313,7 @@
                 </div>
             </fieldset>
         </details>
+        }
     </div>
 }
 
