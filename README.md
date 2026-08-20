@@ -58,10 +58,23 @@ Run it with `F5` on `AniQueue.Web`, or:
 dotnet run --project src/AniQueue.Web
 ```
 
-The development database is created at `src/AniQueue.Web/data/aniqueue.db` on first run,
-along with sample data covering completed, watching and planning titles, several seasons of
-one series, an ordered queue and an applied AI ranking. Delete that directory to start clean.
-Production databases are never seeded.
+The development database is created at `src/AniQueue.Web/data/aniqueue.db` on first run, and
+it starts **empty** — the same first screen a new user sees, offering an AniList sync or a
+MyAnimeList import. Delete that directory to start clean again.
+
+To look at a surface that needs rows in it, ask for sample data — the *http (sample data)*
+launch profile, or:
+
+```bash
+dotnet run --project src/AniQueue.Web -- --SeedSampleData=true
+```
+
+It covers completed, watching, planning and hidden titles, several seasons of one series with
+the relations between them, an ordered queue and an applied AI ranking. Development only, and
+it declines if the library already holds anything. **Do not sync a real account into a seeded
+database:** the sample titles carry identifiers AniList does not issue, so the first real list
+that comes back without them reports them as no longer on AniList — which is correct, and is
+why the sample data leaves AniList sync switched off in the database it creates.
 
 ## Importing a MyAnimeList export
 

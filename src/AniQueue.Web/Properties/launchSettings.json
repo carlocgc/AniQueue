@@ -9,6 +9,17 @@
       },
       "dotnetRunMessages": true,
       "applicationUrl": "http://localhost:5048"
+    },
+    "http (sample data)": {
+      "commandName": "Project",
+      "launchBrowser": true,
+      "environmentVariables": {
+        "ASPNETCORE_ENVIRONMENT": "Development",
+        "SeedSampleData": "true",
+        "Database__Path": "./data/sample.db"
+      },
+      "dotnetRunMessages": true,
+      "applicationUrl": "http://localhost:5048"
     }
   }
 }
