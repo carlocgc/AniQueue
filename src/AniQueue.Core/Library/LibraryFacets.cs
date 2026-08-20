@@ -52,6 +52,19 @@ public sealed record LibraryFacets
     public bool HasHiddenEntries => HiddenCount > 0;
 
     /// <summary>
+    /// True when the profile has no library entries at all.
+    /// </summary>
+    /// <remarks>
+    /// The difference between "this filter matched nothing" and "there is nothing
+    /// here yet", which a page cannot tell from an empty result: the backlog
+    /// defaults to Planning, so a brand new install has a filter applied and its
+    /// first screen said *nothing matches those filters* — offering to clear a
+    /// filter that was not the reason (D27). Invisible for as long as a seeder
+    /// guaranteed there was data.
+    /// </remarks>
+    public bool IsEmpty => HiddenCount == 0 && CountByStatus.Count == 0;
+
+    /// <summary>
     /// True when the relation graph holds at least one prequel or sequel edge, so
     /// the standalone filter can exclude something.
     /// </summary>

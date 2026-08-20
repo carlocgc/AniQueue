@@ -60,14 +60,9 @@ public static class PersistenceServiceCollectionExtensions
         return services;
     }
 
-    /// <summary>
-    /// Registers the sample-data seeder. Deliberately separate from
-    /// <see cref="AddAniQueuePersistence"/> so that a production container never
-    /// even resolves the type, let alone runs it.
-    /// </summary>
-    public static IServiceCollection AddAniQueueDevelopmentSeeder(this IServiceCollection services)
-    {
-        services.AddScoped<Persistence.Seeding.DevelopmentSeeder>();
-        return services;
-    }
+    // There was a development seeder here, and it is gone rather than disabled
+    // (D27). Sample titles carrying invented AniList identifiers are indistinguishable
+    // from library rows the source has stopped listing, so the first real sync
+    // reported five of them as missing — a warning about data the application had
+    // invented for itself. An empty database is the honest starting state.
 }

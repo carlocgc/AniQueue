@@ -1200,6 +1200,62 @@ actually take.
 write awaited inline freezes the circuit. One row's write is not a bulk write, and a modal
 covering the page to announce it would be more disruptive than the wait it describes.
 
+### D27 — A first run starts empty, and the development seeder is deleted
+
+*Withdraws the sample data Phase 1 shipped, on evidence rather than taste.*
+
+The seeder wrote fourteen titles, a queue and an applied recommendation run into any empty
+development database. Phase 6c gave five of them AniList identifiers so the relation expansion
+could be seen on `F5`, and invented those identifiers so a link out could not land confidently
+on somebody else's show.
+
+**That is what broke it, and the failure is structural rather than a detail of which numbers
+were chosen.** An identifier the source does not issue is indistinguishable, to D19's absence
+policy, from one it has stopped listing — so the first real sync against a real account
+correctly reported five titles as *no longer on AniList*. A warning about data the application
+had invented for itself, on the first run of a fresh install, phrased in the same words a
+genuine deletion would use.
+
+**Real identifiers would not have fixed it.** They would match only if the developer's own list
+happened to contain those exact titles, and would report the same warning otherwise — the same
+noise from a different cause, with a broken link out as the consolation.
+
+**The sample data is not worth a workaround.** It exists to make an empty install explorable,
+and every route into real data — a MyAnimeList export, an AniList sync — is one action away on
+a page the empty state already points at. Set against that: sample rows that must be recognised
+and cleared before the application can be trusted about the library, and a permanent obligation
+on every future feature to reason about titles that do not exist. The empty state is now the
+first thing a developer sees, which is also the first thing a *user* sees, and that surface has
+never had a reason to be exercised before.
+
+**What is lost is honestly a cost.** The inner loop no longer shows a populated backlog on `F5`
+— seeing rows means importing or syncing first, which is one step where it used to be none. The
+tests that asserted the seed contained a queue, a spread of scores and a relation graph are
+deleted with their subject rather than ported; what they covered is covered by import and sync
+tests against fixtures, which is where behaviour with real shapes belongs.
+
+### D28 — Enrichment wakes on a library change, without anything orchestrating it
+
+*Amends D25's "sequencing is emergent" with the one thing emergence was missing: a reason to
+look.*
+
+Every enrichment job gates on its own precondition and runs on a timer. That is sound, and it
+left the relation backfill up to fifteen minutes behind a sync — so syncing several hundred new
+titles produced a backlog with no relations on it, and a Sources page whose **Refresh related
+titles** button looked like the only way to fill them in. An automatic job being operated by
+hand is a design that has failed regardless of what its timer says.
+
+**The signal is that the library changed, not that a job should run**, and that distinction is
+what keeps D25 intact. `BackgroundJobRunner` waits on its timer *or* on
+`ILibraryChangeNotifier`, whichever comes first. Nothing names another job, no job knows what
+any other does, and a runner woken with nothing to do finds nothing and goes back to waiting —
+which is exactly what makes a broadcast safe. Remove the signal and everything still works,
+fifteen minutes later; that is the test of whether it is orchestration.
+
+**The manual sync had to start publishing**, which it never did. Only the unattended job
+announced its commits, so a foreground sync left every other open page stale and every
+enrichment job asleep. Both entry points now say the same thing.
+
 ---
 
 ## 3. Solution structure
@@ -1462,7 +1518,7 @@ onward even if later phases slip.
 | # | Phase | Exit criteria |
 |---|---|---|
 | 0 | Foundation | Solution + 5 projects build; F5 serves the app; repo hygiene in place |
-| 1 | Domain + persistence | Migration applies to a fresh DB; indexes exist; dev seeder works |
+| 1 | Domain + persistence | Migration applies to a fresh DB; indexes exist; a fresh install starts empty |
 | 2 | **Vertical slice** | MAL XML → preview → confirm → SQLite → backlog list, end to end |
 | 3 | Backlog page | Search, filter, sort, page, bulk actions |
 | 4 | Up Next | Reorder correct and persistent; queue advances when status changes |
@@ -1489,9 +1545,9 @@ test in each test project. `.gitattributes` matters: Windows development, Linux 
 Entities and enums in Core. `AniQueueDbContext` with one `IEntityTypeConfiguration` per
 entity. Indexes per §4. Initial migration. `IDbContextFactory` registration (D3). WAL and
 `busy_timeout` applied at startup. Migrate-on-boot with explicit, readable failure logging
-and graceful startup failure if the database is unreachable. Development-only seeder —
-**never** auto-seeds production — covering completed titles with varied scores, planning,
-watching, several seasons of one series, a queue and a recommendation result.
+and graceful startup failure if the database is unreachable. A development-only seeder shipped
+here covering completed titles with varied scores, planning, watching, several seasons of one
+series, a queue and a recommendation result. *Deleted by D27 — a first run now starts empty.*
 
 ### Phase 2 — Vertical slice (the brief's §45 deliverable)
 MAL XML import end to end. Secure XML settings, `0000-00-00` → null, status mapping,
@@ -1545,6 +1601,17 @@ still holds everywhere it still applies: import, sync, and 6d's sequel walk.*
 ### Phase 4 — Up Next
 `QueueService`: add, remove, move to top/up/down/bottom, transactional reorder with
 position normalisation. Buttons first, then SortableJS interop (D5, §9).
+
+**One crash found in use, and it is the interop's shape rather than SortableJS's.** Emptying the
+queue removes the last row, the tbody stops rendering, and the teardown runs — twice, because
+the guard was a null check followed by an `await` and `OnAfterRenderAsync` renders again while
+the interop call is in flight. Sortable's `destroy` nulls its own element reference and then
+writes to it, so the second call threw, and an exception escaping `OnAfterRenderAsync` ends the
+circuit. **The field is claimed before the first await now**, teardown failures are logged
+rather than propagated — it is cleanup, and losing it costs listeners on a circuit that is
+ending anyway — and the JS guards on the element as well. Worth recording because the same
+shape appears wherever a render callback disposes something asynchronously, and because no test
+in the suite could have caught it (§8).
 
 A run of seasons is queued by **expansion** (D15) — appended individually rather than as one
 slot. Every slot is one title, which is what lets the user put something between two seasons.
@@ -1898,13 +1965,11 @@ as a spin-off read from one side and a side story read from the other. Naming a 
 state a relationship the source did not, and naming the first one seen would make the label
 depend on row order — so a disagreement is labelled "Related" and nothing else is.
 
-**The development seeder now carries a graph**, because without one the expansion could not be
-looked at without syncing a real account first, and §13 is explicit that the inner loop is `F5`.
-Two things about it are deliberate. Its AniList identifiers are **invented and far outside the
-range AniList issues** — a guessed-but-plausible id would be worse, since the row links out and
-a link landing confidently on somebody else's show is a bug that looks like data. And every
-seeded identifier is written **already marked as asked about**, or a development start would
-spend real requests against a real rate limit asking about titles that do not exist.
+**The development seeder was given a graph here**, so the expansion could be looked at without
+syncing a real account first, with invented AniList identifiers deliberately outside the range
+AniList issues. *That is what D27 later deleted, and this is the paragraph that caused it:*
+invented identifiers are indistinguishable from real ones that a source has stopped listing, so
+the first sync against a real account reported five sample titles as missing from it.
 
 **One Razor trap, found the way they all are.** A `@* … *@` comment placed *between attributes*
 inside an element's opening tag compiles without complaint and then fails at render, as
@@ -2612,4 +2677,5 @@ maintains, or that nobody should have to maintain at all.
   git-ignored, deliberately belt-and-braces: an imported library is personal data and must
   never reach the repository.
 - Delete that `data` directory to start from an empty database; migrations and the default
-  profile are recreated on the next run, and the development seeder refills it.
+  profile are recreated on the next run, and nothing else is — a first run is empty, and the
+  way to get data into it is the way a user would (D27).

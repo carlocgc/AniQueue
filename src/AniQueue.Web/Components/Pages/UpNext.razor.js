@@ -107,5 +107,13 @@ export async function attach(list, dotNet, sortableUrl) {
  * keeps them — and on a long-lived Blazor Server circuit that accumulates.
  */
 export function detach(sortable) {
-    sortable?.destroy();
+    // Guarded on the element rather than on the instance. destroy() nulls its own
+    // el and then writes to it, so calling it twice throws "Cannot set properties
+    // of null" — and the caller is a render callback, which can reach here more
+    // than once for the same instance. The .NET side claims the reference before
+    // awaiting so this should not happen; the guard is here because the failure
+    // mode is a torn-down circuit rather than a wasted call.
+    if (sortable?.el) {
+        sortable.destroy();
+    }
 }

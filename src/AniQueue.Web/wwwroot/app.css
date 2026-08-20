@@ -690,6 +690,15 @@ button.icon.remove:hover:not(:disabled) {
 /* Collapsed by default. The page's job is to say whether syncing is working and
    to start one; the settings behind it are read once and then left alone, and
    putting them in front of that would bury the two things a user came for. */
+/* A source card with a preview under it is a header and two buttons, so it takes
+   the space of one rather than of the panel it used to be. The heading shrinks with
+   it: at full size it is the section title, and here it is a label on a control. */
+.card.collapsed { padding: 0.6rem var(--gap); }
+
+.card.collapsed h2 { font-size: 1rem; margin-bottom: 0.4rem; }
+
+.card.collapsed .toolbar { margin-bottom: 0; }
+
 .source-settings > summary {
     cursor: pointer;
     color: var(--text-muted);

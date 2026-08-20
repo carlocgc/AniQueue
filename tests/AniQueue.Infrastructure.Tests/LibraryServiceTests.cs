@@ -381,6 +381,44 @@ public class LibraryServiceTests
         Assert.Empty(facets.MediaTypes);
         Assert.Empty(facets.Decades);
         Assert.False(facets.HasRuntimeData);
+
+        // The one thing the page cannot tell from an empty result: the backlog
+        // defaults to Planning, so a fresh install always has a filter applied and
+        // would otherwise offer to clear one that is not the reason (D27).
+        Assert.True(facets.IsEmpty);
+    }
+
+    /// <summary>
+    /// A library whose every entry is hidden is not an empty one — the first screen
+    /// should offer the hidden list, not an import.
+    /// </summary>
+    [Fact]
+    public async Task A_library_of_only_hidden_entries_is_not_empty()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+
+        await using (var context = fixture.Database.CreateContext())
+        {
+            await AddAsync(context, "Set aside", hidden: true);
+        }
+
+        var facets = await fixture.Library.GetFacetsAsync(Profile.DefaultProfileId);
+
+        Assert.Empty(facets.CountByStatus);
+        Assert.False(facets.IsEmpty);
+    }
+
+    [Fact]
+    public async Task A_library_with_entries_is_not_empty()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+
+        await using (var context = fixture.Database.CreateContext())
+        {
+            await AddAsync(context, "Planned");
+        }
+
+        Assert.False((await fixture.Library.GetFacetsAsync(Profile.DefaultProfileId)).IsEmpty);
     }
 
     /// <summary>

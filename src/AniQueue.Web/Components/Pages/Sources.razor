@@ -3,6 +3,7 @@
 @using Microsoft.Extensions.Options
 @inject ISyncService SyncService
 @inject IRelationBackfill RelationBackfill
+@inject ILibraryChangeNotifier Changes
 @inject IOptionsMonitor<SyncOptions> SyncConfiguration
 @inject ILogger<Sources> Logger
 
@@ -43,9 +44,14 @@
     </div>
 }
 
+@* Once a preview is on screen the source cards are no longer what the page is
+   about, and they are tall — account line, failure and absence notices, relation
+   coverage, settings — so leaving them expanded puts the answer to "what would
+   this change" several scrolls below the button that asked. They collapse to a
+   heading and the two controls that still apply, and open again on Discard. *@
 @foreach (var status in _statuses)
 {
-    <div class="card">
+    <div class="card @(IsPreviewing ? "collapsed" : null)">
         <h2>@status.Source</h2>
 
         @if (!status.IsConfigured)
@@ -59,10 +65,13 @@
         }
         else
         {
-            <p class="muted">
-                Reading the public list of <strong>@status.Account</strong> &middot;
-                @LastRunText(status.LastSuccess) &middot; @ScheduleText(status.Settings.Schedule)
-            </p>
+            @if (!IsPreviewing)
+            {
+                <p class="muted">
+                    Reading the public list of <strong>@status.Account</strong> &middot;
+                    @LastRunText(status.LastSuccess) &middot; @ScheduleText(status.Settings.Schedule)
+                </p>
+            }
 
             <div class="toolbar">
                 <button class="primary" disabled="@(_busy.IsRunning || !CanSync(status))"
@@ -75,7 +84,14 @@
                     <button @onclick="Reset" disabled="@_busy.IsRunning">Discard this preview</button>
                 }
             </div>
+        }
 
+        @* Everything below describes the source's standing state rather than the
+           preview below it — how long ago it last ran, what it has stopped listing,
+           how much of the relation graph is known — so none of it is an answer to
+           the question a preview asked. It comes back on Discard. *@
+        @if (status.IsConfigured && !IsPreviewing)
+        {
             @* Failure and success are stated separately, and both survive: "last
                synced 3 hours ago, last attempt failed because the profile is
                private" is actionable where either half alone is not. The failure
@@ -364,6 +380,17 @@
     private bool _nothingToDo;
     private string? _error;
 
+    /// <summary>
+    /// Whether a preview — or the report of one that was applied — is what the page
+    /// is currently about.
+    /// </summary>
+    /// <remarks>
+    /// It stays true after applying, because the report has the same problem the
+    /// preview did: it is the thing the user pressed a button to see, and the source
+    /// cards would push it just as far down the page.
+    /// </remarks>
+    private bool IsPreviewing => _fetch?.Preview is not null;
+
     private BusyScope _busy = null!;
 
     protected override void OnInitialized() =>
@@ -421,6 +448,20 @@
             _applied = await _busy.RunAsync(
                 $"Applying {count} {(count == 1 ? "change" : "changes")}",
                 progress => SyncService.ApplyAsync(fetch, Profile.DefaultProfileId, progress));
+
+            // Said out loud, as the unattended job says it. Two audiences hear it and
+            // both were being left out: any other page open on this library learns it
+            // has gone stale, and the enrichment jobs get a tick now rather than at
+            // the next quarter hour — which is what stops "refresh related titles"
+            // being the only way to fill in several hundred new titles (D25).
+            Changes.Publish(new LibraryChange
+            {
+                Source = fetch.Source,
+                Created = _applied.Commit.Created,
+                Updated = _applied.Commit.Updated,
+                SlotsReleased = _applied.Commit.QueueSlotsReleased,
+                AbsentFlagged = fetch.AbsentFlagged
+            });
         }
         catch (Exception ex)
         {

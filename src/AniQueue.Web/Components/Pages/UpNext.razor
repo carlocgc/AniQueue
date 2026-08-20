@@ -284,23 +284,56 @@ else
         _self = null;
     }
 
+    /// <summary>
+    /// Tears the drag instance down once, whatever happens.
+    /// </summary>
+    /// <remarks>
+    /// <b>The field is claimed before the first await, and that is the fix rather
+    /// than the tidying.</b> This is reached from <c>OnAfterRenderAsync</c>, which
+    /// renders again while the interop call is in flight — so a null check followed
+    /// by an await let two calls through with the same instance. Sortable's
+    /// <c>destroy</c> nulls its own element reference, so the second one threw
+    /// <i>Cannot set properties of null</i>, and an exception escaping
+    /// <c>OnAfterRenderAsync</c> ends the circuit. Removing the last row from the
+    /// queue was enough to do it: the tbody stops rendering, this runs, and it ran
+    /// twice.
+    ///
+    /// Failures are swallowed for the same reason the attach path swallows them:
+    /// this is cleanup, and the worst case of losing it is listeners outliving a
+    /// circuit that is ending anyway. Taking the page down to report that would be
+    /// far worse than the leak.
+    /// </remarks>
     private async Task DetachAsync()
     {
-        if (_sortable is null)
+        var sortable = _sortable;
+
+        if (sortable is null)
         {
             return;
         }
 
-        // Sortable registers document-level listeners, so an instance abandoned
-        // when its rows disappear keeps them for the life of the circuit — which
-        // under Interactive Server is the user's whole session.
-        if (_module is not null)
-        {
-            await _module.InvokeVoidAsync("detach", _sortable);
-        }
-
-        await _sortable.DisposeAsync();
         _sortable = null;
+
+        try
+        {
+            // Sortable registers document-level listeners, so an instance abandoned
+            // when its rows disappear keeps them for the life of the circuit — which
+            // under Interactive Server is the user's whole session.
+            if (_module is not null)
+            {
+                await _module.InvokeVoidAsync("detach", sortable);
+            }
+
+            await sortable.DisposeAsync();
+        }
+        catch (JSDisconnectedException)
+        {
+            // The circuit ended first. Nothing left to tear down on the other side.
+        }
+        catch (JSException ex)
+        {
+            Logger.LogWarning(ex, "Drag reordering could not be torn down cleanly");
+        }
     }
 
     /// <summary>
