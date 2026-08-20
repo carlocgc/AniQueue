@@ -373,7 +373,7 @@ public class SyncServiceTests
         await using var fixture = await SyncFixture.CreateAsync(
             new StubAniListClient(Response(900101, "Sora no Kakera")));
 
-        var before = Assert.Single(await fixture.Service.GetStatusAsync(Profile.DefaultProfileId));
+        var before = await AniListStatusAsync(fixture);
         Assert.True(before.IsConfigured);
         Assert.Equal("someone", before.Account);
         Assert.Null(before.LastRun);
@@ -381,7 +381,7 @@ public class SyncServiceTests
         var fetch = await fixture.Service.FetchAsync(Profile.DefaultProfileId, AnimeSource.AniList);
         await fixture.Service.ApplyAsync(fetch, Profile.DefaultProfileId);
 
-        var after = Assert.Single(await fixture.Service.GetStatusAsync(Profile.DefaultProfileId));
+        var after = await AniListStatusAsync(fixture);
         Assert.Equal(SyncOutcome.Succeeded, after.LastRun!.Outcome);
     }
 
@@ -393,13 +393,13 @@ public class SyncServiceTests
         await using var fixture = await SyncFixture.CreateAsync(
             new StubAniListClient(Response(900101, "Sora no Kakera")));
 
-        var status = Assert.Single(await fixture.Service.GetStatusAsync(Profile.DefaultProfileId));
+        var status = await AniListStatusAsync(fixture);
 
         status.Settings.PrecedenceRank = 1;
         status.Settings.AbsencePolicy = SyncAbsencePolicy.Ignore;
         await fixture.Service.SaveSettingsAsync(status.Settings);
 
-        var afterCreate = Assert.Single(await fixture.Service.GetStatusAsync(Profile.DefaultProfileId));
+        var afterCreate = await AniListStatusAsync(fixture);
         Assert.Equal(1, afterCreate.Settings.PrecedenceRank);
 
         afterCreate.Settings.PrecedenceRank = 0;
@@ -422,10 +422,10 @@ public class SyncServiceTests
         await using var fixture = await SyncFixture.CreateAsync(
             new StubAniListClient(Response(900101, "Sora no Kakera")));
 
-        var first = Assert.Single(await fixture.Service.GetStatusAsync(Profile.DefaultProfileId));
+        var first = await AniListStatusAsync(fixture);
         await fixture.Service.SaveSettingsAsync(first.Settings);
 
-        var second = Assert.Single(await fixture.Service.GetStatusAsync(Profile.DefaultProfileId));
+        var second = await AniListStatusAsync(fixture);
 
         // Every settable field moved off its default, in one save, on an existing row.
         second.Settings.IsEnabled = false;
@@ -479,4 +479,128 @@ public class SyncServiceTests
         await Assert.ThrowsAsync<ArgumentOutOfRangeException>(() =>
             fixture.Service.FetchAsync(Profile.DefaultProfileId, AnimeSource.MyAnimeList));
     }
+
+    // --- Sources, and which one is primary (D30) -------------------------
+
+    /// <summary>
+    /// Every source the page accounts for is reported, whether or not anything can
+    /// be fetched from it — which is what gives MyAnimeList somewhere to be ranked.
+    /// </summary>
+    [Fact]
+    public async Task Status_reports_the_file_source_as_well_as_the_syncing_one()
+    {
+        await using var fixture = await SyncFixture.CreateAsync(new StubAniListClient());
+
+        var statuses = await fixture.Service.GetStatusAsync(Profile.DefaultProfileId);
+
+        Assert.Equal(
+            [AnimeSource.AniList, AnimeSource.MyAnimeList],
+            statuses.Select(s => s.Source));
+
+        Assert.True(statuses.Single(s => s.Source == AnimeSource.AniList).CanFetch);
+
+        // Nothing to fetch, and therefore nothing to configure an account for.
+        var file = statuses.Single(s => s.Source == AnimeSource.MyAnimeList);
+        Assert.False(file.CanFetch);
+        Assert.True(file.IsConfigured);
+        Assert.Null(file.Account);
+    }
+
+    /// <summary>
+    /// Before anybody chooses, nothing claims to be primary.
+    /// </summary>
+    /// <remarks>
+    /// The entity defaults the rank to zero, so every unconfigured source used to
+    /// report itself primary — two of them at once, which is the tie D29 resolves by
+    /// letting the last import win. The page has to be able to say "not chosen".
+    /// </remarks>
+    [Fact]
+    public async Task No_source_is_primary_until_one_is_chosen()
+    {
+        await using var fixture = await SyncFixture.CreateAsync(new StubAniListClient());
+
+        var statuses = await fixture.Service.GetStatusAsync(Profile.DefaultProfileId);
+
+        Assert.DoesNotContain(statuses, s => s.IsPrimary);
+    }
+
+    [Fact]
+    public async Task Promoting_a_source_demotes_every_other_one()
+    {
+        await using var fixture = await SyncFixture.CreateAsync(new StubAniListClient());
+
+        await fixture.Service.SetPrimarySourceAsync(Profile.DefaultProfileId, AnimeSource.AniList);
+
+        var afterFirst = await fixture.Service.GetStatusAsync(Profile.DefaultProfileId);
+        Assert.Equal(AnimeSource.AniList, afterFirst.Single(s => s.IsPrimary).Source);
+
+        // The seat is single: promoting the other has to move it, not share it.
+        await fixture.Service.SetPrimarySourceAsync(Profile.DefaultProfileId, AnimeSource.MyAnimeList);
+
+        var afterSecond = await fixture.Service.GetStatusAsync(Profile.DefaultProfileId);
+        Assert.Equal(AnimeSource.MyAnimeList, afterSecond.Single(s => s.IsPrimary).Source);
+    }
+
+    /// <summary>
+    /// The demoted source gets a row of its own rather than being left absent,
+    /// because an absent row is a default and the default is what a promotion
+    /// overrides (D29 ranks an unconfigured source below a configured one).
+    /// </summary>
+    [Fact]
+    public async Task Promoting_one_source_records_the_demotion_of_the_other()
+    {
+        await using var fixture = await SyncFixture.CreateAsync(new StubAniListClient());
+
+        await fixture.Service.SetPrimarySourceAsync(Profile.DefaultProfileId, AnimeSource.AniList);
+
+        await using var context = fixture.Database.CreateContext();
+        var rows = await context.SourceSyncSettings.OrderBy(s => s.Source).ToListAsync();
+
+        Assert.Equal(2, rows.Count);
+        Assert.Equal(SourceSyncStatus.PrimaryRank, rows.Single(s => s.Source == AnimeSource.AniList).PrecedenceRank);
+        Assert.True(rows.Single(s => s.Source == AnimeSource.MyAnimeList).PrecedenceRank > SourceSyncStatus.PrimaryRank);
+    }
+
+    /// <summary>
+    /// Promotion leaves everything else about a source alone — it is one decision,
+    /// not a reset of the card it sits on.
+    /// </summary>
+    [Fact]
+    public async Task Promoting_a_source_does_not_disturb_its_other_settings()
+    {
+        await using var fixture = await SyncFixture.CreateAsync(new StubAniListClient());
+
+        await fixture.Service.SaveSettingsAsync(new SourceSyncSettings
+        {
+            ProfileId = Profile.DefaultProfileId,
+            Source = AnimeSource.AniList,
+            Schedule = SyncSchedule.Daily,
+            IsEnabled = false
+        });
+
+        await fixture.Service.SetPrimarySourceAsync(Profile.DefaultProfileId, AnimeSource.AniList);
+
+        var status = await AniListStatusAsync(fixture);
+
+        Assert.True(status.IsPrimary);
+        Assert.Equal(SyncSchedule.Daily, status.Settings.Schedule);
+        Assert.False(status.Settings.IsEnabled);
+    }
+
+    [Fact]
+    public async Task A_manual_title_has_no_settings_to_promote()
+    {
+        await using var fixture = await SyncFixture.CreateAsync(new StubAniListClient());
+
+        await Assert.ThrowsAsync<ArgumentOutOfRangeException>(() =>
+            fixture.Service.SetPrimarySourceAsync(Profile.DefaultProfileId, AnimeSource.Manual));
+    }
+
+    /// <summary>
+    /// The AniList status specifically, because the page now accounts for every
+    /// source rather than only the ones something can be fetched from (D30).
+    /// </summary>
+    private static async Task<SourceSyncStatus> AniListStatusAsync(SyncFixture fixture) =>
+        (await fixture.Service.GetStatusAsync(Profile.DefaultProfileId))
+            .Single(s => s.Source == AnimeSource.AniList);
 }

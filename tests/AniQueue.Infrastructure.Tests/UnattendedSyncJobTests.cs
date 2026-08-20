@@ -55,6 +55,10 @@ public class UnattendedSyncJobTests
             SourceSyncSettings settings, CancellationToken cancellationToken = default) =>
             Task.CompletedTask;
 
+        public Task SetPrimarySourceAsync(
+            int profileId, AnimeSource source, CancellationToken cancellationToken = default) =>
+            Task.CompletedTask;
+
         public Task SavePreferredTitleLanguageAsync(
             int profileId, TitleLanguage language, CancellationToken cancellationToken = default) =>
             Task.CompletedTask;
@@ -86,6 +90,7 @@ public class UnattendedSyncJobTests
         new()
         {
             Source = AnimeSource.AniList,
+            CanFetch = true,
             IsConfigured = isConfigured,
             Account = isConfigured ? "someone" : null,
             ConsecutiveFailures = consecutiveFailures,

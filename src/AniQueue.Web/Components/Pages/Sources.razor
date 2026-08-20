@@ -2,6 +2,7 @@
 @using AniQueue.Infrastructure.Sync
 @using Microsoft.Extensions.Options
 @inject ISyncService SyncService
+@inject IImportService ImportService
 @inject IRelationBackfill RelationBackfill
 @inject ILibraryChangeNotifier Changes
 @inject IOptionsMonitor<SyncOptions> SyncConfiguration
@@ -46,19 +47,29 @@
 
 @* Once a preview is on screen the source cards are no longer what the page is
    about, and they are tall — account line, failure and absence notices, relation
-   coverage, settings — so leaving them expanded puts the answer to "what would
-   this change" several scrolls below the button that asked. They collapse to a
-   heading and the two controls that still apply, and open again on Discard. *@
-@* Gone entirely once a sync has been applied, rather than collapsed to a heading
-   with nothing under it. The report below owns that state and carries both of the
-   things left to do — look at the backlog, or finish and start again — so a source
-   card there would be a box with no contents and no purpose. *@
-@foreach (var status in _applied is null ? _statuses : [])
+   coverage, settings — so leaving them expanded puts the answer to "what would this
+   change" several scrolls below the button that asked. The one card that produced
+   the preview collapses to a heading and the way out; the rest are not drawn at all.
+   See VisibleSources. *@
+@foreach (var status in VisibleSources)
 {
     <div class="card @(IsPreviewing ? "collapsed" : null)">
         <h2>@status.Source</h2>
 
-        @if (!status.IsConfigured)
+        @* Previewing is asked first, before anything about the source's kind, because
+           at that point the card is one thing regardless: a heading and the way out.
+
+           Discarding is how a preview ends — syncing over one threw it away without
+           saying so, and with it every conflict the user had just resolved in an
+           editable surface. Sync now, or the file picker, comes back the moment it is
+           pressed. *@
+        @if (IsPreviewing)
+        {
+            <div class="toolbar">
+                <button @onclick="Reset" disabled="@_busy.IsRunning">Discard this preview</button>
+            </div>
+        }
+        else if (!status.IsConfigured)
         {
             <p class="muted">
                 No account is configured. Set <code>Sync:AniList:UserName</code> — in
@@ -67,37 +78,35 @@
                 list must be public; AniQueue does not sign in.
             </p>
         }
+        else if (!status.CanFetch)
+        {
+            @* A source AniQueue cannot go and read, so the user brings it. It sits
+               here rather than on a page of its own because it is a source in every
+               sense that matters — it names titles, it ranks against the other, and
+               its export is how most libraries arrive (D30). What made it look like
+               something else was only that it has no account to configure. *@
+            <p class="muted">
+                Upload an export. In MyAnimeList, go to <strong>List → Export</strong> and
+                download the anime list; the file arrives gzipped, so extract it until it
+                ends in <code>.xml</code>. Nothing is saved until you review the preview.
+            </p>
+
+            <InputFile id="import-file" class="file-input" OnChange="OnFileSelectedAsync"
+                       accept=".xml" disabled="@_busy.IsRunning"
+                       aria-label="Select MyAnimeList export file" />
+        }
         else
         {
-            @if (!IsPreviewing)
-            {
-                <p class="muted">
-                    Reading the public list of <strong>@status.Account</strong> &middot;
-                    @LastRunText(status.LastSuccess) &middot; @ScheduleText(status.Settings.Schedule)
-                </p>
-            }
+            <p class="muted">
+                Reading the public list of <strong>@status.Account</strong> &middot;
+                @LastRunText(status.LastSuccess) &middot; @ScheduleText(status.Settings.Schedule)
+            </p>
 
-            @* Exactly one of these, never both. Syncing again while a preview is on
-               screen threw it away without saying so — and with it every conflict
-               the user had just resolved in it, because that preview is editable.
-               Discarding is how a preview ends; it is one button away, it says what
-               it does, and Sync now comes back the moment it is pressed.
-
-               It also removed the flicker this was reported for: the re-sync reset
-               the page first, so the card expanded and the settings unfolded behind
-               the progress dialog before the new preview replaced them. *@
             <div class="toolbar">
-                @if (IsPreviewing)
-                {
-                    <button @onclick="Reset" disabled="@_busy.IsRunning">Discard this preview</button>
-                }
-                else
-                {
-                    <button class="primary" disabled="@(_busy.IsRunning || !CanSync(status))"
-                            @onclick="() => SyncAsync(status)">
-                        Sync now
-                    </button>
-                }
+                <button class="primary" disabled="@(_busy.IsRunning || !CanSync(status))"
+                        @onclick="() => SyncAsync(status)">
+                    Sync now
+                </button>
             </div>
         }
 
@@ -211,46 +220,49 @@
         <details class="source-settings">
             <summary>Settings</summary>
 
+            @if (status.CanFetch)
+            {
+                <div class="field">
+                    <label for="@($"enabled-{status.Source}")">
+                        <input type="checkbox" id="@($"enabled-{status.Source}")"
+                               checked="@status.Settings.IsEnabled"
+                               @onchange="e => Update(status, s => s.IsEnabled = (bool)(e.Value ?? false))" />
+                        Sync this source
+                    </label>
+                </div>
+            }
+
+            @* A radio rather than a per-source dropdown, and the difference is the
+               point (D30). Primary is a single seat: two dropdowns could both say
+               "Primary", and two primaries tie — which D29 settles by letting the
+               last import win, the behaviour the setting exists to end. A radio
+               cannot express that state, and choosing one here demotes the other
+               without the user having to go and do it.
+
+               Sharing a name across cards is what makes the browser enforce it, so
+               the two are one group even though they are drawn in two places. *@
             <div class="field">
-                <label for="@($"enabled-{status.Source}")">
-                    <input type="checkbox" id="@($"enabled-{status.Source}")"
-                           checked="@status.Settings.IsEnabled"
-                           @onchange="e => Update(status, s => s.IsEnabled = (bool)(e.Value ?? false))" />
-                    Sync this source
+                <label for="@($"primary-{status.Source}")">
+                    <input type="radio" id="@($"primary-{status.Source}")"
+                           name="primary-source"
+                           checked="@status.IsPrimary"
+                           @onchange="() => SetPrimaryAsync(status)" />
+                    Treat @status.Source as primary
                 </label>
-            </div>
-
-            <div class="field">
-                <label for="@($"precedence-{status.Source}")">Authority over watch data</label>
-                <select id="@($"precedence-{status.Source}")" value="@status.Settings.PrecedenceRank"
-                        @onchange="e => Update(status, s => s.PrecedenceRank = ParseInt(e.Value, s.PrecedenceRank))">
-                    <option value="0">Primary — this source decides status, progress and score</option>
-                    <option value="1">Secondary — may add titles, but not overwrite watch data</option>
-                </select>
                 <p class="muted">
-                    Only consulted where two sources both know a title. With one source it
-                    never applies. A secondary source still fills in episode length, release
-                    year and cover art, because those are facts about the title rather than
-                    your record of watching it.
+                    The primary source decides status, progress and score, and settles any
+                    disagreement about a title's name or type. Only consulted where two sources
+                    both know a title — with one source it never applies. A secondary source
+                    still fills in what the primary has no answer for, because a gap is not a
+                    disagreement.
                 </p>
             </div>
 
-            <div class="field">
-                <label for="title-language">Show titles in</label>
-                <select id="title-language" value="@_titleLanguage"
-                        @onchange="OnTitleLanguageChangedAsync">
-                    <option value="@TitleLanguage.Romaji">Romaji — Shingeki no Kyojin</option>
-                    <option value="@TitleLanguage.English">English — Attack on Titan</option>
-                    <option value="@TitleLanguage.Native">Native — 進撃の巨人</option>
-                </select>
-                <p class="muted">
-                    Applies immediately, to titles this source has told AniQueue about in more
-                    than one language. Titles that came from a file import or were added by hand
-                    have only one name and keep it. Where a preferred language is missing — English
-                    is, for roughly one title in seven — the closest one is shown instead.
-                </p>
-            </div>
-
+            @* Scheduling, conflicts and absence are all things a run does, and nothing
+               runs on a file source — you bring the file. Gated rather than disabled,
+               because a disabled control still says "this could apply to me". *@
+            @if (status.CanFetch)
+            {
             <fieldset>
                 <legend>When syncing runs on its own</legend>
                 <p class="muted">
@@ -327,8 +339,35 @@
                     </p>
                 </div>
             </fieldset>
+            }
         </details>
         }
+    </div>
+}
+
+@* Lifted out of the per-source settings, where it had been sitting inside AniList's
+   card. It is a profile preference rather than a fact about a source — it decides
+   how every title is displayed, whichever list it came from — and with a second
+   card on the page it would otherwise have been drawn twice, as two controls over
+   one setting (D30). Hidden while a preview is up, like everything else that is not
+   an answer to it. *@
+@if (!IsPreviewing && _applied is null)
+{
+    <div class="card">
+        <div class="field">
+            <label for="title-language">Show titles in</label>
+            <select id="title-language" value="@_titleLanguage" @onchange="OnTitleLanguageChangedAsync">
+                <option value="@TitleLanguage.Romaji">Romaji — Shingeki no Kyojin</option>
+                <option value="@TitleLanguage.English">English — Attack on Titan</option>
+                <option value="@TitleLanguage.Native">Native — 進撃の巨人</option>
+            </select>
+            <p class="muted">
+                Applies immediately, to titles a source has told AniQueue about in more than
+                one language. Titles that came from a file import or were added by hand have
+                only one name and keep it. Where a preferred language is missing — English is,
+                for roughly one title in seven — the closest one is shown instead.
+            </p>
+        </div>
     </div>
 }
 
@@ -350,7 +389,7 @@
     </div>
 }
 
-@if (_fetch?.Preview is { } preview)
+@if (PendingPreview is { } preview)
 {
     <ImportPreviewView Preview="preview" IsEditable="@(_applied is null)">
         <Actions>
@@ -361,7 +400,7 @@
                    saved" sitting under a green "Added 745" is a straight contradiction. *@
                 @if (_applied is null)
                 {
-                    <h2>What syncing would change</h2>
+                    <h2>@(_fetch is null ? "In this file" : "What syncing would change")</h2>
                     <p class="muted">
                         Nothing has been saved. @preview.CompletedCount completed &middot;
                         @preview.WatchingCount watching &middot; @preview.PlanningCount planning
@@ -377,7 +416,7 @@
                 }
                 else
                 {
-                    <h2>What the sync changed</h2>
+                    <h2>@(_fetch is null ? "What the import changed" : "What the sync changed")</h2>
                     <p class="muted">
                         Saved to your library. @preview.CompletedCount completed &middot;
                         @preview.WatchingCount watching &middot; @preview.PlanningCount planning
@@ -393,8 +432,26 @@
 <BusyDialog State="_busy" />
 
 @code {
+    // Resolved by key: the file this page accepts is MyAnimeList XML specifically,
+    // and asking for a bare IAnimeListParser would silently start resolving
+    // whichever parser was registered last once a second one exists.
+    [Inject(Key = AnimeSource.MyAnimeList)]
+    private IAnimeListParser Parser { get; set; } = null!;
+
     private IReadOnlyList<SourceSyncStatus> _statuses = [];
+
+    // Two ways in, one review surface. A fetch is kept whole because applying one
+    // needs the absence count and the source it came from; a file has nothing to
+    // remember beyond the preview itself. Which of the two is set is also what
+    // decides how the preview gets committed (D30).
     private SyncFetchResult? _fetch;
+    private ImportPreview? _filePreview;
+
+    // Which source the pending preview belongs to. Set alongside it rather than
+    // derived, so the file path does not have to assert which parser it used in
+    // every place that asks.
+    private AnimeSource? _pendingSource;
+
     private SyncApplyResult? _applied;
     private TitleLanguage _titleLanguage;
     private RelationCoverage? _relations;
@@ -411,7 +468,38 @@
     /// preview did: it is the thing the user pressed a button to see, and the source
     /// cards would push it just as far down the page.
     /// </remarks>
-    private bool IsPreviewing => _fetch?.Preview is not null;
+    private ImportPreview? PendingPreview => _fetch?.Preview ?? _filePreview;
+
+    private bool IsPreviewing => PendingPreview is not null;
+
+    /// <summary>
+    /// Which source cards belong on the page right now.
+    /// </summary>
+    /// <remarks>
+    /// <b>While a preview is up, only the source that produced it.</b> The page
+    /// showed every card and let each render its own way out, so two sources meant
+    /// two <i>Discard this preview</i> buttons for one preview — and the second one
+    /// belonged to a source that had nothing to do with what was on screen. A
+    /// preview is one source's answer, so it is one source's card.
+    ///
+    /// None at all once it has been applied: the report below owns that state and
+    /// carries both of the things left to do — look at the backlog, or finish — so a
+    /// card there would be a box with no contents and no purpose.
+    /// </remarks>
+    private IEnumerable<SourceSyncStatus> VisibleSources =>
+        _applied is not null ? []
+        : PendingSource is { } pending ? _statuses.Where(s => s.Source == pending)
+        : _statuses;
+
+    /// <summary>
+    /// Which source the preview on screen came from, or null when there is none.
+    /// </summary>
+    /// <remarks>
+    /// Recorded when the preview is made rather than inferred from what is set,
+    /// because the file path has no fetch to read it off and guessing would put the
+    /// assumption in every place that asks.
+    /// </remarks>
+    private AnimeSource? PendingSource => IsPreviewing ? _pendingSource : null;
 
     private BusyScope _busy = null!;
 
@@ -451,25 +539,50 @@
         else
         {
             _fetch = fetch;
+            _pendingSource = fetch.Source;
         }
 
         await LoadAsync();
     }
 
+    /// <summary>
+    /// Commits whichever preview is on screen.
+    /// </summary>
+    /// <remarks>
+    /// The two differ only in what records the attempt. A sync writes a
+    /// <c>SyncRun</c> — it is a scheduled thing that can fail unattended, and the
+    /// page has to be able to say when it last worked — while a file import has no
+    /// history worth keeping, because the file was here and the user watched it
+    /// happen. Everything after that is the same commit through the same pipeline
+    /// (D30), which is why the result type is shared.
+    /// </remarks>
     private async Task ApplyAsync()
     {
-        if (_fetch is not { Preview: { } preview } fetch)
+        if (PendingPreview is not { } preview)
         {
             return;
         }
 
+        var fetch = _fetch;
         var count = preview.CreateCount + preview.UpdateCount + preview.ResolvedConflictCount;
 
         try
         {
             _applied = await _busy.RunAsync(
                 $"Applying {count} {(count == 1 ? "change" : "changes")}",
-                progress => SyncService.ApplyAsync(fetch, Profile.DefaultProfileId, progress));
+                async progress => fetch is not null
+                    ? await SyncService.ApplyAsync(fetch, Profile.DefaultProfileId, progress)
+                    : new SyncApplyResult
+                    {
+                        Commit = await ImportService.CommitAsync(
+                            preview, Profile.DefaultProfileId, progress),
+
+                        // A file's conflicts are resolved in the same preview and
+                        // counted the same way; there is simply no run row to put
+                        // them in.
+                        ConflictsHeld = preview.Items.Count(i =>
+                            i.Action == ImportAction.Conflict && i.Resolution == ConflictResolution.Skip)
+                    });
 
             // Said out loud, as the unattended job says it. Two audiences hear it and
             // both were being left out: any other page open on this library learns it
@@ -478,11 +591,11 @@
             // being the only way to fill in several hundred new titles (D25).
             Changes.Publish(new LibraryChange
             {
-                Source = fetch.Source,
+                Source = _pendingSource ?? AnimeSource.MyAnimeList,
                 Created = _applied.Commit.Created,
                 Updated = _applied.Commit.Updated,
                 SlotsReleased = _applied.Commit.QueueSlotsReleased,
-                AbsentFlagged = fetch.AbsentFlagged
+                AbsentFlagged = fetch?.AbsentFlagged ?? 0
             });
         }
         catch (Exception ex)
@@ -596,9 +709,69 @@
             var n => $"{n} titles left Up Next because you have started or finished them."
         };
 
+    /// <summary>
+    /// Reads an export and previews it, without writing anything.
+    /// </summary>
+    /// <remarks>
+    /// The same review surface a sync gets, because the difference between the two
+    /// is the trigger rather than the logic (§5). What is specific to a file is only
+    /// getting the bytes: the default <c>OpenReadStream</c> cap is 512 KB, far below
+    /// a real export, and the parser enforces the same ceiling again on what it
+    /// reads so the limit holds whichever way in was used.
+    /// </remarks>
+    private async Task OnFileSelectedAsync(InputFileChangeEventArgs e)
+    {
+        Reset();
+
+        try
+        {
+            _filePreview = await _busy.RunAsync($"Reading {e.File.Name}", async progress =>
+            {
+                await using var stream = e.File.OpenReadStream(ImportLimits.Default.MaxBytes);
+
+                return await ImportService.PreviewAsync(
+                    stream, Parser, Profile.DefaultProfileId, progress);
+            });
+
+            _pendingSource = AnimeSource.MyAnimeList;
+
+            if (_filePreview.IsFileRejected)
+            {
+                _error = string.Join(" ", _filePreview.Problems.Select(p => p.Message));
+
+                // A rejected file has nothing to review, so it must not leave the page
+                // in the previewing state — the cards would collapse around an empty
+                // surface and the only way out would be Discard.
+                _filePreview = null;
+            }
+        }
+        catch (IOException ex)
+        {
+            // Thrown when the upload exceeds the stream limit.
+            Logger.LogWarning(ex, "Import upload rejected");
+            _error = "That file is too large to import.";
+        }
+    }
+
+    /// <summary>
+    /// Promotes one source, which is the only way to change who is primary (D30).
+    /// </summary>
+    /// <remarks>
+    /// There is no matching demote. The seat is single, so taking it away from the
+    /// only holder would leave nobody in it — and the radio cannot express that,
+    /// which is why it is a radio.
+    /// </remarks>
+    private async Task SetPrimaryAsync(SourceSyncStatus status)
+    {
+        await SyncService.SetPrimarySourceAsync(Profile.DefaultProfileId, status.Source);
+        await LoadAsync();
+    }
+
     private void Reset()
     {
         _fetch = null;
+        _filePreview = null;
+        _pendingSource = null;
         _applied = null;
         _nothingToDo = false;
         _error = null;

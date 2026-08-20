@@ -87,6 +87,15 @@ public sealed class UnattendedSyncJob(
     /// </remarks>
     private static bool IsDue(SourceSyncStatus status, DateTimeOffset now)
     {
+        // Nothing to fetch is the first question, because the status list widened to
+        // every source the Sources page shows once MyAnimeList gained a card there
+        // (D30). A file source has no list to go and read, so it is never due —
+        // asking would be a programming error, not a failed run.
+        if (!status.CanFetch)
+        {
+            return false;
+        }
+
         if (!status.IsConfigured || !status.Settings.IsEnabled)
         {
             return false;

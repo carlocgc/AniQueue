@@ -1,4 +1,5 @@
 using AniQueue.Core.Domain;
+using AniQueue.Core.Sync;
 using Microsoft.EntityFrameworkCore;
 using static AniQueue.Infrastructure.Tests.SyncFixture;
 
@@ -16,7 +17,7 @@ public class UnattendedSyncTests
 {
     private static async Task ConfigureAsync(SyncFixture fixture, Action<SourceSyncSettings> configure)
     {
-        var status = Assert.Single(await fixture.Service.GetStatusAsync(Profile.DefaultProfileId));
+        var status = await AniListStatusAsync(fixture);
         configure(status.Settings);
         await fixture.Service.SaveSettingsAsync(status.Settings);
     }
@@ -199,7 +200,7 @@ public class UnattendedSyncTests
         // removal waits for the phase that can undo it (D19).
         Assert.Equal(2, await context.LibraryEntries.CountAsync());
 
-        var status = Assert.Single(await fixture.Service.GetStatusAsync(Profile.DefaultProfileId));
+        var status = await AniListStatusAsync(fixture);
         Assert.Equal(1, status.AbsentCount);
         Assert.Equal("Yoru no Hate", Assert.Single(status.AbsentTitles));
     }
@@ -349,7 +350,7 @@ public class UnattendedSyncTests
             await fixture.Service.RunUnattendedAsync(Profile.DefaultProfileId, AnimeSource.AniList);
         }
 
-        var status = Assert.Single(await fixture.Service.GetStatusAsync(Profile.DefaultProfileId));
+        var status = await AniListStatusAsync(fixture);
 
         Assert.Equal(SyncOutcome.Succeeded, status.LastSuccess!.Outcome);
         Assert.Equal(SyncOutcome.Failed, status.LastFailure!.Outcome);
@@ -361,9 +362,17 @@ public class UnattendedSyncTests
         fixture.Client.FailWith = null;
         await fixture.Service.RunUnattendedAsync(Profile.DefaultProfileId, AnimeSource.AniList);
 
-        var recovered = Assert.Single(await fixture.Service.GetStatusAsync(Profile.DefaultProfileId));
+        var recovered = await AniListStatusAsync(fixture);
         Assert.Equal(0, recovered.ConsecutiveFailures);
         Assert.False(recovered.IsStalled);
         Assert.NotNull(recovered.LastFailure);
     }
+
+    /// <summary>
+    /// The AniList status specifically, because the page now accounts for every
+    /// source rather than only the ones something can be fetched from (D30).
+    /// </summary>
+    private static async Task<SourceSyncStatus> AniListStatusAsync(SyncFixture fixture) =>
+        (await fixture.Service.GetStatusAsync(Profile.DefaultProfileId))
+            .Single(s => s.Source == AnimeSource.AniList);
 }
