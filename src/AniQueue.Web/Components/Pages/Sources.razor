@@ -49,7 +49,11 @@
    coverage, settings — so leaving them expanded puts the answer to "what would
    this change" several scrolls below the button that asked. They collapse to a
    heading and the two controls that still apply, and open again on Discard. *@
-@foreach (var status in _statuses)
+@* Gone entirely once a sync has been applied, rather than collapsed to a heading
+   with nothing under it. The report below owns that state and carries both of the
+   things left to do — look at the backlog, or finish and start again — so a source
+   card there would be a box with no contents and no purpose. *@
+@foreach (var status in _applied is null ? _statuses : [])
 {
     <div class="card @(IsPreviewing ? "collapsed" : null)">
         <h2>@status.Source</h2>
@@ -73,15 +77,26 @@
                 </p>
             }
 
-            <div class="toolbar">
-                <button class="primary" disabled="@(_busy.IsRunning || !CanSync(status))"
-                        @onclick="() => SyncAsync(status)">
-                    Sync now
-                </button>
+            @* Exactly one of these, never both. Syncing again while a preview is on
+               screen threw it away without saying so — and with it every conflict
+               the user had just resolved in it, because that preview is editable.
+               Discarding is how a preview ends; it is one button away, it says what
+               it does, and Sync now comes back the moment it is pressed.
 
-                @if (_fetch is not null)
+               It also removed the flicker this was reported for: the re-sync reset
+               the page first, so the card expanded and the settings unfolded behind
+               the progress dialog before the new preview replaced them. *@
+            <div class="toolbar">
+                @if (IsPreviewing)
                 {
                     <button @onclick="Reset" disabled="@_busy.IsRunning">Discard this preview</button>
+                }
+                else
+                {
+                    <button class="primary" disabled="@(_busy.IsRunning || !CanSync(status))"
+                            @onclick="() => SyncAsync(status)">
+                        Sync now
+                    </button>
                 }
             </div>
         }
@@ -187,6 +202,12 @@
             }
         }
 
+        @* Inside the guard, not after it. It was left outside when the rest of the
+           card learned to collapse, so a preview shrank everything except the one
+           section tall enough to matter — settings are the least urgent thing on
+           this page and were the only thing that stayed. *@
+        @if (!IsPreviewing)
+        {
         <details class="source-settings">
             <summary>Settings</summary>
 
@@ -307,6 +328,7 @@
                 </div>
             </fieldset>
         </details>
+        }
     </div>
 }
 
