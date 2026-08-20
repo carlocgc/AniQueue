@@ -1,4 +1,5 @@
 using AniQueue.Core.Domain;
+using AniQueue.Core.Queue;
 
 namespace AniQueue.Core.Library;
 
@@ -125,6 +126,56 @@ public interface IRelationService
     /// supplies; story order would be an opinion (D24). Unknown dates sort last.
     /// </remarks>
     Task<IReadOnlyList<RelatedTitle>> GetRelatedAsync(
+        int profileId,
+        int animeId,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// How many titles <see cref="AddWithSequelsAsync"/> would put in the queue, so
+    /// the action can name its own size before anybody presses it.
+    /// </summary>
+    /// <remarks>
+    /// Counts what the walk would actually append — owned, still Planning, not
+    /// already queued — so "queue this and two sequels" is a promise rather than an
+    /// estimate. Zero means the action is not worth offering at all: everything that
+    /// follows is either already queued or already watched.
+    /// </remarks>
+    Task<int> CountSequelsToQueueAsync(
+        int profileId,
+        int animeId,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Queues a title and everything that follows it, in release order (D24).
+    /// </summary>
+    /// <remarks>
+    /// <b>Transitive, unlike everything else here</b>, and that is the point: the
+    /// expansion answers "how is this connected", which stops at one edge, while this
+    /// answers "what am I signing up for", which does not. Season five is reached from
+    /// season one precisely because the user asked for the run.
+    ///
+    /// <b>It traverses through titles it will not queue.</b> A Completed season four
+    /// between three and five must not stop the walk, and neither must a season the
+    /// user does not own at all — the walk happens in external identifiers and
+    /// resolves to library rows only at the end, so a gap in the collection is a gap
+    /// in the results rather than a wall.
+    ///
+    /// <b>Forward only.</b> Prequels are excluded by construction, which is what makes
+    /// this better than the franchise expansion it replaces: that one proposed the
+    /// seasons the user had already watched, every time.
+    ///
+    /// <b>Recaps and compilations are skipped</b> even when the chain runs through
+    /// them, because a recap film linked as the sequel of one season and the prequel
+    /// of the next is exactly how AniList threads them — and nobody asking for "the
+    /// rest of this series" means the summary of the part they just watched.
+    ///
+    /// <b>It writes nothing itself.</b> The ordered set goes to
+    /// <see cref="IQueueService.AddAnimeAsync"/>, which is what keeps the contiguity
+    /// invariant in one place, and which decides queue eligibility here exactly as it
+    /// does for a single press — so the result accounts for a Completed season the
+    /// walk passed through rather than silently dropping it.
+    /// </remarks>
+    Task<QueueAddResult> AddWithSequelsAsync(
         int profileId,
         int animeId,
         CancellationToken cancellationToken = default);

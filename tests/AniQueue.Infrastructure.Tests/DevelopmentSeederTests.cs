@@ -2,6 +2,7 @@ using AniQueue.Core.Domain;
 using AniQueue.Infrastructure.Library;
 using AniQueue.Infrastructure.Persistence;
 using AniQueue.Infrastructure.Persistence.Seeding;
+using AniQueue.Infrastructure.Queue;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
@@ -117,7 +118,9 @@ public class DevelopmentSeederTests
     {
         await using var database = await SeededDatabaseAsync();
 
-        var relations = new RelationService(database.ContextFactory);
+        var relations = new RelationService(
+            database.ContextFactory,
+            new QueueService(database.ContextFactory, NullLogger<QueueService>.Instance));
 
         await using var context = database.CreateContext();
 

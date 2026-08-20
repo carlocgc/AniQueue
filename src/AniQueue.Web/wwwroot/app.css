@@ -441,6 +441,24 @@ tbody tr.row-hidden > td { opacity: 0.55; }
 
 .relations-row:hover > td { background: var(--surface-alt); }
 
+/* The only control on the page that acts on more than one title, so it is the only
+   one that is a worded button rather than a glyph — "queue six things" is not
+   something an icon should be trusted to say. */
+.relations-action { display: flex; align-items: center; gap: 0.5rem; margin: 0 0 0.6rem; }
+
+.relations-action .follow { padding: 0.3rem 0.6rem; font-size: 0.85rem; }
+
+.relations-action .follow:hover:not(:disabled) { color: var(--accent); }
+
+/* Carries the size, so the button says how big the commitment is before it is
+   made rather than after. */
+.relations-action .badge.count {
+    margin-left: 0.4rem;
+    background: var(--accent);
+    color: var(--accent-text);
+    border-color: transparent;
+}
+
 .relations { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.35rem; }
 
 .relations li {
