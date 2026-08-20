@@ -136,6 +136,80 @@ public class CatalogueFieldsTests
         Assert.Equal(LibraryStatus.Completed, entry.Status);
     }
 
+    /// <summary>
+    /// A source publishing one unlabelled name does not overwrite a display title
+    /// resolved from labelled variants (D29).
+    /// </summary>
+    /// <remarks>
+    /// The bug this pins down: the display title was resolved from the <i>incoming
+    /// entry's</i> variants, and a MyAnimeList export has none, so it fell through to
+    /// that export's single name — while the very next lines merged the variants and
+    /// kept AniList's. The row was left holding a Title that disagreed with its own
+    /// TitleRomaji, and the change did not last either, because the title-language
+    /// setting rewrites Title from the row's variants. Resolving from the merged row
+    /// makes the import and that setting agree by construction.
+    /// </remarks>
+    [Fact]
+    public async Task A_file_import_does_not_rename_a_title_the_sync_labelled()
+    {
+        await using var fixture = await ImportFixture.CreateAsync();
+
+        var synced = await fixture.Service.PreviewAsync(
+            Fetched("16498", "Shingeki no Kyojin"), AniListFormat, Profile.DefaultProfileId);
+        await fixture.Service.CommitAsync(synced, Profile.DefaultProfileId);
+
+        await using (var setup = fixture.Database.CreateContext())
+        {
+            var anime = await setup.Anime.SingleAsync();
+            setup.AnimeExternalIds.Add(new AnimeExternalId
+            {
+                AnimeId = anime.Id,
+                Source = AnimeSource.MyAnimeList,
+                ExternalId = "16498"
+            });
+
+            await setup.SaveChangesAsync();
+        }
+
+        // The same show under the name MyAnimeList publishes, with no variants at all.
+        var imported = await fixture.Service.PreviewAsync(
+            Exported("16498", "Attack on Titan"), "MyAnimeList XML", Profile.DefaultProfileId);
+        await fixture.Service.CommitAsync(imported, Profile.DefaultProfileId);
+
+        await using var context = fixture.Database.CreateContext();
+        var updated = await context.Anime.SingleAsync();
+
+        // The profile reads romaji, and the row still holds AniList's romaji, so the
+        // displayed name is unchanged — and, crucially, agrees with the variant it
+        // was resolved from.
+        Assert.Equal("Shingeki no Kyojin", updated.TitleRomaji);
+        Assert.Equal("Shingeki no Kyojin", updated.Title);
+    }
+
+    /// <summary>
+    /// A title only one source describes still takes that source's name, however it
+    /// is ranked — otherwise a MyAnimeList-only library could never be renamed by
+    /// re-importing a corrected export.
+    /// </summary>
+    [Fact]
+    public async Task A_file_import_still_names_a_title_no_other_source_describes()
+    {
+        await using var fixture = await ImportFixture.CreateAsync();
+
+        var first = await fixture.Service.PreviewAsync(
+            Exported("16498", "Shingeki no Kyojin"), "MyAnimeList XML", Profile.DefaultProfileId);
+        await fixture.Service.CommitAsync(first, Profile.DefaultProfileId);
+
+        var renamed = await fixture.Service.PreviewAsync(
+            Exported("16498", "Attack on Titan"), "MyAnimeList XML", Profile.DefaultProfileId);
+        await fixture.Service.CommitAsync(renamed, Profile.DefaultProfileId);
+
+        await using var context = fixture.Database.CreateContext();
+        var updated = await context.Anime.SingleAsync();
+
+        Assert.Equal("Attack on Titan", updated.Title);
+    }
+
     [Fact]
     public async Task Gaining_art_is_a_change_but_a_moved_cover_url_alone_is_not()
     {

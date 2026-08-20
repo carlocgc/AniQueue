@@ -182,7 +182,8 @@ public sealed class ImportService(
 
                 if (item.Resolution == ConflictResolution.LinkToExisting)
                 {
-                    var linked = await LinkToExistingAsync(context, item, now, preferredTitle, cancellationToken);
+                    var linked = await LinkToExistingAsync(
+                        context, item, now, preferredTitle, precedence, cancellationToken);
                     if (linked is null)
                     {
                         // The record the user chose has since gone. Skipping is safer
@@ -214,7 +215,12 @@ public sealed class ImportService(
             }
             else
             {
-                ApplyCatalogueFields(anime, item.Entry, now, preferredTitle);
+                ApplyCatalogueFields(
+                    anime,
+                    item.Entry,
+                    now,
+                    preferredTitle,
+                    OutranksOtherSources(anime, item.Entry, precedence));
                 updated++;
             }
 
@@ -618,6 +624,7 @@ public sealed class ImportService(
         ImportPreviewItem item,
         DateTimeOffset now,
         TitleLanguage preferredTitle,
+        IReadOnlyDictionary<AnimeSource, int> precedence,
         CancellationToken cancellationToken)
     {
         if (item.ExistingAnimeId is not { } existingId)
@@ -625,13 +632,22 @@ public sealed class ImportService(
             return null;
         }
 
-        var existing = await context.Anime.FirstOrDefaultAsync(a => a.Id == existingId, cancellationToken);
+        // Identifiers included because precedence is decided per title, from which
+        // sources describe this row.
+        var existing = await context.Anime
+            .Include(a => a.ExternalIds)
+            .FirstOrDefaultAsync(a => a.Id == existingId, cancellationToken);
         if (existing is null)
         {
             return null;
         }
 
-        ApplyCatalogueFields(existing, item.Entry, now, preferredTitle);
+        ApplyCatalogueFields(
+            existing,
+            item.Entry,
+            now,
+            preferredTitle,
+            OutranksOtherSources(existing, item.Entry, precedence));
 
         await context.SaveChangesAsync(cancellationToken);
         return existing;
@@ -670,7 +686,11 @@ public sealed class ImportService(
 
             if (animeId is { } id)
             {
-                return await context.Anime.FirstOrDefaultAsync(a => a.Id == id, cancellationToken);
+                // Identifiers included because precedence is decided per title, from
+                // which sources describe this row.
+                return await context.Anime
+                    .Include(a => a.ExternalIds)
+                    .FirstOrDefaultAsync(a => a.Id == id, cancellationToken);
             }
         }
 
@@ -762,45 +782,119 @@ public sealed class ImportService(
     /// one after an AniList sync must not blank all three (D18 draws the same line
     /// for tracking data, guarded by precedence rather than by nullness).
     /// </remarks>
+    /// <summary>
+    /// Writes what a source says about the title itself, subject to whether it is
+    /// allowed to overwrite what another source already said (D18, D29).
+    /// </summary>
+    /// <remarks>
+    /// <b>Filling a gap and settling a disagreement are different things</b>, and
+    /// this used to do both. D18 lets any source write catalogue metadata whatever
+    /// its rank, and the reason it gives is that AniList carries fields a
+    /// MyAnimeList export simply does not — an argument about *gaps*. Applied as
+    /// last-write-wins it also handed every disagreement to whichever import ran
+    /// most recently, so a title's media type depended on import order: AniList
+    /// calls something an OVA, MyAnimeList calls it a Special, and neither is
+    /// filling anything in.
+    ///
+    /// So <paramref name="mayOverwrite"/> splits them. A source that outranks every
+    /// other source describing this title still writes everything. One that does not
+    /// may only fill in what is missing, which is exactly the case D18 argued for and
+    /// no more.
+    /// </remarks>
     private static void ApplyCatalogueFields(
         Anime anime,
         ParsedLibraryEntry entry,
         DateTimeOffset now,
-        TitleLanguage preferredTitle)
+        TitleLanguage preferredTitle,
+        bool mayOverwrite)
     {
-        anime.Title = DisplayTitle(entry, preferredTitle);
+        // Variants first, display title after, and the order is the whole fix. This
+        // resolved from the *entry's* variants, so a MyAnimeList export — which has
+        // none — fell through to its single unlabelled name and overwrote a display
+        // title that had been resolved from AniList's labelled ones. The row was then
+        // internally inconsistent, holding Title 'Spy x Family' beside TitleRomaji
+        // 'SPY×FAMILY', and the change did not even last: the title-language setting
+        // rewrites Title from the row's variants, so switching language and back
+        // undid it. That is D22's ambiguity reappearing one level up.
+        anime.TitleRomaji = Merge(anime.TitleRomaji, entry.TitleRomaji, mayOverwrite);
+        anime.TitleEnglish = Merge(anime.TitleEnglish, entry.TitleEnglish, mayOverwrite);
+        anime.TitleNative = Merge(anime.TitleNative, entry.TitleNative, mayOverwrite);
 
-        anime.TitleRomaji = entry.TitleRomaji ?? anime.TitleRomaji;
-        anime.TitleEnglish = entry.TitleEnglish ?? anime.TitleEnglish;
-        anime.TitleNative = entry.TitleNative ?? anime.TitleNative;
+        // Resolved from the merged row rather than from either side of it, which is
+        // what RewriteDisplayTitlesAsync does when the preference changes. The two
+        // now agree by construction instead of by comment.
+        anime.Title = TitleSelection.Resolve(
+            preferredTitle,
+            anime.TitleRomaji,
+            anime.TitleEnglish,
+            anime.TitleNative,
+            mayOverwrite || string.IsNullOrWhiteSpace(anime.Title) ? entry.Title : anime.Title);
 
-        if (entry.MediaType != MediaType.Unknown)
+        if (entry.MediaType != MediaType.Unknown
+            && (mayOverwrite || anime.MediaType == MediaType.Unknown))
         {
             anime.MediaType = entry.MediaType;
         }
 
-        if (entry.EpisodeCount is not null)
-        {
-            anime.EpisodeCount = entry.EpisodeCount;
-        }
-
-        if (entry.EpisodeDurationMinutes is not null)
-        {
-            anime.EpisodeDurationMinutes = entry.EpisodeDurationMinutes;
-        }
-
-        if (entry.ReleaseYear is not null)
-        {
-            anime.ReleaseYear = entry.ReleaseYear;
-        }
-
-        if (entry.CoverImageUrl is not null)
-        {
-            anime.CoverImageUrl = entry.CoverImageUrl;
-        }
+        anime.EpisodeCount = Merge(anime.EpisodeCount, entry.EpisodeCount, mayOverwrite);
+        anime.EpisodeDurationMinutes = Merge(anime.EpisodeDurationMinutes, entry.EpisodeDurationMinutes, mayOverwrite);
+        anime.ReleaseYear = Merge(anime.ReleaseYear, entry.ReleaseYear, mayOverwrite);
+        anime.CoverImageUrl = Merge(anime.CoverImageUrl, entry.CoverImageUrl, mayOverwrite);
 
         anime.UpdatedAt = now;
     }
+
+    /// <summary>
+    /// The incoming value if it exists and is allowed to land, otherwise what is
+    /// already stored.
+    /// </summary>
+    /// <remarks>
+    /// A source never erases a value by not carrying it, whatever its rank: a
+    /// MyAnimeList export knows no episode duration, and reading that silence as
+    /// "there isn't one" would lose the answer AniList already gave.
+    /// </remarks>
+    private static T? Merge<T>(T? existing, T? incoming, bool mayOverwrite) =>
+        incoming is not null && (mayOverwrite || existing is null) ? incoming : existing;
+
+    /// <summary>
+    /// Whether this source's account of a title beats every other source that also
+    /// identifies it.
+    /// </summary>
+    /// <remarks>
+    /// Asked per title rather than globally, because rank only means anything where
+    /// two sources describe the same row (D18). A title only one source knows about
+    /// is always that source's to correct, whatever its rank — which is what keeps a
+    /// single-tracker library, and a re-import of a corrected export, behaving as
+    /// they always did.
+    ///
+    /// <b>A source nobody has configured ranks below one somebody has.</b> The
+    /// alternative is a tie, and a tie means last-write-wins — the behaviour this
+    /// exists to end. It also matches what the setting means to read: somebody who
+    /// went to the Sources page and named a primary said something, and a source they
+    /// have never opened has not.
+    /// </remarks>
+    private static bool OutranksOtherSources(
+        Anime anime,
+        ParsedLibraryEntry entry,
+        IReadOnlyDictionary<AnimeSource, int> precedence)
+    {
+        var incoming = RankOf(entry.Source, precedence);
+
+        return anime.ExternalIds
+            .Select(x => x.Source)
+            .Where(source => source != entry.Source)
+            .All(source => incoming <= RankOf(source, precedence));
+    }
+
+    /// <summary>Configured rank, or one step below primary for a source nobody has set up.</summary>
+    private static int RankOf(AnimeSource source, IReadOnlyDictionary<AnimeSource, int> precedence) =>
+        precedence.TryGetValue(source, out var rank) ? rank : UnconfiguredRank;
+
+    /// <summary>
+    /// Where a source with no settings row sits. Below an explicitly named primary,
+    /// above nothing else, and equal to every other unconfigured source.
+    /// </summary>
+    private const int UnconfiguredRank = 1;
 
     /// <summary>
     /// Writes watch progress, leaving every locally curated field alone. The list

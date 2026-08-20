@@ -50,14 +50,22 @@ public class SourcePrecedenceTests
         string title,
         LibraryStatus status,
         int? score = null,
-        int watched = 0) =>
+        int watched = 0,
+        MediaType mediaType = MediaType.Tv,
+
+        // Overridable because a real export often carries no count, and D29 turns on
+        // the difference between a field a source left empty and one it disagrees
+        // about. A helper that always supplied 12 could only ever exercise the second.
+        int? episodes = 12) =>
         Payload(
             AnimeSource.MyAnimeList,
             [new ExternalIdentifier(AnimeSource.MyAnimeList, malId)],
             title,
             status,
             score,
-            watched);
+            watched,
+            mediaType,
+            episodes);
 
     /// <summary>
     /// An AniList entry as a sync produces it — its own id *and* idMal — so it
@@ -195,21 +203,30 @@ public class SourcePrecedenceTests
         Assert.Equal(10, entry.UserScore);
     }
 
+    /// <summary>
+    /// A lower-ranked source fills gaps and does not settle disagreements (D29).
+    /// </summary>
+    /// <remarks>
+    /// This test used to assert that a blocked source wrote catalogue metadata
+    /// outright, justified by "AniList carries fields a MyAnimeList export simply
+    /// does not" — an argument about gaps that the implementation applied as
+    /// last-write-wins. The distinction it was missing is the whole of D29: an
+    /// episode count nobody had is filled by whoever has it, while a media type the
+    /// two sources disagree about goes to the one the user named primary, so the
+    /// answer does not depend on which import ran last.
+    /// </remarks>
     [Fact]
-    public async Task A_blocked_source_still_contributes_catalogue_metadata()
+    public async Task A_blocked_source_fills_gaps_without_overruling_the_primary()
     {
-        // Precedence guards the user's tracking data, not facts about the title.
-        // AniList carries fields a MyAnimeList export simply does not, and refusing
-        // those because of a ranking would lose data for no reason.
         await using var fixture = await ImportFixture.CreateAsync();
 
         await RankAsync(fixture.Database, AnimeSource.MyAnimeList, rank: 0);
         await RankAsync(fixture.Database, AnimeSource.AniList, rank: 1);
 
-        await ApplyAsync(fixture, FromMal("268", "Golden Boy", LibraryStatus.Completed, score: 9, watched: 12));
+        // No episode count in the export, and Tv where AniList will say Ova.
+        await ApplyAsync(fixture, FromMal(
+            "268", "Golden Boy", LibraryStatus.Completed, score: 9, watched: 12, episodes: null));
 
-        // The lower-ranked source knows the episode count and media type that a
-        // MyAnimeList export never carried.
         await ApplyAsync(fixture, FromAniList(
             "777",
             "268",
@@ -222,11 +239,66 @@ public class SourcePrecedenceTests
         var anime = await context.Anime.SingleAsync();
         var entry = await context.LibraryEntries.SingleAsync();
 
-        Assert.Equal(MediaType.Ova, anime.MediaType);
+        // The gap: a MyAnimeList export carries no episode count, so refusing
+        // AniList's would lose data for no reason.
         Assert.Equal(6, anime.EpisodeCount);
+
+        // The disagreement: MyAnimeList said Tv and AniList says Ova. The primary
+        // keeps it, and would keep it whichever order the two were imported in.
+        Assert.Equal(MediaType.Tv, anime.MediaType);
 
         Assert.Equal(LibraryStatus.Completed, entry.Status);
         Assert.Equal(9, entry.UserScore);
         Assert.Equal(AnimeSource.MyAnimeList, entry.LastWrittenBySource);
+    }
+
+    /// <summary>
+    /// The primary still corrects what a secondary wrote, so precedence is a
+    /// ranking rather than a first-writer-wins lock.
+    /// </summary>
+    [Fact]
+    public async Task The_primary_source_overrules_a_value_a_secondary_wrote()
+    {
+        await using var fixture = await ImportFixture.CreateAsync();
+
+        await RankAsync(fixture.Database, AnimeSource.AniList, rank: 0);
+        await RankAsync(fixture.Database, AnimeSource.MyAnimeList, rank: 1);
+
+        await ApplyAsync(fixture, FromMal("268", "Golden Boy", LibraryStatus.Completed));
+
+        await ApplyAsync(fixture, FromAniList(
+            "777",
+            "268",
+            "Golden Boy",
+            LibraryStatus.Planning,
+            mediaType: MediaType.Ova,
+            episodes: 6));
+
+        await using var context = fixture.Database.CreateContext();
+        var anime = await context.Anime.SingleAsync();
+
+        Assert.Equal(MediaType.Ova, anime.MediaType);
+    }
+
+    /// <summary>
+    /// A title only one source knows about is always that source's to correct,
+    /// whatever its rank — which is what keeps a single-tracker library, and a
+    /// re-import of a corrected export, behaving as they always did.
+    /// </summary>
+    [Fact]
+    public async Task A_source_may_always_correct_a_title_no_other_source_describes()
+    {
+        await using var fixture = await ImportFixture.CreateAsync();
+
+        await RankAsync(fixture.Database, AnimeSource.AniList, rank: 0);
+        await RankAsync(fixture.Database, AnimeSource.MyAnimeList, rank: 1);
+
+        await ApplyAsync(fixture, FromMal("268", "Golden Boy", LibraryStatus.Completed, mediaType: MediaType.Tv));
+        await ApplyAsync(fixture, FromMal("268", "Golden Boy", LibraryStatus.Completed, mediaType: MediaType.Ova));
+
+        await using var context = fixture.Database.CreateContext();
+        var anime = await context.Anime.SingleAsync();
+
+        Assert.Equal(MediaType.Ova, anime.MediaType);
     }
 }

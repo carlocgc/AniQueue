@@ -1279,6 +1279,59 @@ fifteen minutes later; that is the test of whether it is orchestration.
 announced its commits, so a foreground sync left every other open page stale and every
 enrichment job asleep. Both entry points now say the same thing.
 
+### D29 — Catalogue metadata fills gaps; precedence settles disagreements
+
+*Splits in two what D18 stated as one thing, on evidence from a real consolidating library.*
+
+D18 says precedence guards tracking data — status, progress, score — and that catalogue
+metadata is writable by any source whatever its rank. The reason it gives is that *AniList
+carries fields a MyAnimeList export simply does not*, and refusing those would lose data for no
+reason. That is an argument about **gaps**. The implementation was **last-write-wins**, which is
+a different rule, and the difference is invisible until two sources both have a value and
+disagree.
+
+A user synced AniList as primary and then imported a MyAnimeList export. Three hundred and
+thirty-one titles came back as updates: `Type: Ova → Special`, and `Title: 'SPY×FAMILY' → 'Spy x
+Family'`. Nothing was being filled in. Two catalogues disagree about categorisation and about
+punctuation, and the tie was going to whichever import ran last — so the media type of a title,
+and the Type filter over the whole library, depended on import order.
+
+**The same argument the roadmap already accepted elsewhere.** Phase 6b's backfill deliberately
+does not write `ReleaseYear` from `startDate`, because "writing one from the other would fight
+the next sync for the column, and the decade filter would flip between runs." Identical shape;
+it had simply not been applied here.
+
+**The rule, and it is asked per title rather than globally.** A source writes catalogue fields
+freely when it outranks every other source that also identifies *that row*. Otherwise it may
+only fill in what is missing. Rank means nothing where one source is the only one describing a
+title, so a single-tracker library and a re-import of a corrected export behave exactly as they
+always did — which is what stops this becoming a first-writer-wins lock.
+
+**A source nobody has configured ranks below one somebody has.** The alternative is a tie, and a
+tie means last-write-wins, which is the behaviour being removed. It also matches what the
+setting means to read: someone who went to the Sources page and named a primary said something,
+and a source they have never opened has not.
+
+**Absence never erases.** A source that does not carry a field leaves it alone whatever its
+rank. A MyAnimeList export knows no episode duration, and reading that silence as "there isn't
+one" would discard the answer AniList already gave.
+
+**The title half was a plain bug, not a policy question.** The display title was resolved from
+the *incoming entry's* variants and assigned unconditionally — alone among the fields, every
+other one being guarded. A MyAnimeList export has no variants, so it fell through to that
+export's single unlabelled name, while the next three lines merged the variants and kept
+AniList's. Rows were left holding a `Title` that disagreed with their own `TitleRomaji`, and the
+change did not even persist: `RewriteDisplayTitlesAsync` resolves from the *row's* variants, so
+changing the title language and back undid it. That is exactly the arity-1 ambiguity D22 removed,
+reappearing one level up. Resolving from the merged row makes the import and the language
+setting agree by construction rather than by a comment claiming they are tested together.
+
+**Not yet settled, and it limits this.** `PrecedenceRank` is per-source and independently
+settable, so two sources can both be rank 0 — and two primaries tie, which is last-write-wins
+again. The Sources page also only offers the setting for AniList, so MyAnimeList's rank is
+whatever the default says. Making *primary* exclusive, and giving every source a place to be
+configured, is the other half of this and is tracked separately.
+
 ---
 
 ## 3. Solution structure
