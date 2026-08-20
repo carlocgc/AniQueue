@@ -67,6 +67,31 @@ public class ScoringPromptBuilderTests
     }
 
     [Fact]
+    public void Asks_for_all_to_be_weighed_before_asking_for_only_some_back()
+    {
+        var prompt = ScoringPromptBuilder.Build(Request(candidates: 100) with { ReturnTop = 20 });
+
+        // The order of these two clauses is the whole instruction. A model told only
+        // "return 20" tends to rank the first twenty it reads, which is a different
+        // and much worse answer than the best twenty — and one that looks identical
+        // in the reply, so nothing downstream could catch it.
+        Assert.Contains("Weigh ALL 100 candidates, then return only the best 20", prompt);
+        Assert.Contains("Do not rank the first 20 you see", prompt);
+        Assert.Contains("Return exactly 20 results, ranked 1 to 20", prompt);
+    }
+
+    [Fact]
+    public void Does_not_mention_a_limit_that_narrows_nothing()
+    {
+        // Asking for the top 100 of 100 is an instruction that is really a no-op, and
+        // a no-op instruction is one more thing for a small model to misread.
+        var prompt = ScoringPromptBuilder.Build(Request(candidates: 100) with { ReturnTop = 100 });
+
+        Assert.DoesNotContain("Weigh ALL", prompt);
+        Assert.Contains("rank as many as you can and stop", prompt);
+    }
+
+    [Fact]
     public void Permits_a_short_ranking_rather_than_demanding_all_of_them()
     {
         // A model told to rank all 182 or fail will fail. Telling it to stop early is

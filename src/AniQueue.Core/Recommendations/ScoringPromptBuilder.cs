@@ -58,6 +58,23 @@ public static class ScoringPromptBuilder
         prompt.AppendLine("- A title similar to something they rated low should rank low, however popular it is.");
         prompt.AppendLine("- Say why in one short sentence, referring to their history where you can.");
         prompt.AppendLine("- If you do not recognise a title, give it a low confidence rather than a guessed score.");
+
+        // Stated as "consider all, return some", in that order and in those words.
+        // A model told only "return 50" tends to read the first fifty candidates and
+        // rank those, which is a different and much worse answer than the best fifty
+        // — and one that looks identical in the reply.
+        if (request.IsRankingLimited)
+        {
+            prompt.AppendLine();
+            prompt.AppendLine(
+                CultureInfo.InvariantCulture,
+                $"- Weigh ALL {request.Candidates.Count} candidates, then return only the best "
+                    + $"{request.ExpectedResults}. Do not rank the first {request.ExpectedResults} you see.");
+            prompt.AppendLine(
+                CultureInfo.InvariantCulture,
+                $"- Leave the other {request.Candidates.Count - request.ExpectedResults} out of the reply entirely.");
+        }
+
         prompt.AppendLine();
 
         prompt.AppendLine("Return this exact shape, and nothing else:");
@@ -71,7 +88,20 @@ public static class ScoringPromptBuilder
         prompt.AppendLine(
             CultureInfo.InvariantCulture,
             $"- \"rank\" starts at 1 and each is used once. \"predictedScore\" is {scale.Min}–{scale.Max}. \"confidence\" is 0–1.");
-        prompt.AppendLine("- Rank every candidate. If you cannot rank them all, rank as many as you can and stop.");
+
+        if (request.IsRankingLimited)
+        {
+            prompt.AppendLine(
+                CultureInfo.InvariantCulture,
+                $"- Return exactly {request.ExpectedResults} results, ranked 1 to {request.ExpectedResults}.");
+        }
+        else
+        {
+            // Without a limit, permission to stop early is what keeps a small model's
+            // short answer a usable ranking rather than a rejected one.
+            prompt.AppendLine(
+                "- Rank every candidate. If you cannot rank them all, rank as many as you can and stop.");
+        }
 
         return prompt.ToString().TrimEnd();
     }

@@ -109,4 +109,20 @@ public class ProfileSettings
     /// smaller runs.
     /// </remarks>
     public int? RecommendationCandidateLimit { get; set; }
+
+    /// <summary>
+    /// How many rankings to ask for back, or null for one per title sent.
+    /// </summary>
+    /// <remarks>
+    /// The other direction, and a separate setting because the two costs are
+    /// separate. A request is cheap to make long — it is read once — while a reply
+    /// is generated a token at a time, so asking a self-hosted model to rank two
+    /// hundred titles with a sentence of reasoning each is minutes of work and a
+    /// reply large enough to run out of output tokens partway through.
+    ///
+    /// Asking for the best fifty of two hundred is not the same as sending fifty:
+    /// the model still weighs every candidate against the history before deciding
+    /// which fifty are worth returning. The full set informs the ranking either way.
+    /// </remarks>
+    public int? RecommendationReturnTop { get; set; }
 }

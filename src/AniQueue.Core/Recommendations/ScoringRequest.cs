@@ -164,7 +164,23 @@ public sealed record ScoringRequest
     /// </remarks>
     public int CandidatesAvailable { get; init; }
 
+    /// <summary>
+    /// How many rankings this request asks for, or null for one per candidate.
+    /// </summary>
+    /// <remarks>
+    /// Carried on the request rather than held only by whoever built it, because it
+    /// is part of the question and the answer is checked against it: a reply with
+    /// fifty rankings is complete when fifty were asked for and short when a hundred
+    /// were.
+    /// </remarks>
+    public int? ReturnTop { get; init; }
+
     public bool IsHistoryCapped => HistoryAvailable > History.Count;
 
     public bool IsCandidatesCapped => CandidatesAvailable > Candidates.Count;
+
+    /// <summary>How many results a complete reply to this request holds.</summary>
+    public int ExpectedResults => ReturnTop is { } top ? Math.Min(top, Candidates.Count) : Candidates.Count;
+
+    public bool IsRankingLimited => ExpectedResults < Candidates.Count;
 }

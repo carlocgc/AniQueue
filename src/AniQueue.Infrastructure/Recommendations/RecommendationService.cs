@@ -32,7 +32,8 @@ public sealed class RecommendationService(
             {
                 s.IncludePersonalNotesInAiExport,
                 s.RecommendationHistorySize,
-                s.RecommendationCandidateLimit
+                s.RecommendationCandidateLimit,
+                s.RecommendationReturnTop
             })
             .FirstOrDefaultAsync(cancellationToken);
 
@@ -43,7 +44,8 @@ public sealed class RecommendationService(
             ? ScoringRequestOptions.Default
             : ScoringRequestOptions.From(
                 settings.RecommendationHistorySize,
-                settings.RecommendationCandidateLimit);
+                settings.RecommendationCandidateLimit,
+                settings.RecommendationReturnTop);
 
         var waiting = context.LibraryEntries
             .AsNoTracking()
@@ -100,14 +102,15 @@ public sealed class RecommendationService(
             Candidates = candidates,
             History = history,
             HistoryAvailable = available,
-            CandidatesAvailable = candidatesAvailable
+            CandidatesAvailable = candidatesAvailable,
+            ReturnTop = options.ReturnTop
         };
     }
 
     public async Task<ScoringPreview> PreviewAsync(
         int profileId,
         string json,
-        IReadOnlyCollection<int>? offeredAnimeIds = null,
+        ScoringRequest? request = null,
         CancellationToken cancellationToken = default)
     {
         var parsed = parser.Parse(json);
@@ -137,14 +140,19 @@ public sealed class RecommendationService(
 
         // What the request asked about. Absent when the caller no longer holds it, in
         // which case the visible backlog is the best available answer and is what
-        // this meant before a candidate limit could make the two differ.
-        var offered = offeredAnimeIds?.ToHashSet();
+        // this meant before either limit could make the two differ.
+        var offered = request?.Candidates.Select(c => c.Id).ToHashSet();
 
         var candidateCount = offered?.Count ?? await context.LibraryEntries
             .AsNoTracking()
             .CountAsync(
                 e => e.ProfileId == profileId && e.Status == LibraryStatus.Planning && !e.IsHidden,
                 cancellationToken);
+
+        // How many rankings a complete reply holds, which is what "missing" is
+        // measured against. Without a request in hand it is one per offered title,
+        // because that is what an unlimited request asks for.
+        var expectedCount = request?.ExpectedResults ?? candidateCount;
 
         var items = new List<ScoringPreviewItem>(ranked.Count);
 
@@ -201,14 +209,15 @@ public sealed class RecommendationService(
         {
             Items = items,
             Problems = problems,
-            CandidateCount = candidateCount
+            CandidateCount = candidateCount,
+            ExpectedCount = expectedCount
         };
 
         if (preview is { HasErrors: false, MissingCount: > 0 })
         {
             problems.Add(ScoringProblem.Warning(
-                $"{preview.MissingCount} of the {candidateCount} titles in this request were not "
-                + "ranked, and keep whatever score they already had."));
+                $"{preview.MissingCount} of the {expectedCount} rankings asked for did not come "
+                + "back, and those titles keep whatever score they already had."));
         }
 
         return preview with { Problems = problems };
@@ -362,12 +371,15 @@ public sealed class RecommendationService(
         var stored = await context.ProfileSettings
             .AsNoTracking()
             .Where(s => s.ProfileId == profileId)
-            .Select(s => new { s.RecommendationHistorySize, s.RecommendationCandidateLimit })
+            .Select(s => new { s.RecommendationHistorySize, s.RecommendationCandidateLimit, s.RecommendationReturnTop })
             .FirstOrDefaultAsync(cancellationToken);
 
         return stored is null
             ? ScoringRequestOptions.Default
-            : ScoringRequestOptions.From(stored.RecommendationHistorySize, stored.RecommendationCandidateLimit);
+            : ScoringRequestOptions.From(
+                stored.RecommendationHistorySize,
+                stored.RecommendationCandidateLimit,
+                stored.RecommendationReturnTop);
     }
 
     public async Task SaveOptionsAsync(
@@ -394,10 +406,11 @@ public sealed class RecommendationService(
         // Clamped on the way in as well as on the way out. The page bounds its inputs
         // too, but a bound the storage does not enforce is one an older page or a
         // hand-edited row walks straight past.
-        var clamped = ScoringRequestOptions.From(options.MaxHistory, options.MaxCandidates);
+        var clamped = ScoringRequestOptions.From(options.MaxHistory, options.MaxCandidates, options.ReturnTop);
 
         settings.RecommendationHistorySize = clamped.MaxHistory;
         settings.RecommendationCandidateLimit = clamped.MaxCandidates;
+        settings.RecommendationReturnTop = clamped.ReturnTop;
 
         await context.SaveChangesAsync(cancellationToken);
     }

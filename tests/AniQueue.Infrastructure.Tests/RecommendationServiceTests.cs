@@ -135,6 +135,16 @@ public class RecommendationServiceTests
         await context.SaveChangesAsync();
     }
 
+    /// <summary>
+    /// A stand-in for the request a reply is being checked against, when the test
+    /// cares only about which ids were offered and how many were asked for.
+    /// </summary>
+    private static ScoringRequest Asked(params int[] animeIds) => new()
+    {
+        GeneratedAt = Now,
+        Candidates = animeIds.Select(id => new ScoringCandidate { Id = id, Title = $"#{id}" }).ToList()
+    };
+
     private static string Ranking(params (int Id, int Rank, double Score)[] results) =>
         $$"""
           {
@@ -330,7 +340,7 @@ public class RecommendationServiceTests
             seen.AddRange(ids);
 
             var ranking = Ranking(ids.Select((id, index) => (id, index + 1, 7.0)).ToArray());
-            var preview = await fixture.Recommendations.PreviewAsync(fixture.ProfileId, ranking, ids);
+            var preview = await fixture.Recommendations.PreviewAsync(fixture.ProfileId, ranking, request);
 
             await fixture.Recommendations.ApplyAsync(fixture.ProfileId, preview, "Manual");
         }
@@ -365,7 +375,7 @@ public class RecommendationServiceTests
         var preview = await fixture.Recommendations.PreviewAsync(
             fixture.ProfileId,
             Ranking((offered.Id, 1, 8.0), (notOffered.Id, 2, 7.0)),
-            [offered.Id]);
+            Asked(offered.Id));
 
         // Waiting, and real, but not part of the question — so its score was not
         // computed against the same set as the rest. A warning rather than an error:
@@ -396,13 +406,88 @@ public class RecommendationServiceTests
         var preview = await fixture.Recommendations.PreviewAsync(
             fixture.ProfileId,
             Ranking((offered.Id, 1, 8.0)),
-            [offered.Id]);
+            Asked(offered.Id));
 
         // Without the offered set this would say four of five were not ranked, which
         // would turn the user's own candidate limit into a warning against itself.
         Assert.Equal(1, preview.CandidateCount);
         Assert.Equal(0, preview.MissingCount);
-        Assert.DoesNotContain(preview.Problems, p => p.Message.Contains("not ranked"));
+        Assert.DoesNotContain(preview.Problems, p => p.Message.Contains("did not come back"));
+    }
+
+    [Fact]
+    public async Task Asking_for_the_top_few_narrows_the_reply_and_not_the_question()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        await using var context = fixture.Database.CreateContext();
+
+        for (var i = 0; i < 5; i++)
+        {
+            await AddAsync(context, fixture.ProfileId, $"Waiting {i}");
+        }
+
+        var request = await fixture.Recommendations.BuildRequestAsync(
+            fixture.ProfileId,
+            new ScoringRequestOptions { ReturnTop = 2 });
+
+        // Every title still goes: this bounds what comes back, not what is weighed.
+        // Sending fewer titles and asking for fewer rankings are different questions,
+        // and the second gets a better answer.
+        Assert.Equal(5, request.Candidates.Count);
+        Assert.Equal(2, request.ExpectedResults);
+        Assert.True(request.IsRankingLimited);
+        Assert.False(request.IsCandidatesCapped);
+    }
+
+    [Fact]
+    public async Task A_reply_of_exactly_what_was_asked_for_is_complete()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        await using var context = fixture.Database.CreateContext();
+
+        var first = await AddAsync(context, fixture.ProfileId, "First");
+        await AddAsync(context, fixture.ProfileId, "Second");
+        await AddAsync(context, fixture.ProfileId, "Third");
+
+        var request = await fixture.Recommendations.BuildRequestAsync(
+            fixture.ProfileId,
+            new ScoringRequestOptions { ReturnTop = 1 });
+
+        var preview = await fixture.Recommendations.PreviewAsync(
+            fixture.ProfileId,
+            Ranking((first.Id, 1, 8.0)),
+            request);
+
+        // One of three ranked, and nothing missing — because one is what was asked
+        // for. Measured against the candidates it would report two omissions the user
+        // deliberately requested.
+        Assert.Equal(3, preview.CandidateCount);
+        Assert.Equal(1, preview.ExpectedCount);
+        Assert.Equal(0, preview.MissingCount);
+        Assert.DoesNotContain(preview.Problems, p => p.Message.Contains("did not come back"));
+    }
+
+    [Fact]
+    public async Task A_reply_shorter_than_what_was_asked_for_still_warns()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        await using var context = fixture.Database.CreateContext();
+
+        var first = await AddAsync(context, fixture.ProfileId, "First");
+        await AddAsync(context, fixture.ProfileId, "Second");
+        await AddAsync(context, fixture.ProfileId, "Third");
+
+        var request = await fixture.Recommendations.BuildRequestAsync(
+            fixture.ProfileId,
+            new ScoringRequestOptions { ReturnTop = 3 });
+
+        var preview = await fixture.Recommendations.PreviewAsync(
+            fixture.ProfileId,
+            Ranking((first.Id, 1, 8.0)),
+            request);
+
+        Assert.Equal(2, preview.MissingCount);
+        Assert.Contains(preview.Problems, p => p.Message.Contains("2 of the 3 rankings"));
     }
 
     [Fact]
@@ -412,12 +497,13 @@ public class RecommendationServiceTests
 
         await fixture.Recommendations.SaveOptionsAsync(
             fixture.ProfileId,
-            new ScoringRequestOptions { MaxHistory = 25, MaxCandidates = 50 });
+            new ScoringRequestOptions { MaxHistory = 25, MaxCandidates = 50, ReturnTop = 20 });
 
         var stored = await fixture.Recommendations.GetOptionsAsync(fixture.ProfileId);
 
         Assert.Equal(25, stored.MaxHistory);
         Assert.Equal(50, stored.MaxCandidates);
+        Assert.Equal(20, stored.ReturnTop);
     }
 
     [Fact]
@@ -542,7 +628,7 @@ public class RecommendationServiceTests
         Assert.False(preview.HasErrors);
         Assert.True(preview.CanApply);
         Assert.Equal(1, preview.MissingCount);
-        Assert.Contains(preview.Problems, p => p.Message.Contains("not ranked"));
+        Assert.Contains(preview.Problems, p => p.Message.Contains("did not come back"));
 
         var result = await fixture.Recommendations.ApplyAsync(fixture.ProfileId, preview, "Manual");
         Assert.Equal(1, result.Applied);

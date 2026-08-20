@@ -38,6 +38,22 @@ public sealed record ScoringRequestOptions
     /// </remarks>
     public int? MaxCandidates { get; init; }
 
+    /// <summary>
+    /// How many rankings to ask the model to return, or null for all of them.
+    /// </summary>
+    /// <remarks>
+    /// Bounds the reply rather than the request, and the two are worth keeping apart
+    /// because their costs are not alike: a long request is read once, while a long
+    /// reply is generated a token at a time and can exhaust a model's output budget
+    /// halfway down the list.
+    ///
+    /// It does not narrow what the model considers. Every candidate sent is still
+    /// weighed against the history; this asks only for the best of them to come
+    /// back, which is a different — and usually better — answer than sending fewer
+    /// titles in the first place.
+    /// </remarks>
+    public int? ReturnTop { get; init; }
+
     /// <summary>The bounds a stored preference is clamped into before it is used.</summary>
     /// <remarks>
     /// Applied where the settings are read rather than where they are written, so a
@@ -46,10 +62,11 @@ public sealed record ScoringRequestOptions
     /// they exist to stop a typed extra zero costing a minute of database work, not
     /// to second-guess someone who really does want everything.
     /// </remarks>
-    public static ScoringRequestOptions From(int historySize, int? candidateLimit) => new()
+    public static ScoringRequestOptions From(int historySize, int? candidateLimit, int? returnTop = null) => new()
     {
         MaxHistory = Math.Clamp(historySize, 0, 5_000),
-        MaxCandidates = candidateLimit is { } limit ? Math.Clamp(limit, 1, 5_000) : null
+        MaxCandidates = candidateLimit is { } limit ? Math.Clamp(limit, 1, 5_000) : null,
+        ReturnTop = returnTop is { } top ? Math.Clamp(top, 1, 5_000) : null
     };
 }
 
@@ -109,6 +126,17 @@ public sealed record ScoringPreview
     /// </remarks>
     public int CandidateCount { get; init; }
 
+    /// <summary>
+    /// How many rankings the request asked to come back.
+    /// </summary>
+    /// <remarks>
+    /// Distinct from <see cref="CandidateCount"/> as soon as a return limit is set:
+    /// asking for the best fifty of a hundred and eighty-two makes a reply of fifty
+    /// a complete answer, and measuring it against the hundred and eighty-two would
+    /// report a hundred and thirty-two omissions the user deliberately asked for.
+    /// </remarks>
+    public int ExpectedCount { get; init; }
+
     public bool HasErrors => Problems.Any(p => p.Severity == ScoringSeverity.Error);
 
     /// <summary>How many rows applying would actually write.</summary>
@@ -117,8 +145,8 @@ public sealed record ScoringPreview
     /// <summary>Ranked titles that are passed over, for any reason.</summary>
     public int SkippedCount => Items.Count(i => !i.WillApply);
 
-    /// <summary>Offered titles the ranking did not mention.</summary>
-    public int MissingCount => Math.Max(0, CandidateCount - ApplicableCount);
+    /// <summary>Rankings that were asked for and did not arrive.</summary>
+    public int MissingCount => Math.Max(0, ExpectedCount - ApplicableCount);
 
     public bool CanApply => !HasErrors && ApplicableCount > 0;
 }
@@ -181,23 +209,25 @@ public interface IRecommendationService
     /// same validation: a preview built from an already-trusted object would be a
     /// second way in, and the second way in is the one that skips a check.
     /// </remarks>
-    /// <param name="offeredAnimeIds">
-    /// What the request actually asked about, when the caller still holds it.
+    /// <param name="request">
+    /// The question this is an answer to, when the caller still holds it.
     /// </param>
     /// <remarks>
     /// Passed in rather than remembered, because the request is deliberately not
-    /// stored — it is derivable from the run that results (D4) and storing it would
-    /// mean a second copy of the backlog per attempt, most of them abandoned.
+    /// stored — it is derivable from the run that results (D4), and keeping one per
+    /// attempt would mean a second copy of the backlog for every reply, most of them
+    /// abandoned.
     ///
-    /// It is what lets a ranking be checked against the question rather than against
-    /// the library: with a candidate limit set those are different sets, and a title
-    /// that is waiting but was never offered has not gone missing. When it is null
-    /// the whole visible backlog is assumed, which is what it was.
+    /// The whole request rather than the ids alone, because two different things are
+    /// checked against it: which titles were offered, and how many rankings were
+    /// asked for. Both differ from "the backlog" the moment either limit is set, and
+    /// a reply is only short or complete relative to what was requested. When it is
+    /// null the whole visible backlog is assumed, ranked in full.
     /// </remarks>
     Task<ScoringPreview> PreviewAsync(
         int profileId,
         string json,
-        IReadOnlyCollection<int>? offeredAnimeIds = null,
+        ScoringRequest? request = null,
         CancellationToken cancellationToken = default);
 
     /// <summary>

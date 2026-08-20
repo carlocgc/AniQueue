@@ -2330,6 +2330,14 @@ candidates, and only the person running the model knows which of those it can re
 states the size for that reason. Phase 10 offers the same two values beside the other
 preferences rather than inventing its own.
 
+**The two directions are bounded separately**, because their costs are not alike. A long request
+is read once; a long *reply* is generated a token at a time and can exhaust a model's output
+budget halfway down the list. So "rank the best 50 of these 182" is a third setting, and it is
+not the same request as sending 50 titles — every candidate is still weighed against the
+history, and only the top of the result comes back. The prompt states it in that order, and
+says so twice: a model told only "return 50" ranks the first fifty it reads, which is a worse
+answer that looks identical in the reply.
+
 **A cap is a page size, not a horizon**, and that is the whole design of the option. A capped
 request takes the titles longest without a score, never-scored first, so running it repeatedly
 sweeps the backlog and then keeps it fresh — where taking the first fifty alphabetically would

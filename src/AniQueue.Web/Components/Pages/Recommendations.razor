@@ -37,6 +37,55 @@
 <div class="card">
     <h2>1. Ask</h2>
 
+    @* Outside the branches below, so the numbers stay reachable after a request has
+       been built. They used to sit in the "no request yet" branch, which meant that
+       changing your mind about the size of a request — the single most likely thing
+       to want after seeing one — took a page reload. The panel opens by itself when
+       there is nothing built yet, and stays closed once there is, because at that
+       point it is a thing to adjust rather than a thing to read. *@
+    <details class="request-size" open="@(_request is null)">
+        <summary>How much to send, and how much to ask for back</summary>
+
+        <div class="field">
+            <label for="candidate-limit">Titles to rank</label>
+            <input id="candidate-limit" type="number" min="1" max="5000"
+                   placeholder="All of them" disabled="@_busy.IsRunning"
+                   @bind="_candidateLimit" @bind:event="oninput" />
+            <p class="muted">
+                Leave this empty to offer everything you are planning to watch. If your
+                model struggles with a long list, set a number — each request then takes
+                the titles that have gone longest without a score, so running it again
+                works through the rest.
+            </p>
+        </div>
+
+        <div class="field">
+            <label for="return-top">Rankings to ask for back</label>
+            <input id="return-top" type="number" min="1" max="5000"
+                   placeholder="One for every title" disabled="@_busy.IsRunning"
+                   @bind="_returnTop" @bind:event="oninput" />
+            <p class="muted">
+                The model still weighs every title you send; this asks it to return only
+                the best of them. Worth setting when the reply is the slow part — a
+                ranking with a sentence of reasoning per title is generated a word at a
+                time, and a long one can run out of room halfway down the list.
+            </p>
+        </div>
+
+        <div class="field">
+            <label for="history-size">Scored titles to send as history</label>
+            <input id="history-size" type="number" min="0" max="5000"
+                   disabled="@_busy.IsRunning"
+                   @bind="_historySize" @bind:event="oninput" />
+            <p class="muted">
+                Most recently finished first. More history means a ranking that fits your
+                taste more closely, up to the point where it crowds out the backlog in
+                your model's context. Zero sends none, and the ranking is then general
+                rather than yours.
+            </p>
+        </div>
+    </details>
+
     @if (_request is null)
     {
         <p class="muted">
@@ -44,42 +93,6 @@
             titles you have already scored — that history is what makes the ranking
             yours rather than a list of what is generally popular.
         </p>
-
-        @* Sized here rather than only in Phase 10's settings, because the right
-           numbers are found by trying a request and seeing whether the model coped.
-           Putting them anywhere else would mean two pages open to answer one
-           question. They are saved, because a model does not change between
-           sessions and retyping them every time is what makes a setting feel like
-           an obstacle. *@
-        <details class="request-size">
-            <summary>How much to send</summary>
-
-            <div class="field">
-                <label for="candidate-limit">Titles to rank</label>
-                <input id="candidate-limit" type="number" min="1" max="5000"
-                       placeholder="All of them" disabled="@_busy.IsRunning"
-                       @bind="_candidateLimit" @bind:event="oninput" />
-                <p class="muted">
-                    Leave this empty to offer everything you are planning to watch. If your
-                    model struggles with a long list, set a number — each request then takes
-                    the titles that have gone longest without a score, so running it again
-                    works through the rest.
-                </p>
-            </div>
-
-            <div class="field">
-                <label for="history-size">Scored titles to send as history</label>
-                <input id="history-size" type="number" min="0" max="5000"
-                       disabled="@_busy.IsRunning"
-                       @bind="_historySize" @bind:event="oninput" />
-                <p class="muted">
-                    Most recently finished first. More history means a ranking that fits your
-                    taste more closely, up to the point where it crowds out the backlog in
-                    your model's context. Zero sends none, and the ranking is then general
-                    rather than yours.
-                </p>
-            </div>
-        </details>
 
         <div class="toolbar">
             <button class="primary" disabled="@_busy.IsRunning" @onclick="BuildAsync">
@@ -112,6 +125,15 @@
                 This request covers @capped of your @_waiting waiting
                 @Plural(_waiting, "title", "titles") — the ones longest without a score.
                 Build it again after applying to work through the rest.
+            </p>
+        }
+
+        @if (_request.IsRankingLimited)
+        {
+            <p class="muted">
+                It asks for the best @_request.ExpectedResults back, not all
+                @_request.Candidates.Count. Every title is still weighed; only the top of
+                the result is returned.
             </p>
         }
 
@@ -326,6 +348,7 @@
 
     private int _historySize = ScoringRequestOptions.Default.MaxHistory;
     private int? _candidateLimit;
+    private int? _returnTop;
 
     /// <summary>How many titles are waiting, when the request covers only some.</summary>
     private int _waiting;
@@ -339,17 +362,6 @@
         ? request.Candidates.Count
         : null;
 
-    /// <summary>
-    /// What the request on screen asked about, so a reply is checked against the
-    /// question rather than against the backlog.
-    /// </summary>
-    /// <remarks>
-    /// Null when there is no request in hand — pasting a reply into a freshly opened
-    /// page is legitimate, and the whole visible backlog is the best assumption
-    /// available there.
-    /// </remarks>
-    private IReadOnlyCollection<int>? _offered =>
-        _request?.Candidates.Select(c => c.Id).ToList();
 
     protected override void OnInitialized() =>
         _busy = new BusyScope(() => InvokeAsync(StateHasChanged));
@@ -360,6 +372,7 @@
 
         _historySize = options.MaxHistory;
         _candidateLimit = options.MaxCandidates;
+        _returnTop = options.ReturnTop;
 
         await LoadRunsAsync();
     }
@@ -368,7 +381,7 @@
     {
         Reset();
 
-        var options = ScoringRequestOptions.From(_historySize, _candidateLimit);
+        var options = ScoringRequestOptions.From(_historySize, _candidateLimit, _returnTop);
 
         // Saved as a side effect of using them rather than behind a separate button.
         // These are only ever changed in order to build a request, so a Save the user
@@ -380,6 +393,7 @@
         // not sit on screen looking like it was accepted.
         _historySize = options.MaxHistory;
         _candidateLimit = options.MaxCandidates;
+        _returnTop = options.ReturnTop;
 
         _request = await _busy.RunAsync(
             "Building the request",
@@ -471,7 +485,7 @@
 
         _preview = await _busy.RunAsync(
             "Checking the reply",
-            _ => Scoring.PreviewAsync(Profile.DefaultProfileId, json, _offered));
+            _ => Scoring.PreviewAsync(Profile.DefaultProfileId, json, _request));
     }
 
     private async Task ApplyAsync()
