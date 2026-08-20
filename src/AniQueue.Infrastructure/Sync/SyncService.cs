@@ -35,6 +35,19 @@ public sealed class SyncService(
     /// </summary>
     private static readonly AnimeSource[] SyncableSources = [AnimeSource.AniList];
 
+    /// <summary>
+    /// Every source the Sources page accounts for, whether or not anything can be
+    /// fetched from it.
+    /// </summary>
+    /// <remarks>
+    /// Wider than <see cref="SyncableSources"/> on purpose. MyAnimeList is a source
+    /// — it names titles, it ranks against the other, and its export is how a
+    /// library gets here — so leaving it off the page left its precedence
+    /// unsettable and its import somewhere else entirely (D30). What it cannot do is
+    /// be fetched, and that is one flag rather than a second concept.
+    /// </remarks>
+    private static readonly AnimeSource[] PageSources = [AnimeSource.AniList, AnimeSource.MyAnimeList];
+
     /// <summary>How many absent titles the status names before it stops listing them.</summary>
     private const int AbsentTitlesShown = 10;
 
@@ -428,10 +441,12 @@ public sealed class SyncService(
             .ToDictionaryAsync(s => s.Source, cancellationToken);
 
         var account = options.CurrentValue.AniList.UserName;
-        var statuses = new List<SourceSyncStatus>(SyncableSources.Length);
+        var statuses = new List<SourceSyncStatus>(PageSources.Length);
 
-        foreach (var source in SyncableSources)
+        foreach (var source in PageSources)
         {
+            var canFetch = SyncableSources.Contains(source);
+
             // Newest run first, and only completed ones exist — nothing writes a row
             // until a run has reached a terminal state.
             //
@@ -490,8 +505,12 @@ public sealed class SyncService(
                 Settings = settings.TryGetValue(source, out var stored)
                     ? stored
                     : DefaultSettings(profileId, source),
-                IsConfigured = !string.IsNullOrWhiteSpace(account),
-                Account = string.IsNullOrWhiteSpace(account) ? null : account,
+                CanFetch = canFetch,
+
+                // A file source needs no account, so there is nothing to configure
+                // and nothing to warn about: the user brings the list themselves.
+                IsConfigured = !canFetch || !string.IsNullOrWhiteSpace(account),
+                Account = canFetch && !string.IsNullOrWhiteSpace(account) ? account : null,
                 LastRun = lastRun,
                 LastSuccess = lastSuccess,
                 LastFailure = lastFailure,
@@ -509,7 +528,7 @@ public sealed class SyncService(
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(settings);
-        RequireSyncable(settings.Source);
+        RequireConfigurable(settings.Source);
 
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
 
@@ -672,8 +691,26 @@ public sealed class SyncService(
         return stored ?? DefaultSettings(profileId, source);
     }
 
+    /// <summary>
+    /// What a source looks like before anybody has said anything about it.
+    /// </summary>
+    /// <remarks>
+    /// <b>Not primary</b>, and that matters because the page reads this: the entity
+    /// defaults <c>PrecedenceRank</c> to zero, so every unconfigured source claimed
+    /// to be primary and two of them claimed it at once. It also disagreed with the
+    /// import, which already ranks an unconfigured source below a configured one
+    /// (D29) — so the page said one thing and the merge did another.
+    ///
+    /// Nothing is primary until somebody chooses, which is honest: with no choice
+    /// made, two sources tie and the last import wins, exactly as D29 describes.
+    /// </remarks>
     private static SourceSyncSettings DefaultSettings(int profileId, AnimeSource source) =>
-        new() { ProfileId = profileId, Source = source };
+        new()
+        {
+            ProfileId = profileId,
+            Source = source,
+            PrecedenceRank = SourceSyncStatus.PrimaryRank + 1
+        };
 
     private async Task RecordAsync(
         int profileId,
@@ -706,6 +743,53 @@ public sealed class SyncService(
     private static SyncFetchResult Failure(AnimeSource source, string reason) =>
         new() { Source = source, FailureReason = reason };
 
+    public async Task SetPrimarySourceAsync(
+        int profileId,
+        AnimeSource source,
+        CancellationToken cancellationToken = default)
+    {
+        RequireConfigurable(source);
+
+        await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
+        await using var transaction = await context.Database.BeginTransactionAsync(cancellationToken);
+
+        var stored = await context.SourceSyncSettings
+            .Where(s => s.ProfileId == profileId)
+            .ToListAsync(cancellationToken);
+
+        foreach (var configurable in PageSources)
+        {
+            var rank = configurable == source
+                ? SourceSyncStatus.PrimaryRank
+                : SourceSyncStatus.PrimaryRank + 1;
+
+            if (stored.FirstOrDefault(s => s.Source == configurable) is { } row)
+            {
+                row.PrecedenceRank = rank;
+                continue;
+            }
+
+            // Written rather than left absent, because a demotion has to be recorded
+            // to mean anything: an absent row is a default, and the default is what
+            // this is overriding (D29 ranks an unconfigured source below a configured
+            // one, so leaving the loser out would leave it *equal* to the winner).
+            context.SourceSyncSettings.Add(new SourceSyncSettings
+            {
+                ProfileId = profileId,
+                Source = configurable,
+                PrecedenceRank = rank
+            });
+        }
+
+        // One transaction, because the seat is single: a failure between promoting
+        // one and demoting the other would leave two primaries, which is the tie
+        // this exists to make unreachable.
+        await context.SaveChangesAsync(cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
+
+        logger.LogInformation("{Source} is now the primary source for profile {ProfileId}", source, profileId);
+    }
+
     private static void RequireSyncable(AnimeSource source)
     {
         if (!SyncableSources.Contains(source))
@@ -714,6 +798,23 @@ public sealed class SyncService(
             // MyAnimeList as something to sync, because there is no list to fetch.
             throw new ArgumentOutOfRangeException(
                 nameof(source), source, "This source cannot be synced.");
+        }
+    }
+
+    /// <summary>
+    /// Settings exist for any source that names titles, which is a wider set than
+    /// the ones something can be fetched from.
+    /// </summary>
+    /// <remarks>
+    /// <see cref="AnimeSource.Manual"/> is the exception and always will be: a title
+    /// somebody typed in has no service behind it to rank or schedule (D17).
+    /// </remarks>
+    private static void RequireConfigurable(AnimeSource source)
+    {
+        if (!PageSources.Contains(source))
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(source), source, "This source has no settings.");
         }
     }
 }

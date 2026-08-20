@@ -80,7 +80,7 @@ why the sample data leaves AniList sync switched off in the database it creates.
 
 1. On MyAnimeList, go to **List → Export** and download your anime list. The file arrives
    gzipped; extract it so it ends in `.xml`.
-2. Open **Import** in AniQueue and select the file.
+2. Open **Sources** in AniQueue and select the file on the MyAnimeList card.
 3. Review the preview: how many entries are new, updated, unchanged, in conflict or
    unusable, and exactly which fields would change.
 4. Confirm.
@@ -99,7 +99,8 @@ settings, in two places, deliberately:
   environment variable (`Sync__AniList__UserName`), in `appsettings.json`, or by uncommenting
   the line in the `userconfig.json` written beside the database on first run.
 - **How often, and what to do with conflicts and disappearances** are your settings, on the
-  **Sources** page.
+  **Sources** page — along with which source is **primary**, which decides who wins when two
+  of them describe one title differently.
 
 `Sync:Enabled=false` is the kill switch. It is a configuration key rather than a toggle in the
 application because the moment it is needed is the moment the UI cannot be reached.

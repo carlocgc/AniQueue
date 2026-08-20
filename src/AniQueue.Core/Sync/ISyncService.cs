@@ -97,6 +97,33 @@ public sealed record SourceSyncStatus
 
     public required SourceSyncSettings Settings { get; init; }
 
+    /// <summary>
+    /// Whether this source has a list AniQueue can go and read, or only a file the
+    /// user brings.
+    /// </summary>
+    /// <remarks>
+    /// The one real difference between the two sources on the page, and the reason
+    /// they can otherwise share a card (D30). Everything else about them — ranking,
+    /// what a preview looks like, what applying one does — is identical, so the
+    /// split is a fetch button against a file picker rather than two pages.
+    ///
+    /// A file source is never scheduled, never stalls and never reports a failure,
+    /// because nothing runs on its behalf.
+    /// </remarks>
+    public required bool CanFetch { get; init; }
+
+    /// <summary>
+    /// Whether this source outranks the others when two of them describe one title
+    /// (D18, D29).
+    /// </summary>
+    public bool IsPrimary => Settings.PrecedenceRank == PrimaryRank;
+
+    /// <summary>
+    /// The rank that means primary. Exactly one source holds it, which is what
+    /// stops two of them tying and falling back to last-write-wins (D30).
+    /// </summary>
+    public const int PrimaryRank = 0;
+
     /// <summary>Whether an account has been configured for this source (D20).</summary>
     public required bool IsConfigured { get; init; }
 
@@ -231,6 +258,30 @@ public interface ISyncService
     /// the first time the user has said anything about it.
     /// </summary>
     Task SaveSettingsAsync(SourceSyncSettings settings, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Makes one source primary and demotes every other, in one transaction.
+    /// </summary>
+    /// <remarks>
+    /// <b>Promotion rather than assignment, because primary is a single seat.</b>
+    /// The rank was a per-source number anyone could set independently, so two
+    /// sources could both be rank 0 — and D29 resolves a tie by letting the last
+    /// write win, which is the behaviour it exists to end. A control that can
+    /// express an unreachable state is a control that will.
+    ///
+    /// There is deliberately no way to say "this one is not primary": demoting the
+    /// only primary would leave nobody holding the seat. Somebody else is promoted
+    /// instead, which is the same decision stated in the form that always leaves the
+    /// setting meaningful (D30).
+    ///
+    /// Rows are created for sources that have none, because a demotion has to be
+    /// recorded to be worth anything — an absent row is a default, and defaults are
+    /// what the promotion is overriding.
+    /// </remarks>
+    Task SetPrimarySourceAsync(
+        int profileId,
+        AnimeSource source,
+        CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Stores the preferred title language (D22).

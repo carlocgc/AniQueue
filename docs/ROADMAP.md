@@ -1329,8 +1329,54 @@ setting agree by construction rather than by a comment claiming they are tested 
 **Not yet settled, and it limits this.** `PrecedenceRank` is per-source and independently
 settable, so two sources can both be rank 0 — and two primaries tie, which is last-write-wins
 again. The Sources page also only offers the setting for AniList, so MyAnimeList's rank is
-whatever the default says. Making *primary* exclusive, and giving every source a place to be
-configured, is the other half of this and is tracked separately.
+whatever the default says. *Settled by D30.*
+
+### D30 — Sources is where every source lives, and primary is a single seat
+
+*Finishes D29, which could describe precedence but not let anyone configure it.*
+
+MyAnimeList was a source everywhere except on the page named after sources. Its export was a
+separate **Import** item in the navigation, it had no settings of its own, and its rank was
+therefore whatever the default happened to be — so D29's rule, which turns entirely on which
+source outranks which, could not actually be exercised by a user. Three consequences follow, and
+they are one change.
+
+**Every source the application knows appears on the page**, whether or not anything can be
+fetched from it. The only real difference is that one has a list to go and read and the other
+does not, so that is one flag — `CanFetch` — rather than a second page and a second concept.
+Everything else about them is already identical: both name titles, both rank, both produce a
+preview, and both commit through the same pipeline.
+
+- The AniList card keeps its account line and **Sync now**; the MyAnimeList card offers a file
+  picker. That asymmetry is the whole of it.
+- Scheduling, conflicts and absence are gated on `CanFetch`, because they describe what a *run*
+  does and nothing runs on a file source. Gated rather than disabled: a disabled control still
+  claims it could apply.
+- The unattended job skips anything it cannot fetch. The status list widened, and without that
+  guard a scheduled run would have asked to sync a file.
+
+**The two previews merge, because they were never different.** §5 already said the difference
+between an upload and a sync is the trigger rather than the logic; the page now says it too. A
+fetch is kept whole where a file is not, but only because applying a fetch records a `SyncRun`
+— a scheduled thing that fails unattended and must be able to say when it last worked — while a
+file has no history worth keeping, since the user was standing there.
+
+**Primary is a radio, not a per-source dropdown, and that is the substance rather than the
+styling.** Two dropdowns could both say *Primary*, and two primaries tie — which D29 settles by
+letting the last import win, the exact behaviour the setting exists to end. A control able to
+express an unreachable state eventually will. So promotion is the only operation:
+`SetPrimarySourceAsync` seats one source and demotes the rest in one transaction, and there is
+deliberately **no demote** — taking the seat from its only holder would leave it empty.
+
+Two smaller things follow from being able to see both cards at once. **Nothing is primary until
+somebody chooses**: the entity defaulted the rank to zero, so every unconfigured source claimed
+the seat and two claimed it simultaneously — and it disagreed with the import, which already
+ranks an unconfigured source below a configured one (D29). And **the title language moved out of
+AniList's settings** onto the page, because it is a profile preference rather than a fact about
+a source; with a second card it would have been drawn twice, as two controls over one setting.
+
+**The Import page is retired**, and both empty states now offer one destination rather than two.
+Where the library comes from is one question with one answer.
 
 ---
 
