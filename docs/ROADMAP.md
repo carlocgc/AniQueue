@@ -1771,7 +1771,8 @@ vacant number costs less than a renumbering that makes older citations point at 
 | 6b | Relations + backfill | Edges land from a paced pass that is idle in the steady state |
 | 6c | Related titles | Every row expands to its relations, tagged; standalone filter returns |
 | 6d | Queue what follows | One click queues a title and its unwatched sequels, in release order |
-| 7 | Scoring interchange | Backlog exported as JSON; a conforming ranking imports, previews and applies |
+| 7a | Scoring contract | Request built, response validated, ranking applied — all of it without a page |
+| 7b | Scoring surface | Export, prompt, paste or upload, preview, apply |
 | 8 | Hosted model scoring | A configured endpoint returns a ranking AniQueue applies without anything being copied by hand |
 | 9 | Metadata + artwork | Ids mapped and art cached under `/data` by jobs that idle when there is nothing to fetch |
 | 10 | Settings | One page for preferences; operator configuration shown and not editable |
@@ -2276,6 +2277,18 @@ Exports the backlog as versioned JSON for an external model to rank, and imports
 back. Both halves are schema, and the schema is the deliverable: the export states what a model
 is given, the response schema states exactly what AniQueue will accept back, and nothing
 outside it is parsed.
+
+**Split in two while building it.** *7a* is everything below except the page: the payload types,
+the prompt, the response parser and `IRecommendationService`, ending with a request that can be
+built and a ranking that can be applied by a test but by nobody else. *7b* is the surface that
+lets a person do it. The seam is worth having beyond review size — 7a is what Phase 8 calls, so
+building it alone first is what proves the endpoint is a second courier rather than a second
+pipeline (D31).
+
+**The prompt belongs to 7a, not to the page.** What a model is told to return and what the
+parser accepts are two statements of one thing; putting the first in a Razor component would
+leave Phase 8 reaching into the UI for it, and would let the two drift with nothing failing.
+A test asserts that the example the prompt asks for is one the parser accepts.
 
 **The export payload.** One candidate per Planning title: the AniQueue anime id, the displayed
 title and whichever romaji/english/native variants the source published, media type, episode

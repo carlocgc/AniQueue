@@ -57,6 +57,12 @@ public static class PersistenceServiceCollectionExtensions
         services.AddKeyedSingleton<Core.Import.IAnimeListParser, Core.Import.MyAnimeListXmlParser>(
             Core.Domain.AnimeSource.MyAnimeList);
 
+        // The response reader is pure and stateless too, and unkeyed because there is
+        // only ever one: the format it reads is AniQueue's own, so a second
+        // implementation would mean a second contract rather than a second source.
+        services.AddSingleton<Core.Recommendations.ScoringResponseParser>();
+        services.AddScoped<Core.Recommendations.IRecommendationService, Recommendations.RecommendationService>();
+
         return services;
     }
 
