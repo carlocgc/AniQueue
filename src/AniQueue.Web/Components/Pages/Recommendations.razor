@@ -166,8 +166,13 @@
 
     <div class="field">
         <label for="response">The model's reply</label>
+        @* The placeholder comes from a C# string rather than being written inline
+           with entities. Razor encodes a literal attribute value, so a &quot; in the
+           markup reaches the browser as &amp;quot; and the field advertises the
+           wrong shape — quotation marks are exactly what a person is checking their
+           reply against here. *@
         <textarea id="response" rows="8" spellcheck="false"
-                  placeholder="{ &quot;results&quot;: [ … ] }"
+                  placeholder="@ResponseExample"
                   disabled="@_busy.IsRunning"
                   @bind="_response" @bind:event="oninput"></textarea>
     </div>
@@ -296,6 +301,16 @@
 
 @code {
     private const string ProviderName = "Manual";
+
+    /// <summary>
+    /// The shape the field expects, shown while it is empty.
+    /// </summary>
+    /// <remarks>
+    /// Abbreviated to the wrapper the parser actually requires. A full example would
+    /// be too wide for the field and would wrap into something that no longer looks
+    /// like the JSON it is describing.
+    /// </remarks>
+    private const string ResponseExample = """{ "results": [ … ] }""";
 
     private BusyScope _busy = default!;
     private IJSObjectReference? _module;
