@@ -1920,11 +1920,48 @@ ordered set to `AddAnimeAsync` so the contiguity invariant keeps one home. Indiv
 an expansion are the other half, and the two together replace what `AddFranchiseAsync` did.
 
 **The individual half shipped first, and took the checkboxes with it (D26).** Every backlog row
-and every relative in an expansion now carries a **+** that queues that one title, disabled
-where it could not work and saying why. What remains for the sequel walk is the walk: one press
-that queues a title *and what follows it*, which is the only part of 6d a per-row button cannot
-express — and the only part that still needs `QueueAddResult`'s per-reason counts, since a run
-of six can decline five of them for five different reasons.
+and every relative in an expansion carries a **+** that queues that one title, disabled where it
+could not work and saying why. The walk is the other half, and it is the only part of 6d a
+per-row button cannot express — and the only part that still needs `QueueAddResult`'s per-reason
+counts, since a run of six can decline several of them for different reasons.
+
+**The walk lives in the expansion panel, not on the row.** A control that queues six things at
+once belongs beside the list of what they are, and the row already carries two buttons that D26
+had to move apart. It is the only worded button on the page, because "queue six titles" is not
+something a glyph should be trusted to say, and it carries the count so the size of the
+commitment is stated before it is made rather than after.
+
+It is offered only when it would do more than the row's own button already does — at one title
+it *is* that button with a longer name — so a run already queued shows nothing, and the number
+is recomputed after every press on the page, in either direction.
+
+**Two things about the walk that the sentence above got wrong, and one it left ambiguous.**
+
+- **`CountSequelsToQueueAsync` had to exist**, which nothing planned for. A button that says
+  what it will do has to ask first, and it has to ask the same question the press answers, or
+  the count and the action disagree the moment anything else is queued.
+- **The walk goes through titles the library does not own**, not merely through titles it will
+  not queue. It runs in external identifiers and resolves to library rows only at the end,
+  because an unowned middle season has edges and no `Anime` row — and stopping there would end
+  the chain at exactly the gap the feature exists to bridge.
+- ***"Skipping `SUMMARY` and `COMPILATION`" is about nodes, not edges,*** which is the only
+  reading that is not vacuous: the walk follows `SEQUEL` alone, so it never traverses either
+  type. What it means is that a title *identified as* a recap or a compilation is passed through
+  rather than queued — and that case is routine rather than theoretical, because AniList threads
+  a recap film as the sequel of one season and the prequel of the next, putting it in the middle
+  of the chain rather than off to one side.
+
+  **One direction of that cannot be read**, and it is left wrong on purpose. `COMPILATION` has
+  an inverse in AniList's vocabulary and `SUMMARY` does not — `RelationTypes.Invert` maps it to
+  itself — so only an edge stating "X has summary Y" identifies Y as the recap. A recap whose
+  own fetch stated the edge from its side is indistinguishable from the series it recaps.
+  Excluding both ends would drop the season instead, and queueing a recap the user removes in
+  one press is much the smaller error.
+
+**A cycle terminates**, because relation data is maintained by people and a graph saying two
+titles follow each other is a mistake to survive rather than spin on. The visited set does that;
+a step limit bounds length as well, since an unbounded transitive walk over data an external
+editor reshapes is a page that hangs rather than a page that is wrong.
 
 ### Phase 7 — Dashboard and decision mode
 Currently Watching with progress bars, Up Next top 5–10, backlog summary counts and
@@ -2107,8 +2144,14 @@ Phase 6 adds:
   pair stated from both ends counts once; two ends that disagree are labelled "Related" rather
   than arbitrated; nothing is ever transitive beyond one edge.
 - **The sequel walk.** It traverses *through* a Completed middle season without queueing it,
-  appends only Planning titles in release order, reports `QueueAddResult` categories correctly,
-  is a no-op when re-run, and leaves positions contiguous.
+  and through a season the library does not own at all; it never goes backwards; it appends in
+  release order rather than the order it found things; a recap or compilation in the middle of
+  the chain is passed through rather than queued; a hidden season carries the chain without
+  being queued; a cycle terminates; it reports `QueueAddResult` categories correctly, is a no-op
+  when re-run, and leaves positions contiguous. The count behind the button reports what the
+  press would actually append, and a title with no AniList identifier has no chain at all.
+  Tested against the real `QueueService` rather than a stub, because the hand-off to
+  `AddAnimeAsync` is the seam the design turns on.
 
 No test may depend on a live external API.
 

@@ -1,5 +1,6 @@
 using AniQueue.Core.Domain;
 using AniQueue.Core.Library;
+using AniQueue.Core.Queue;
 using AniQueue.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 
@@ -17,7 +18,9 @@ namespace AniQueue.Infrastructure.Library;
 /// a title whose own relations have never been fetched is reachable only that way
 /// — and an edge read from the far end is inverted before it is labelled.
 /// </remarks>
-public sealed class RelationService(IDbContextFactory<AniQueueDbContext> contextFactory) : IRelationService
+public sealed class RelationService(
+    IDbContextFactory<AniQueueDbContext> contextFactory,
+    IQueueService queue) : IRelationService
 {
     /// <summary>
     /// The service whose identifiers the graph is written in.
@@ -29,6 +32,19 @@ public sealed class RelationService(IDbContextFactory<AniQueueDbContext> context
     /// than an oversight.
     /// </remarks>
     private const AnimeSource Source = AnimeSource.AniList;
+
+    /// <summary>
+    /// How many times the sequel walk will ask for the next step before giving up.
+    /// </summary>
+    /// <remarks>
+    /// A stop, not a budget. Each step is one indexed query over the frontier, and a
+    /// real chain is a handful long — the longest television runs anyone owns are
+    /// nowhere near this. It exists because the walk is transitive over data an
+    /// external editor maintains, and an unbounded loop over a graph somebody else
+    /// can reshape is a page that hangs rather than a page that is wrong. The visited
+    /// set already makes cycles terminate; this bounds length as well.
+    /// </remarks>
+    private const int MaxSequelSteps = 32;
 
     public async Task<IReadOnlyDictionary<int, int>> GetRelatedCountsAsync(
         int profileId,
@@ -161,6 +177,180 @@ public sealed class RelationService(IDbContextFactory<AniQueueDbContext> context
             })
         ];
     }
+
+    public async Task<int> CountSequelsToQueueAsync(
+        int profileId,
+        int animeId,
+        CancellationToken cancellationToken = default)
+    {
+        await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
+
+        var chain = await SequelChainAsync(context, profileId, animeId, cancellationToken);
+
+        if (chain.Count == 0)
+        {
+            return 0;
+        }
+
+        // Counted as what would actually be appended, not as the length of the
+        // chain. The action names its own size — "queue this and two sequels" — and a
+        // number that included seasons already queued or already watched would be a
+        // promise the press could not keep.
+        var queued = await queue.GetQueuedAnimeIdsAsync(profileId, cancellationToken);
+
+        return chain.Count(c => c.Status == LibraryStatus.Planning && !queued.Contains(c.AnimeId));
+    }
+
+    public async Task<QueueAddResult> AddWithSequelsAsync(
+        int profileId,
+        int animeId,
+        CancellationToken cancellationToken = default)
+    {
+        List<ChainEntry> chain;
+
+        await using (var context = await contextFactory.CreateDbContextAsync(cancellationToken))
+        {
+            chain = await SequelChainAsync(context, profileId, animeId, cancellationToken);
+        }
+
+        if (chain.Count == 0)
+        {
+            return new QueueAddResult { Added = 0 };
+        }
+
+        // Handed over whole rather than pre-filtered, so one method decides queue
+        // eligibility however a title got here. A Completed season the walk passed
+        // through comes back counted as NoLongerPlanned rather than silently dropped,
+        // which is the difference between "added 2" and "added 2, skipped the one you
+        // have already seen".
+        return await queue.AddAnimeAsync(
+            profileId,
+            [.. chain.Select(c => c.AnimeId)],
+            cancellationToken: cancellationToken);
+    }
+
+    /// <summary>
+    /// The title and everything that follows it, owned, in release order.
+    /// </summary>
+    /// <remarks>
+    /// The walk happens in <b>external identifiers</b> and resolves to library rows
+    /// only at the end, which is what lets it pass through a season the user does not
+    /// own: an unowned middle season has edges but no <c>Anime</c> row, so resolving
+    /// as it went would end the chain at exactly the gap the feature exists to
+    /// bridge.
+    /// </remarks>
+    private static async Task<List<ChainEntry>> SequelChainAsync(
+        AniQueueDbContext context,
+        int profileId,
+        int animeId,
+        CancellationToken cancellationToken)
+    {
+        var start = await context.AnimeExternalIds
+            .AsNoTracking()
+            .Where(x => x.Source == Source && x.AnimeId == animeId)
+            .Select(x => x.ExternalId)
+            .ToListAsync(cancellationToken);
+
+        if (start.Count == 0)
+        {
+            // Nothing AniList identifies has nothing AniList can say follows it. The
+            // caller offers no action rather than one that would queue only the row
+            // the user was already looking at.
+            return [];
+        }
+
+        var reached = start.ToHashSet(StringComparer.Ordinal);
+        var frontier = start;
+
+        for (var step = 0; step < MaxSequelSteps && frontier.Count > 0; step++)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            var current = frontier;
+
+            // Both directions of the same statement. An edge is stored exactly as
+            // fetched (D24), so "this has sequel X" and "X has prequel this" are the
+            // same fact written from opposite ends — and a season whose own relations
+            // have never been fetched is only ever reachable through the second form.
+            var next = await context.AnimeRelations
+                .AsNoTracking()
+                .Where(r => r.Source == Source)
+                .Where(r =>
+                    (r.RelationType == RelationType.Sequel && current.Contains(r.ExternalId))
+                    || (r.RelationType == RelationType.Prequel && current.Contains(r.RelatedExternalId)))
+                .Select(r => r.RelationType == RelationType.Sequel ? r.RelatedExternalId : r.ExternalId)
+                .Distinct()
+                .ToListAsync(cancellationToken);
+
+            // The visited set is what makes a cycle terminate. Relation data is
+            // maintained by people, and a graph that says two titles follow each other
+            // is a mistake this must survive rather than spin on.
+            frontier = [.. next.Where(id => reached.Add(id))];
+        }
+
+        var excluded = await RecapsAndCompilationsAsync(context, reached, cancellationToken);
+
+        return await context.LibraryEntries
+            .AsNoTracking()
+            .Where(e => e.ProfileId == profileId && !e.IsHidden)
+            .Where(e => e.Anime!.ExternalIds.Any(x =>
+                x.Source == Source && reached.Contains(x.ExternalId) && !excluded.Contains(x.ExternalId)))
+
+            // Release order, and it is a fact rather than an opinion: AniList
+            // publishes no viewing sequence, and ordering along the edges themselves
+            // would produce story order, which is frequently the wrong watch order
+            // (D24). Unknown dates last, with the year as a tiebreak for anything the
+            // relation pass has not reached.
+            .OrderBy(e => e.Anime!.StartDate == null)
+            .ThenBy(e => e.Anime!.StartDate)
+            .ThenBy(e => e.Anime!.ReleaseYear == null)
+            .ThenBy(e => e.Anime!.ReleaseYear)
+            .ThenBy(e => e.Anime!.Title)
+            .Select(e => new ChainEntry(e.AnimeId, e.Status))
+            .ToListAsync(cancellationToken);
+    }
+
+    /// <summary>
+    /// Which of the reached identifiers are recaps or compilations, and so are not
+    /// part of "the rest of this series".
+    /// </summary>
+    /// <remarks>
+    /// Reachable through a <c>SEQUEL</c>-only walk precisely because of how AniList
+    /// threads them: a recap film released between two seasons is routinely published
+    /// as the sequel of the first and the prequel of the second, so it sits in the
+    /// middle of the chain rather than hanging off it. Nobody asking for the rest of a
+    /// series means the summary of the part they just watched.
+    ///
+    /// <b>Direction matters, and one direction cannot be read.</b> An edge saying
+    /// "X has compilation Y" names Y, and "Y contains X" names Y again, so both forms
+    /// identify the compilation. <c>SUMMARY</c> has no inverse in AniList's vocabulary
+    /// — <see cref="RelationTypes.Invert"/> maps it to itself — so only the form
+    /// stating "X has summary Y" identifies the recap. A recap whose own fetch stated
+    /// the edge from its side is indistinguishable from the series it recaps, and is
+    /// therefore left in. Excluding both ends would drop the season instead, which is
+    /// much worse than queueing a recap the user can remove in one press.
+    /// </remarks>
+    private static async Task<HashSet<string>> RecapsAndCompilationsAsync(
+        AniQueueDbContext context,
+        IReadOnlyCollection<string> reached,
+        CancellationToken cancellationToken)
+    {
+        var named = await context.AnimeRelations
+            .AsNoTracking()
+            .Where(r => r.Source == Source)
+            .Where(r =>
+                ((r.RelationType == RelationType.Summary || r.RelationType == RelationType.Compilation)
+                    && reached.Contains(r.RelatedExternalId))
+                || (r.RelationType == RelationType.Contains && reached.Contains(r.ExternalId)))
+            .Select(r => r.RelationType == RelationType.Contains ? r.ExternalId : r.RelatedExternalId)
+            .Distinct()
+            .ToListAsync(cancellationToken);
+
+        return named.ToHashSet(StringComparer.Ordinal);
+    }
+
+    /// <summary>One owned title in a sequel chain, and whether it can be queued.</summary>
+    private sealed record ChainEntry(int AnimeId, LibraryStatus Status);
 
     /// <summary>
     /// Every edge one step out from the given titles, in both directions, narrowed

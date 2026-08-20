@@ -1,7 +1,9 @@
 using AniQueue.Core.Domain;
 using AniQueue.Core.Library;
+using AniQueue.Core.Queue;
 using AniQueue.Infrastructure.Library;
 using AniQueue.Infrastructure.Persistence;
+using AniQueue.Infrastructure.Queue;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
@@ -25,6 +27,14 @@ public class RelationServiceTests
 
         public required IRelationService Relations { get; init; }
 
+        /// <summary>
+        /// The real queue service, not a stub. The sequel walk hands its ordered set
+        /// to <c>AddAnimeAsync</c> precisely so that queue eligibility and the
+        /// contiguity invariant stay in one place — replacing it here would leave
+        /// that hand-off untested at the only seam where it can go wrong.
+        /// </summary>
+        public required IQueueService Queue { get; init; }
+
         public required int ProfileId { get; init; }
 
         public static async Task<Fixture> CreateAsync()
@@ -39,10 +49,13 @@ public class RelationServiceTests
             await using var context = database.CreateContext();
             var profile = await SeedData.CreateProfileAsync(context);
 
+            var queue = new QueueService(database.ContextFactory, NullLogger<QueueService>.Instance);
+
             return new Fixture
             {
                 Database = database,
-                Relations = new RelationService(database.ContextFactory),
+                Relations = new RelationService(database.ContextFactory, queue),
+                Queue = queue,
                 ProfileId = profile.Id
             };
         }
@@ -123,6 +136,30 @@ public class RelationServiceTests
 
         public Task<IReadOnlyDictionary<int, int>> CountsAsync(params int[] animeIds) =>
             Relations.GetRelatedCountsAsync(ProfileId, animeIds);
+
+        /// <summary>The queue's titles in order, as one string for readable assertions.</summary>
+        public async Task<string> QueueOrderAsync()
+        {
+            var slots = await Queue.GetQueueAsync(ProfileId);
+            return string.Join(" ", slots.Select(s => s.Title));
+        }
+
+        /// <summary>
+        /// Reads positions straight from the table rather than through the ordered
+        /// read, which would hide exactly the corruption being checked for (D2).
+        /// </summary>
+        public async Task AssertQueueContiguousAsync()
+        {
+            await using var context = Database.CreateContext();
+
+            var positions = await context.QueueItems
+                .AsNoTracking()
+                .Where(q => q.ProfileId == ProfileId)
+                .Select(q => q.Position)
+                .ToListAsync();
+
+            Assert.Equal(Enumerable.Range(0, positions.Count), positions.Order());
+        }
 
         public ValueTask DisposeAsync() => Database.DisposeAsync();
     }
@@ -397,5 +434,298 @@ public class RelationServiceTests
 
         Assert.Equal(related.Count, counts[owned]);
         Assert.Equal(2, related.Count);
+    }
+
+    // --- The sequel walk -------------------------------------------------
+    //
+    // The one transitive read in this service, and the only one: an expansion
+    // answers "how is this connected" and stops at one edge, while this answers
+    // "what am I signing up for" and does not (D24).
+
+    [Fact]
+    public async Task The_walk_queues_a_title_and_everything_that_follows_it()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+
+        var one = await fixture.OwnAsync("100", "Season one", startDate: new DateOnly(2015, 1, 8));
+        await fixture.OwnAsync("200", "Season two", startDate: new DateOnly(2016, 4, 5));
+        await fixture.OwnAsync("300", "Season three", startDate: new DateOnly(2017, 10, 3));
+
+        await fixture.RelateAsync("100", RelationType.Sequel, "200");
+        await fixture.RelateAsync("200", RelationType.Sequel, "300");
+
+        var result = await fixture.Relations.AddWithSequelsAsync(fixture.ProfileId, one);
+
+        Assert.Equal(3, result.Added);
+        Assert.Equal("Season one Season two Season three", await fixture.QueueOrderAsync());
+        await fixture.AssertQueueContiguousAsync();
+    }
+
+    /// <summary>
+    /// Forward only. This is what makes the walk better than the franchise
+    /// expansion it replaces, which proposed the seasons already watched every time.
+    /// </summary>
+    [Fact]
+    public async Task The_walk_does_not_go_backwards()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+
+        await fixture.OwnAsync("100", "Season one", startDate: new DateOnly(2015, 1, 8));
+        var two = await fixture.OwnAsync("200", "Season two", startDate: new DateOnly(2016, 4, 5));
+        await fixture.OwnAsync("300", "Season three", startDate: new DateOnly(2017, 10, 3));
+
+        await fixture.RelateAsync("100", RelationType.Sequel, "200");
+        await fixture.RelateAsync("200", RelationType.Sequel, "300");
+
+        await fixture.Relations.AddWithSequelsAsync(fixture.ProfileId, two);
+
+        Assert.Equal("Season two Season three", await fixture.QueueOrderAsync());
+    }
+
+    /// <summary>
+    /// A season the user does not own has edges but no library row, and it must not
+    /// end the chain — bridging that gap is a large part of why the walk resolves to
+    /// library rows only at the end.
+    /// </summary>
+    [Fact]
+    public async Task The_walk_passes_through_a_season_the_library_does_not_own()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+
+        var one = await fixture.OwnAsync("100", "Season one", startDate: new DateOnly(2015, 1, 8));
+        await fixture.OwnAsync("300", "Season three", startDate: new DateOnly(2017, 10, 3));
+
+        // 200 exists on AniList and not here.
+        await fixture.RelateAsync("100", RelationType.Sequel, "200");
+        await fixture.RelateAsync("200", RelationType.Sequel, "300");
+
+        var result = await fixture.Relations.AddWithSequelsAsync(fixture.ProfileId, one);
+
+        Assert.Equal(2, result.Added);
+        Assert.Equal("Season one Season three", await fixture.QueueOrderAsync());
+    }
+
+    /// <summary>
+    /// A Completed season four between three and five must not stop the walk, and
+    /// must be accounted for rather than silently dropped.
+    /// </summary>
+    [Fact]
+    public async Task The_walk_traverses_through_a_watched_season_and_counts_it_as_skipped()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+
+        var three = await fixture.OwnAsync("300", "Season three", startDate: new DateOnly(2017, 10, 3));
+        await fixture.OwnAsync("400", "Season four", LibraryStatus.Completed, startDate: new DateOnly(2018, 4, 2));
+        await fixture.OwnAsync("500", "Season five", startDate: new DateOnly(2019, 1, 7));
+
+        await fixture.RelateAsync("300", RelationType.Sequel, "400");
+        await fixture.RelateAsync("400", RelationType.Sequel, "500");
+
+        var result = await fixture.Relations.AddWithSequelsAsync(fixture.ProfileId, three);
+
+        Assert.Equal(2, result.Added);
+        Assert.Equal(1, result.NoLongerPlanned);
+        Assert.Equal("Season three Season five", await fixture.QueueOrderAsync());
+    }
+
+    /// <summary>
+    /// Release order, not walk order. AniList publishes no viewing sequence, and the
+    /// edges alone would give story order — frequently the wrong watch order (D24).
+    /// </summary>
+    [Fact]
+    public async Task The_walk_appends_in_release_order_rather_than_the_order_it_found_them()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+
+        var one = await fixture.OwnAsync("100", "First", startDate: new DateOnly(2015, 1, 8));
+
+        // Two sequels of the same season, discovered in one step, so nothing about
+        // the traversal decides which comes first.
+        await fixture.OwnAsync("300", "Later", startDate: new DateOnly(2017, 10, 3));
+        await fixture.OwnAsync("200", "Sooner", startDate: new DateOnly(2016, 4, 5));
+
+        await fixture.RelateAsync("100", RelationType.Sequel, "300");
+        await fixture.RelateAsync("100", RelationType.Sequel, "200");
+
+        await fixture.Relations.AddWithSequelsAsync(fixture.ProfileId, one);
+
+        Assert.Equal("First Sooner Later", await fixture.QueueOrderAsync());
+    }
+
+    /// <summary>
+    /// A recap film sits in the middle of a chain rather than off it: AniList
+    /// routinely publishes one as the sequel of the season before and the prequel of
+    /// the season after, so a SEQUEL-only walk reaches it.
+    /// </summary>
+    [Fact]
+    public async Task A_recap_in_the_middle_of_the_chain_is_passed_through_but_not_queued()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+
+        var one = await fixture.OwnAsync("100", "Season one", startDate: new DateOnly(2015, 1, 8));
+        await fixture.OwnAsync("150", "Recap film", startDate: new DateOnly(2016, 1, 9));
+        await fixture.OwnAsync("200", "Season two", startDate: new DateOnly(2016, 4, 5));
+
+        await fixture.RelateAsync("100", RelationType.Sequel, "150");
+        await fixture.RelateAsync("150", RelationType.Sequel, "200");
+
+        // What makes it a recap, stated the way the source states it.
+        await fixture.RelateAsync("100", RelationType.Summary, "150");
+
+        var result = await fixture.Relations.AddWithSequelsAsync(fixture.ProfileId, one);
+
+        Assert.Equal(2, result.Added);
+        Assert.Equal("Season one Season two", await fixture.QueueOrderAsync());
+    }
+
+    [Fact]
+    public async Task A_compilation_in_the_chain_is_passed_through_but_not_queued()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+
+        var one = await fixture.OwnAsync("100", "Season one", startDate: new DateOnly(2015, 1, 8));
+        await fixture.OwnAsync("150", "Compilation film", startDate: new DateOnly(2016, 1, 9));
+        await fixture.OwnAsync("200", "Season two", startDate: new DateOnly(2016, 4, 5));
+
+        await fixture.RelateAsync("100", RelationType.Sequel, "150");
+        await fixture.RelateAsync("150", RelationType.Sequel, "200");
+
+        // Stated from the compilation's own side this time — "150 contains 100" —
+        // which is the other of the two forms that identify one.
+        await fixture.RelateAsync("150", RelationType.Contains, "100");
+
+        await fixture.Relations.AddWithSequelsAsync(fixture.ProfileId, one);
+
+        Assert.Equal("Season one Season two", await fixture.QueueOrderAsync());
+    }
+
+    [Fact]
+    public async Task A_hidden_season_is_not_queued_by_the_walk()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+
+        var one = await fixture.OwnAsync("100", "Season one", startDate: new DateOnly(2015, 1, 8));
+        await fixture.OwnAsync("200", "Season two", hidden: true, startDate: new DateOnly(2016, 4, 5));
+        await fixture.OwnAsync("300", "Season three", startDate: new DateOnly(2017, 10, 3));
+
+        await fixture.RelateAsync("100", RelationType.Sequel, "200");
+        await fixture.RelateAsync("200", RelationType.Sequel, "300");
+
+        await fixture.Relations.AddWithSequelsAsync(fixture.ProfileId, one);
+
+        // Hidden is the user saying they do not want to see it, so it is not queued
+        // — but it still carries the chain to season three.
+        Assert.Equal("Season one Season three", await fixture.QueueOrderAsync());
+    }
+
+    /// <summary>
+    /// Relation data is maintained by people, and a graph saying two titles follow
+    /// each other is a mistake the walk has to survive rather than spin on.
+    /// </summary>
+    [Fact]
+    public async Task A_cycle_in_the_graph_terminates()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+
+        var one = await fixture.OwnAsync("100", "A", startDate: new DateOnly(2015, 1, 8));
+        await fixture.OwnAsync("200", "B", startDate: new DateOnly(2016, 4, 5));
+
+        await fixture.RelateAsync("100", RelationType.Sequel, "200");
+        await fixture.RelateAsync("200", RelationType.Sequel, "100");
+
+        var result = await fixture.Relations.AddWithSequelsAsync(fixture.ProfileId, one);
+
+        Assert.Equal(2, result.Added);
+        Assert.Equal("A B", await fixture.QueueOrderAsync());
+    }
+
+    [Fact]
+    public async Task Running_the_walk_twice_adds_nothing_the_second_time()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+
+        var one = await fixture.OwnAsync("100", "Season one", startDate: new DateOnly(2015, 1, 8));
+        await fixture.OwnAsync("200", "Season two", startDate: new DateOnly(2016, 4, 5));
+        await fixture.RelateAsync("100", RelationType.Sequel, "200");
+
+        await fixture.Relations.AddWithSequelsAsync(fixture.ProfileId, one);
+        var again = await fixture.Relations.AddWithSequelsAsync(fixture.ProfileId, one);
+
+        Assert.Equal(0, again.Added);
+        Assert.Equal(2, again.AlreadyQueued);
+        Assert.Equal("Season one Season two", await fixture.QueueOrderAsync());
+        await fixture.AssertQueueContiguousAsync();
+    }
+
+    /// <summary>
+    /// The count is what the press will actually append, so the action can name its
+    /// own size without over-promising.
+    /// </summary>
+    [Fact]
+    public async Task The_count_reports_only_what_would_actually_be_queued()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+
+        var one = await fixture.OwnAsync("100", "Season one", startDate: new DateOnly(2015, 1, 8));
+        await fixture.OwnAsync("200", "Season two", startDate: new DateOnly(2016, 4, 5));
+        var three = await fixture.OwnAsync("300", "Season three", startDate: new DateOnly(2017, 10, 3));
+        await fixture.OwnAsync("400", "Season four", LibraryStatus.Completed, startDate: new DateOnly(2018, 4, 2));
+
+        await fixture.RelateAsync("100", RelationType.Sequel, "200");
+        await fixture.RelateAsync("200", RelationType.Sequel, "300");
+        await fixture.RelateAsync("300", RelationType.Sequel, "400");
+
+        // Four titles in the chain, but season four was watched, so three would go.
+        Assert.Equal(3, await fixture.Relations.CountSequelsToQueueAsync(fixture.ProfileId, one));
+
+        await fixture.QueueAsync(three);
+
+        // Season three is now spoken for as well, leaving one and two.
+        Assert.Equal(2, await fixture.Relations.CountSequelsToQueueAsync(fixture.ProfileId, one));
+    }
+
+    [Fact]
+    public async Task A_title_with_nothing_following_it_reports_only_itself()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+
+        var only = await fixture.OwnAsync("100", "Standalone");
+
+        Assert.Equal(1, await fixture.Relations.CountSequelsToQueueAsync(fixture.ProfileId, only));
+
+        var result = await fixture.Relations.AddWithSequelsAsync(fixture.ProfileId, only);
+
+        Assert.Equal(1, result.Added);
+    }
+
+    /// <summary>
+    /// A MyAnimeList-only title carries no identifier the graph speaks in, so there
+    /// is nothing that can be said to follow it — the action is not offered rather
+    /// than offered and queueing one title (D23).
+    /// </summary>
+    [Fact]
+    public async Task A_title_with_no_anilist_identifier_has_no_chain_at_all()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+
+        int animeId;
+
+        await using (var context = fixture.Database.CreateContext())
+        {
+            var anime = await SeedData.CreateAnimeAsync(
+                context, "MyAnimeList only", AnimeSource.MyAnimeList, "555");
+
+            context.LibraryEntries.Add(SeedData.Entry(fixture.ProfileId, anime.Id));
+            await context.SaveChangesAsync();
+
+            animeId = anime.Id;
+        }
+
+        Assert.Equal(0, await fixture.Relations.CountSequelsToQueueAsync(fixture.ProfileId, animeId));
+
+        var result = await fixture.Relations.AddWithSequelsAsync(fixture.ProfileId, animeId);
+
+        Assert.Equal(0, result.Added);
+        Assert.Empty(await fixture.QueueOrderAsync());
     }
 }

@@ -326,6 +326,30 @@ else
                                 <tr class="relations-row" id="@RelatedRowId(item.AnimeId)">
                                     <td></td>
                                     <td colspan="@(ColumnCount - 1)">
+                                        @* The one control that acts on more than one title,
+                                           and it lives here rather than on the row because
+                                           the panel is where a run of seasons is visible —
+                                           an action that queues several things belongs
+                                           beside the list of what they are (D26).
+
+                                           Offered only when it would do more than the row's
+                                           own button already does: at one title it is that
+                                           button with a longer name, and at none there is
+                                           nothing left to queue. *@
+                                        @if (SequelsToQueue(item.AnimeId) is > 1 and var toQueue)
+                                        {
+                                            <p class="relations-action">
+                                                <button class="follow"
+                                                        title="@FollowLabel(item.Title, toQueue)"
+                                                        aria-label="@FollowLabel(item.Title, toQueue)"
+                                                        @onclick="() => QueueWithSequelsAsync(item.AnimeId)">
+                                                    Queue this and what follows
+                                                    <span class="badge count">@toQueue</span>
+                                                </button>
+                                                <span class="muted">in release order</span>
+                                            </p>
+                                        }
+
                                         @if (_relations.TryGetValue(item.AnimeId, out var relatives))
                                         {
                                             @if (relatives.Count == 0)
@@ -448,6 +472,12 @@ else
     private readonly HashSet<int> _expanded = [];
     private readonly Dictionary<int, IReadOnlyList<RelatedTitle>> _relations = [];
 
+    // How many titles "queue this and what follows" would actually append, per open
+    // panel. Read when the panel opens and recomputed after anything queues, so the
+    // number on the button is what pressing it will do rather than what it would
+    // have done when the panel was opened.
+    private readonly Dictionary<int, int> _sequelCounts = [];
+
     /// <summary>
     /// The hidden view's option value.
     /// </summary>
@@ -491,6 +521,7 @@ else
 
         _expanded.Clear();
         _relations.Clear();
+        _sequelCounts.Clear();
 
         // The overlay is discarded rather than merged: what just came back from the
         // database is now the truth about these rows, and keeping a local answer on
@@ -628,6 +659,13 @@ else
             return;
         }
 
+        // The count is read even when the relatives are already cached, because it is
+        // the one thing here that goes out of date while the panel is shut: anything
+        // queued elsewhere on the page changes what "and what follows" would still
+        // append.
+        _sequelCounts[animeId] =
+            await RelationService.CountSequelsToQueueAsync(Profile.DefaultProfileId, animeId);
+
         if (_relations.ContainsKey(animeId))
         {
             return;
@@ -643,6 +681,53 @@ else
         foreach (var relative in relatives.Where(r => r.IsQueued))
         {
             _queued.Add(relative.AnimeId);
+        }
+    }
+
+    private int? SequelsToQueue(int animeId) =>
+        _sequelCounts.TryGetValue(animeId, out var count) ? count : null;
+
+    private static string FollowLabel(string title, int count) =>
+        $"Queue {title} and everything that follows it — {count} titles, in release order";
+
+    /// <summary>
+    /// Queues a title and its unwatched sequels, in one press.
+    /// </summary>
+    /// <remarks>
+    /// The panel stays open and the list is not re-read, as everywhere else on this
+    /// page (D26) — but the queued set is read back from the database rather than
+    /// guessed at, because this is the one action whose effect the caller cannot
+    /// enumerate: it returns how many went in, not which. The queue is small by
+    /// design, so asking is cheaper than making the service report a list nothing
+    /// else needs.
+    /// </remarks>
+    private async Task QueueWithSequelsAsync(int animeId)
+    {
+        await RelationService.AddWithSequelsAsync(Profile.DefaultProfileId, animeId);
+
+        var queued = await QueueService.GetQueuedAnimeIdsAsync(Profile.DefaultProfileId);
+
+        _queued.Clear();
+        _queued.UnionWith(queued);
+
+        await RefreshSequelCountsAsync();
+    }
+
+    /// <summary>
+    /// Re-reads the count behind every open panel's action, so the number on it
+    /// still describes what pressing it would do.
+    /// </summary>
+    /// <remarks>
+    /// Bounded by open panels, which is normally one and never many: the button is
+    /// the only thing that reads these, and a stale count is a button promising to
+    /// queue titles that are already queued.
+    /// </remarks>
+    private async Task RefreshSequelCountsAsync()
+    {
+        foreach (var animeId in _sequelCounts.Keys.ToList())
+        {
+            _sequelCounts[animeId] =
+                await RelationService.CountSequelsToQueueAsync(Profile.DefaultProfileId, animeId);
         }
     }
 
@@ -731,15 +816,21 @@ else
             {
                 _queued.Add(request.AnimeId);
             }
+        }
+        else
+        {
+            // False means the title held no slot, which is the same end state the
+            // press asked for — so the button settles rather than staying stuck on
+            // "remove".
+            await QueueService.RemoveAnimeAsync(Profile.DefaultProfileId, request.AnimeId);
 
-            return;
+            _queued.Remove(request.AnimeId);
         }
 
-        // False means the title held no slot, which is the same end state the press
-        // asked for — so the button settles rather than staying stuck on "remove".
-        await QueueService.RemoveAnimeAsync(Profile.DefaultProfileId, request.AnimeId);
-
-        _queued.Remove(request.AnimeId);
+        // A single press changes what the run-queueing action beside it would still
+        // do, in either direction: queue season three by hand and the button offering
+        // to queue the run has one fewer to add; unqueue it and it has one more.
+        await RefreshSequelCountsAsync();
     }
 
     /// <summary>
