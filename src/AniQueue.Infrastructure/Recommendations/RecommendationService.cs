@@ -219,6 +219,18 @@ public sealed class RecommendationService(
                 $"{preview.MissingCount} of the {expectedCount} rankings asked for did not come "
                 + "back, and those titles keep whatever score they already had."));
         }
+        else if (request is { IsRankingLimited: true } && preview.ApplicableCount > expectedCount)
+        {
+            // Over-delivery, which is a real and common answer: a capable model asked
+            // for the best fifty often returns all of them anyway. Everything it sent
+            // is valid and all of it applies, so this is not a problem with the reply —
+            // it is said because the alternative is silence, and silence here reads as
+            // the setting having done nothing. Somebody who set the limit to keep the
+            // reply short is owed the news that it was ignored.
+            problems.Add(ScoringProblem.Warning(
+                $"The model returned {preview.ApplicableCount} rankings when {expectedCount} were "
+                + "asked for. They are all valid, and all of them will be applied."));
+        }
 
         return preview with { Problems = problems };
     }

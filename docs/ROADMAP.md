@@ -2347,6 +2347,15 @@ set those differ, and reporting the difference as missing would turn the user's 
 a warning against itself. A ranked title that was never offered is skipped with that reason on
 its row.
 
+**SignalR's default message size is smaller than this application's largest input**, and that
+is a property of Blazor Server rather than of this page. A ranking of a real backlog is tens of
+kilobytes; pasting one into a bound control sends the whole value in a single hub message, and
+past the 32 KB default the *circuit is closed* rather than the value rejected. The symptom is a
+page that quietly stops responding — the paste appears to do nothing, the button stays
+disabled, and no server-side code ever runs, so nothing can say why. `MaximumReceiveMessageSize`
+is therefore raised to match what the parser accepts, which moves the refusal to code that can
+explain itself. Any future surface taking a large pasted payload inherits this.
+
 **The clipboard is not available where this application runs**, which 7b found and which is
 worth stating because it is a property of the deployment rather than of one page.
 `navigator.clipboard` exists only in a secure context, and a self-hosted AniQueue is reached

@@ -468,6 +468,37 @@ public class RecommendationServiceTests
     }
 
     [Fact]
+    public async Task A_reply_longer_than_what_was_asked_for_applies_and_says_so()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        await using var context = fixture.Database.CreateContext();
+
+        var first = await AddAsync(context, fixture.ProfileId, "First");
+        var second = await AddAsync(context, fixture.ProfileId, "Second");
+        var third = await AddAsync(context, fixture.ProfileId, "Third");
+
+        var request = await fixture.Recommendations.BuildRequestAsync(
+            fixture.ProfileId,
+            new ScoringRequestOptions { ReturnTop = 1 });
+
+        // What a capable model actually does: asked for the best one, it ranks all
+        // three. Everything it sent is valid, so all of it applies — but the setting
+        // was ignored, and saying nothing would leave that looking like the setting
+        // never worked.
+        var preview = await fixture.Recommendations.PreviewAsync(
+            fixture.ProfileId,
+            Ranking((first.Id, 1, 9.0), (second.Id, 2, 8.0), (third.Id, 3, 7.0)),
+            request);
+
+        Assert.False(preview.HasErrors);
+        Assert.Equal(3, preview.ApplicableCount);
+        Assert.Contains(preview.Problems, p => p.Message.Contains("returned 3 rankings when 1 were asked for"));
+
+        var applied = await fixture.Recommendations.ApplyAsync(fixture.ProfileId, preview, "Manual");
+        Assert.Equal(3, applied.Applied);
+    }
+
+    [Fact]
     public async Task A_reply_shorter_than_what_was_asked_for_still_warns()
     {
         await using var fixture = await Fixture.CreateAsync();

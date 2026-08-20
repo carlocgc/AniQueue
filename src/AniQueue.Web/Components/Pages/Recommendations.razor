@@ -37,15 +37,16 @@
 <div class="card">
     <h2>1. Ask</h2>
 
-    @* Outside the branches below, so the numbers stay reachable after a request has
-       been built. They used to sit in the "no request yet" branch, which meant that
-       changing your mind about the size of a request — the single most likely thing
-       to want after seeing one — took a page reload. The panel opens by itself when
-       there is nothing built yet, and stays closed once there is, because at that
-       point it is a thing to adjust rather than a thing to read. *@
-    <details class="request-size" open="@(_request is null)">
-        <summary>How much to send, and how much to ask for back</summary>
-
+    @* A button rather than a <details>, and that is the second attempt at this. The
+       first moved these controls out of the "no request yet" branch so they survived
+       a build, which was necessary and not sufficient: a collapsed disclosure
+       triangle above the summary text does not read as "settings you can change",
+       and the person looking for them is looking at the row of buttons. So the
+       control lives in that row, says what it does, and this panel is what it
+       opens. *@
+    @if (_showSizes || _request is null)
+    {
+        <div class="request-size">
         <div class="field">
             <label for="candidate-limit">Titles to rank</label>
             <input id="candidate-limit" type="number" min="1" max="5000"
@@ -84,7 +85,8 @@
                 rather than yours.
             </p>
         </div>
-    </details>
+        </div>
+    }
 
     @if (_request is null)
     {
@@ -149,6 +151,11 @@
             <button class="primary" @onclick="DownloadRequestAsync">Download the file</button>
             <button @onclick="CopyRequestAsync">Copy the request</button>
             <button @onclick="CopyPromptAsync">Copy the instructions</button>
+            @* In the row somebody is already looking at, and named for what it
+               changes rather than for the panel it opens. *@
+            <button @onclick="() => _showSizes = !_showSizes" aria-expanded="@_showSizes">
+                @(_showSizes ? "Hide sizes" : "Change sizes")
+            </button>
             <button @onclick="BuildAsync" disabled="@_busy.IsRunning">Rebuild</button>
         </div>
 
@@ -349,6 +356,9 @@
     private int _historySize = ScoringRequestOptions.Default.MaxHistory;
     private int? _candidateLimit;
     private int? _returnTop;
+
+    /// <summary>Whether the size controls are on screen.</summary>
+    private bool _showSizes;
 
     /// <summary>How many titles are waiting, when the request covers only some.</summary>
     private int _waiting;
