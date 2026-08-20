@@ -99,7 +99,7 @@ public class Anime
     /// <remarks>
     /// Six bytes, present for 92% of titles, and it gives a themed card with no
     /// image loading at all — which is both a decision aid on its own and the
-    /// degradation Phase 9.5 needs for a cover that is missing or still downloading
+    /// degradation Phase 9 needs for a cover that is missing or still downloading
     /// (D25). Taken here because the relation pass is already asking about every
     /// title; nothing renders it yet.
     /// </remarks>

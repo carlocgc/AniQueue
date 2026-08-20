@@ -408,7 +408,7 @@ and it is the better one: being third in a hand-ordered queue is a far stronger 
 intent than wearing a shared label.
 
 Removed rather than left unused. Keeping a column against a possibility is the speculative
-infrastructure argued against in D11, and if Phase 9 wants a user signal stronger than queue
+infrastructure argued against in D11, and if Phase 7 wants a user signal stronger than queue
 membership, choosing one deliberately beats inheriting one nobody picked.
 
 Two details worth keeping in mind when removing anything similar:
@@ -523,9 +523,9 @@ that imports contend for on a single-writer database; the ordering column would 
 most rows; and the queue has its own lifecycle. The conclusion survives its original argument.
 
 **Left open deliberately:** `RecommendationRunItem` still carries a nullable `FranchiseId`
-(D4), so Phase 9 could rank a franchise against individual titles — the same granularity
+(D4), so Phase 7 could rank a franchise against individual titles — the same granularity
 mismatch in the recommendation surface. It is not changed here because it is a question about
-D11's model rather than the queue's, and it should be argued on its own terms before Phase 9.
+D11's model rather than the queue's, and it should be argued on its own terms before Phase 7.
 **Settled by D16, in the affirmative.**
 
 ### D16 — A ranked candidate is a title. It cannot be a franchise.
@@ -547,12 +547,12 @@ structurally could not consume.
 This was not a hypothetical. The one existing implementation of applying a run filtered its
 items with `Where(i => i.AnimeId is not null)`, discarding franchise placements as its first
 act. A field whose every consumer must skip it is not extensibility; it is an invitation to a
-bug in Phase 9, where an imported ranking containing franchises would validate, persist,
+bug in Phase 7, where an imported ranking containing franchises would validate, persist,
 report success, and change nothing.
 
 Nothing produced such a row — not the seeder, not any test — so removal loses no behaviour.
 
-**Consequence for Phase 9, stated plainly:** the AI ranks titles. If a user wants a
+**Consequence for Phase 7, stated plainly:** the AI ranks titles. If a user wants a
 franchise's seasons ranked, they are ranked individually, which is also the only form in
 which the result can be displayed or sorted. This costs nothing real: D11 already builds the
 candidate set from the user's library, and every candidate in it is a `LibraryEntry`, so
@@ -714,11 +714,13 @@ alike, so correctness never depends on the user finding a setting.
   deliberately treats a missing library entry as *unknown, not watched*, and keeps the slot.
   Deleting the entry alone destroys the only evidence that could ever release it, leaving a
   slot nothing can clear.
-- **Automatic removal waits for Phase 8.** Phase 8 is what gives the user a full backup and
-  restore, and it ships after this phase. A truncated response, a paging bug, a mistyped
-  username or a profile turned private all look identical to "the user deleted everything",
-  and an emptied library taking the hand-built queue with it is the one failure here with no
-  recovery path in the product.
+- **Automatic removal stays deferred, and D33 has withdrawn the milestone it was waiting for.**
+  It was gated on a full backup and restore that is no longer being built; the recovery path is
+  now the operator's own copy of the database file under `/data`, which is outside the
+  application and outside a mistake it could make. A truncated response, a paging bug, a
+  mistyped username or a profile turned private all look identical to "the user deleted
+  everything", and an emptied library taking the hand-built queue with it is the one failure
+  here that nothing in the product can undo.
 - **When it does land it needs guards:** honour absence only when the fetch is structurally
   complete, never act on an empty or near-empty response, and cap the proportion removable in
   one unattended run before downgrading to flag.
@@ -734,8 +736,8 @@ doing*. A single YAML file in `/data` was proposed for all of it, and declined.
 **The stated goal was already met.** `Database:Path` is `/data/aniqueue.db`, so the database
 already lives outside the image in the operator's volume, and criterion 25 already proves it
 survives container recreation. Settings in the database are settings in `/data`. A second file
-there is not more persistent; it is a second thing to back up, and one that Phase 8's
-full-library export would not cover.
+there is not more persistent; it is a second thing to hold state that has to agree with the
+database, and a second place to look when it does not.
 
 **Decision:** split by who owns the value, and keep the key sets **disjoint** so there is no
 precedence puzzle between them.
@@ -844,8 +846,8 @@ which resolutions may be automated:
   decision needing new persistence, and it is deferred.
 - **`ImportAsNew` is never offered unattended.** It duplicates the row, both copies appear in
   the backlog, both are queueable, and no delete-duplicate surface exists. One toggle silently
-  multiplying rows across a library is the same class of hazard as automatic removal before
-  Phase 8.
+  multiplying rows across a library is the same class of hazard as automatic removal without
+  the guards D19 requires.
 
 **A mandatory interactive first run was considered and dropped.** It was proposed because the
 first sync is where a large unattended commit lands; with conflicts held by default the
@@ -1048,6 +1050,12 @@ Recorded so that if a large backlog does prove noisy, the answer is a filter the
 rather than a structure imposed on everyone.
 
 ### D25 — Enrichment is a chain of gated jobs, and it is unauthenticated
+
+> **Amended by D34.** The tiering below survives; its schedule does not. Richer TVDB and TMDB
+> artwork is no longer post-MVP — it is Phase 9, with the id-mapping job — because the cost this
+> entry prices, the filesystem cache under `/data`, is paid by the first cached image whatever
+> is cached. Everything else here stands: the gating, the ban on authentication, silent
+> degradation, add-only, and both schema warnings.
 
 *Promotes §10's artwork tiers from stretch-goal prose into a planned shape, and fixes what the
 relation backfill in Phase 6 is the first instance of.*
@@ -1378,6 +1386,113 @@ a source; with a second card it would have been drawn twice, as two controls ove
 **The Import page is retired**, and both empty states now offer one destination rather than two.
 Where the library comes from is one question with one answer.
 
+### D31 — Scoring is a schema. Hosting a model is optional infrastructure.
+
+*Splits the old Phase 9 in two and renumbers what followed. The old Phase 7 and Phase 8 are
+withdrawn by D32 and D33.*
+
+The AI half of this application was one phase that did two unrelated things: define what a
+model is told and what it may answer, and arrange for something to carry it. Those have
+different failure modes and different reasons to exist, so they are now Phase 7 and Phase 8.
+
+**The schema is the product, and it comes first.** Phase 7 defines the export and — the part
+that matters — the exact response AniQueue will accept, validated strictly and applied only in
+full. That contract is what makes any provider substitutable: the manual copy-paste path and a
+hosted endpoint are the same contract carried by different couriers, so the second is additive
+rather than a second pipeline. It is the D9 argument applied one layer up.
+
+**A hosted model is never required.** Phase 8's endpoint is a self-hosted one — LM Studio,
+Ollama, anything speaking a chat-completions API — so §7's README promise holds literally: v1
+AI recommendation works without giving AniQueue an API key. It also works with nothing
+configured at all, which is the normal state of a fresh install and the reason Phase 7's manual
+path is permanent rather than a stepping stone.
+
+**The endpoint is operator configuration, and this is a security property** (D20). A server that
+will POST to an address a page supplies is an SSRF; keeping the address in `userconfig.json`
+and out of every browser-writable surface is how that is prevented rather than mitigated.
+
+**The reply is data and stays data.** §6 already forbids executing or evaluating AI content.
+What that means concretely here: the response is validated against the schema, what survives is
+a rank, a predicted score, a confidence and a reason, and those write to four columns on
+`LibraryEntry` and a `RecommendationRun`. Malformed output fails and is reported. It is never
+repaired by inference, because a guess about what a model meant produces a score the user
+cannot audit — and an unauditable score is precisely what "no black box" was meant to exclude.
+
+### D32 — The decision screen is declined; the backlog already is one
+
+The brief's §8 asked for a "what should I watch?" screen — Anything / Something short / A movie
+/ One evening / Old-school / From my top 20 / Surprise me — and the roadmap carried it as a
+phase for a long time. It is withdrawn, along with the dashboard's Suggested Next panel.
+
+**Both signals it was specified against have since been deleted.** The brief says selection
+"should respect manual priority and, where available, recommendation scores". Manual priority
+was removed by D14, because a 0–5 bucket shared by many entries expresses no order. That leaves
+the recommendation score, which does not exist until a scoring run has been applied — so on
+every fresh install, and on every install of anyone who never runs one, the screen has nothing
+to rank by. *From my top 20* is the sharpest case: neither of the two things that could have
+defined "top" survives.
+
+**What remains of §8 is filters, and the backlog has all of them.** *Something short* and *One
+evening* are `MaxRuntimeMinutes`, already offered as the Under 2 hours and Under 6 hours chips.
+*A movie* is `MediaType`. *Old-school* is `Decade`. *Anything* is no filter. Rebuilding those as
+a second surface would mean two places that answer the same question and drift apart, and it
+was the strongest argument the phase had.
+
+**`IRankingCalculator` goes with it.** Its consumers were Suggested Next and the Manual/AI/
+Hybrid views, and a hybrid formula blending queue position with an AI score is only meaningful
+once both exist and someone has asked for the blend. `RecommendationMode` and
+`ProfileSettings.DefaultRecommendationMode` remain in the schema unused; §10 records hybrid
+ranking as a stretch goal rather than a gap. Reinstating it is a formula and a sort, not an
+architecture.
+
+*What is lost is real and is worth naming:* the decision moment now ends where it already ended
+in practice — at the top of Up Next, which the user reads before leaving the application. The
+open question the old phase recorded about that is unchanged, and is not answered by keeping a
+panel that cannot rank.
+
+### D33 — The database file is the backup
+
+The brief's criteria 23–24 ask for a full-library JSON export and a restore from it. Declined.
+
+**It is a second persistence format for one that already exists as a single file.** A
+self-hosted application's backup is `/data`, and Phase 11 already has to prove the database
+survives a container being recreated — criterion 25 tests the same property that 23–24 were
+protecting. A JSON round trip would additionally have to carry queue order, hidden flags,
+settings, external identifier sets and run history, and stay backwards compatible across every
+future migration. That is a schema maintained twice, and the copy that is not the schema is the
+one that silently falls behind.
+
+**It also could not have gone through the seam §5 assigned it.** `AniQueueJsonParser` was listed
+as an `IAnimeListParser`, but that interface produces `ParsedLibraryEntry` — status, score,
+progress — and a restore has to carry things a parsed *list* entry has no room for. The format
+was specified before 5a, 6b and the queue table existed, and never revisited.
+
+Phase 7 still exports JSON. It exports what a ranking needs, which is not a restore and is not
+described as one.
+
+### D34 — Enrichment is promoted into the MVP, and publishing waits on the security pass
+
+Two amendments, related only in that both change when something happens rather than what it is.
+
+**D25 filed richer TVDB and TMDB artwork as post-MVP** and kept only cached AniList covers
+inside it. That is reversed: artwork is a decision input rather than decoration — a backlog of
+several hundred rows is read by its covers — and the expensive part, the filesystem cache under
+`/data` and its non-root bind-mount permissions, is paid the moment any image is cached at all.
+Everything else D25 decided stands unchanged, including the two schema warnings, the ban on
+authentication for enrichment, and silent degradation. The id-mapping and artwork jobs are
+Phase 9.
+
+*Its recorded blocker is also unchanged and is now on the critical path:* the `Fribb/anime-lists`
+licence has still not been read, and vendoring it into a public repository would be
+redistribution.
+
+**Publishing an image is a one-way door, so it opens last.** Phase 13 builds the CI that pushes
+to Docker Hub on a release tag; Phase 14 reviews §6's high-risk surfaces against the finished
+application. The security pass runs first, and until it has, CI builds the image without
+publishing it. Two things make this more than caution: Phase 11's migration squash stops being
+free the moment somebody else's database exists, and a defect stops being local at the same
+instant. Both clocks start on the first published tag, and neither can be wound back.
+
 ---
 
 ## 3. Solution structure
@@ -1528,14 +1643,15 @@ carries `ProfileId` so multi-user — post-MVP per §10 — stays possible. Sett
 | `IRelationBackfill` | Infrastructure | fills the relation graph in, and reports how much of it is known |
 | `IRelationService` | Infrastructure | a title's relations, tagged and ordered; the sequel walk (D24) |
 | `IImportService` | Infrastructure | orchestrates the import pipeline |
-| `IRecommendationService` | Infrastructure | build request, validate/apply result, run history |
-| `IAnimeListParser` | **Core** (incl. impls) | `MyAnimeListXmlParser`, `AniListJsonParser`, `AniQueueJsonParser` — pure, no database |
+| `IRecommendationService` | Infrastructure | Phase 7 — build the export, validate a response, apply it, keep run history |
+| `IAnimeListParser` | **Core** (incl. impls) | `MyAnimeListXmlParser`, `AniListJsonParser` — pure, no database |
 | `IAniListClient` | Infrastructure | HTTP, GraphQL, paging, rate limits. Produces streams the parser reads |
 | `ISyncService` | Infrastructure | Orchestrates fetch → preview → apply per source; owns `SyncRun` |
-| `IAiRecommendationProvider` | Core | `ManualJsonRecommendationProvider` only in MVP |
-| `IRankingCalculator` | **Core** | hybrid ranking formula — pure, testable |
+| `IAiRecommendationProvider` | Core | `ManualJsonRecommendationProvider` (Phase 7) and a hosted-endpoint provider (Phase 8). The interface is what keeps the second additive |
 | `IRuntimeCalculator` | **Core** | episode×duration maths, sums, formatting |
-| `ICoverImageResolver` | Core | **Phase 9.5**, promoted from post-MVP by D25. The reason it was drawn — art must be served by AniQueue rather than hotlinked — is measured in §10 |
+| `IIdMappingJob` | Infrastructure | Phase 9 — maps a title to TVDB/TMDB ids; gated on titles with no mapping (D25) |
+| `IArtworkService` | Infrastructure | Phase 9 — fetches and caches one image per title per type under `/data`; gated on what is missing (D25) |
+| `ICoverImageResolver` | Core | **Phase 9**, promoted from post-MVP by D25 and again by D34. The reason it was drawn — art must be served by AniQueue rather than hotlinked — is measured in §10 |
 
 Import splits at the point where a database is first needed:
 
@@ -1637,6 +1753,10 @@ Every phase ends **buildable, tested and green**. `dotnet build` + `dotnet test`
 boundary. Phases are front-loaded so a genuinely useful application exists from Phase 4
 onward even if later phases slip.
 
+**There is no Phase 12, and 7 through 11 were renumbered by D31.** The gap is deliberate: these
+numbers are cited from code comments, commit messages and PR titles that already exist, so a
+vacant number costs less than a renumbering that makes older citations point at the wrong work.
+
 | # | Phase | Exit criteria |
 |---|---|---|
 | 0 | Foundation | Solution + 5 projects build; F5 serves the app; repo hygiene in place |
@@ -1651,12 +1771,13 @@ onward even if later phases slip.
 | 6b | Relations + backfill | Edges land from a paced pass that is idle in the steady state |
 | 6c | Related titles | Every row expands to its relations, tagged; standalone filter returns |
 | 6d | Queue what follows | One click queues a title and its unwatched sequels, in release order |
-| 7 | Dashboard + decision mode | Summary counts, Suggested Next, "What should I watch?" |
-| 8 | JSON interchange | Full library export → wipe → restore round-trip |
-| 9 | AI recommendation | Export request, import ranking, apply — manual order provably intact |
-| 9.5 | Artwork | Covers cached under `/data` and rendered; no hotlinking (D25) |
-| 10 | Settings + polish | Settings, theme, confirmations, a11y and responsive pass |
+| 7 | Scoring interchange | Backlog exported as JSON; a conforming ranking imports, previews and applies |
+| 8 | Hosted model scoring | A configured endpoint returns a ranking AniQueue applies without anything being copied by hand |
+| 9 | Metadata + artwork | Ids mapped and art cached under `/data` by jobs that idle when there is nothing to fetch |
+| 10 | Settings | One page for preferences; operator configuration shown and not editable |
 | 11 | Docker + README | Migrations squashed to one baseline; compose up, health check, container recreated without data loss |
+| 13 | CI | Build and tests on every push; image built on a tag, published only once Phase 14 has run |
+| 14 | Security pass | §6's high-risk surfaces reviewed against the finished application; release gate opens |
 
 ### Phase 0 — Foundation
 Repo hygiene (`.gitignore`, `.gitattributes`, `.editorconfig`), solution and five projects,
@@ -1812,11 +1933,11 @@ vanishing. Rounding happens *after* excluding zero. Away-from-zero is specified 
 because .NET's default `Math.Round` is banker's rounding, which would send 8.5 down to 8.
 
 A 1 is useful signal — it separates a disliked show from an unrated one, which is exactly what
-Phase 9 ranks on. In the measured library 188 of 753 entries are unscored, so the zero branch is a
+Phase 7 ranks on. In the measured library 188 of 753 entries are unscored, so the zero branch is a
 quarter of the data rather than an edge case.
 
 Coarse native formats stay coarse: a 3-smiley user's history compresses to three distinct values
-whatever we request, so Phase 9's ranking should not claim confidence it does not have.
+whatever we request, so Phase 7's ranking should not claim confidence it does not have.
 
 **Runtime and decade features start working here**, and this is the phase's most visible effect
 besides the sync itself. `EpisodeDurationMinutes` and `ReleaseYear` have never been populated
@@ -1948,7 +2069,7 @@ and each is load-bearing enough to record rather than leave in the code.
   the commit, because the case absence exists for is a list that is otherwise identical, and
   such a fetch has nothing to apply. It is cleared the moment the source lists the title again,
   so it always describes the latest fetch rather than accumulating history — which also makes it
-  the exact population Phase 8's `Remove` will act on.
+  the exact population an automatic `Remove` would act on, whenever D19's guards land.
 - **`SyncOutcome` gains a fourth value, `HeldForReview`, and `SyncRun` a `ChangesHeld` count.**
   With unattended application switched off, a run that finds twelve changes and applies none had
   no honest row to write: `NothingToDo` would tell the user their library matches their list,
@@ -1968,13 +2089,13 @@ appeared.** D20's split means a clean slate takes two actions: renaming `usercon
 the operator's half, and the user's half lives in the database. Moving preferences into the file
 would fix that at the cost of a config writer D20 declined — atomic replacement, concurrent-write
 protection and comment-preserving round-tripping — and would put settings outside the backup
-Phase 8 gives the database. The cheaper answer is a **"reset settings to defaults"** action that
-deletes the profile's `SourceSyncSettings` and `ProfileSettings` rows and leaves the library
-alone: no writer, no precedence puzzle, and it resets preferences a *user* set, which renaming an
-operator file never would. Three things make waiting safe — every user-preference default is the
-safe one (absence `Flag`, conflicts `HoldForReview`, schedule `Off`), so "no row" and "clean
-slate" are the same state; and the recovery case that actually matters is already covered
-completely by the kill switch.
+the database file already is (D33). The cheaper answer is a **"reset settings to defaults"**
+action that deletes the profile's `SourceSyncSettings` and `ProfileSettings` rows and leaves
+the library alone: no writer, no precedence puzzle, and it resets preferences a *user* set,
+which renaming an operator file never would. Three things make waiting safe — every
+user-preference default is the safe one (absence `Flag`, conflicts `HoldForReview`, schedule
+`Off`), so "no row" and "clean slate" are the same state; and the recovery case that actually
+matters is already covered completely by the kill switch.
 
 ### Phase 6 — Relations
 
@@ -2150,64 +2271,131 @@ titles follow each other is a mistake to survive rather than spin on. The visite
 a step limit bounds length as well, since an unbounded transitive walk over data an external
 editor reshapes is a page that hangs rather than a page that is wrong.
 
-### Phase 7 — Dashboard and decision mode
-Currently Watching with progress bars, Up Next top 5–10, backlog summary counts and
-estimated runtime, Suggested Next. "What should I watch?": Anything / Something short /
-A movie / One evening / Old-school / From my top 20 / Surprise me. Surprise me uses
-**weighted randomness**, not the top-ranked title. No conversational UI.
+### Phase 7 — Scoring interchange
+Exports the backlog as versioned JSON for an external model to rank, and imports the ranking
+back. Both halves are schema, and the schema is the deliverable: the export states what a model
+is given, the response schema states exactly what AniQueue will accept back, and nothing
+outside it is parsed.
 
-**No Start Watching button**, here or anywhere. An earlier version of this phase promised one
-prominently; D12 removed the action and this description was not updated with it. Recorded
-explicitly so it is not reinstated by someone reading the brief's §22 in isolation: starting
-a show is observed, not declared, and the queue advances on the next sync.
+**The export payload.** One candidate per Planning title: the AniQueue anime id, the displayed
+title and whichever romaji/english/native variants the source published, media type, episode
+count, episode duration, release year, and every external identifier the title carries (D17) so
+a model can recognise a show it knows under another service's name. Alongside the candidates,
+the *history* that makes a ranking personal — completed titles with the user's own score.
+Without it a model ranks by general reputation, which is exactly the prioritisation this
+application exists to avoid.
 
-**Open question, deliberately not answered yet.** That leaves the decision moment with no
-interaction in it — the user reads the top of Up Next and leaves the application. Whether
-that is finished or merely unfinished is a real product question, and the cheapest candidate
-answer already exists as a stretch goal: the per-provider search links in §10, so the top
-item can offer "watch on Plex" or "request on Overseerr". That is a link, not an
-integration, and it keeps D11 and D12 intact — AniQueue decides what to watch and hands off
-the how. It is **not** committed here; it is written down so the gap is visible rather than
-discovered late.
+**`PersonalNotes` is excluded unless opted in.** `ProfileSettings.IncludePersonalNotesInAiExport`
+already exists and already defaults to false. §6's rule is unchanged: export only what ranking
+needs, never credentials, never an email address.
 
-### Phase 8 — JSON interchange
-Versioned AniQueue interchange format, import and export, validation, backwards-compatible
-design, full-library backup and restore. No secrets in exports.
+**The response schema.** An array of results, each naming a candidate by its AniQueue anime id
+and carrying rank, predicted score, confidence 0–1 and a short reason — the four columns
+`RecommendationRunItem` already has. Validation is strict and total: unknown ids, duplicate
+ids, rank collisions, out-of-range scores or confidences, candidates never sent, and candidates
+sent that did not come back are each reported. **A response that fails validation is not
+applied in part**, because a half-applied ranking is indistinguishable afterwards from a
+complete one.
 
-### Phase 9 — AI recommendation workflow
-Request export (download + copy) with an explanatory UI. Generated ready-to-copy prompt.
-Import screen accepting upload or paste. Validation: unknown candidate ids, duplicates,
-missing candidates, rank collisions, numeric ranges, unexpected candidates. Preview showing
-title, rank, predicted score, confidence, reason. Apply writes to `LibraryEntry` and a
-`RecommendationRun` (D4). Manual / AI / Hybrid are **three views**, and applying AI never
-mutates `QueueItem.Position`. Hybrid ranking is a simple, transparent, explainable formula
-— the UI shows why an item ranks where it does. No black box.
+**Applying writes a `RecommendationRun` and denormalises onto the entry** (D4). Those tables and
+columns exist and have never been written to. It touches `RecommendationScore`,
+`RecommendationConfidence`, `RecommendationReason` and `RecommendationUpdatedAt`, and nothing
+else — never status, never progress, never the user's own score, and never
+`QueueItem.Position`. The model proposes an order and the user owns one; D11 is the reason they
+are separate columns rather than one contested column.
 
-### Phase 9.5 — Artwork
-*Promoted out of §10's stretch goals by D25, and numbered between rather than appended because
-where it sits is the argument: it must land before Phase 10, or the accessibility and responsive
-passes are done against a text layout that is then replaced.*
+**The manual path is the path, and it stays.** Download or copy the request, paste the reply
+back, preview, apply. Phase 8 automates the carrying and does not replace this: a hosted model
+that is switched off is the normal state of a self-hosted install, and this is also the
+fallback whenever a configured endpoint returns something the schema rejects.
 
-Covers rendered on the backlog and Up Next, served from a filesystem cache under `/data` rather
-than hotlinked — §10's Tier 2, whose four reasons for not hotlinking are measured there.
+**Full-library backup and restore are declined here** (D33), and MVP criteria 23–24 with them.
+This phase exports what a ranking needs, which is a different payload from a restore — queue
+order, hidden flags, settings and run history are all deliberately absent from it.
 
-**The cache is the whole cost**, and it lands on a problem already known: §9's non-root
-bind-mount permissions under `/data`, which the database has too. Solve it once.
+### Phase 8 — Hosted model scoring
+The same round trip as Phase 7 with the copying removed: AniQueue posts the generated prompt
+and candidate payload to a model the operator hosts — LM Studio, Ollama, anything speaking a
+chat-completions API — and parses the reply against the Phase 7 response schema. What is sent
+and what is accepted do not change. Only who carries it does.
 
-`coverImage.color` arrives earlier, in 6b, and earns its place here too: a themed card with no
-image loading at all is the degradation this phase needs anyway, for a cover that is missing,
-unfetched or still downloading.
+**The endpoint is operator configuration, never a user preference** (D20). Host, port, model
+name and timeout come from `userconfig.json` or the environment, the same place AniList
+settings come from, and are not writable from a browser session. That is not tidiness: a server
+that will POST to an address supplied by a page is an SSRF, and the way to not have one is for
+the address never to come from the page.
 
-### Phase 10 — Settings and polish
-General (display name, default queue size, date format, theme System/Light/Dark), Backlog
-(default sort/filters), Recommendations (default mode,
-export privacy, weighting), Data (export/import backup, clear recommendation results).
-Destructive actions require explicit confirmation. Accessibility and responsive passes.
+**A dedicated `/settings` page is created here**, holding only the model section — where the
+endpoint is, whether it answered, and a test action that sends a trivial request and reports
+verbatim what came back. Phase 10 expands this page rather than building a second one.
 
-**Title language moves here from the Sources page**, where Phase 5b left it. The behaviour is
-already right — each title is stored against its language and changing the preference rewrites the
-displayed one immediately, with no sync (D22) — so what is left is only that the control sits
-under a source it no longer has anything to do with. It belongs beside the theme.
+**The reply is data.** §6's rule that AI content is never executed or evaluated is load-bearing
+rather than decorative here: the response is validated against the schema and what survives is
+four numeric-and-text columns. A model that returns prose, wraps its JSON in markdown, or omits
+a required field fails validation and is reported — not repaired by guessing, because a guess
+about what a model meant is a score the user cannot audit.
+
+**Failure reports, unlike enrichment.** D25 has enrichment degrade silently because a missing
+detail is not a wrong library. A scoring run has a person waiting on it, so it says which side
+failed and what the response looked like when the schema rejected it.
+
+**No API key is required for any of this**, and Phase 11's README promise survives literally: a
+self-hosted model is reachable without credentials, and Phase 7's manual path remains for
+anyone who would rather not host one at all.
+
+### Phase 9 — Metadata and artwork enrichment
+Cross-service identifiers and artwork, fetched by background jobs and cached under `/data`.
+This is D25's chain reaching the two jobs it was written for, and D25's two schema warnings are
+the design rather than a caveat on it:
+
+- **TVDB and TMDB identifiers get their own table**, not `AnimeExternalId`. They are many-to-one
+  and meaningless without the season the mapping dataset supplies alongside them, so storing
+  them as peers of an AniList id would claim an identity they do not have.
+- **Artwork gets its own table**, because more than one image per title kills
+  `Anime.CoverImageUrl`. One row per title per artwork type — poster, banner, clear logo,
+  backdrop — which is the arity-1 mistake Phase 5a spent itself undoing for identity (D17), not
+  repeated for art.
+
+**Nothing orchestrates the sequence, and that is the point** (D25, D28). The id-mapping job
+takes titles with no mapping; the artwork job takes titles that have a mapping and no cached
+image of some type. Both wake on the `ILibraryChangeNotifier` broadcast that both sync entry
+points already publish, and both are no-ops when their input is empty. Sync → metadata →
+artwork therefore happens in that order because of data readiness rather than because anything
+sequences it, which is what lets one job be disabled, rerun or replaced without touching the
+others. Remove the broadcast and it all still works, one tick later — that remains the test of
+whether it has become orchestration. A manual refresh sits beside the existing relations
+refresh for anyone who does not want to wait for a tick.
+
+**Enrichment stays unauthenticated** (D25), and still may only add: it never writes status,
+progress or score.
+
+**The blocker is licensing, not code, and it was already recorded.** The `Fribb/anime-lists`
+mapping dataset is the obvious id supply and its licence has still not been read; vendoring it
+into a public repository would be redistribution. Fetching at runtime rather than committing it
+is the likely answer, but the licence decides, and this phase does not start until somebody has
+read it.
+
+**This promotes what D25 filed as post-MVP** — see D34. D25 split artwork by cost and left
+richer TMDB and TVDB art after the MVP with the id-mapping job; the art is a decision input
+rather than decoration, and the filesystem cache under `/data` costs the same either way.
+
+### Phase 10 — Settings
+Expands the `/settings` page Phase 8 created into the one place preferences are changed. It has
+to hold two kinds of setting without letting them look alike (D20):
+
+- **Preferences**, on `ProfileSettings`, edited here: displayed title language — moved from the
+  Sources page, where Phase 5b left it sitting under a source it has nothing to do with (D22) —
+  theme, date format, default queue size, and the backlog's default sort and filters. The last
+  of those has no columns yet and needs a migration; Phase 11 squashes the history immediately
+  afterwards, so adding one here costs nothing.
+- **Operator configuration**, from `userconfig.json` and the environment, shown but not edited:
+  the AniList account, the model endpoint from Phase 8, sync frequency and absence policy. The
+  page says where the file is and what is currently in effect, which is what makes a
+  misconfiguration diagnosable without shell access. It does not offer to write it, because a
+  browser session is not the operator.
+
+Destructive actions confirm explicitly. The accessibility and responsive passes happen here,
+after Phase 9, so they run against the layout that ships rather than one about to gain images.
 
 ### Phase 11 — Docker and README
 Multi-stage Dockerfile (SDK build → `aspnet` runtime, no SDK in the final layer), non-root
@@ -2245,6 +2433,37 @@ here, so it is listed as a gate rather than left to judgement.
 Final gate: Release build, full test run, image build, `docker compose up -d`, health check
 verified, **container recreated and the database confirmed intact**.
 
+### Phase 13 — Continuous integration
+GitHub Actions: build and full test run on every push and every pull request, and a tagged
+release on `main` that builds the multi-stage image from Phase 11 and pushes it to Docker Hub.
+Registry credentials live in repository secrets and appear in no committed file.
+
+**The first published tag is a one-way door, and two gates stand in front of it.** Phase 11's
+migration squash is free only while no database but ours exists, and publishing an image ends
+that. An image on Docker Hub is also the moment a defect stops being local. So the workflow is
+built and exercised here, but **the first push of a release tag waits on Phase 14** — until
+then CI builds the image and does not publish it.
+
+Nothing about CI is allowed to become the only way to build or test: `dotnet build` and
+`dotnet test` at a clean checkout stay the contract, and the workflow runs those rather than
+reimplementing them.
+
+### Phase 14 — Security pass and stabilisation
+A deliberate pass over what §6 names as high-risk, against the finished application rather than
+against each phase in isolation — which is the point of doing it last, and the reason it cannot
+be distributed across the phases that created the surfaces:
+
+- The model endpoint's outbound requests: that the address is operator configuration only, that
+  a hostile or wrong endpoint cannot become a request to somewhere else, and that timeouts and
+  response size limits hold.
+- The import path: upload limits, secure XML settings, and the paste route into Phase 7's
+  importer.
+- The artwork cache's filesystem writes under `/data`, including what a remote filename is
+  allowed to determine about a local path.
+- Forwarded headers, error output in production, and the non-root container's permissions.
+
+Plus whatever the bug list has accumulated. It gates Phase 13's first published tag.
+
 ---
 
 ## 8. Test plan
@@ -2255,7 +2474,7 @@ Allocated to whichever project can run each test fastest.
 XXE rejection; status mapping; JSON schema validation; AI result validation (unknown
 candidate, duplicate, missing candidate, rank collision, out-of-range predicted score,
 out-of-range confidence); runtime calculations including unknown-duration cases and partial
-sums; hybrid ranking; weighted-random selection bounds.
+sums; scoring-response validation against the Phase 7 schema.
 
 AniList parsing is tested the same way, against a committed JSON fixture: every scoring system
 normalising into 1–10, a `POINT_100` score below 5 clamping to 1 rather than to null, `REPEATING`
@@ -2342,7 +2561,7 @@ Phase 6 adds:
 
 No test may depend on a live external API.
 
-**One SQLite trap worth knowing before Phase 9 meets it, and it is wider than first recorded.**
+**One SQLite trap worth knowing before Phase 7 meets it, and it is wider than first recorded.**
 SQLite cannot `ORDER BY` a `DateTimeOffset` — EF stores it as text with an offset and refuses to
 sort it, throwing at query time rather than returning a wrong order. `SyncRun` reads recency from
 its key instead, which is the same order for an append-only table. `RecommendationRun` browses
@@ -2508,7 +2727,7 @@ fetch data AniQueue was not given — a separate call, a separate concern — an
 post-MVP. `duration`, `seasonYear` and `coverImage` arrive in the same response as `episodes`,
 which Phase 5b already consumes, so declining them would mean discarding fields already in hand
 to honour a boundary drawn before AniList was in the MVP. They are taken — and D25 has since
-brought their *rendering* into the MVP as well, as Phase 9.5. `description` is declined
+brought their *rendering* into the MVP as well, as Phase 9. `description` is declined
 outright — it is read once and never filtered on, so the source
 links already answer it.
 
@@ -2523,11 +2742,20 @@ multi-valued, while studio can be both because AniList's `studios` edges carry `
 
 **Genre and studio affinity is a stronger stretch goal than filtering.** "You rate Kyoto
 Animation 8.4 and Shonen 6.1" computed from the user's own history is a local, transparent,
-explainable ranking signal needing no model at all — which is exactly what Phase 9 says it wants.
-It matters more than it looks: in the MVP the AI half of ranking is a manual copy-paste
-workflow, so an affinity score is the only thing that could rank a backlog *without the user
-doing anything*. Recorded as a candidate input to `IRankingCalculator`, and the best argument for
-eventually modelling genres at all.
+explainable ranking signal needing no model at all — which is exactly what Phase 7 says it
+wants. It matters more than it looks, and D32 made it matter more still: with the decision
+screen withdrawn, the AI score is the only thing that ranks a backlog, and nothing produces one
+until the user has carried a scoring run. An affinity score is the only candidate that would
+rank a backlog *without the user doing anything*, and it is the best argument for eventually
+modelling genres at all.
+
+**Hybrid ranking is a stretch goal, not a gap.** D14 left two meaningful orderings —
+`QueueItem.Position`, which the user authors, and `RecommendationScore`, which a model
+proposes — and a formula blending them was carried as `IRankingCalculator` until D32 removed
+its only consumers. `RecommendationMode` and `ProfileSettings.DefaultRecommendationMode`
+remain in the schema against the day somebody wants the blend. Reinstating it is a pure
+function in Core and one more `LibrarySort` member, which is why it is safe to leave undone:
+nothing has to be built now to keep it cheap later.
 
 AniList *read* access is no longer here — D13 moved it into the MVP as Phase 5, because with
 D11 and D12 it is the only remaining manual step in the loop. **Write-back stays post-MVP**
@@ -2535,7 +2763,7 @@ and should be approached carefully: it is the one direction that can damage a li
 maintains elsewhere, and every safeguard in the import pipeline exists to protect data
 flowing the other way.
 
-### Artwork — measured here, built in Phase 9.5
+### Artwork — measured here, built in Phase 9
 
 > **No longer a stretch goal** — see D25 for where each tier landed. Kept intact because
 > everything below is measured, and the measurements are what those phases are costed against.
@@ -2711,8 +2939,8 @@ The brief's 25 criteria, mapped so completion is measurable.
 | 10–12 Add to Up Next, drag to exact order, persist across restart | 4 + 11 — one click also queues a title and its unwatched sequels (D15, D24) |
 | 13–14 Track progress, complete with a score | **declined — see D12** |
 | 15 Filter backlog usefully | 3 |
-| 16–22 AI request export, prompt, import, preview, apply, manual order intact | 9 |
-| 23–24 Export full library as JSON, restore from it | 8 |
+| 16–22 AI request export, prompt, import, preview, apply, manual order intact | 7, automated by 8 |
+| 23–24 Export full library as JSON, restore from it | **declined — see D33** |
 | 25 Recreate container without losing the database | 11 |
 
 **Criteria 13–14 are deliberately not met.** They ask AniQueue to record watch progress and
@@ -2730,6 +2958,19 @@ These are the places the brief and the built application deliberately part compa
 stated here rather than quietly reported as done. Between them, 13, 14 and 8 all decline the
 same kind of thing: a surface on which the user maintains data some other service already
 maintains, or that nobody should have to maintain at all.
+
+**Criteria 23–24 join them, and D33 records why.** A JSON backup and restore of the whole
+library is a second persistence format maintained alongside the schema, and the thing it
+protects is already a single file: the SQLite database under `/data`, which Phase 11 must keep
+intact across a container recreate anyway. Phase 7 still exports — but it exports what a
+ranking needs, which is deliberately not a restore.
+
+**And the decision screen is declined outright (D32)**, though the brief's §8 asked for one. It
+is the only decline here that removes a surface rather than an obligation to maintain data, and
+the reason is that both signals the brief named for it were removed by decisions taken since:
+manual priority by D14, leaving the AI score as the only ranking input, which does not exist
+until a scoring run has been applied. What remains of §8 is filters, and the backlog already
+has every one of them.
 
 ---
 

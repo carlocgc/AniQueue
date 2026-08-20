@@ -100,7 +100,7 @@ public sealed class AniListClient(HttpClient httpClient, ILogger<AniListClient> 
     ///
     /// <c>startDate</c> and <c>coverImage.color</c> ride along because the request is
     /// being made anyway: release ordering needs a date finer than a year, and the
-    /// colour is six bytes Phase 9.5 will want (D25). Neither justifies a request of
+    /// colour is six bytes Phase 9 will want (D25). Neither justifies a request of
     /// its own, which is exactly why they are here and not in a pass of their own.
     ///
     /// <c>idMal</c> is asked for on the media but not on the node. It costs nothing

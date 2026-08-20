@@ -73,8 +73,8 @@ public sealed class UserConfigTemplate(ILogger<UserConfigTemplate> logger)
           // own pages cannot be reached.
           //
           // How often a source is read on its own is not here: that is a preference,
-          // set per source on the Sources page and kept in the database, so it is
-          // covered by a backup of your library rather than by a copy of this file.
+          // set per source on the Sources page and kept in the database, so a copy of
+          // the database file carries it and a copy of this file does not.
           // "Sync:Enabled": true,
 
           // The AniList username whose list is read. It must be public: AniQueue does

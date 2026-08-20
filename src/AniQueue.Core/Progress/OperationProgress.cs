@@ -3,9 +3,9 @@ namespace AniQueue.Core.Progress;
 /// <summary>
 /// A single update from a long-running operation, reported as it happens.
 ///
-/// Deliberately generic: imports, library export/restore, AniList lookups and AI
-/// ranking runs all report the same shape, so one dialog can present any of them
-/// and services never take a dependency on the UI.
+/// Deliberately generic: imports, syncs, scoring exports and AI ranking runs all
+/// report the same shape, so one dialog can present any of them and services never
+/// take a dependency on the UI.
 /// </summary>
 /// <param name="Message">
 /// What is happening right now, phrased for a person rather than a log.

@@ -56,16 +56,15 @@ else
         </div>
     </div>
 
-    @* Currently Watching, Up Next and Suggested Next arrive with Phases 4, 6 and 7.
-       Stating that is more useful than showing empty placeholder panels. *@
-    <div class="card">
-        <h2>Coming next</h2>
-        <p class="muted">
-            The Up Next queue, watching progress and recommendations are being built
-            in later phases. For now, the
-            <a href="backlog">backlog</a> shows everything you have imported.
-        </p>
-    </div>
+    @* There is no Currently Watching, Up Next preview or Suggested Next panel here,
+       and none is coming (D32). The card that used to promise them was written when
+       they were a phase; both signals they would have ranked on were removed by
+       decisions taken since — manual priority by D14, and the AI score does not
+       exist until a scoring run has been applied.
+
+       So the dashboard is counts, and the pages that do the work are one click away
+       in the sidebar. Repeating those links in a card here would be a second route
+       to the same two places, which is the kind of thing that drifts. *@
 }
 
 @code {

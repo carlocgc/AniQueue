@@ -98,7 +98,7 @@ public class AniListJsonParserTests
     {
         // 4/100 divides to 0.4 and rounds to 0, which is indistinguishable from
         // unscored. A 1 separates a disliked show from an unrated one, and that
-        // distinction is what Phase 9 ranks on.
+        // distinction is what Phase 7 ranks on.
         var result = await ParseFixtureAsync();
 
         Assert.Equal(1, Entry(result, "900103").UserScore);

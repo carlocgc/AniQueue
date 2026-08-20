@@ -23,11 +23,18 @@ public enum SyncAbsencePolicy
     /// Drop the library entry and its queue slot.
     /// </summary>
     /// <remarks>
-    /// Not offered until Phase 8 supplies a backup and restore. A truncated
-    /// response, a paging bug, a mistyped account or a profile turned private all
-    /// look identical to "the user deleted everything", and an emptied library
-    /// taking the hand-built queue with it is the one failure here with no recovery
-    /// path in the product.
+    /// Not offered. It was gated on a backup and restore that D33 has since
+    /// declined — the recovery path is the operator's own copy of the database file
+    /// under <c>/data</c>, which is outside the application and outside any mistake
+    /// it could make. A truncated response, a paging bug, a mistyped account or a
+    /// profile turned private all look identical to "the user deleted everything",
+    /// and an emptied library taking the hand-built queue with it is the one failure
+    /// here that nothing in the product can undo.
+    ///
+    /// What it now waits for is the guards D19 lists: honour absence only when the
+    /// fetch is structurally complete, never act on an empty or near-empty response,
+    /// and cap how much one unattended run may remove before downgrading to
+    /// <see cref="Flag"/>.
     /// </remarks>
     Remove = 1,
 
