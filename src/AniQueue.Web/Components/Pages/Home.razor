@@ -16,8 +16,15 @@ else if (Summary.Total == 0)
 {
     <div class="card">
         <div class="empty-state">
-            <p>Nothing here yet. Import your existing library to get started.</p>
-            <a class="button" href="import">Import a MyAnimeList export</a>
+            @* The first screen of a fresh install, and now the only one — nothing is
+               seeded any more (D27). Both routes in are offered rather than one:
+               AniQueue assumes the library already exists somewhere (D11), and which
+               "somewhere" is not something this page can guess. *@
+            <p>Nothing here yet. Bring your library in from wherever it already lives.</p>
+            <div class="toolbar">
+                <a class="button primary" href="sources">Sync from AniList</a>
+                <a class="button" href="import">Import a MyAnimeList export</a>
+            </div>
         </div>
     </div>
 }

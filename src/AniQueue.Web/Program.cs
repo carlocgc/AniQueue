@@ -1,6 +1,5 @@
 using AniQueue.Infrastructure;
 using AniQueue.Infrastructure.Persistence;
-using AniQueue.Infrastructure.Persistence.Seeding;
 using AniQueue.Infrastructure.Sync;
 using AniQueue.Web.Components;
 using AniQueue.Web.Services;
@@ -98,11 +97,6 @@ builder.Services.AddHostedService<BackgroundJobRunner<RelationBackfillJob>>();
 // caring whether a data directory was configured at all.
 builder.Services.AddSingleton(userConfig ?? new UserConfigStatus { Path = UserConfigTemplate.FileName });
 
-if (builder.Environment.IsDevelopment())
-{
-    builder.Services.AddAniQueueDevelopmentSeeder();
-}
-
 var app = builder.Build();
 
 // A self-hosted application that disappears without explanation is very hard to
@@ -157,13 +151,6 @@ try
     await scope.ServiceProvider
         .GetRequiredService<DatabaseInitializer>()
         .InitialiseAsync(app.Lifetime.ApplicationStopping);
-
-    if (app.Environment.IsDevelopment())
-    {
-        await scope.ServiceProvider
-            .GetRequiredService<DevelopmentSeeder>()
-            .SeedAsync(app.Lifetime.ApplicationStopping);
-    }
 }
 catch (Exception ex)
 {

@@ -162,19 +162,26 @@ else
                 @* An empty hidden list is the expected end state rather than a dead
                    end — it is what unhiding the last entry looks like — so it says
                    so instead of offering to clear filters that are not the reason. *@
-                @if (_query.HiddenOnly)
+                @* An empty library is asked first, because the backlog defaults to
+                   Planning — so a brand new install has a filter applied, and
+                   without this its first screen offers to clear one that is not the
+                   reason (D27). *@
+                @if (Facets.IsEmpty)
+                {
+                    <p>Your library is empty. Bring it in from wherever it already lives.</p>
+                    <div class="toolbar">
+                        <a class="button primary" href="sources">Sync from AniList</a>
+                        <a class="button" href="import">Import a MyAnimeList export</a>
+                    </div>
+                }
+                else if (_query.HiddenOnly)
                 {
                     <p>Nothing is hidden.</p>
                 }
-                else if (_query.HasActiveFilters || _query.Status is not null)
+                else
                 {
                     <p>Nothing matches those filters.</p>
                     <button @onclick="ClearFiltersAsync">Clear filters</button>
-                }
-                else
-                {
-                    <p>Your library is empty.</p>
-                    <a class="button primary" href="import">Import a MyAnimeList export</a>
                 }
             </div>
         </div>
