@@ -22,7 +22,7 @@ namespace AniQueue.Infrastructure.Persistence.Migrations
             // has none, so these rows were skipped by the apply path from the day
             // they were introduced. Nothing observable is lost by removing them.
             //
-            // In practice this deletes nothing — Phase 9 is unbuilt and no code path
+            // In practice this deletes nothing — Phase 7 is unbuilt and no code path
             // has ever created such a row — but a migration has to be correct for the
             // data the schema permitted, not the data we expect.
             migrationBuilder.Sql(

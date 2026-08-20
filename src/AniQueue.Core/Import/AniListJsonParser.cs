@@ -328,7 +328,7 @@ public sealed class AniListJsonParser(ImportLimits? limits = null) : IAnimeListP
     /// from zero — .NET's default is banker's rounding, which would send 8.5 down —
     /// and anything that survives is clamped up to 1. A 4/100 becomes a 1 rather
     /// than vanishing, which matters because a 1 separates a disliked show from an
-    /// unrated one, and that distinction is what Phase 9 ranks on.
+    /// unrated one, and that distinction is what Phase 7 ranks on.
     /// </remarks>
     private static int? MapScore(
         JsonElement entry,

@@ -14,7 +14,7 @@ public sealed record ParsedRelation(RelationType Type, string RelatedExternalId)
 /// <remarks>
 /// The catalogue fields ride along because the request is being made anyway (D25):
 /// <see cref="StartDate"/> is what release ordering needs and a year cannot give,
-/// and <see cref="CoverImageColor"/> is six bytes that Phase 9.5 will want.
+/// and <see cref="CoverImageColor"/> is six bytes that Phase 9 will want.
 /// Both are null when the source did not publish them, and null means "leave what
 /// is stored alone" — the same rule the import path applies.
 /// </remarks>

@@ -19,8 +19,11 @@ public class RecommendationRun
     public DateTimeOffset CreatedAt { get; set; }
 
     /// <summary>
-    /// Which provider produced the ranking. The MVP only has the manual
-    /// copy-and-paste JSON provider; no network AI provider is required.
+    /// Which provider produced the ranking: the manual copy-and-paste JSON provider
+    /// of Phase 7, or the hosted-endpoint provider of Phase 8. Both carry the same
+    /// payload and are validated against the same schema (D31), so this records who
+    /// carried it and nothing about what was allowed through. No API key is required
+    /// for either, and neither has to be configured at all.
     /// </summary>
     public required string ProviderName { get; set; }
 

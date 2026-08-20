@@ -344,11 +344,11 @@ public sealed class SyncService(
     /// response was structurally complete; the zero-entry guard covers the remaining
     /// case of a complete response that is simply empty.
     ///
-    /// Nothing is removed. <see cref="SyncAbsencePolicy.Remove"/> waits for the phase
-    /// that supplies backup and restore, so the mark is currently the whole of the
-    /// behaviour — which is also why it is safe to write during a fetch that has not
-    /// been confirmed: it records what the source said, and the next fetch that says
-    /// otherwise clears it.
+    /// Nothing is removed. <see cref="SyncAbsencePolicy.Remove"/> waits on the guards
+    /// D19 requires — the backup it originally waited for was declined by D33 — so the
+    /// mark is currently the whole of the behaviour, which is also why it is safe to
+    /// write during a fetch that has not been confirmed: it records what the source
+    /// said, and the next fetch that says otherwise clears it.
     /// </remarks>
     private async Task<int> ReconcileAbsenceAsync(
         int profileId,

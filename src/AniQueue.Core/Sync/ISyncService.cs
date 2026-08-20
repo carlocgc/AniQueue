@@ -289,8 +289,8 @@ public interface ISyncService
     /// <remarks>
     /// A profile-wide preference living behind the sync service, because a sync is
     /// the only thing that acts on it and the Sources page is where it is set until
-    /// Phase 10 builds a settings page. Changing it does not rewrite anything: the
-    /// next fetch does, through the same path that wrote the titles originally.
+    /// Phase 10 moves it onto the settings page. Changing it does not rewrite anything:
+    /// the next fetch does, through the same path that wrote the titles originally.
     /// </remarks>
     Task SavePreferredTitleLanguageAsync(
         int profileId,

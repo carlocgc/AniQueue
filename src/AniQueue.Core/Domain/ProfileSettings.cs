@@ -5,9 +5,11 @@ namespace AniQueue.Core.Domain;
 /// set of settings is fixed and known, so typed columns stay migratable and bind
 /// directly to the Settings page instead of rotting into stringly-typed soup.
 ///
-/// Recommendation *weighting* is deliberately absent. Weights configure the
-/// hybrid ranking formula, and that formula is defined in Phase 9 — adding
-/// columns for it now would be guessing at its shape.
+/// Recommendation *weighting* is deliberately absent. Weights configure a hybrid
+/// ranking formula, and D32 withdrew the one that was planned along with the
+/// surfaces that would have consumed it. Adding columns for a formula nothing
+/// computes would be guessing at the shape of something nobody has asked for
+/// twice.
 /// </summary>
 public class ProfileSettings
 {
@@ -21,7 +23,15 @@ public class ProfileSettings
 
     public required string DisplayName { get; set; }
 
-    /// <summary>How many Up Next entries the dashboard shows.</summary>
+    /// <summary>
+    /// How many Up Next entries a preview of the queue shows.
+    /// </summary>
+    /// <remarks>
+    /// Nothing reads this. It was written for the dashboard panel D32 declined, and
+    /// is kept because Phase 10 offers it as a preference either way and Phase 11
+    /// squashes the migration history — so a column with no consumer costs a line
+    /// here and nothing at all in the shipped schema.
+    /// </remarks>
     public int DefaultQueueSize { get; set; } = 10;
 
     /// <summary>A .NET date format string applied when rendering dates.</summary>
@@ -53,6 +63,16 @@ public class ProfileSettings
 
     // Recommendations
 
+    /// <summary>
+    /// Which ordering the backlog opens in.
+    /// </summary>
+    /// <remarks>
+    /// Also unread, and for the same reason as <see cref="DefaultQueueSize"/>:
+    /// <see cref="RecommendationMode.Hybrid"/> needs a formula D32 withdrew, so
+    /// only <see cref="RecommendationMode.Manual"/> and
+    /// <see cref="RecommendationMode.Ai"/> are expressible today and the backlog's
+    /// own sort already covers both.
+    /// </remarks>
     public RecommendationMode DefaultRecommendationMode { get; set; } = RecommendationMode.Manual;
 
     /// <summary>

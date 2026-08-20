@@ -59,8 +59,8 @@ public class AnimeExternalId
     /// MyAnimeList-only title has no AniList row here, so no AniList policy can
     /// reach it whatever the user sets.
     ///
-    /// It is also the exact population Phase 8's <see cref="SyncAbsencePolicy.Remove"/>
-    /// will act on, once a backup exists to make removal recoverable.
+    /// It is also the exact population <see cref="SyncAbsencePolicy.Remove"/> would
+    /// act on, whenever the guards D19 requires are built.
     /// </remarks>
     public DateTimeOffset? MissingFromSourceAt { get; set; }
 

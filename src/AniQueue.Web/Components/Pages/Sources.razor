@@ -330,12 +330,18 @@
                        account and a profile turned private all look identical to "the
                        user deleted everything", and an emptied library taking the
                        hand-built queue with it is the one failure here with no recovery
-                       path in the product (D19). Offering the choice before the backup
-                       exists would be offering it before it can be survived. *@
+                       path in the product (D19).
+
+                       This used to promise an in-application backup as the thing that
+                       would make it survivable. D33 declined that — the recovery path is
+                       the database file itself — so what it now waits on is the guards
+                       D19 lists, and the copy is the operator's to keep. Saying so is
+                       more useful than a promise: it tells the one person who can make
+                       the removal survivable what to actually do. *@
                     <p class="muted">
-                        Deleting them here as well will be offered once AniQueue can back your
-                        library up and restore it, so that an unlucky sync is something you can
-                        undo.
+                        Deleting them here as well is not offered yet: an unlucky sync would
+                        have nothing inside AniQueue to undo it. Your library lives in a single
+                        database file, so a copy of it is the way back from one.
                     </p>
                 </div>
             </fieldset>
