@@ -749,6 +749,52 @@ button.icon.remove:hover:not(:disabled) {
 
 .source-settings legend { padding: 0 0.4rem; color: var(--text-muted); font-size: 0.85rem; }
 
+/* Recommendations --------------------------------------------------------- */
+
+textarea {
+    font: inherit;
+    width: 100%;
+    padding: 0.4rem 0.6rem;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--surface);
+    color: var(--text);
+    resize: vertical;
+}
+
+/* A model's reply is JSON, and proportional text makes a misplaced bracket
+   almost impossible to find in it. */
+#response { font-family: ui-monospace, "Cascadia Mono", "Consolas", monospace; font-size: 0.85rem; }
+
+/* The request and the instructions, shown rather than only offered: on a
+   self-hosted install over plain http the clipboard API does not exist, so text
+   that can be selected by hand is the route that always works. Bounded and
+   scrolling, because a backlog of several hundred titles is thousands of lines
+   and an unbounded block would bury the controls under it. */
+.payload {
+    max-height: 22rem;
+    overflow: auto;
+    padding: 0.6rem 0.8rem;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--surface-alt);
+    font-family: ui-monospace, "Cascadia Mono", "Consolas", monospace;
+    font-size: 0.8rem;
+    white-space: pre-wrap;
+    word-break: break-word;
+}
+
+details > summary {
+    cursor: pointer;
+    padding: 0.35rem 0;
+    color: var(--text-muted);
+    font-size: 0.9rem;
+}
+
+/* A skipped row is still worth reading — it says which title left the backlog —
+   so it is dimmed rather than removed. */
+tr.muted td { opacity: 0.6; }
+
 /* Framework error UI ------------------------------------------------------ */
 
 .validation-message { color: var(--danger); }

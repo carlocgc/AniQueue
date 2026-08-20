@@ -1,0 +1,460 @@
+@page "/recommendations"
+@using System.Globalization
+@using AniQueue.Core.Recommendations
+@implements IAsyncDisposable
+@inject IRecommendationService Scoring
+@inject IJSRuntime JS
+@inject ILogger<Recommendations> Logger
+
+<PageTitle>Recommendations — AniQueue</PageTitle>
+
+<div class="page-header">
+    <h1>Recommendations</h1>
+    @* Says up front that this ranks and does not reorder. The queue shortening by
+       itself already surprises people (D12); a second thing writing to the backlog
+       is easier to accept when its limits were stated before it ran, not after. *@
+    <p>
+        Hand your backlog to a model, and bring its ranking back. It scores what you
+        are planning to watch — it never touches your Up Next order.
+    </p>
+</div>
+
+<BusyDialog State="_busy" />
+
+@if (_error is not null)
+{
+    <div class="notice error" role="alert">@_error</div>
+}
+
+@if (_applied is not null)
+{
+    <div class="notice success" role="status">@_applied</div>
+}
+
+@* One page, two steps, and they stay in this order on purpose: the request has to
+   exist before a response can. Nothing here is a wizard — both halves stay
+   reachable, because pasting a reply an hour later is the normal case. *@
+<div class="card">
+    <h2>1. Ask</h2>
+
+    @if (_request is null)
+    {
+        <p class="muted">
+            Builds a file describing what you are planning to watch, together with the
+            titles you have already scored — that history is what makes the ranking
+            yours rather than a list of what is generally popular.
+        </p>
+
+        <div class="toolbar">
+            <button class="primary" disabled="@_busy.IsRunning" @onclick="BuildAsync">
+                Build the request
+            </button>
+        </div>
+    }
+    else if (_request.Candidates.Count == 0)
+    {
+        <div class="empty-state">
+            <p>Nothing is waiting to be watched, so there is nothing to rank.</p>
+            <a class="button primary" href="backlog">Open the backlog</a>
+        </div>
+    }
+    else
+    {
+        <p class="muted">
+            @_request.Candidates.Count @Plural(_request.Candidates.Count, "title", "titles") to rank,
+            with @_request.History.Count of your @_request.HistoryAvailable scored
+            @Plural(_request.HistoryAvailable, "title", "titles") as history.
+        </p>
+
+        @if (_request.IsHistoryCapped)
+        {
+            <p class="muted">
+                The history is a sample, most recently finished first — enough for a model
+                to read your taste without crowding out the backlog it is ranking.
+            </p>
+        }
+
+        <div class="toolbar">
+            <button class="primary" @onclick="DownloadRequestAsync">Download the file</button>
+            <button @onclick="CopyRequestAsync">Copy the request</button>
+            <button @onclick="CopyPromptAsync">Copy the instructions</button>
+            <button @onclick="BuildAsync" disabled="@_busy.IsRunning">Rebuild</button>
+        </div>
+
+        @if (_copied is not null)
+        {
+            <p class="muted" role="status">@_copied</p>
+        }
+
+        <p class="muted">
+            Paste the instructions into your model, then the request below them. The
+            instructions tell it exactly what to send back.
+        </p>
+
+        @* Both are shown rather than only offered, because on a self-hosted install
+           over plain http the clipboard API does not exist and the fallback can be
+           refused too. Text on the page can always be selected by hand, so the copy
+           buttons are a convenience over a route that already works. *@
+        <details>
+            <summary>Read the instructions</summary>
+            <pre class="payload">@_prompt</pre>
+        </details>
+
+        <details>
+            <summary>Read the request</summary>
+            <pre class="payload">@_payload</pre>
+        </details>
+    }
+</div>
+
+<div class="card">
+    <h2>2. Apply</h2>
+
+    <p class="muted">
+        Paste what the model replied, or upload it. Nothing is written until you have
+        seen what it would do.
+    </p>
+
+    <div class="field">
+        <label for="response">The model's reply</label>
+        <textarea id="response" rows="8" spellcheck="false"
+                  placeholder="{ &quot;results&quot;: [ … ] }"
+                  disabled="@_busy.IsRunning"
+                  @bind="_response" @bind:event="oninput"></textarea>
+    </div>
+
+    <div class="toolbar">
+        <button class="primary" disabled="@(_busy.IsRunning || string.IsNullOrWhiteSpace(_response))"
+                @onclick="PreviewPastedAsync">
+            Check the reply
+        </button>
+
+        <InputFile id="response-file" class="file-input" OnChange="OnFileSelectedAsync"
+                   accept=".json,.txt" disabled="@_busy.IsRunning"
+                   aria-label="Upload the model's reply" />
+    </div>
+
+    @if (_preview is not null)
+    {
+        <h3>What this would do</h3>
+
+        @* Errors first and separately. A response with one bad rank applies nothing
+           at all, and burying that under a table of what was read would let someone
+           scroll past the only sentence that matters. *@
+        @foreach (var problem in _preview.Problems.Where(p => p.Severity == ScoringSeverity.Error))
+        {
+            <div class="notice error" role="alert">@problem.Message</div>
+        }
+
+        @foreach (var problem in _preview.Problems.Where(p => p.Severity == ScoringSeverity.Warning))
+        {
+            <div class="notice warning" role="status">@problem.Message</div>
+        }
+
+        @if (_preview.HasErrors)
+        {
+            <p class="muted">
+                Nothing is applied while there is an error above — a ranking that is
+                wrong in part cannot be told apart from a whole one afterwards. Fix the
+                reply, or ask the model again.
+            </p>
+        }
+
+        @if (_preview.Items.Count > 0)
+        {
+            <div class="table-wrap">
+                <table>
+                    <thead>
+                        <tr>
+                            <th scope="col">Rank</th>
+                            <th scope="col">Title</th>
+                            <th scope="col">Score</th>
+                            <th scope="col">Confidence</th>
+                            <th scope="col">Why</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var item in _preview.Items)
+                        {
+                            <tr class="@(item.WillApply ? null : "muted")">
+                                <td class="numeric">@item.Result.Rank</td>
+                                <td class="title-cell">
+                                    @item.Title
+                                    @if (!item.WillApply)
+                                    {
+                                        <div class="row-meta">Skipped — no longer waiting to be watched</div>
+                                    }
+                                </td>
+                                <td class="numeric">
+                                    @Score(item.Result.PredictedScore)
+                                    @if (item.PreviousScore is { } previous)
+                                    {
+                                        <div class="row-meta">was @Score(previous)</div>
+                                    }
+                                </td>
+                                <td class="numeric">@Percent(item.Result.Confidence)</td>
+                                <td>@item.Result.Reason</td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        }
+
+        <div class="toolbar">
+            <button class="primary" disabled="@(_busy.IsRunning || !_preview.CanApply)"
+                    @onclick="ApplyAsync">
+                Apply @_preview.ApplicableCount @Plural(_preview.ApplicableCount, "score", "scores")
+            </button>
+            <button @onclick="Discard" disabled="@_busy.IsRunning">Discard</button>
+        </div>
+    }
+</div>
+
+@if (_runs.Count > 0)
+{
+    <div class="card">
+        <h2>Past rankings</h2>
+
+        @* Kept because a ranking is the one thing here written by something that is
+           not the user, and "when did this score arrive, and from what" is the
+           question asked when one looks wrong (D4). *@
+        <div class="table-wrap">
+            <table>
+                <thead>
+                    <tr>
+                        <th scope="col">When</th>
+                        <th scope="col">From</th>
+                        <th scope="col">Ranked</th>
+                        <th scope="col">History</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var run in _runs)
+                    {
+                        <tr>
+                            <td>@run.CreatedAt.ToLocalTime().ToString("g", CultureInfo.CurrentCulture)</td>
+                            <td>@(run.ModelIdentifier ?? run.ProviderName)</td>
+                            <td class="numeric">@run.ResultCount of @run.CandidateCount</td>
+                            <td class="numeric">@run.CompletedCount</td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    </div>
+}
+
+@code {
+    private const string ProviderName = "Manual";
+
+    private BusyScope _busy = default!;
+    private IJSObjectReference? _module;
+
+    private ScoringRequest? _request;
+    private string? _payload;
+    private string? _prompt;
+
+    private string? _response;
+    private ScoringPreview? _preview;
+
+    private IReadOnlyList<RecommendationRunSummary> _runs = [];
+
+    private string? _error;
+    private string? _copied;
+    private string? _applied;
+
+    protected override void OnInitialized() =>
+        _busy = new BusyScope(() => InvokeAsync(StateHasChanged));
+
+    protected override async Task OnInitializedAsync() => await LoadRunsAsync();
+
+    private async Task BuildAsync()
+    {
+        Reset();
+
+        _request = await _busy.RunAsync(
+            "Building the request",
+            _ => Scoring.BuildRequestAsync(Profile.DefaultProfileId));
+
+        // Rendered once and held, so the file, the clipboard and the text on screen
+        // are three views of one string rather than three builds of it.
+        _payload = ScoringRequestWriter.Write(_request);
+        _prompt = ScoringPromptBuilder.Build(_request);
+    }
+
+    private async Task DownloadRequestAsync()
+    {
+        var name = $"aniqueue-request-{DateTime.Now:yyyy-MM-dd}.json";
+
+        if (!await InvokeModuleAsync<bool>("downloadText", name, _payload!))
+        {
+            _error = "The file could not be saved. The request is below and can be copied by hand.";
+        }
+    }
+
+    private Task CopyRequestAsync() => CopyAsync(_payload!, "Request");
+
+    private Task CopyPromptAsync() => CopyAsync(_prompt!, "Instructions");
+
+    private async Task CopyAsync(string text, string what)
+    {
+        _copied = null;
+        _error = null;
+
+        // The interop returns whether it reached the clipboard, because on plain
+        // http neither route is available and silence would look like success.
+        var copied = await InvokeModuleAsync<bool>("copyText", text);
+
+        if (copied)
+        {
+            _copied = $"{what} copied.";
+        }
+        else
+        {
+            _error = $"{what} could not be copied — your browser blocks it outside a "
+                + "secure connection. Open the panel below and copy it by hand.";
+        }
+    }
+
+    private async Task PreviewPastedAsync() => await PreviewAsync(_response!);
+
+    /// <summary>
+    /// Reads a reply from a file, for a model whose output was saved rather than
+    /// pasted.
+    /// </summary>
+    /// <remarks>
+    /// Read into the textarea rather than previewed straight from the file, so the
+    /// two routes converge before anything is checked: what is previewed is always
+    /// what is on screen, and a reply that needs one character fixed can be fixed
+    /// where it is rather than re-saved and re-uploaded.
+    /// </remarks>
+    private async Task OnFileSelectedAsync(InputFileChangeEventArgs e)
+    {
+        Discard();
+
+        try
+        {
+            _response = await _busy.RunAsync($"Reading {e.File.Name}", async _ =>
+            {
+                // The parser enforces the same ceiling again on what it reads, so the
+                // limit holds whichever way in was used.
+                await using var stream = e.File.OpenReadStream(ScoringLimits.Default.MaxBytes);
+                using var reader = new StreamReader(stream);
+
+                return await reader.ReadToEndAsync();
+            });
+
+            await PreviewAsync(_response);
+        }
+        catch (IOException ex)
+        {
+            Logger.LogWarning(ex, "Recommendation upload rejected");
+            _error = "That file is too large to read.";
+        }
+    }
+
+    private async Task PreviewAsync(string json)
+    {
+        _error = null;
+        _applied = null;
+
+        _preview = await _busy.RunAsync(
+            "Checking the reply",
+            _ => Scoring.PreviewAsync(Profile.DefaultProfileId, json));
+    }
+
+    private async Task ApplyAsync()
+    {
+        var result = await _busy.RunAsync(
+            "Applying the ranking",
+            progress => Scoring.ApplyAsync(
+                Profile.DefaultProfileId, _preview!, ProviderName, progress: progress));
+
+        _applied = result.Skipped == 0
+            ? $"Scored {result.Applied} {Plural(result.Applied, "title", "titles")}."
+            : $"Scored {result.Applied} {Plural(result.Applied, "title", "titles")}, "
+                + $"and skipped {result.Skipped}.";
+
+        Discard();
+        await LoadRunsAsync();
+    }
+
+    /// <summary>
+    /// Clears the reply and its preview, leaving the request alone.
+    /// </summary>
+    /// <remarks>
+    /// Deliberately asymmetric. Discarding a ranking is a decision about that reply;
+    /// throwing away the request as well would mean rebuilding it to try a second
+    /// model, which is exactly what somebody discarding a bad reply is about to do.
+    /// </remarks>
+    private void Discard()
+    {
+        _preview = null;
+        _response = null;
+        _error = null;
+    }
+
+    private void Reset()
+    {
+        Discard();
+        _applied = null;
+        _copied = null;
+    }
+
+    private async Task LoadRunsAsync() =>
+        _runs = await Scoring.GetRunsAsync(Profile.DefaultProfileId);
+
+    /// <summary>
+    /// Calls the module, and treats an unavailable browser as a failure rather than
+    /// as an error.
+    /// </summary>
+    /// <remarks>
+    /// Nothing here is load-bearing: every route it offers has the payload on the
+    /// page behind it. So a JS failure reports and the page keeps working, in the
+    /// same spirit as Up Next's drag handle — letting the exception escape would
+    /// tear down the circuit and replace a missing convenience with an error page.
+    /// </remarks>
+    private async Task<T?> InvokeModuleAsync<T>(string name, params object?[] args)
+    {
+        try
+        {
+            _module ??= await JS.InvokeAsync<IJSObjectReference>(
+                "import", "./Components/Pages/Recommendations.razor.js");
+
+            return await _module.InvokeAsync<T>(name, args);
+        }
+        catch (JSException ex)
+        {
+            Logger.LogWarning(ex, "Clipboard or download interop failed");
+            return default;
+        }
+        catch (JSDisconnectedException)
+        {
+            return default;
+        }
+    }
+
+    private static string Score(double value) =>
+        value.ToString("0.#", CultureInfo.CurrentCulture);
+
+    private static string Percent(double value) =>
+        ((int)Math.Round(value * 100)).ToString(CultureInfo.CurrentCulture) + "%";
+
+    private static string Plural(int count, string one, string many) => count == 1 ? one : many;
+
+    public async ValueTask DisposeAsync()
+    {
+        if (_module is not null)
+        {
+            try
+            {
+                await _module.DisposeAsync();
+            }
+            catch (JSDisconnectedException)
+            {
+                // The circuit ended before the module could be released.
+            }
+        }
+    }
+}

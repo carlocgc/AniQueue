@@ -2322,6 +2322,20 @@ back, preview, apply. Phase 8 automates the carrying and does not replace this: 
 that is switched off is the normal state of a self-hosted install, and this is also the
 fallback whenever a configured endpoint returns something the schema rejects.
 
+**The clipboard is not available where this application runs**, which 7b found and which is
+worth stating because it is a property of the deployment rather than of one page.
+`navigator.clipboard` exists only in a secure context, and a self-hosted AniQueue is reached
+over plain http at a LAN address far more often than over https — so on the target deployment
+the modern API is simply absent. Copy therefore falls back to `execCommand`, and **both the
+request and the instructions are rendered on the page** rather than only offered through a
+button: text a person can select by hand is the one route that always works, and the copy
+buttons are a convenience over it rather than the way in. Anything later that offers to put
+something on the clipboard inherits the same constraint.
+
+*Also from 7b:* the request is built once and held, so the file, the clipboard and the text on
+screen are three views of one string. Rebuilding it per action would let a sync land between
+two of them and hand the model a payload that does not match what the user is reading.
+
 **Full-library backup and restore are declined here** (D33), and MVP criteria 23–24 with them.
 This phase exports what a ranking needs, which is a different payload from a restore — queue
 order, hidden flags, settings and run history are all deliberately absent from it.
