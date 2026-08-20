@@ -47,19 +47,29 @@
 
 @* Once a preview is on screen the source cards are no longer what the page is
    about, and they are tall — account line, failure and absence notices, relation
-   coverage, settings — so leaving them expanded puts the answer to "what would
-   this change" several scrolls below the button that asked. They collapse to a
-   heading and the two controls that still apply, and open again on Discard. *@
-@* Gone entirely once a sync has been applied, rather than collapsed to a heading
-   with nothing under it. The report below owns that state and carries both of the
-   things left to do — look at the backlog, or finish and start again — so a source
-   card there would be a box with no contents and no purpose. *@
-@foreach (var status in _applied is null ? _statuses : [])
+   coverage, settings — so leaving them expanded puts the answer to "what would this
+   change" several scrolls below the button that asked. The one card that produced
+   the preview collapses to a heading and the way out; the rest are not drawn at all.
+   See VisibleSources. *@
+@foreach (var status in VisibleSources)
 {
     <div class="card @(IsPreviewing ? "collapsed" : null)">
         <h2>@status.Source</h2>
 
-        @if (!status.IsConfigured)
+        @* Previewing is asked first, before anything about the source's kind, because
+           at that point the card is one thing regardless: a heading and the way out.
+
+           Discarding is how a preview ends — syncing over one threw it away without
+           saying so, and with it every conflict the user had just resolved in an
+           editable surface. Sync now, or the file picker, comes back the moment it is
+           pressed. *@
+        @if (IsPreviewing)
+        {
+            <div class="toolbar">
+                <button @onclick="Reset" disabled="@_busy.IsRunning">Discard this preview</button>
+            </div>
+        }
+        else if (!status.IsConfigured)
         {
             <p class="muted">
                 No account is configured. Set <code>Sync:AniList:UserName</code> — in
@@ -75,56 +85,28 @@
                sense that matters — it names titles, it ranks against the other, and
                its export is how most libraries arrive (D30). What made it look like
                something else was only that it has no account to configure. *@
-            @if (!IsPreviewing)
-            {
-                <p class="muted">
-                    Upload an export. In MyAnimeList, go to <strong>List → Export</strong> and
-                    download the anime list; the file arrives gzipped, so extract it until it
-                    ends in <code>.xml</code>. Nothing is saved until you review the preview.
-                </p>
+            <p class="muted">
+                Upload an export. In MyAnimeList, go to <strong>List → Export</strong> and
+                download the anime list; the file arrives gzipped, so extract it until it
+                ends in <code>.xml</code>. Nothing is saved until you review the preview.
+            </p>
 
-                <InputFile id="import-file" class="file-input" OnChange="OnFileSelectedAsync"
-                           accept=".xml" disabled="@_busy.IsRunning"
-                           aria-label="Select MyAnimeList export file" />
-            }
-            else
-            {
-                <div class="toolbar">
-                    <button @onclick="Reset" disabled="@_busy.IsRunning">Discard this preview</button>
-                </div>
-            }
+            <InputFile id="import-file" class="file-input" OnChange="OnFileSelectedAsync"
+                       accept=".xml" disabled="@_busy.IsRunning"
+                       aria-label="Select MyAnimeList export file" />
         }
         else
         {
-            @if (!IsPreviewing)
-            {
-                <p class="muted">
-                    Reading the public list of <strong>@status.Account</strong> &middot;
-                    @LastRunText(status.LastSuccess) &middot; @ScheduleText(status.Settings.Schedule)
-                </p>
-            }
+            <p class="muted">
+                Reading the public list of <strong>@status.Account</strong> &middot;
+                @LastRunText(status.LastSuccess) &middot; @ScheduleText(status.Settings.Schedule)
+            </p>
 
-            @* Exactly one of these, never both. Syncing again while a preview is on
-               screen threw it away without saying so — and with it every conflict
-               the user had just resolved in it, because that preview is editable.
-               Discarding is how a preview ends; it is one button away, it says what
-               it does, and Sync now comes back the moment it is pressed.
-
-               It also removed the flicker this was reported for: the re-sync reset
-               the page first, so the card expanded and the settings unfolded behind
-               the progress dialog before the new preview replaced them. *@
             <div class="toolbar">
-                @if (IsPreviewing)
-                {
-                    <button @onclick="Reset" disabled="@_busy.IsRunning">Discard this preview</button>
-                }
-                else
-                {
-                    <button class="primary" disabled="@(_busy.IsRunning || !CanSync(status))"
-                            @onclick="() => SyncAsync(status)">
-                        Sync now
-                    </button>
-                }
+                <button class="primary" disabled="@(_busy.IsRunning || !CanSync(status))"
+                        @onclick="() => SyncAsync(status)">
+                    Sync now
+                </button>
             </div>
         }
 
@@ -465,6 +447,11 @@
     private SyncFetchResult? _fetch;
     private ImportPreview? _filePreview;
 
+    // Which source the pending preview belongs to. Set alongside it rather than
+    // derived, so the file path does not have to assert which parser it used in
+    // every place that asks.
+    private AnimeSource? _pendingSource;
+
     private SyncApplyResult? _applied;
     private TitleLanguage _titleLanguage;
     private RelationCoverage? _relations;
@@ -484,6 +471,35 @@
     private ImportPreview? PendingPreview => _fetch?.Preview ?? _filePreview;
 
     private bool IsPreviewing => PendingPreview is not null;
+
+    /// <summary>
+    /// Which source cards belong on the page right now.
+    /// </summary>
+    /// <remarks>
+    /// <b>While a preview is up, only the source that produced it.</b> The page
+    /// showed every card and let each render its own way out, so two sources meant
+    /// two <i>Discard this preview</i> buttons for one preview — and the second one
+    /// belonged to a source that had nothing to do with what was on screen. A
+    /// preview is one source's answer, so it is one source's card.
+    ///
+    /// None at all once it has been applied: the report below owns that state and
+    /// carries both of the things left to do — look at the backlog, or finish — so a
+    /// card there would be a box with no contents and no purpose.
+    /// </remarks>
+    private IEnumerable<SourceSyncStatus> VisibleSources =>
+        _applied is not null ? []
+        : PendingSource is { } pending ? _statuses.Where(s => s.Source == pending)
+        : _statuses;
+
+    /// <summary>
+    /// Which source the preview on screen came from, or null when there is none.
+    /// </summary>
+    /// <remarks>
+    /// Recorded when the preview is made rather than inferred from what is set,
+    /// because the file path has no fetch to read it off and guessing would put the
+    /// assumption in every place that asks.
+    /// </remarks>
+    private AnimeSource? PendingSource => IsPreviewing ? _pendingSource : null;
 
     private BusyScope _busy = null!;
 
@@ -523,6 +539,7 @@
         else
         {
             _fetch = fetch;
+            _pendingSource = fetch.Source;
         }
 
         await LoadAsync();
@@ -574,7 +591,7 @@
             // being the only way to fill in several hundred new titles (D25).
             Changes.Publish(new LibraryChange
             {
-                Source = fetch?.Source ?? AnimeSource.MyAnimeList,
+                Source = _pendingSource ?? AnimeSource.MyAnimeList,
                 Created = _applied.Commit.Created,
                 Updated = _applied.Commit.Updated,
                 SlotsReleased = _applied.Commit.QueueSlotsReleased,
@@ -716,6 +733,8 @@
                     stream, Parser, Profile.DefaultProfileId, progress);
             });
 
+            _pendingSource = AnimeSource.MyAnimeList;
+
             if (_filePreview.IsFileRejected)
             {
                 _error = string.Join(" ", _filePreview.Problems.Select(p => p.Message));
@@ -752,6 +771,7 @@
     {
         _fetch = null;
         _filePreview = null;
+        _pendingSource = null;
         _applied = null;
         _nothingToDo = false;
         _error = null;
