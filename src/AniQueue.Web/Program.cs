@@ -1,5 +1,6 @@
 using AniQueue.Infrastructure;
 using AniQueue.Infrastructure.Persistence;
+using AniQueue.Infrastructure.Persistence.Seeding;
 using AniQueue.Infrastructure.Sync;
 using AniQueue.Web.Components;
 using AniQueue.Web.Services;
@@ -97,6 +98,21 @@ builder.Services.AddHostedService<BackgroundJobRunner<RelationBackfillJob>>();
 // caring whether a data directory was configured at all.
 builder.Services.AddSingleton(userConfig ?? new UserConfigStatus { Path = UserConfigTemplate.FileName });
 
+// Sample data, on request and only in development (D27). Two locks rather than
+// one: production never resolves the type, and a development run still has to ask.
+//
+//     dotnet run --project src/AniQueue.Web -- --SeedSampleData=true
+//
+// Reading it here rather than inside the seeder keeps the switch where every other
+// startup decision is, and keeps the seeder a thing that seeds.
+var seedSampleData = builder.Environment.IsDevelopment()
+    && builder.Configuration.GetValue<bool>("SeedSampleData");
+
+if (seedSampleData)
+{
+    builder.Services.AddAniQueueSampleData();
+}
+
 var app = builder.Build();
 
 // A self-hosted application that disappears without explanation is very hard to
@@ -151,6 +167,16 @@ try
     await scope.ServiceProvider
         .GetRequiredService<DatabaseInitializer>()
         .InitialiseAsync(app.Lifetime.ApplicationStopping);
+
+    // After the schema and before anything serves, so the first request sees a
+    // database that is either empty or complete. Idempotent, and it declines
+    // outright if the library already holds anything.
+    if (seedSampleData)
+    {
+        await scope.ServiceProvider
+            .GetRequiredService<SampleDataSeeder>()
+            .SeedAsync(app.Lifetime.ApplicationStopping);
+    }
 }
 catch (Exception ex)
 {

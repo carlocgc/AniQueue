@@ -1229,10 +1229,33 @@ first thing a developer sees, which is also the first thing a *user* sees, and t
 never had a reason to be exercised before.
 
 **What is lost is honestly a cost.** The inner loop no longer shows a populated backlog on `F5`
-— seeing rows means importing or syncing first, which is one step where it used to be none. The
-tests that asserted the seed contained a queue, a spread of scores and a relation graph are
-deleted with their subject rather than ported; what they covered is covered by import and sync
-tests against fixtures, which is where behaviour with real shapes belongs.
+— seeing rows means importing or syncing first, which is one step where it used to be none.
+
+**And that cost was paid immediately, which is why the seeder came back — on request.** In the
+same change, the crash that emptying Up Next caused could not be verified at all: reproducing it
+needs rows in a queue, and with nothing seeded there was no offline way to get any. A fix
+reasoned from a stack trace and shipped unexercised is exactly what sample data is for. So
+`SampleDataSeeder` exists again behind **two locks** — the `SeedSampleData` switch, and a
+development-environment check that stops production resolving the type — and the automatic
+behaviour is what stays deleted. The default is still an empty database, which is still the
+first thing both a developer and a user see.
+
+Three things make the returning version safer than the one that was removed:
+
+- **It has to be asked for**, by switch or by the *sample data* launch profile, which also
+  points it at its own database file. Nobody meets sample titles on a run they did not ask for.
+- **It leaves AniList sync switched off in the database it seeds**, so nothing unattended goes
+  looking. The absence report that started all this only happens if somebody presses *Sync now*
+  afterwards — which is then a decision to mix sample data with a real account, and the report
+  is correct.
+- **It seeds a hidden entry**, because the hidden view and its status-picker option only exist
+  when something is hidden, and a surface reachable only after hiding a row by hand is one
+  nobody checks.
+
+**Sample data and a real account remain alternatives, not complements.** That is stated rather
+than engineered around: there is no way to hold invented identifiers in a library that also
+syncs a real list without D19 noticing, and D19 noticing is the behaviour that protects real
+libraries. Seed a database or sync one.
 
 ### D28 — Enrichment wakes on a library change, without anything orchestrating it
 
@@ -2679,3 +2702,17 @@ maintains, or that nobody should have to maintain at all.
 - Delete that `data` directory to start from an empty database; migrations and the default
   profile are recreated on the next run, and nothing else is — a first run is empty, and the
   way to get data into it is the way a user would (D27).
+- **Sample data, when a surface needs rows to be looked at**, and never otherwise. Either the
+  *http (sample data)* launch profile — which also points at its own `sample.db`, so it cannot
+  land in the database a real account synced into — or:
+
+  ```bash
+  dotnet run --project src/AniQueue.Web -- --SeedSampleData=true
+  ```
+
+  Development only, refused if the library already holds anything, and it leaves AniList sync
+  switched off in what it seeds. It covers the states a manual pass needs and an empty database
+  cannot offer: a queue to reorder and empty, a relation graph to expand and walk, a hidden
+  entry, a spread of scores, and an applied AI ranking. **Do not sync a real account into a
+  seeded database** — the sample titles carry identifiers AniList does not issue, so the first
+  real list that comes back without them reports them as missing, correctly (D19, D27).
