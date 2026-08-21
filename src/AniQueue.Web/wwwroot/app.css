@@ -112,7 +112,13 @@ a { color: var(--accent); }
     font-weight: 500;
 }
 
-main { padding: 1.5rem; max-width: 1100px; }
+/* min-width: 0 because this is a grid item, and a grid item defaults to
+   min-width: auto — meaning it refuses to be narrower than its content. Anything
+   wide inside it therefore pushes the column open instead of scrolling within it,
+   and the whole page ends up scrolling sideways while the .table-wrap that was
+   supposed to catch it sits there at full width with nothing to scroll. Every wide
+   table on every page depends on this line. */
+main { padding: 1.5rem; max-width: 1100px; min-width: 0; }
 
 .page-header { margin-bottom: 1.25rem; }
 .page-header p { color: var(--text-muted); margin: 0.25rem 0 0; }
@@ -208,7 +214,12 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
 
 .file-input:disabled::file-selector-button { opacity: 0.5; cursor: not-allowed; }
 
-input[type="text"], input[type="search"], select {
+/* number is here because it was not, and the omission showed: an unstyled number
+   input keeps the browser's default width, which is narrow enough that a
+   placeholder like "All of them" is cut to "All of t". The spinner takes a slice
+   of that width again, so the box is sized explicitly rather than left to
+   content. */
+input[type="text"], input[type="search"], input[type="number"], select {
     font: inherit;
     padding: 0.4rem 0.6rem;
     border: 1px solid var(--border);
@@ -216,6 +227,8 @@ input[type="text"], input[type="search"], select {
     background: var(--surface);
     color: var(--text);
 }
+
+input[type="number"] { width: 12rem; }
 
 .toolbar { display: flex; gap: 0.5rem; flex-wrap: wrap; align-items: center; margin-bottom: var(--gap); }
 
@@ -445,11 +458,75 @@ tbody tr.row-hidden > td { opacity: 0.55; }
 
 .expander .count { font-size: 0.8rem; }
 
+/* The score, made pressable without ceasing to be the score. It borrows the
+   expander's behaviour but keeps the column's alignment and tabular figures,
+   because the number is what the column is for and a sorted listing has to stay
+   readable down its edge. */
+.score-expander {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    padding: 0.15rem 0.35rem;
+    background: none;
+    border: 1px solid transparent;
+    color: inherit;
+    font: inherit;
+    font-variant-numeric: tabular-nums;
+}
+
+.score-expander:hover, .score-expander:focus-visible { border-color: var(--border); }
+
+.score-expander .chevron {
+    width: 0;
+    height: 0;
+    border-top: 0.28rem solid transparent;
+    border-bottom: 0.28rem solid transparent;
+    border-left: 0.36rem solid currentColor;
+    color: var(--text-muted);
+    transition: transform 0.12s ease-out;
+}
+
+.score-expander.open .chevron { transform: rotate(90deg); }
+
 /* Tinted rather than bordered: the expansion belongs to the row above it, and a
    box around it would read as a separate thing on the page. */
-.relations-row > td { background: var(--surface-alt); }
+.relations-row > td, .scoring-row > td { background: var(--surface-alt); }
 
-.relations-row:hover > td { background: var(--surface-alt); }
+.relations-row:hover > td, .scoring-row:hover > td { background: var(--surface-alt); }
+
+.scoring-detail h3 {
+    font-size: 0.78rem;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--text-muted);
+    margin: 0 0 0.4rem;
+}
+
+/* The reasoning is a sentence to read, so it is given a measure rather than the
+   full width of a table that may be a very wide one. */
+.scoring-detail .reason { margin: 0 0 0.6rem; max-width: 60ch; }
+
+/* Label above value rather than beside it: the four facts are short and of
+   different lengths, and a two-column grid of them leaves one column mostly air. */
+.scoring-facts {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem 1.6rem;
+    margin: 0;
+}
+
+.scoring-facts dt {
+    font-size: 0.72rem;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--text-muted);
+}
+
+.scoring-facts dd { margin: 0.1rem 0 0; font-size: 0.9rem; }
+
+/* Each label sits over its own value, and the pair travels together when the
+   panel is narrow enough to wrap. */
+.scoring-facts > div { display: block; }
 
 /* The only control on the page that acts on more than one title, so it is the only
    one that is a worded button rather than a glyph — "queue six things" is not
@@ -749,6 +826,86 @@ button.icon.remove:hover:not(:disabled) {
 
 .source-settings legend { padding: 0 0.4rem; color: var(--text-muted); font-size: 0.85rem; }
 
+/* Recommendations --------------------------------------------------------- */
+
+textarea {
+    font: inherit;
+    width: 100%;
+    padding: 0.4rem 0.6rem;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--surface);
+    color: var(--text);
+    resize: vertical;
+}
+
+/* A model's reply is JSON, and proportional text makes a misplaced bracket
+   almost impossible to find in it. */
+#response { font-family: ui-monospace, "Cascadia Mono", "Consolas", monospace; font-size: 0.85rem; }
+
+/* The request and the instructions, shown rather than only offered: on a
+   self-hosted install over plain http the clipboard API does not exist, so text
+   that can be selected by hand is the route that always works. Bounded and
+   scrolling, because a backlog of several hundred titles is thousands of lines
+   and an unbounded block would bury the controls under it. */
+.payload {
+    max-height: 22rem;
+    overflow: auto;
+    padding: 0.6rem 0.8rem;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--surface-alt);
+    font-family: ui-monospace, "Cascadia Mono", "Consolas", monospace;
+    font-size: 0.8rem;
+    white-space: pre-wrap;
+    word-break: break-word;
+}
+
+details > summary {
+    cursor: pointer;
+    padding: 0.35rem 0;
+    color: var(--text-muted);
+    font-size: 0.9rem;
+}
+
+/* A skipped row is still worth reading — it says which title left the backlog —
+   so it is dimmed rather than removed. */
+tr.muted td { opacity: 0.6; }
+
+/* The ranking preview is five columns of very unequal need: three are a couple of
+   characters, one is a title, and the last is a sentence. Left to itself the
+   browser gives the title column whatever it wants and squeezes the reasoning into
+   a ribbon, which is the column a person is actually reading. So the narrow ones
+   are pinned and the remaining width is split between the two that vary. */
+/* min-width matters as much as the layout mode. Fixed layout divides the width it
+   is given, so on a narrow screen the three pinned columns take their rem widths
+   and the last column — the reasoning — is handed whatever is left, which is
+   nothing. Below this the wrap scrolls instead, which is what .table-wrap is for. */
+.ranking { table-layout: fixed; min-width: 44rem; }
+
+.ranking th:nth-child(1), .ranking td:nth-child(1) { width: 3.5rem; }
+.ranking th:nth-child(3), .ranking td:nth-child(3) { width: 5rem; }
+.ranking th:nth-child(4), .ranking td:nth-child(4) { width: 6rem; }
+.ranking th:nth-child(2), .ranking td:nth-child(2) { width: 30%; }
+
+/* break-word rather than anywhere. "anywhere" also lets a word be broken when it
+   would merely be tidier to, which is how "Mugenjou-hen" ends up split across two
+   lines inside a column with room to spare. This breaks only what genuinely does
+   not fit. */
+.ranking td { overflow-wrap: break-word; }
+
+/* The reasons behind a notice's colour, listed inside it. */
+.notice-list { margin: 0.5rem 0 0; padding-left: 1.1rem; }
+.notice-list li + li { margin-top: 0.25rem; }
+
+/* The reason is the column with the most to say and the least emphasis, so it
+   reads a step down from the title beside it. */
+.ranking td:last-child { color: var(--text-muted); }
+
+/* Under a right-aligned number, and small: it is a footnote to the score rather
+   than a second value. */
+.ranking td.numeric .row-meta { margin-top: 0.15rem; }
+
 /* Framework error UI ------------------------------------------------------ */
 
 .validation-message { color: var(--danger); }
@@ -773,3 +930,8 @@ button.icon.remove:hover:not(:disabled) {
     right: 0.75rem;
     top: 0.5rem;
 }
+
+/* Beside Apply rather than in a field of its own: it is answered in the same
+   breath as the decision, and a labelled row above the button would give a note
+   more prominence than the action it annotates. */
+.model-name { width: 16rem; }

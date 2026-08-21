@@ -58,9 +58,18 @@ public static class ScoringRequestWriter
         writer.WriteNumber("max", request.Scale.Max);
         writer.WriteEndObject();
 
-        // Stated even when nothing was capped, so a reader never has to infer
-        // whether a short history means a small library or a truncated one.
+        // Stated even when nothing was capped, so a reader never has to infer whether
+        // a short list means a small library or a truncated one.
         writer.WriteNumber("historyAvailable", request.HistoryAvailable);
+        writer.WriteNumber("candidatesAvailable", request.CandidatesAvailable);
+
+        // Written only when it narrows something. A model reading "return the top
+        // 182 of 182" has been given an instruction that is really a no-op, and a
+        // no-op instruction is one more thing for a small model to misread.
+        if (request.IsRankingLimited)
+        {
+            writer.WriteNumber("returnTop", request.ExpectedResults);
+        }
 
         writer.WriteStartArray("history");
         foreach (var entry in request.History)

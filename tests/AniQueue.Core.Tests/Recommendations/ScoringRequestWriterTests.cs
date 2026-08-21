@@ -150,6 +150,35 @@ public class ScoringRequestWriterTests
     }
 
     [Fact]
+    public void States_a_return_limit_only_when_it_narrows_something()
+    {
+        var candidates = Enumerable.Range(1, 5)
+            .Select(i => new ScoringCandidate { Id = i, Title = $"Waiting {i}" })
+            .ToList();
+
+        var limited = WriteAndRead(new ScoringRequest
+        {
+            GeneratedAt = When,
+            Candidates = candidates,
+            CandidatesAvailable = 5,
+            ReturnTop = 2
+        });
+
+        Assert.Equal(2, limited.GetProperty("returnTop").GetInt32());
+        Assert.Equal(5, limited.GetProperty("candidatesAvailable").GetInt32());
+
+        var unlimited = WriteAndRead(new ScoringRequest
+        {
+            GeneratedAt = When,
+            Candidates = candidates,
+            CandidatesAvailable = 5,
+            ReturnTop = 5
+        });
+
+        Assert.False(unlimited.TryGetProperty("returnTop", out _));
+    }
+
+    [Fact]
     public void Escapes_a_title_that_would_otherwise_break_the_document()
     {
         // Native titles and quotation marks in one payload, read back through a real

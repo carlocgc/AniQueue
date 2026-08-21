@@ -1,3 +1,4 @@
+using AniQueue.Core.Recommendations;
 using AniQueue.Infrastructure;
 using AniQueue.Infrastructure.Persistence;
 using AniQueue.Infrastructure.Persistence.Seeding;
@@ -64,7 +65,24 @@ if (!string.IsNullOrEmpty(dataDirectory))
 }
 
 builder.Services.AddRazorComponents()
-    .AddInteractiveServerComponents();
+    .AddInteractiveServerComponents()
+
+    // Raised from SignalR's 32 KB default, because one of this application's inputs
+    // is routinely larger than that and arrives in a single hub message: a model's
+    // ranking of a real backlog is tens of kilobytes, and pasting one into a bound
+    // textarea sends the whole value at once.
+    //
+    // Over the default, the circuit is closed rather than the value rejected. The
+    // symptom is a page that quietly stops responding — the paste appears to do
+    // nothing, the button stays disabled, and nothing anywhere says why. There is no
+    // server-side handler that can turn that into a message, which is what makes the
+    // limit the wrong place to enforce this.
+    //
+    // So it is aligned with what the parser will accept (ScoringLimits.MaxBytes).
+    // Past that point a reply is refused by code that can say so, in a sentence, on
+    // the page. The exposure this trades against is bounded by the same number, on
+    // an application that binds to one operator's own network.
+    .AddHubOptions(options => options.MaximumReceiveMessageSize = ScoringLimits.Default.MaxBytes);
 
 builder.Services.AddAniQueuePersistence(options =>
     builder.Configuration.GetSection(AniQueueDatabaseOptions.SectionName).Bind(options));

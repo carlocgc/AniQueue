@@ -2322,6 +2322,54 @@ back, preview, apply. Phase 8 automates the carrying and does not replace this: 
 that is switched off is the normal state of a self-hosted install, and this is also the
 fallback whenever a configured endpoint returns something the schema rejects.
 
+**How much to send is the user's, not ours.** Both bounds — how many titles to offer for
+ranking, and how many scored titles to carry as history — are `ProfileSettings` columns edited
+on the Recommendations page itself. They are properties of somebody else's model, which
+AniQueue cannot see; the measured library builds a 105 KB request uncapped and 5.3 KB at five
+candidates, and only the person running the model knows which of those it can read. The page
+states the size for that reason. Phase 10 offers the same two values beside the other
+preferences rather than inventing its own.
+
+**The two directions are bounded separately**, because their costs are not alike. A long request
+is read once; a long *reply* is generated a token at a time and can exhaust a model's output
+budget halfway down the list. So "rank the best 50 of these 182" is a third setting, and it is
+not the same request as sending 50 titles — every candidate is still weighed against the
+history, and only the top of the result comes back. The prompt states it in that order, and
+says so twice: a model told only "return 50" ranks the first fifty it reads, which is a worse
+answer that looks identical in the reply.
+
+**A cap is a page size, not a horizon**, and that is the whole design of the option. A capped
+request takes the titles longest without a score, never-scored first, so running it repeatedly
+sweeps the backlog and then keeps it fresh — where taking the first fifty alphabetically would
+leave the second half of a library unranked however many times it ran. It follows that the
+preview must check a reply against *what was asked* rather than against the backlog: with a cap
+set those differ, and reporting the difference as missing would turn the user's own setting into
+a warning against itself. A ranked title that was never offered is skipped with that reason on
+its row.
+
+**SignalR's default message size is smaller than this application's largest input**, and that
+is a property of Blazor Server rather than of this page. A ranking of a real backlog is tens of
+kilobytes; pasting one into a bound control sends the whole value in a single hub message, and
+past the 32 KB default the *circuit is closed* rather than the value rejected. The symptom is a
+page that quietly stops responding — the paste appears to do nothing, the button stays
+disabled, and no server-side code ever runs, so nothing can say why. `MaximumReceiveMessageSize`
+is therefore raised to match what the parser accepts, which moves the refusal to code that can
+explain itself. Any future surface taking a large pasted payload inherits this.
+
+**The clipboard is not available where this application runs**, which 7b found and which is
+worth stating because it is a property of the deployment rather than of one page.
+`navigator.clipboard` exists only in a secure context, and a self-hosted AniQueue is reached
+over plain http at a LAN address far more often than over https — so on the target deployment
+the modern API is simply absent. Copy therefore falls back to `execCommand`, and **both the
+request and the instructions are rendered on the page** rather than only offered through a
+button: text a person can select by hand is the one route that always works, and the copy
+buttons are a convenience over it rather than the way in. Anything later that offers to put
+something on the clipboard inherits the same constraint.
+
+*Also from 7b:* the request is built once and held, so the file, the clipboard and the text on
+screen are three views of one string. Rebuilding it per action would let a sync land between
+two of them and hand the model a payload that does not match what the user is reading.
+
 **Full-library backup and restore are declined here** (D33), and MVP criteria 23–24 with them.
 This phase exports what a ranking needs, which is a different payload from a restore — queue
 order, hidden flags, settings and run history are all deliberately absent from it.

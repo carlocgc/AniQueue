@@ -4,26 +4,70 @@ using AniQueue.Core.Progress;
 namespace AniQueue.Core.Recommendations;
 
 /// <summary>How much of the library goes into a request.</summary>
+/// <remarks>
+/// Both bounds are the user's, held on <see cref="ProfileSettings"/> and passed in
+/// here so the service stays a function of what it is given. The right values are
+/// properties of somebody else's model — its context window, and how well it holds
+/// a long list together — which AniQueue has no way to see and should not guess at
+/// past a first sensible answer.
+/// </remarks>
 public sealed record ScoringRequestOptions
 {
     public static ScoringRequestOptions Default { get; } = new();
 
-    /// <summary>
-    /// The most scored titles to send as history.
-    /// </summary>
+    /// <summary>The most scored titles to send as history. Zero sends none.</summary>
     /// <remarks>
-    /// Two hundred, and the cap exists for the model this workflow targets. A
-    /// measured library holds 566 scored titles, which is roughly 23 KB of history
-    /// against 8 KB at this cap — affordable for a large hosted model and enough to
-    /// crowd out the candidates on a small self-hosted one, where the failure mode
-    /// is not an error but a worse ranking nobody can attribute to context.
-    ///
     /// Most recent first, because a rating from twelve years ago describes a person
     /// who no longer exists as reliably as it describes this one. What is dropped is
-    /// stated in the payload rather than silently omitted, so the sample is visible
-    /// as a sample.
+    /// stated in the payload rather than silently omitted, so a sample is visible as
+    /// a sample.
     /// </remarks>
     public int MaxHistory { get; init; } = 200;
+
+    /// <summary>The most titles to offer for ranking, or null for all of them.</summary>
+    /// <remarks>
+    /// <b>Which ones a capped request takes is the whole design of this option.</b>
+    /// Taking the first fifty alphabetically would mean the second half of the
+    /// library is never ranked however many times it is run, which turns a cap into
+    /// a permanent blind spot rather than a smaller batch.
+    ///
+    /// So they are taken least-recently-scored first, with never-scored titles ahead
+    /// of everything: run a capped request repeatedly and it sweeps the backlog,
+    /// covering what has never been looked at and then refreshing whatever is
+    /// stalest. The cap becomes a page size rather than a horizon.
+    /// </remarks>
+    public int? MaxCandidates { get; init; }
+
+    /// <summary>
+    /// How many rankings to ask the model to return, or null for all of them.
+    /// </summary>
+    /// <remarks>
+    /// Bounds the reply rather than the request, and the two are worth keeping apart
+    /// because their costs are not alike: a long request is read once, while a long
+    /// reply is generated a token at a time and can exhaust a model's output budget
+    /// halfway down the list.
+    ///
+    /// It does not narrow what the model considers. Every candidate sent is still
+    /// weighed against the history; this asks only for the best of them to come
+    /// back, which is a different — and usually better — answer than sending fewer
+    /// titles in the first place.
+    /// </remarks>
+    public int? ReturnTop { get; init; }
+
+    /// <summary>The bounds a stored preference is clamped into before it is used.</summary>
+    /// <remarks>
+    /// Applied where the settings are read rather than where they are written, so a
+    /// row edited by hand or left behind by an older build cannot produce a request
+    /// nothing can send. The ceilings are deliberately far above any sensible answer:
+    /// they exist to stop a typed extra zero costing a minute of database work, not
+    /// to second-guess someone who really does want everything.
+    /// </remarks>
+    public static ScoringRequestOptions From(int historySize, int? candidateLimit, int? returnTop = null) => new()
+    {
+        MaxHistory = Math.Clamp(historySize, 0, 5_000),
+        MaxCandidates = candidateLimit is { } limit ? Math.Clamp(limit, 1, 5_000) : null,
+        ReturnTop = returnTop is { } top ? Math.Clamp(top, 1, 5_000) : null
+    };
 }
 
 /// <summary>One ranked title, resolved against the library it claims to describe.</summary>
@@ -40,10 +84,19 @@ public sealed record ScoringPreviewItem
     public double? PreviousScore { get; init; }
 
     /// <summary>
-    /// Whether applying would write this row. False for a title that has left the
-    /// backlog since the request was generated.
+    /// Why this row is passed over, or null when it will be written.
     /// </summary>
-    public bool WillApply => Status == LibraryStatus.Planning;
+    /// <remarks>
+    /// A reason rather than a flag, because there is more than one way to be
+    /// skipped and the row is where the answer is wanted: a title that has left the
+    /// backlog and a title that was never offered are both passed over, and telling
+    /// somebody which is which is the difference between a table they can act on and
+    /// a column of greyed-out rows.
+    /// </remarks>
+    public string? SkippedBecause { get; init; }
+
+    /// <summary>Whether applying would write this row.</summary>
+    public bool WillApply => SkippedBecause is null;
 }
 
 /// <summary>
@@ -62,25 +115,77 @@ public sealed record ScoringPreview
 
     public IReadOnlyList<ScoringProblem> Problems { get; init; } = [];
 
-    /// <summary>How many titles were waiting to be ranked when this was checked.</summary>
+    /// <summary>
+    /// How many titles were offered for ranking.
+    /// </summary>
+    /// <remarks>
+    /// What was <i>offered</i>, not what is waiting. Those differ the moment a
+    /// candidate limit is set, and reporting the backlog here would tell a user who
+    /// deliberately asked for fifty titles that a hundred and thirty-two are
+    /// missing — turning their own setting into a warning against itself.
+    /// </remarks>
     public int CandidateCount { get; init; }
+
+    /// <summary>
+    /// How many rankings the request asked to come back.
+    /// </summary>
+    /// <remarks>
+    /// Distinct from <see cref="CandidateCount"/> as soon as a return limit is set:
+    /// asking for the best fifty of a hundred and eighty-two makes a reply of fifty
+    /// a complete answer, and measuring it against the hundred and eighty-two would
+    /// report a hundred and thirty-two omissions the user deliberately asked for.
+    /// </remarks>
+    public int ExpectedCount { get; init; }
 
     public bool HasErrors => Problems.Any(p => p.Severity == ScoringSeverity.Error);
 
     /// <summary>How many rows applying would actually write.</summary>
     public int ApplicableCount => Items.Count(i => i.WillApply);
 
-    /// <summary>Ranked titles that have since left the backlog, and so are skipped.</summary>
-    public int StaleCount => Items.Count(i => !i.WillApply);
+    /// <summary>Ranked titles that are passed over, for any reason.</summary>
+    public int SkippedCount => Items.Count(i => !i.WillApply);
 
-    /// <summary>Candidates sent that the ranking did not mention.</summary>
-    public int MissingCount => Math.Max(0, CandidateCount - Items.Count(i => i.WillApply));
+    /// <summary>Rankings that were asked for and did not arrive.</summary>
+    public int MissingCount => Math.Max(0, ExpectedCount - ApplicableCount);
 
     public bool CanApply => !HasErrors && ApplicableCount > 0;
 }
 
 /// <summary>What applying a ranking did.</summary>
 public sealed record ScoringApplyResult(int RunId, int Applied, int Skipped);
+
+/// <summary>
+/// Everything known about why one title carries the score it does.
+/// </summary>
+/// <remarks>
+/// Read from the run that produced it rather than from the columns denormalised
+/// onto the entry (D4). Those exist so the backlog can sort by score in one
+/// query; they deliberately do not carry which run wrote them, and the run is
+/// where "when" and "by what" live. Asking the run also means this cannot drift
+/// from the history the user can browse.
+/// </remarks>
+public sealed record RecommendationDetail
+{
+    /// <summary>Placement within the ranking this came from, not within the backlog.</summary>
+    public required int Rank { get; init; }
+
+    public required double PredictedScore { get; init; }
+
+    public required double Confidence { get; init; }
+
+    public string? Reason { get; init; }
+
+    public required DateTimeOffset DeterminedAt { get; init; }
+
+    /// <summary>How the ranking was carried — the manual path, or an endpoint.</summary>
+    public required string ProviderName { get; init; }
+
+    /// <summary>What the user said produced it, when they said anything.</summary>
+    public string? ModelIdentifier { get; init; }
+
+    /// <summary>How many titles were weighed against each other to place this one.</summary>
+    public int CandidateCount { get; init; }
+}
 
 /// <summary>One past ranking, for the list of them.</summary>
 public sealed record RecommendationRunSummary
@@ -137,9 +242,25 @@ public interface IRecommendationService
     /// same validation: a preview built from an already-trusted object would be a
     /// second way in, and the second way in is the one that skips a check.
     /// </remarks>
+    /// <param name="request">
+    /// The question this is an answer to, when the caller still holds it.
+    /// </param>
+    /// <remarks>
+    /// Passed in rather than remembered, because the request is deliberately not
+    /// stored — it is derivable from the run that results (D4), and keeping one per
+    /// attempt would mean a second copy of the backlog for every reply, most of them
+    /// abandoned.
+    ///
+    /// The whole request rather than the ids alone, because two different things are
+    /// checked against it: which titles were offered, and how many rankings were
+    /// asked for. Both differ from "the backlog" the moment either limit is set, and
+    /// a reply is only short or complete relative to what was requested. When it is
+    /// null the whole visible backlog is assumed, ranked in full.
+    /// </remarks>
     Task<ScoringPreview> PreviewAsync(
         int profileId,
         string json,
+        ScoringRequest? request = null,
         CancellationToken cancellationToken = default);
 
     /// <summary>
@@ -167,9 +288,43 @@ public interface IRecommendationService
         IProgress<OperationProgress>? progress = null,
         CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// Why one title carries the score it does, from the most recent ranking that
+    /// placed it. Null when no applied run mentions it.
+    /// </summary>
+    /// <remarks>
+    /// Per title rather than per page, because it answers a question about one row
+    /// that is only asked about a few of them: the reasoning is a paragraph, and
+    /// joining it onto every listing would carry a page of prose to render a column
+    /// of numbers.
+    /// </remarks>
+    Task<RecommendationDetail?> GetDetailAsync(
+        int profileId,
+        int animeId,
+        CancellationToken cancellationToken = default);
+
     /// <summary>Past runs, newest first.</summary>
     Task<IReadOnlyList<RecommendationRunSummary>> GetRunsAsync(
         int profileId,
         int take = 20,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>What the profile currently asks for, clamped into usable bounds.</summary>
+    Task<ScoringRequestOptions> GetOptionsAsync(
+        int profileId,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Stores how much of the library future requests carry.
+    /// </summary>
+    /// <remarks>
+    /// A preference, so it lives in the database rather than in operator
+    /// configuration (D20) — it describes a model the user chose, and they change it
+    /// from the page where they will see the effect. Phase 10 offers the same two
+    /// values beside the rest of the preferences; this is where they start.
+    /// </remarks>
+    Task SaveOptionsAsync(
+        int profileId,
+        ScoringRequestOptions options,
         CancellationToken cancellationToken = default);
 }

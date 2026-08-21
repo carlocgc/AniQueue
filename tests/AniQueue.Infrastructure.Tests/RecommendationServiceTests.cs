@@ -124,6 +124,27 @@ public class RecommendationServiceTests
         return anime;
     }
 
+    /// <summary>Marks an entry as scored at a given moment, without a whole run.</summary>
+    private static async Task ScoreAsync(AniQueueDbContext context, int animeId, DateTimeOffset when)
+    {
+        var entry = await context.LibraryEntries.SingleAsync(e => e.AnimeId == animeId);
+
+        entry.RecommendationScore = 7.0;
+        entry.RecommendationUpdatedAt = when;
+
+        await context.SaveChangesAsync();
+    }
+
+    /// <summary>
+    /// A stand-in for the request a reply is being checked against, when the test
+    /// cares only about which ids were offered and how many were asked for.
+    /// </summary>
+    private static ScoringRequest Asked(params int[] animeIds) => new()
+    {
+        GeneratedAt = Now,
+        Candidates = animeIds.Select(id => new ScoringCandidate { Id = id, Title = $"#{id}" }).ToList()
+    };
+
     private static string Ranking(params (int Id, int Rank, double Score)[] results) =>
         $$"""
           {
@@ -247,6 +268,336 @@ public class RecommendationServiceTests
     }
 
     [Fact]
+    public async Task A_capped_request_takes_the_titles_longest_without_a_score()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        await using var context = fixture.Database.CreateContext();
+
+        var never = await AddAsync(context, fixture.ProfileId, "Never scored");
+        var recent = await AddAsync(context, fixture.ProfileId, "Aardvark, scored yesterday");
+        var stale = await AddAsync(context, fixture.ProfileId, "Zebra, scored long ago");
+
+        await ScoreAsync(context, recent.Id, Now.AddDays(-1));
+        await ScoreAsync(context, stale.Id, Now.AddYears(-1));
+
+        var request = await fixture.Recommendations.BuildRequestAsync(
+            fixture.ProfileId,
+            new ScoringRequestOptions { MaxCandidates = 2 });
+
+        // Alphabetically this would be Aardvark and Never; by staleness it is the
+        // unscored one and the year-old one. Which is the whole point: a cap that took
+        // the front of the alphabet would leave the back of the library unranked
+        // however many times it was run.
+        Assert.Equal([never.Id, stale.Id], request.Candidates.Select(c => c.Id).Order());
+
+        // Still alphabetical on the wire — the selection decides what is in the
+        // payload, not what order a person reads it in.
+        Assert.Equal("Never scored", request.Candidates[0].Title);
+        Assert.Equal("Zebra, scored long ago", request.Candidates[1].Title);
+    }
+
+    [Fact]
+    public async Task A_capped_request_says_how_much_it_left_out()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        await using var context = fixture.Database.CreateContext();
+
+        for (var i = 0; i < 5; i++)
+        {
+            await AddAsync(context, fixture.ProfileId, $"Waiting {i}");
+        }
+
+        var request = await fixture.Recommendations.BuildRequestAsync(
+            fixture.ProfileId,
+            new ScoringRequestOptions { MaxCandidates = 2 });
+
+        Assert.Equal(2, request.Candidates.Count);
+        Assert.Equal(5, request.CandidatesAvailable);
+        Assert.True(request.IsCandidatesCapped);
+    }
+
+    [Fact]
+    public async Task Repeated_capped_requests_sweep_the_backlog()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        await using var context = fixture.Database.CreateContext();
+
+        for (var i = 0; i < 6; i++)
+        {
+            await AddAsync(context, fixture.ProfileId, $"Waiting {i}");
+        }
+
+        var options = new ScoringRequestOptions { MaxCandidates = 2 };
+        var seen = new List<int>();
+
+        // Three runs of two, applying each, should cover all six exactly once. This is
+        // the property that makes a cap a page size rather than a horizon.
+        for (var round = 0; round < 3; round++)
+        {
+            var request = await fixture.Recommendations.BuildRequestAsync(fixture.ProfileId, options);
+            var ids = request.Candidates.Select(c => c.Id).ToList();
+
+            seen.AddRange(ids);
+
+            var ranking = Ranking(ids.Select((id, index) => (id, index + 1, 7.0)).ToArray());
+            var preview = await fixture.Recommendations.PreviewAsync(fixture.ProfileId, ranking, request);
+
+            await fixture.Recommendations.ApplyAsync(fixture.ProfileId, preview, "Manual");
+        }
+
+        Assert.Equal(6, seen.Distinct().Count());
+    }
+
+    [Fact]
+    public async Task An_uncapped_request_offers_everything_in_title_order()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        await using var context = fixture.Database.CreateContext();
+
+        await AddAsync(context, fixture.ProfileId, "Zebra");
+        await AddAsync(context, fixture.ProfileId, "Aardvark");
+
+        var request = await fixture.Recommendations.BuildRequestAsync(fixture.ProfileId);
+
+        Assert.Equal(["Aardvark", "Zebra"], request.Candidates.Select(c => c.Title));
+        Assert.False(request.IsCandidatesCapped);
+    }
+
+    [Fact]
+    public async Task A_ranking_of_a_title_the_request_did_not_offer_is_skipped()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        await using var context = fixture.Database.CreateContext();
+
+        var offered = await AddAsync(context, fixture.ProfileId, "Offered");
+        var notOffered = await AddAsync(context, fixture.ProfileId, "Held back by the cap");
+
+        var preview = await fixture.Recommendations.PreviewAsync(
+            fixture.ProfileId,
+            Ranking((offered.Id, 1, 8.0), (notOffered.Id, 2, 7.0)),
+            Asked(offered.Id));
+
+        // Waiting, and real, but not part of the question — so its score was not
+        // computed against the same set as the rest. A warning rather than an error:
+        // the ranking of what was asked for is unaffected.
+        Assert.False(preview.HasErrors);
+        Assert.Equal(1, preview.ApplicableCount);
+        Assert.Contains(preview.Items, i => i.SkippedBecause == "was not part of this request");
+
+        await fixture.Recommendations.ApplyAsync(fixture.ProfileId, preview, "Manual");
+
+        await using var check = fixture.Database.CreateContext();
+        Assert.Null((await check.LibraryEntries.SingleAsync(e => e.AnimeId == notOffered.Id)).RecommendationScore);
+    }
+
+    [Fact]
+    public async Task A_capped_request_does_not_report_the_rest_of_the_backlog_as_missing()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        await using var context = fixture.Database.CreateContext();
+
+        var offered = await AddAsync(context, fixture.ProfileId, "Offered");
+
+        for (var i = 0; i < 4; i++)
+        {
+            await AddAsync(context, fixture.ProfileId, $"Not offered {i}");
+        }
+
+        var preview = await fixture.Recommendations.PreviewAsync(
+            fixture.ProfileId,
+            Ranking((offered.Id, 1, 8.0)),
+            Asked(offered.Id));
+
+        // Without the offered set this would say four of five were not ranked, which
+        // would turn the user's own candidate limit into a warning against itself.
+        Assert.Equal(1, preview.CandidateCount);
+        Assert.Equal(0, preview.MissingCount);
+        Assert.DoesNotContain(preview.Problems, p => p.Message.Contains("did not come back"));
+    }
+
+    [Fact]
+    public async Task Asking_for_the_top_few_narrows_the_reply_and_not_the_question()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        await using var context = fixture.Database.CreateContext();
+
+        for (var i = 0; i < 5; i++)
+        {
+            await AddAsync(context, fixture.ProfileId, $"Waiting {i}");
+        }
+
+        var request = await fixture.Recommendations.BuildRequestAsync(
+            fixture.ProfileId,
+            new ScoringRequestOptions { ReturnTop = 2 });
+
+        // Every title still goes: this bounds what comes back, not what is weighed.
+        // Sending fewer titles and asking for fewer rankings are different questions,
+        // and the second gets a better answer.
+        Assert.Equal(5, request.Candidates.Count);
+        Assert.Equal(2, request.ExpectedResults);
+        Assert.True(request.IsRankingLimited);
+        Assert.False(request.IsCandidatesCapped);
+    }
+
+    [Fact]
+    public async Task A_reply_of_exactly_what_was_asked_for_is_complete()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        await using var context = fixture.Database.CreateContext();
+
+        var first = await AddAsync(context, fixture.ProfileId, "First");
+        await AddAsync(context, fixture.ProfileId, "Second");
+        await AddAsync(context, fixture.ProfileId, "Third");
+
+        var request = await fixture.Recommendations.BuildRequestAsync(
+            fixture.ProfileId,
+            new ScoringRequestOptions { ReturnTop = 1 });
+
+        var preview = await fixture.Recommendations.PreviewAsync(
+            fixture.ProfileId,
+            Ranking((first.Id, 1, 8.0)),
+            request);
+
+        // One of three ranked, and nothing missing — because one is what was asked
+        // for. Measured against the candidates it would report two omissions the user
+        // deliberately requested.
+        Assert.Equal(3, preview.CandidateCount);
+        Assert.Equal(1, preview.ExpectedCount);
+        Assert.Equal(0, preview.MissingCount);
+        Assert.DoesNotContain(preview.Problems, p => p.Message.Contains("did not come back"));
+    }
+
+    [Fact]
+    public async Task A_reply_longer_than_what_was_asked_for_applies_and_says_so()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        await using var context = fixture.Database.CreateContext();
+
+        var first = await AddAsync(context, fixture.ProfileId, "First");
+        var second = await AddAsync(context, fixture.ProfileId, "Second");
+        var third = await AddAsync(context, fixture.ProfileId, "Third");
+
+        var request = await fixture.Recommendations.BuildRequestAsync(
+            fixture.ProfileId,
+            new ScoringRequestOptions { ReturnTop = 1 });
+
+        // What a capable model actually does: asked for the best one, it ranks all
+        // three. Everything it sent is valid, so all of it applies — but the setting
+        // was ignored, and saying nothing would leave that looking like the setting
+        // never worked.
+        var preview = await fixture.Recommendations.PreviewAsync(
+            fixture.ProfileId,
+            Ranking((first.Id, 1, 9.0), (second.Id, 2, 8.0), (third.Id, 3, 7.0)),
+            request);
+
+        Assert.False(preview.HasErrors);
+        Assert.Equal(3, preview.ApplicableCount);
+        Assert.Contains(preview.Problems, p => p.Message.Contains("returned 3 rankings when 1 were asked for"));
+
+        var applied = await fixture.Recommendations.ApplyAsync(fixture.ProfileId, preview, "Manual");
+        Assert.Equal(3, applied.Applied);
+    }
+
+    [Fact]
+    public async Task A_reply_shorter_than_what_was_asked_for_still_warns()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        await using var context = fixture.Database.CreateContext();
+
+        var first = await AddAsync(context, fixture.ProfileId, "First");
+        await AddAsync(context, fixture.ProfileId, "Second");
+        await AddAsync(context, fixture.ProfileId, "Third");
+
+        var request = await fixture.Recommendations.BuildRequestAsync(
+            fixture.ProfileId,
+            new ScoringRequestOptions { ReturnTop = 3 });
+
+        var preview = await fixture.Recommendations.PreviewAsync(
+            fixture.ProfileId,
+            Ranking((first.Id, 1, 8.0)),
+            request);
+
+        Assert.Equal(2, preview.MissingCount);
+        Assert.Contains(preview.Problems, p => p.Message.Contains("2 of the 3 rankings"));
+    }
+
+    [Fact]
+    public async Task History_size_and_candidate_limit_are_remembered()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+
+        await fixture.Recommendations.SaveOptionsAsync(
+            fixture.ProfileId,
+            new ScoringRequestOptions { MaxHistory = 25, MaxCandidates = 50, ReturnTop = 20 });
+
+        var stored = await fixture.Recommendations.GetOptionsAsync(fixture.ProfileId);
+
+        Assert.Equal(25, stored.MaxHistory);
+        Assert.Equal(50, stored.MaxCandidates);
+        Assert.Equal(20, stored.ReturnTop);
+    }
+
+    [Fact]
+    public async Task A_stored_preference_is_what_a_request_uses_when_none_is_given()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        await using var context = fixture.Database.CreateContext();
+
+        for (var i = 0; i < 4; i++)
+        {
+            await AddAsync(context, fixture.ProfileId, $"Waiting {i}");
+            await AddAsync(context, fixture.ProfileId, $"Rated {i}", LibraryStatus.Completed, userScore: 7);
+        }
+
+        await fixture.Recommendations.SaveOptionsAsync(
+            fixture.ProfileId,
+            new ScoringRequestOptions { MaxHistory = 1, MaxCandidates = 2 });
+
+        var request = await fixture.Recommendations.BuildRequestAsync(fixture.ProfileId);
+
+        Assert.Equal(2, request.Candidates.Count);
+        Assert.Single(request.History);
+    }
+
+    [Theory]
+    [InlineData(-5, 0)]
+    [InlineData(99_999, 5_000)]
+    public async Task An_out_of_range_preference_is_clamped_rather_than_stored(int given, int expected)
+    {
+        // Clamped where it is read as well as where it is written, so a row edited by
+        // hand cannot produce a request nothing can send.
+        await using var fixture = await Fixture.CreateAsync();
+
+        await fixture.Recommendations.SaveOptionsAsync(
+            fixture.ProfileId,
+            new ScoringRequestOptions { MaxHistory = given });
+
+        Assert.Equal(expected, (await fixture.Recommendations.GetOptionsAsync(fixture.ProfileId)).MaxHistory);
+    }
+
+    [Fact]
+    public async Task Sending_no_history_at_all_is_a_choice_that_survives()
+    {
+        // Zero is a real setting, not an absence: the ranking becomes general rather
+        // than personal, and the user said so. It must not be read as "unset" and
+        // quietly replaced by the default.
+        await using var fixture = await Fixture.CreateAsync();
+        await using var context = fixture.Database.CreateContext();
+
+        await AddAsync(context, fixture.ProfileId, "Rated", LibraryStatus.Completed, userScore: 8);
+        await AddAsync(context, fixture.ProfileId, "Waiting");
+
+        await fixture.Recommendations.SaveOptionsAsync(
+            fixture.ProfileId,
+            new ScoringRequestOptions { MaxHistory = 0 });
+
+        var request = await fixture.Recommendations.BuildRequestAsync(fixture.ProfileId);
+
+        Assert.Empty(request.History);
+        Assert.Equal(1, request.HistoryAvailable);
+    }
+
+    [Fact]
     public async Task An_id_naming_nothing_is_an_error_and_stops_everything()
     {
         await using var fixture = await Fixture.CreateAsync();
@@ -280,7 +631,7 @@ public class RecommendationServiceTests
 
         Assert.False(preview.HasErrors);
         Assert.Equal(1, preview.ApplicableCount);
-        Assert.Equal(1, preview.StaleCount);
+        Assert.Equal(1, preview.SkippedCount);
         Assert.Contains(preview.Problems, p => p.Severity == ScoringSeverity.Warning);
 
         await fixture.Recommendations.ApplyAsync(fixture.ProfileId, preview, "Manual");
@@ -308,7 +659,7 @@ public class RecommendationServiceTests
         Assert.False(preview.HasErrors);
         Assert.True(preview.CanApply);
         Assert.Equal(1, preview.MissingCount);
-        Assert.Contains(preview.Problems, p => p.Message.Contains("not ranked"));
+        Assert.Contains(preview.Problems, p => p.Message.Contains("did not come back"));
 
         var result = await fixture.Recommendations.ApplyAsync(fixture.ProfileId, preview, "Manual");
         Assert.Equal(1, result.Applied);
@@ -433,6 +784,79 @@ public class RecommendationServiceTests
 
         // Denormalised for sorting, not instead of history (D4).
         Assert.Equal(2, await check.RecommendationRuns.CountAsync());
+    }
+
+    [Fact]
+    public async Task A_score_can_say_where_it_came_from()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        await using var context = fixture.Database.CreateContext();
+
+        var anime = await AddAsync(context, fixture.ProfileId, "Explained");
+        await AddAsync(context, fixture.ProfileId, "Also waiting");
+
+        var preview = await fixture.Recommendations.PreviewAsync(fixture.ProfileId, Ranking((anime.Id, 1, 8.6)));
+        await fixture.Recommendations.ApplyAsync(fixture.ProfileId, preview, "Manual", "some-local-model");
+
+        var detail = await fixture.Recommendations.GetDetailAsync(fixture.ProfileId, anime.Id);
+
+        Assert.NotNull(detail);
+        Assert.Equal(1, detail.Rank);
+        Assert.Equal(8.6, detail.PredictedScore);
+        Assert.Equal(0.8, detail.Confidence);
+        Assert.Equal("Because.", detail.Reason);
+        Assert.Equal("Manual", detail.ProviderName);
+        Assert.Equal("some-local-model", detail.ModelIdentifier);
+        Assert.Equal(Now, detail.DeterminedAt);
+
+        // How many titles were weighed to place it, which is what makes "ranked 1 of
+        // 2" mean something.
+        Assert.Equal(2, detail.CandidateCount);
+    }
+
+    [Fact]
+    public async Task A_score_explains_itself_with_the_ranking_that_wrote_it()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        await using var context = fixture.Database.CreateContext();
+
+        var anime = await AddAsync(context, fixture.ProfileId, "Reconsidered");
+
+        foreach (var score in new[] { 4.0, 9.0 })
+        {
+            var preview = await fixture.Recommendations.PreviewAsync(fixture.ProfileId, Ranking((anime.Id, 1, score)));
+            await fixture.Recommendations.ApplyAsync(fixture.ProfileId, preview, "Manual");
+        }
+
+        // The latest applied run, not the first. Ordered by run key rather than
+        // CreatedAt, because SQLite cannot ORDER BY a DateTimeOffset and throws at
+        // query time — reaching this assertion is half the test.
+        var detail = await fixture.Recommendations.GetDetailAsync(fixture.ProfileId, anime.Id);
+
+        Assert.Equal(9.0, detail!.PredictedScore);
+    }
+
+    [Fact]
+    public async Task A_title_no_applied_ranking_mentions_has_nothing_to_explain()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        await using var context = fixture.Database.CreateContext();
+
+        var anime = await AddAsync(context, fixture.ProfileId, "Never ranked");
+
+        Assert.Null(await fixture.Recommendations.GetDetailAsync(fixture.ProfileId, anime.Id));
+    }
+
+    [Fact]
+    public async Task Another_profiles_ranking_does_not_explain_this_ones_score()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        await using var context = fixture.Database.CreateContext();
+
+        var other = await SeedData.CreateProfileAsync(context, "Someone else");
+        var theirs = await AddAsync(context, other.Id, "Their title");
+
+        Assert.Null(await fixture.Recommendations.GetDetailAsync(fixture.ProfileId, theirs.Id));
     }
 
     [Fact]

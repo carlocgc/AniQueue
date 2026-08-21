@@ -29,7 +29,23 @@ namespace AniQueue.Web.Services;
 public sealed class BusyScope(Func<Task> notifyStateChanged)
 {
     private readonly Func<Task> _notify = notifyStateChanged;
-    private readonly List<string> _completedSteps = [];
+    /// <summary>
+    /// Replaced wholesale rather than appended to, and that is a correctness fix
+    /// rather than a style.
+    /// </summary>
+    /// <remarks>
+    /// The work runs on the thread pool (see <see cref="RunAsync{T}"/>) so progress
+    /// arrives on a different thread from the one Blazor renders on. A mutable list
+    /// read by the renderer while a report appends to it throws "collection was
+    /// modified" from inside <c>BusyDialog</c>'s foreach — which is not an error the
+    /// page can catch, because it happens while building the render tree. It takes
+    /// the circuit down, and whatever was being described is left half-reported.
+    ///
+    /// Seen for real on a 182-item apply. Copy-on-write means the renderer always
+    /// enumerates a list nobody can touch: a reference assignment is atomic, so the
+    /// worst case is a render one step out of date, which the next report fixes.
+    /// </remarks>
+    private IReadOnlyList<string> _completedSteps = [];
 
     private DateTimeOffset _shownAt;
 
@@ -131,7 +147,7 @@ public sealed class BusyScope(Func<Task> notifyStateChanged)
         Message = "Starting…";
         Fraction = null;
         CountText = null;
-        _completedSteps.Clear();
+        _completedSteps = [];
         IsVisible = false;
         IsRunning = true;
     }
@@ -144,7 +160,8 @@ public sealed class BusyScope(Func<Task> notifyStateChanged)
             && Message != "Starting…"
             && !_completedSteps.Contains(Message))
         {
-            _completedSteps.Add(Message);
+            // A new list each time, never an append to the one being rendered.
+            _completedSteps = [.. _completedSteps, Message];
         }
 
         Message = progress.Message;
