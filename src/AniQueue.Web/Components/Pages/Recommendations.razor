@@ -261,24 +261,41 @@
 
            "Apply 182 scores" says the whole ranking, not this page of it, which is
            the one thing paging could otherwise make ambiguous. *@
+        @* A labelled field above the buttons, not a bare box beside them. It sat in
+           the toolbar with only a placeholder to say what it was, which is how it
+           came to be skipped: by the time the eye reaches a row of buttons it is
+           looking for the button, and a control read after Apply is a control read
+           after it stopped mattering.
+
+           Asked here because here is the only moment anybody knows the answer — the
+           payload does not say what read it, and by the time a score is being
+           questioned on the backlog the memory of which model produced it has gone.
+
+           <b>Deliberately not asked of the model.</b> Adding "tell me your name" to
+           the response schema would fill this in by itself, and would fill it in
+           wrongly: a fine-tune will say it is ChatGPT, a quantised build does not
+           know its own quant, and self-reported identity is confidently wrong often
+           enough that a blank is worth more. This is the field somebody consults
+           when deciding whether a better model is worth re-running for, so a wrong
+           answer costs more than no answer. *@
+        <div class="field model-field">
+            <label for="model-identifier">Which model produced this?</label>
+            <input id="model-identifier" type="text" maxlength="100"
+                   placeholder="@ModelPlaceholder" disabled="@_busy.IsRunning"
+                   @bind="_modelIdentifier" @bind:event="oninput" />
+            <p class="muted">
+                Recorded with the ranking and shown beside every score it writes, so a
+                score from a weaker model can be told apart later. Optional — left blank
+                it says @ProviderName instead, which is true but less useful.
+            </p>
+        </div>
+
         <div class="toolbar">
             <button class="primary" disabled="@(_busy.IsRunning || !_preview.CanApply)"
                     @onclick="ApplyAsync">
                 Apply @_preview.ApplicableCount @Plural(_preview.ApplicableCount, "score", "scores")
             </button>
             <button @onclick="Discard" disabled="@_busy.IsRunning">Discard</button>
-
-            @* Recorded with the run, and asked for here because here is the only
-               moment anybody knows the answer: the payload does not say what read
-               it, and by the time a score is being questioned on the backlog the
-               memory of which model produced it has gone. Optional — a blank one
-               falls back to naming the route, which is still true if less useful.
-
-               Phase 8 fills this in from its own configuration rather than asking. *@
-            <input type="text" class="model-name" maxlength="100"
-                   placeholder="Which model? (optional)" disabled="@_busy.IsRunning"
-                   aria-label="Which model produced this ranking"
-                   @bind="_modelIdentifier" @bind:event="oninput" />
         </div>
 
         @if (_preview.Items.Count > 0)
@@ -673,8 +690,28 @@
         _copied = null;
     }
 
-    private async Task LoadRunsAsync() =>
+    private async Task LoadRunsAsync()
+    {
         _runs = await Scoring.GetRunsAsync(Profile.DefaultProfileId);
+
+        // Carried forward from the last run that named one, because almost nobody
+        // changes model between rankings and typing it again every time is the kind of
+        // chore that gets skipped once and then forever. It only pre-fills a field the
+        // user has not touched, so it can never overwrite an answer being given now.
+        _modelIdentifier ??= _runs
+            .Select(run => run.ModelIdentifier)
+            .FirstOrDefault(name => !string.IsNullOrWhiteSpace(name));
+    }
+
+    /// <summary>
+    /// An example of what to type, rather than a note that typing is optional.
+    /// </summary>
+    /// <remarks>
+    /// The old placeholder said "Which model? (optional)", which described the field's
+    /// importance instead of its content — and "optional" is the word the eye uses to
+    /// decide to skip something.
+    /// </remarks>
+    private const string ModelPlaceholder = "e.g. GPT-5, or qwen2.5-14b";
 
     /// <summary>
     /// Calls the module, and treats an unavailable browser as a failure rather than
