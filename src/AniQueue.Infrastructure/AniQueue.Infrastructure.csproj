@@ -19,4 +19,14 @@
     <ProjectReference Include="..\AniQueue.Core\AniQueue.Core.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!--
+      UserSettingsDocument is internal because nothing outside this assembly should
+      render the settings file, and it is tested directly because what that file says
+      is the contract an operator edits by hand. Reaching it by reflection instead
+      would make the test unreadable to hide a detail from one friend assembly.
+    -->
+    <InternalsVisibleTo Include="AniQueue.Infrastructure.Tests" />
+  </ItemGroup>
+
 </Project>

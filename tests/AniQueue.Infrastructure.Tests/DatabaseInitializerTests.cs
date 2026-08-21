@@ -51,7 +51,9 @@ public class DatabaseInitializerTests
         await using var context = database.CreateContext();
         var settings = await context.ProfileSettings.SingleAsync();
 
-        Assert.False(settings.IncludePersonalNotesInAiExport);
+        // The scoring settings that used to be asserted here moved to userconfig.json
+        // (D36); what a fresh database still has to produce is the display preferences.
+        Assert.Equal(TitleLanguage.Romaji, settings.PreferredTitleLanguage);
         Assert.Equal(RecommendationMode.Manual, settings.DefaultRecommendationMode);
     }
 

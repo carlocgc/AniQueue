@@ -1,7 +1,9 @@
 using AniQueue.Core.Recommendations;
+using AniQueue.Core.Settings;
 using AniQueue.Infrastructure;
 using AniQueue.Infrastructure.Persistence;
 using AniQueue.Infrastructure.Persistence.Seeding;
+using AniQueue.Infrastructure.Settings;
 using AniQueue.Infrastructure.Sync;
 using AniQueue.Web.Components;
 using AniQueue.Web.Services;
@@ -30,7 +32,7 @@ if (!string.IsNullOrEmpty(dataDirectory))
     {
         // Absolute, because the banner naming it is read by someone who has to go
         // and find the file, and a path relative to the content root is not that.
-        Path = Path.GetFullPath(Path.Combine(dataDirectory, UserConfigTemplate.FileName))
+        Path = Path.GetFullPath(Path.Combine(dataDirectory, UserConfigStatus.FileName))
     };
 
     // Configured through the source rather than the path overload so that a file
@@ -94,7 +96,18 @@ builder.Services.AddAniQueuePersistence(options =>
 builder.Services.Configure<SyncOptions>(
     builder.Configuration.GetSection(SyncOptions.SectionName));
 
+// The scoring sizes, on the same terms and for the same reason. They were
+// ProfileSettings columns until D36 moved them: how much history a model can hold
+// describes that model rather than this application's appearance, which is the
+// line between the file and the database.
+builder.Services.Configure<ScoringOptions>(
+    builder.Configuration.GetSection(ScoringOptions.SectionName));
+
 builder.Services.AddAniQueueSync();
+
+// The one reader and writer of userconfig.json (D36). Registered after the section
+// bindings above rather than before, because what it writes is what they read.
+builder.Services.AddAniQueueSettings();
 
 // The timer half of unattended sync (D21). Registered here rather than inside
 // AddAniQueueSync because hosting is the web project's business: Infrastructure
@@ -114,7 +127,7 @@ builder.Services.AddHostedService<BackgroundJobRunner<RelationBackfillJob>>();
 
 // Registered even when the file is fine, so the banner component can ask without
 // caring whether a data directory was configured at all.
-builder.Services.AddSingleton(userConfig ?? new UserConfigStatus { Path = UserConfigTemplate.FileName });
+builder.Services.AddSingleton(userConfig ?? new UserConfigStatus { Path = UserConfigStatus.FileName });
 
 // Sample data, on request and only in development (D27). Two locks rather than
 // one: production never resolves the type, and a development run still has to ask.
@@ -212,11 +225,9 @@ catch (Exception ex)
 // matter that this run has already read its configuration.
 if (!string.IsNullOrEmpty(dataDirectory))
 {
-    using var scope = app.Services.CreateScope();
-
-    await scope.ServiceProvider
-        .GetRequiredService<UserConfigTemplate>()
-        .EnsureExistsAsync(dataDirectory, app.Lifetime.ApplicationStopping);
+    await app.Services
+        .GetRequiredService<IUserSettingsStore>()
+        .EnsureExistsAsync(app.Lifetime.ApplicationStopping);
 }
 
 if (!app.Environment.IsDevelopment())

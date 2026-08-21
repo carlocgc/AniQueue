@@ -1554,11 +1554,24 @@ in the database. The key sets stay disjoint, which is the property D20 was actua
 
 | `userconfig.json` | Database |
 |---|---|
-| Sync enabled, AniList account, per-source schedule | Displayed title language |
-| Absence policy, conflict policy, primary source | Theme, date format |
+| Sync enabled, AniList account | Displayed title language |
+| Per-source schedule, absence, conflict, primary † | Theme, date format |
 | Model endpoint, model name, timeout | Default queue size |
 | History size, titles to rank, rankings to ask for | Backlog default sort and filters |
 | Personal notes in export, scoring schedule, batch size, staleness threshold | |
+
+**† The per-source settings have not moved yet, and Phase 10 moves them.** 8a moved what
+Phase 8 needs — the scoring settings, the AniList account and the kill switch — and left
+`SourceSyncSettings` in the database. Two reasons, recorded so the gap reads as a decision:
+moving it touches `SyncService`, `ImportService`, the Sources page and the seeder, which is a
+sync refactor inside a scoring phase and would make a regression found in 8c hard to attribute;
+and the entity is keyed `(ProfileId, Source)`, which a flat file cannot express, so the move has
+to answer the one-profile question somewhere more load-bearing than scoring did. Phase 10 is the
+settings phase and is already opening `ProfileSettings`, so it is where this belongs.
+
+*Until then the Sources page writes an account to the file and a schedule to the database, in
+one card.* That is the confusion this decision exists to end, and it is tolerable only because
+nobody can see it: both are edited in the same disclosure, and neither says where it went.
 
 **The application writes the file, and regenerates it whole.** D20 declined a UI that writes a
 hand-editable file because comment-preserving round-tripping is not something
@@ -2763,6 +2776,11 @@ unchanged, and it still has to hold two kinds of setting without letting them lo
   theme, date format, default queue size, and the backlog's default sort and filters. The last
   of those has no columns yet and needs a migration; Phase 11 squashes the history immediately
   afterwards, so adding one here costs nothing.
+- **The per-source sync settings move to `userconfig.json`** — schedule, absence policy,
+  conflict policy and precedence. D36 assigned them to the file and 8a deliberately did not move
+  them; the same migration that adds the sort and filter columns drops `SourceSyncSettings`. It
+  has to answer what a flat file does with a `(ProfileId, Source)` key, which is the one-profile
+  question D36 already accepted for scoring, arriving somewhere it is load-bearing.
 - **A register of everything in `userconfig.json`**, and where each value came from: the AniList
   account, the model endpoint, sync frequency, absence policy, the scoring schedule. D36 makes
   these editable, but on the cards that use them — the point of this half is not a second set of

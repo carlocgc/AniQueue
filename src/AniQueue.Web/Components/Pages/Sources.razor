@@ -1,6 +1,8 @@
 @page "/sources"
+@using AniQueue.Core.Settings
 @using AniQueue.Infrastructure.Sync
 @using Microsoft.Extensions.Options
+@inject IUserSettingsStore Settings
 @inject ISyncService SyncService
 @inject IImportService ImportService
 @inject IRelationBackfill RelationBackfill
@@ -71,12 +73,38 @@
         }
         else if (!status.IsConfigured)
         {
+            @* Editable here rather than only in a file, which D36 changed: an account
+               name is the first thing a new installation needs and "edit some JSON and
+               restart" is a poor first screen. The file stays the way in when this page
+               cannot be reached — the same value, the same key, one home. *@
             <p class="muted">
-                No account is configured. Set <code>Sync:AniList:UserName</code> — in
-                <code>appsettings.json</code>, as an environment variable, or in
-                <code>userconfig.json</code> beside your database — and restart. The
-                list must be public; AniQueue does not sign in.
+                No account is configured yet. AniQueue reads a public AniList list; it does
+                not sign in, and has no password for your account.
             </p>
+
+            <div class="field">
+                <label for="anilist-account">AniList username</label>
+                <input id="anilist-account" type="text" maxlength="60" spellcheck="false"
+                       placeholder="Your AniList username" disabled="@_busy.IsRunning"
+                       @bind="_aniListAccount" @bind:event="oninput"
+                       @onkeydown="OnAccountKeyDownAsync" />
+                <p class="muted">
+                    Saved to <code>@Settings.Path</code>, which is also where you can change
+                    it by hand if this page is ever unreachable.
+                </p>
+            </div>
+
+            <div class="toolbar">
+                <button class="primary" @onclick="SaveAccountAsync"
+                        disabled="@(_busy.IsRunning || string.IsNullOrWhiteSpace(_aniListAccount))">
+                    Save
+                </button>
+            </div>
+
+            @if (_accountError is not null)
+            {
+                <div class="notice error" role="alert">@_accountError</div>
+            }
         }
         else if (!status.CanFetch)
         {
@@ -219,6 +247,43 @@
         {
         <details class="source-settings">
             <summary>Settings</summary>
+
+            @* Configured, not merely fetchable. An unconfigured source already offers
+               this field in the card above, where it is the one thing to do, and
+               drawing it here as well would be two controls over one setting — which
+               is the bug D30's single primary seat was written against, reappearing on
+               a text box. Once an account exists the card shows what it is reading and
+               this is where changing it belongs. *@
+            @if (status.CanFetch && status.IsConfigured)
+            {
+                @* The one control on this page that writes to userconfig.json rather
+                   than to the database (D36), and deliberately indistinguishable from
+                   the ones that do: which store holds a value is AniQueue's problem,
+                   not the reader's. *@
+                <div class="field">
+                    <label for="anilist-account-settings">AniList username</label>
+                    <input id="anilist-account-settings" type="text" maxlength="60" spellcheck="false"
+                           disabled="@_busy.IsRunning"
+                           @bind="_aniListAccount" @bind:event="oninput"
+                           @onkeydown="OnAccountKeyDownAsync" />
+                    <p class="muted">
+                        The list must be public. Saved to <code>@Settings.Path</code>, which is
+                        where to change it by hand if this page is ever unreachable.
+                    </p>
+
+                    <div class="toolbar">
+                        <button @onclick="SaveAccountAsync"
+                                disabled="@(_busy.IsRunning || _aniListAccount == status.Account)">
+                            Save username
+                        </button>
+                    </div>
+
+                    @if (_accountError is not null)
+                    {
+                        <div class="notice error" role="alert">@_accountError</div>
+                    }
+                </div>
+            }
 
             @if (status.CanFetch)
             {
@@ -519,6 +584,55 @@
         _statuses = await SyncService.GetStatusAsync(Profile.DefaultProfileId);
         _titleLanguage = await SyncService.GetPreferredTitleLanguageAsync(Profile.DefaultProfileId);
         _relations = await RelationBackfill.GetCoverageAsync();
+
+        // Read every time rather than only on first load, so the field agrees with the
+        // status line beside it after a save — and after a hand edit to the file that a
+        // reload has since picked up.
+        _aniListAccount = Settings.Read().AniListUserName ?? string.Empty;
+    }
+
+    /// <summary>The account as typed, which is not yet the account in effect.</summary>
+    private string _aniListAccount = string.Empty;
+
+    private string? _accountError;
+
+    /// <summary>
+    /// Enter saves, because a single text field with a button beside it is one the
+    /// keyboard should finish.
+    /// </summary>
+    private async Task OnAccountKeyDownAsync(KeyboardEventArgs args)
+    {
+        if (args.Key is "Enter")
+        {
+            await SaveAccountAsync();
+        }
+    }
+
+    private async Task SaveAccountAsync()
+    {
+        _accountError = null;
+
+        var account = _aniListAccount.Trim();
+
+        // The whole file is rewritten on every save, so everything this page is not
+        // editing has to be read back and passed through — otherwise saving a username
+        // would quietly clear the scoring sizes the Recommendations page wrote.
+        var result = await Settings.SaveAsync(Settings.Read() with
+        {
+            AniListUserName = account.Length == 0 ? null : account
+        });
+
+        if (!result.Saved)
+        {
+            _accountError = $"Could not save to {result.Path}: {result.Error}";
+            return;
+        }
+
+        // Reloaded rather than assumed: the status carries whether the source is
+        // configured and what it is reading, and both have just changed. Sync now has
+        // to appear without the page being refreshed by hand, which is the only visible
+        // sign that the save took effect.
+        await LoadAsync();
     }
 
     private bool CanSync(SourceSyncStatus status) =>

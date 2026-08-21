@@ -49,5 +49,24 @@ public class RecommendationRun
     /// </summary>
     public bool WasApplied { get; set; }
 
+    /// <summary>
+    /// How long the model took to answer, when anything measured it.
+    /// </summary>
+    /// <remarks>
+    /// Null for the manual path, where the wait happened in somebody else's chat
+    /// window and AniQueue has no idea how long it was. Written by Phase 8's endpoint,
+    /// which does.
+    ///
+    /// It exists so that the second run onwards can say "your last one took six
+    /// minutes" while a person waits on a request with no progress to report — a
+    /// ranking arrives all at once, so there is nothing to show but elapsed time, and
+    /// elapsed time means nothing without something to compare it to. That is the
+    /// difference between a page that looks hung and one that looks busy.
+    ///
+    /// Stored as milliseconds because SQLite has no interval type and EF's TimeSpan
+    /// mapping is a formatted string that cannot be compared or averaged in a query.
+    /// </remarks>
+    public long? DurationMilliseconds { get; set; }
+
     public ICollection<RecommendationRunItem> Items { get; set; } = [];
 }
