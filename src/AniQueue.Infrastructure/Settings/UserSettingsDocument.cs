@@ -119,16 +119,7 @@ internal static class UserSettingsDocument
                 "travel only if you say so."
             ],
             s => s.ScoringIncludePersonalNotes,
-            () => UserSettings.Defaults.ScoringIncludePersonalNotes),
-
-        new(
-            "Database:BusyTimeoutSeconds",
-            [
-                "How long to wait for another writer before giving up on a locked database.",
-                "Worth raising only if large imports report timeouts."
-            ],
-            s => s.DatabaseBusyTimeoutSeconds,
-            () => UserSettings.Defaults.DatabaseBusyTimeoutSeconds)
+            () => UserSettings.Defaults.ScoringIncludePersonalNotes)
     ];
 
     /// <summary>The keys this document writes, for the test that guards the list.</summary>
@@ -156,9 +147,12 @@ internal static class UserSettingsDocument
         // leaves a valid file. Comments and trailing commas are allowed. The nested
         // spelling used by appsettings.json works here too if you prefer it.
         //
-        // Database:Path is deliberately absent: AniQueue finds this file by looking beside
-        // the database, so a path set here could not be read until it was already in use.
-        // Set that one in the environment or in appsettings.json.
+        // Database settings are deliberately absent. Database:Path cannot live here at
+        // all — AniQueue finds this file by looking beside the database, so a path set
+        // here could not be read until it was already in use. The rest are tuning for
+        // the storage engine rather than choices about your library, and the defaults
+        // are right unless something is already wrong. Set them in the environment
+        // (Database__Path, Database__BusyTimeoutSeconds) if you ever need to.
         """;
 
     /// <summary>Renders the whole file for the settings given.</summary>

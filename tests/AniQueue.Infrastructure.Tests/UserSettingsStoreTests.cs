@@ -93,8 +93,7 @@ public class UserSettingsStoreTests : IDisposable
                 "Scoring:HistorySize",
                 "Scoring:CandidateLimit",
                 "Scoring:ReturnTop",
-                "Scoring:IncludePersonalNotes",
-                "Database:BusyTimeoutSeconds"
+                "Scoring:IncludePersonalNotes"
             },
             key => Assert.Contains(key, text, StringComparison.Ordinal));
     }

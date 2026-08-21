@@ -119,9 +119,11 @@ your install was created.
 Your compose file or Unraid template holds the container's concerns — the `/data` volume and
 the published port — and nothing else. There is no second place to look.
 
-The one exception is `Database:Path`, which cannot live in the file: AniQueue finds the file by
-looking beside the database, so a path set inside it could not be read until it was already in
-use. Set that in the environment or `appsettings.json`.
+Database settings are the exception, and stay in the environment. `Database:Path` could not live
+in the file even in principle — AniQueue finds the file by looking *beside* the database, so a
+path set inside it could not be read until it was already in use. The rest are tuning for the
+storage engine rather than choices about your library, and their defaults are right unless
+something is already wrong.
 
 Preferences about how AniQueue *looks* to you — the language titles are shown in, and later the
 theme and date format — are kept in the database instead, so they travel with a copy of your

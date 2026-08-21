@@ -79,14 +79,22 @@ public sealed record UserSettings
     /// </remarks>
     public bool ScoringIncludePersonalNotes { get; init; }
 
-    /// <summary>
-    /// How long to wait for another writer before giving up on a locked database.
-    /// </summary>
-    /// <remarks>
-    /// In the file but on no page, which is a state the design has to allow: it is
-    /// worth raising only if large imports report timeouts, and a control for it
-    /// would be a knob nobody can evaluate. A key with no editor is fine; an editor
-    /// with no key would not be.
-    /// </remarks>
-    public int DatabaseBusyTimeoutSeconds { get; init; } = 30;
+    // The whole Database section is deliberately absent, and for two different
+    // reasons that reach the same place.
+    //
+    // Database:Path cannot be here: this file is found by looking beside the
+    // database, so a path set inside it could not be read until it was already in
+    // use (D20).
+    //
+    // Database:BusyTimeoutSeconds could be, and should not. It is not a setting
+    // about the user's world — it is how long SQLite waits for a write lock, which
+    // is an implementation detail of a storage engine they did not choose. The
+    // journal is WAL, so readers never block writers and only two writers can
+    // contend at all; thirty seconds is already far past the point where a longer
+    // wait is the answer. Anyone waiting that long has a defect, and doubling the
+    // number makes the hang twice as long rather than fixing it.
+    //
+    // Both stay reachable through the environment for the deployment that proves us
+    // wrong. What they are not is a line in the file somebody opens when something
+    // is already broken, where every line should be one they can act on.
 }

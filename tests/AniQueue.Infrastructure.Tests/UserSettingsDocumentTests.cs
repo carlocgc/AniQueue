@@ -68,8 +68,7 @@ public class UserSettingsDocumentTests
             ScoringHistorySize = 25,
             ScoringCandidateLimit = 50,
             ScoringReturnTop = 20,
-            ScoringIncludePersonalNotes = true,
-            DatabaseBusyTimeoutSeconds = 60
+            ScoringIncludePersonalNotes = true
         });
 
         var path = Path.Combine(Path.GetTempPath(), $"aniqueue-doc-{Guid.NewGuid():N}.json");
@@ -88,7 +87,6 @@ public class UserSettingsDocumentTests
             Assert.Equal("50", configuration["Scoring:CandidateLimit"]);
             Assert.Equal("20", configuration["Scoring:ReturnTop"]);
             Assert.Equal("true", configuration["Scoring:IncludePersonalNotes"], ignoreCase: true);
-            Assert.Equal("60", configuration["Database:BusyTimeoutSeconds"]);
         }
         finally
         {

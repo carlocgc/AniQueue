@@ -1,8 +1,6 @@
 using System.Globalization;
 using AniQueue.Core.Recommendations;
 using AniQueue.Core.Settings;
-using AniQueue.Infrastructure.Persistence;
-using AniQueue.Infrastructure.Recommendations;
 using AniQueue.Infrastructure.Sync;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
@@ -36,7 +34,7 @@ public sealed class UserSettingsStore(
         //
         // Read through the indexer and parsed here rather than through the binder's
         // GetValue<T>, which lives in a package Infrastructure does not reference and
-        // §12 would require approving. Seven keys of explicit parsing is a smaller
+        // §12 would require approving. A handful of keys parsed explicitly is a smaller
         // thing to own than a dependency, and it is where the "unset means default"
         // rule becomes visible rather than implied.
         SyncEnabled = Bool(SyncKey(nameof(SyncOptions.Enabled)), UserSettings.Defaults.SyncEnabled),
@@ -53,11 +51,7 @@ public sealed class UserSettingsStore(
 
         ScoringIncludePersonalNotes = Bool(
             ScoringKey(nameof(ScoringOptions.IncludePersonalNotes)),
-            UserSettings.Defaults.ScoringIncludePersonalNotes),
-
-        DatabaseBusyTimeoutSeconds = Number(
-                $"{AniQueueDatabaseOptions.SectionName}:{nameof(AniQueueDatabaseOptions.BusyTimeoutSeconds)}")
-            ?? UserSettings.Defaults.DatabaseBusyTimeoutSeconds
+            UserSettings.Defaults.ScoringIncludePersonalNotes)
     };
 
     private static string SyncKey(string key) => $"{SyncOptions.SectionName}:{key}";
