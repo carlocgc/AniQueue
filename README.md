@@ -111,10 +111,12 @@ in your `/data` volume on first run. AniQueue writes it whenever you change some
 application, and you can edit it by hand, which is how you change its behaviour when its own
 pages cannot be reached.
 
-The file documents itself: it names every key it accepts, one per line, with a comment
-explaining each. A commented-out line is a setting at its default — leave it that way and a
-later version's better default reaches you, rather than being pinned by whatever was true when
-your install was created.
+It holds every setting it accepts, one key per line, each with a line saying what it does. What
+you see is what AniQueue is doing — there are no hidden defaults to know about. Edit a value,
+save, and restart to be certain a hand edit took effect.
+
+AniQueue rewrites the file whole each time a setting changes, so anything else you put in it
+will not survive.
 
 Your compose file or Unraid template holds the container's concerns — the `/data` volume and
 the published port — and nothing else. There is no second place to look.
