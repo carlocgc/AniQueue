@@ -67,8 +67,7 @@ public class UserSettingsDocumentTests
             AniListUserName = "hibari",
             ScoringHistorySize = 25,
             ScoringCandidateLimit = 50,
-            ScoringReturnTop = 20,
-            ScoringIncludePersonalNotes = true
+            ScoringReturnTop = 20
         });
 
         var path = Path.Combine(Path.GetTempPath(), $"aniqueue-doc-{Guid.NewGuid():N}.json");
@@ -86,7 +85,6 @@ public class UserSettingsDocumentTests
             Assert.Equal("25", configuration["Scoring:HistorySize"]);
             Assert.Equal("50", configuration["Scoring:CandidateLimit"]);
             Assert.Equal("20", configuration["Scoring:ReturnTop"]);
-            Assert.Equal("true", configuration["Scoring:IncludePersonalNotes"], ignoreCase: true);
         }
         finally
         {

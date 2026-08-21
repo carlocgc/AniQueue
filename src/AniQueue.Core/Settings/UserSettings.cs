@@ -68,16 +68,17 @@ public sealed record UserSettings
     /// <summary>How many rankings to ask for back, or null for one per title sent.</summary>
     public int? ScoringReturnTop { get; init; }
 
-    /// <summary>
-    /// Whether personal notes travel with a scoring request. Opt in, always.
-    /// </summary>
-    /// <remarks>
-    /// Free text that may contain anything, so §6 excludes it from AI export unless
-    /// the user has explicitly asked for it. It moves to the file with the rest of
-    /// the scoring settings because it describes what leaves the machine, which is
-    /// a property of the integration rather than of a page.
-    /// </remarks>
-    public bool ScoringIncludePersonalNotes { get; init; }
+    // Scoring:IncludePersonalNotes is not offered, because nothing can write a
+    // personal note yet. LibraryEntry.PersonalNotes has a column, §6 protects it,
+    // and the import pipeline is careful not to overwrite it — but no surface fills
+    // it and no phase has ever built one. A control over whether an always-empty
+    // field is exported is not merely useless; it is misleading, because it tells a
+    // reader AniQueue has notes and sends them looking for where to write one.
+    //
+    // The plumbing stays: ScoringOptions binds the key, ScoringRequestOptions carries
+    // it, the export gate honours it, and a test holds §6's default of excluded. So
+    // an operator who wants it can still set Scoring__IncludePersonalNotes, and the
+    // line returns to this file the day notes can be written.
 
     // The whole Database section is deliberately absent, and for two different
     // reasons that reach the same place.

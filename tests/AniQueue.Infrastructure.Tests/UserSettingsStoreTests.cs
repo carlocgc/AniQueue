@@ -92,8 +92,7 @@ public class UserSettingsStoreTests : IDisposable
                 "Sync:AniList:UserName",
                 "Scoring:HistorySize",
                 "Scoring:CandidateLimit",
-                "Scoring:ReturnTop",
-                "Scoring:IncludePersonalNotes"
+                "Scoring:ReturnTop"
             },
             key => Assert.Contains(key, text, StringComparison.Ordinal));
     }

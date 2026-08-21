@@ -48,51 +48,30 @@ internal static class UserSettingsDocument
     [
         new(
             "Sync:Enabled",
-            [
-                "false refuses every sync, however it was triggered — Sync now, and any",
-                "schedule you have set. The switch to reach for when syncing is doing",
-                "something you want stopped now, and the one that works when AniQueue's",
-                "own pages cannot be reached."
-            ],
+            ["Syncing at all. Set false to stop it when AniQueue's pages cannot be reached."],
             s => s.SyncEnabled,
             () => UserSettings.Defaults.SyncEnabled),
 
         new(
             "Sync:AniList:UserName",
             [
-                "The AniList username whose list is read. It must be public: AniQueue does",
-                "not sign in, and has no password for your account.",
-                "",
-                "Editable on the Sources page as well as here.",
-                "",
-                "How often a source is read on its own is not here: that is a per-source",
-                "setting kept in the database, so a copy of the database file carries it",
-                "and a copy of this file does not."
+                "Whose AniList list to read. Must be public — AniQueue does not sign in.",
+                "Also editable on the Sources page."
             ],
             s => s.AniListUserName,
             () => UserSettings.Defaults.AniListUserName ?? string.Empty),
 
         new(
             "Scoring:HistorySize",
-            [
-                "How many of your scored titles travel with a ranking request, most",
-                "recently finished first. More history means a ranking that fits your taste",
-                "more closely, up to the point where it crowds out the backlog it is",
-                "ranking. Zero sends none, and the ranking is then general rather than",
-                "yours."
-            ],
+            ["Your scored titles sent with a ranking request, newest first. 0 sends none."],
             s => s.ScoringHistorySize,
             () => UserSettings.Defaults.ScoringHistorySize),
 
         new(
             "Scoring:CandidateLimit",
             [
-                "How many titles to offer for ranking at once. Leave it unset to offer",
-                "everything you are planning to watch.",
-                "",
-                "When it is set, each request takes the titles that have gone longest",
-                "without a score — so running it again works through the rest rather than",
-                "asking about the same ones."
+                "Titles offered per ranking request. Unset offers all of them.",
+                "When set, takes those longest without a score, so repeats sweep the rest."
             ],
             s => s.ScoringCandidateLimit,
             () => 50),
@@ -100,59 +79,40 @@ internal static class UserSettingsDocument
         new(
             "Scoring:ReturnTop",
             [
-                "How many rankings to ask the model to send back. Leave it unset for one",
-                "per title offered.",
-                "",
-                "It does not narrow what the model considers — every title sent is still",
-                "weighed. Worth setting when the reply is the slow part: a ranking with a",
-                "sentence of reasoning per title is generated a word at a time, and a long",
-                "one can run out of room halfway down the list."
+                "Rankings asked for back. Unset asks for one per title offered.",
+                "Every title sent is still weighed; this only shortens the reply."
             ],
             s => s.ScoringReturnTop,
-            () => 50),
-
-        new(
-            "Scoring:IncludePersonalNotes",
-            [
-                "Whether your personal notes are sent along with a ranking request. Off,",
-                "and off by default: notes are free text and may contain anything, so they",
-                "travel only if you say so."
-            ],
-            s => s.ScoringIncludePersonalNotes,
-            () => UserSettings.Defaults.ScoringIncludePersonalNotes)
+            () => 50)
     ];
 
     /// <summary>The keys this document writes, for the test that guards the list.</summary>
     internal static IReadOnlyList<string> Keys => [.. Entries.Select(e => e.Key)];
 
+    /// <summary>
+    /// The preamble, kept short on purpose.
+    /// </summary>
+    /// <remarks>
+    /// This file is read by somebody who is already having a problem, so it is scanned
+    /// rather than studied. Every line that explains something they did not ask about
+    /// pushes the line they need further down — which is why the guidance here is the
+    /// four facts that change what they do, and the per-key comments below are one
+    /// line each wherever one line will carry it.
+    /// </remarks>
     private const string Header =
         """
-        // AniQueue — settings.
+        // AniQueue settings.
         //
-        // AniQueue writes this file itself whenever you change a setting on one of its
-        // pages, and rewrites the whole thing each time. Anything you add by hand outside
-        // the lines below will not survive that, so keep your own notes elsewhere.
+        // AniQueue rewrites this file whole when you change something in the app, so
+        // notes of your own will not survive. Editing it by hand works, and is how you
+        // change AniQueue's behaviour when its pages cannot be reached — restart
+        // afterwards to be sure a hand edit took.
         //
-        // You can still edit it directly, which is the point of it existing: it is how you
-        // change AniQueue's behaviour when its own pages cannot be reached. Save the file
-        // and restart AniQueue to be sure a hand edit has taken effect — the file is
-        // watched, but the watcher does not fire reliably on Windows-host or network-share
-        // bind mounts, so a restart is the way that always works.
+        // A commented-out line is that setting at its default. Uncomment to change it;
+        // leaving it commented lets a later version improve the default.
         //
-        // A commented-out line is a setting at its default. Uncomment it to change it.
-        // Leaving it commented means a later version of AniQueue can improve the default
-        // and you will get the improvement; writing the value out pins it forever.
-        //
-        // Each key is written in full, one per line, so uncommenting any single line
-        // leaves a valid file. Comments and trailing commas are allowed. The nested
-        // spelling used by appsettings.json works here too if you prefer it.
-        //
-        // Database settings are deliberately absent. Database:Path cannot live here at
-        // all — AniQueue finds this file by looking beside the database, so a path set
-        // here could not be read until it was already in use. The rest are tuning for
-        // the storage engine rather than choices about your library, and the defaults
-        // are right unless something is already wrong. Set them in the environment
-        // (Database__Path, Database__BusyTimeoutSeconds) if you ever need to.
+        // Comments and trailing commas are fine. Database settings are not here — set
+        // Database__Path or Database__BusyTimeoutSeconds in the environment.
         """;
 
     /// <summary>Renders the whole file for the settings given.</summary>

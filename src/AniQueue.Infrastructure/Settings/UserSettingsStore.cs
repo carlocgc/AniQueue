@@ -47,11 +47,7 @@ public sealed class UserSettingsStore(
 
         ScoringCandidateLimit = Number(ScoringKey(nameof(ScoringOptions.CandidateLimit))),
 
-        ScoringReturnTop = Number(ScoringKey(nameof(ScoringOptions.ReturnTop))),
-
-        ScoringIncludePersonalNotes = Bool(
-            ScoringKey(nameof(ScoringOptions.IncludePersonalNotes)),
-            UserSettings.Defaults.ScoringIncludePersonalNotes)
+        ScoringReturnTop = Number(ScoringKey(nameof(ScoringOptions.ReturnTop)))
     };
 
     private static string SyncKey(string key) => $"{SyncOptions.SectionName}:{key}";
