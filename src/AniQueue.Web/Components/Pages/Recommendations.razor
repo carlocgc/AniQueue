@@ -372,7 +372,12 @@
                 <thead>
                     <tr>
                         <th scope="col">When</th>
-                        <th scope="col">From</th>
+                        @* "From" was one column collapsing the route and the model, so a run
+                           that named its model stopped saying how it arrived. They are
+                           separate questions: the route explains what a run is, the model
+                           is what makes two runs worth comparing. *@
+                        <th scope="col">Type</th>
+                        <th scope="col">Model</th>
                         <th scope="col">Ranked</th>
                         <th scope="col">History</th>
                     </tr>
@@ -382,7 +387,17 @@
                     {
                         <tr>
                             <td>@run.CreatedAt.ToLocalTime().ToString("g", CultureInfo.CurrentCulture)</td>
-                            <td>@(run.ModelIdentifier ?? run.ProviderName)</td>
+                            <td>@run.ProviderName</td>
+                            <td>
+                                @if (run.ModelIdentifier is { } model)
+                                {
+                                    @model
+                                }
+                                else
+                                {
+                                    <span class="muted">Not recorded</span>
+                                }
+                            </td>
                             <td class="numeric">@run.ResultCount of @run.CandidateCount</td>
                             <td class="numeric">@run.CompletedCount</td>
                         </tr>

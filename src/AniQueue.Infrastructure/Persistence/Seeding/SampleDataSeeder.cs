@@ -159,7 +159,11 @@ public sealed class SampleDataSeeder(
         {
             ProfileId = profileId,
             CreatedAt = now,
-            ProviderName = "ManualJson",
+            // What the Recommendations page actually writes. It said "ManualJson" —
+            // the name of a class, in a column the backlog shows to a user — which was
+            // invisible while the field was only a fallback for a missing model name
+            // and became a leak the moment the route earned its own line.
+            ProviderName = "Manual",
             ModelIdentifier = "sample-development-data",
             CompletedCount = 5,
             CandidateCount = 3,
