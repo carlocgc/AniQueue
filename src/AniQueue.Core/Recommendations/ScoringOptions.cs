@@ -33,6 +33,54 @@ public class ScoringOptions
     public bool IncludePersonalNotes { get; set; }
 
     /// <summary>
+    /// Where a model that speaks the chat-completions API is listening. Empty means
+    /// none, which is the normal state of a fresh install.
+    /// </summary>
+    /// <remarks>
+    /// An origin — <c>http://192.168.1.50:1234</c> — rather than a full path. The path
+    /// is this application's business and a constant; what the operator knows is where
+    /// their server is. Guarded before use (D38), because a settable outbound address
+    /// is a request-forgery surface and the guards are what replaced the protection a
+    /// constant used to give.
+    /// </remarks>
+    public string? Endpoint { get; set; }
+
+    /// <summary>Which model to ask for. Passed through verbatim.</summary>
+    /// <remarks>
+    /// Not validated against anything: the list of models a server has is the server's
+    /// business, and a name AniQueue rejected would be a name somebody could not use.
+    /// A wrong one comes back as the endpoint's own error, which says more than a
+    /// guess of ours would.
+    /// </remarks>
+    public string? Model { get; set; }
+
+    /// <summary>How long to wait for an answer, in seconds.</summary>
+    /// <remarks>
+    /// Ten minutes by default, which would be absurd for the AniList client and is
+    /// merely generous here: a small model ranking two hundred titles with a sentence
+    /// each is generated a word at a time, and the first run on new hardware is the one
+    /// most likely to be slow and least likely to be expected.
+    /// </remarks>
+    public int TimeoutSeconds { get; set; } = 600;
+
+    /// <summary>
+    /// Whether to ask the server to constrain its output to JSON.
+    /// </summary>
+    /// <remarks>
+    /// On by default, because the servers people actually run — LM Studio, Ollama,
+    /// llama.cpp — support it, and a constrained model cannot emit a code fence at all.
+    /// That turns D37's unwrapping from the path into the fallback it was meant to be.
+    ///
+    /// A setting rather than something sniffed, because a server that does not support
+    /// it usually answers with an error naming the field, which is a clearer thing to
+    /// act on than a retry loop that silently halves what was asked.
+    /// </remarks>
+    public bool UseStructuredOutput { get; set; } = true;
+
+    /// <summary>Whether an endpoint has been configured at all.</summary>
+    public bool HasEndpoint => !string.IsNullOrWhiteSpace(Endpoint);
+
+    /// <summary>
     /// The bounded form a request is actually built from.
     /// </summary>
     /// <remarks>

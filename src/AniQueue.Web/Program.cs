@@ -109,6 +109,11 @@ builder.Services.AddAniQueueSync();
 // bindings above rather than before, because what it writes is what they read.
 builder.Services.AddAniQueueSettings();
 
+// The second courier for a ranking (D31). Registered unconditionally even though the
+// normal state of a fresh install is no endpoint at all: whether one is configured is
+// a question the card asks the service, not one this file answers by leaving it out.
+builder.Services.AddAniQueueScoringEndpoint();
+
 // The timer half of unattended sync (D21). Registered here rather than inside
 // AddAniQueueSync because hosting is the web project's business: Infrastructure
 // supplies the job, this decides that something runs it.

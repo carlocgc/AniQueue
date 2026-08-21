@@ -73,7 +73,33 @@ internal static class UserSettingsDocument
                 "Rankings asked for back. null asks for one per title offered.",
                 "Every title sent is still weighed; this only shortens the reply."
             ],
-            s => s.ScoringReturnTop)
+            s => s.ScoringReturnTop),
+
+        new(
+            "Scoring:Endpoint",
+            [
+                "Where your model is listening, e.g. http://192.168.1.50:1234 for LM Studio",
+                "or http://localhost:11434 for Ollama. Empty means you rank by hand instead."
+            ],
+            s => s.ScoringEndpoint ?? string.Empty),
+
+        new(
+            "Scoring:Model",
+            ["Which model to ask for. Whatever your server calls it."],
+            s => s.ScoringModel ?? string.Empty),
+
+        new(
+            "Scoring:TimeoutSeconds",
+            ["How long to wait for a ranking. Ranking a large backlog is slow."],
+            s => s.ScoringTimeoutSeconds),
+
+        new(
+            "Scoring:UseStructuredOutput",
+            [
+                "Ask the server to reply in JSON and nothing else. Leave this on unless",
+                "your server rejects the request; AniQueue copes either way."
+            ],
+            s => s.ScoringUseStructuredOutput)
     ];
 
     /// <summary>The keys this document writes, for the test that guards the list.</summary>
@@ -111,7 +137,7 @@ internal static class UserSettingsDocument
 
             foreach (var line in entry.Comment)
             {
-                text.AppendLine($"  // {line}");
+                text.AppendLine(CultureInfo.InvariantCulture, $"  // {line}");
             }
 
             // No trailing comma on the last one. The provider permits it, but this file

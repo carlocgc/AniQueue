@@ -47,7 +47,19 @@ public sealed class UserSettingsStore(
 
         ScoringCandidateLimit = Number(ScoringKey(nameof(ScoringOptions.CandidateLimit))),
 
-        ScoringReturnTop = Number(ScoringKey(nameof(ScoringOptions.ReturnTop)))
+        ScoringReturnTop = Number(ScoringKey(nameof(ScoringOptions.ReturnTop))),
+
+        ScoringEndpoint = Text(ScoringKey(nameof(ScoringOptions.Endpoint))),
+
+        ScoringModel = Text(ScoringKey(nameof(ScoringOptions.Model))),
+
+        ScoringTimeoutSeconds = Number(
+                ScoringKey(nameof(ScoringOptions.TimeoutSeconds)))
+            ?? UserSettings.Defaults.ScoringTimeoutSeconds,
+
+        ScoringUseStructuredOutput = Bool(
+            ScoringKey(nameof(ScoringOptions.UseStructuredOutput)),
+            UserSettings.Defaults.ScoringUseStructuredOutput)
     };
 
     private static string SyncKey(string key) => $"{SyncOptions.SectionName}:{key}";
