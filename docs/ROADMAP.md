@@ -728,6 +728,9 @@ alike, so correctness never depends on the user finding a setting.
 ### D20 — Operator configuration and user preference are different stores
 
 *Amends D7 by adding a second home for settings, without reopening its argument.*
+*Amended in turn by D36, which keeps the two stores and the disjointness rule but redraws the
+line between them and lets the application write the file. The template, the load-failure
+handling and the reasons for both stand unchanged.*
 
 Phase 5 is the first phase with settings a self-hoster needs to reach from outside the
 application, and the first with something the application must be able to be *told to stop
@@ -1411,6 +1414,11 @@ path is permanent rather than a stepping stone.
 will POST to an address a page supplies is an SSRF; keeping the address in `userconfig.json`
 and out of every browser-writable surface is how that is prevented rather than mitigated.
 
+*Amended by D36 and D38.* The address stayed in `userconfig.json` and the page learned to write
+that file, so the protection this paragraph describes is replaced rather than dropped: D38 names
+what an entered address may be, and bounds what a failing endpoint may say back. The reasoning
+above is why those guards exist and is kept for that reason.
+
 **The reply is data and stays data.** §6 already forbids executing or evaluating AI content.
 What that means concretely here: the response is validated against the schema, what survives is
 a rank, a predicted score, a confidence and a reason, and those write to four columns on
@@ -1492,6 +1500,202 @@ application. The security pass runs first, and until it has, CI builds the image
 publishing it. Two things make this more than caution: Phase 11's migration squash stops being
 free the moment somebody else's database exists, and a defect stops being local at the same
 instant. Both clocks start on the first published tag, and neither can be wound back.
+
+### D35 — Remote scoring is a source card, not a settings page
+
+*Withdraws the `/settings` page Phase 8 was to create. Phase 10 creates it instead.*
+
+Phase 8 said it would build a dedicated `/settings` page holding only the model section, and
+that Phase 10 would expand it. Declined. The Remote endpoint lives on the Recommendations page
+as a card beside the manual one, in the shape Phase 5b already built for Sources.
+
+**The precedent is stronger than the original plan's argument.** Sources holds one card per
+source, each stating whether it is configured, each offering the action that proves it —
+*Sync now*, or a file picker — and each hiding its settings behind a `Settings` disclosure. A
+model endpoint is a source of rankings in every sense that matters: it is configured or it is
+not, it either answers or it does not, and the person who wants to change it is looking at the
+page where they use it. Sending them somewhere else to type a hostname is the friction D30
+removed from importing.
+
+**It does not take Phase 10's work away.** Phase 10's operator half is a *diagnostic register* —
+"the page says where the file is and what is currently in effect, which is what makes a
+misconfiguration diagnosable without shell access" — and it already planned to list the AniList
+account there *while the Sources card also shows it*. Two jobs, not two controls: a card answers
+"can this run right now", the register answers "what is in effect everywhere". The endpoint
+appears in both for the same reason the account does.
+
+**The page therefore has two cards and one shared one**, and the preview replaces them rather
+than joining them. While a preview is on screen only the card that produced it renders,
+collapsed to a heading and *Discard*, exactly as Sources does — a preview is one route's answer,
+so it is one route's card, and two ways out for one preview was the bug that shape was written
+to fix. Apply or discard is the only way back.
+
+**What is shared is shared once.** How much to send — history size, titles to rank, rankings to
+ask for — governs a run triggered by hand down either route, so it is lifted into its own card
+beside where the title-language control sits, for the reason D30 gives: a setting drawn on two
+cards is two controls over one value, and they drift.
+
+*Consequence:* Phase 10 no longer expands a page; it creates one. Its content is unchanged.
+
+### D36 — One home per setting
+
+*Inverts D20's axis. Its conclusion — that a settings file and the database are different
+stores and must not overlap — is kept.*
+
+D20 split settings by **who owns the value**: operator configuration in `IConfiguration`, user
+preference in the database. That line was drawn when the only settings a self-hoster needed
+from outside were an account name and a kill switch. It does not survive contact with a page
+whose first act is to type a hostname.
+
+**The new line is what the value describes.** A setting that describes something outside
+AniQueue — an integration, a deployment, somebody else's software — lives in `userconfig.json`
+and is edited from the page that uses it. A setting that describes how a page looks to you lives
+in the database. The key sets stay disjoint, which is the property D20 was actually protecting.
+
+| `userconfig.json` | Database |
+|---|---|
+| Sync enabled, AniList account, per-source schedule | Displayed title language |
+| Absence policy, conflict policy, primary source | Theme, date format |
+| Model endpoint, model name, timeout | Default queue size |
+| History size, titles to rank, rankings to ask for | Backlog default sort and filters |
+| Personal notes in export, scoring schedule, batch size, staleness threshold | |
+
+**The application writes the file, and regenerates it whole.** D20 declined a UI that writes a
+hand-editable file because comment-preserving round-tripping is not something
+`System.Text.Json` does. That objection dissolves once the file is *generated* rather than
+edited in place: AniQueue knows every key it accepts, so each save rewrites the whole document —
+header, per-key comment, value — from the known set. Nothing is round-tripped, so nothing is
+lost. The write is a temporary file and a rename, and a directory it cannot write to is a
+reported failure rather than a fatal one, exactly as the template already is.
+
+**A UI edit beating an environment variable is now correct rather than a hazard.** D20 kept the
+template inert because a file read last would otherwise override a `Sync__AniList__UserName` set
+in a compose file. That argument was premised on compose being the primary channel. It is not:
+the compose file and the Unraid template carry container concerns — the `/data` mount and the
+published port — and nothing else. A person who sets a value in the page expects the page to
+win.
+
+**Defaults are not a layer.** `appsettings.json` stops naming user-facing keys entirely; what a
+key means when unset is the options class's own default. A default is not an override, and
+keeping them out of the file chain is what stops this becoming four places to look.
+
+**`Database:Path` remains the exception, and D20 already explained why:** the settings file is
+found by looking beside the database, so a path set inside it could not be read until it was
+already in use.
+
+*Consequence:* the scoring sizes leave `ProfileSettings`, which drops four columns, and
+`IRecommendationService` loses `GetOptionsAsync` and `SaveOptionsAsync` — the service stops
+owning settings and takes them as an argument, which it already does everywhere else.
+
+*Accepted knowingly:* a flat file cannot be per-profile, so the scoring settings assume one
+profile. `Profile` and `ProfileSettings` stay in the schema untouched; multi-profile would have
+to revisit this, and D-none records that multi-user is out of scope.
+
+### D37 — A reply may be unwrapped, never reconstructed
+
+*Amends Phase 7's stated parser behaviour and §6's rule against repairing AI content.*
+
+Phase 7 said a reply "wrapped in prose, fenced in markdown, or missing a required field is
+reported with what was wrong, and the user tries again or edits it by hand". The last clause is
+the whole load-bearing part, and Phase 8 removes the person who was doing the editing. Fencing
+is not an edge case — it is what a small model does most of the time, whatever the prompt says —
+so taken literally the scheduled sweep would reject a correct answer, log it, and reject the same
+answer identically on every tick thereafter.
+
+**The envelope makes extraction mechanical rather than hopeful.** Every valid reply declares
+`"aniqueue": { "format": "aniqueue-scoring-response", "version": 1 }`. So the parser does not
+look for something JSON-shaped and hope; it looks for **the object that identifies itself as
+ours**, reading candidate values with `Utf8JsonReader` so that a brace inside a title cannot
+fool it. Text before it, text after it, and a code fence around it are discarded.
+
+**Where two candidates both declare the format, the last one wins.** This is not hypothetical:
+the prompt contains a worked example carrying that exact envelope, and a model that restates the
+question before answering it produces two. A model's answer follows its preamble, so the last is
+the answer — and a reasoning model that thinks out loud lands the same way.
+
+**Everything discarded is reported.** A `ScoringProblem` at warning severity states how much
+surrounding text was thrown away and whether an earlier matching object was ignored, so it
+appears in the preview notice without blocking apply. That is what keeps §6's actual goal —
+no score the user cannot account for — while accepting a messy reply.
+
+**Two floors, and they are the difference between unwrapping and guessing.** Nothing that fails
+to declare the envelope is a candidate, however plausible it looks; and extraction never relaxes
+what follows it — unknown ids, duplicate ids, rank collisions and out-of-range values are
+rejected exactly as before.
+
+**Structured output is asked for first, so this is a fallback rather than the path.**
+`response_format` constrains the model at the source, and a constrained model cannot emit a
+fence at all. It is on by default because the servers people actually run — LM Studio, Ollama,
+llama.cpp — support it, and a server that does not answers with a clear error rather than
+degrading quietly.
+
+### D38 — The endpoint is a user setting, with guards
+
+*Amends §6's "one fixed endpoint, held as a constant, never composed from user input" and D31's
+position that the address must never come from a page.*
+
+D31 kept the endpoint out of every browser-writable surface on the grounds that a server which
+POSTs to an address a page supplies is a request-forgery gadget. D36 makes it a normal editable
+setting, so that protection is replaced rather than merely dropped.
+
+**What the exposure actually is, stated rather than assumed.** AniQueue has no authentication,
+so anyone who can reach the port can already read the whole library. What a settable address
+adds is reach into places the surrounding network cannot touch — loopback, the container
+network, and cloud metadata endpoints. Phase 8's requirement to report what a failing endpoint
+said turns that reach into a response oracle, and the two together are worth more than either
+alone.
+
+**Three guards, chosen because each blocks something the use case never needs:**
+
+- The scheme must be `http` or `https`.
+- `169.254.0.0/16` is refused. It is the only address in the picture that reaches something
+  privileged, and no self-hosted model has ever lived there.
+- Credentials in the URL are refused. `http://user:pass@host` exists to smuggle authentication
+  somewhere and has no legitimate use here.
+
+Loopback and private ranges are permitted, because that is exactly where a self-hosted model
+lives, and refusing them would be theatre: reaching the page at all means already being on that
+network.
+
+**The diagnostic is capped and carries no transport detail.** What came back is shown to the
+person debugging their own server — status line and the first 2 KB of body, encoded, never
+rendered as markup — and headers, redirect chains and certificate detail are not. A truncated
+body is everything a misconfiguration needs and very little that a scanner does.
+
+*Honest limitation:* none of this is a boundary until Phase 12 exists. It is taken now because
+it costs nothing at the point where nobody has an endpoint saved yet, and because Phase 14
+should find a decision rather than an open question.
+
+### D39 — Scoring re-runs when taste changes, not on a clock
+
+A ranking is only as good as the history it was anchored to, and that history grows. A title
+dismissed at 4.2 against forty ratings may deserve 7.5 against three hundred, so re-scoring is
+normal rather than exceptional — but a job that re-scores continuously spends someone's
+electricity to produce numbers that differ only by noise.
+
+**The trigger is accumulated ratings, and the interval emerges from it.** A title's score is
+stale once **N further titles have been rated since it was scored**, default five. One rating is
+noise; several is a changed picture. Nobody has to choose an interval, and the behaviour scales
+itself: someone finishing four shows a week re-sweeps often, someone finishing one a month
+rarely, someone on hiatus not at all.
+
+**It costs one query rather than a per-row calculation.** The timestamp of the Nth most recent
+rating is a single scalar; anything scored before it is stale. Combined with never-scored-first
+ordering, that is the pick the job runs, and it selects nothing at all when nothing has changed —
+which is what makes the job a genuine no-op rather than one that has to be told to stop (D25,
+D28).
+
+**A time floor was considered and declined.** Re-scoring against an unchanged history can only
+produce noise, and "the numbers moved and nothing happened" is precisely what makes a
+recommendation feature untrustworthy. The gap it leaves — someone who watches steadily but never
+rates anything — is real and accepted; there is no new information in that case to re-score
+against. Phase 9 supplies the natural extension: enrichment landing metadata or artwork on a
+title *is* new information about that title, and is a reason to re-score it alone.
+
+*A consequence worth stating, because it looks like a bug and is not:* a MyAnimeList import
+lands hundreds of ratings at one timestamp, so everything scored beforehand goes stale at once.
+That import genuinely changed everything the model knows, and the sweep works through it in
+batches rather than all at once.
 
 ---
 
@@ -1737,9 +1941,13 @@ silently merging ambiguous matches. An import must not overwrite manual queue po
 notes, hidden flag, or recommendation history unless explicitly requested.
 Where a title is known to more than one source, D18 decides which one's tracking data stands.
 
-**Outbound HTTP.** One fixed endpoint, held as a constant, never composed from user input, so
-there is no request-forgery surface. Account names travel as GraphQL variables rather than in a
-URL. Cap the response size as import caps upload size — a hostile or malfunctioning endpoint is
+**Outbound HTTP.** Every endpoint AniQueue reaches on its own initiative is a constant, held in
+code and never composed from user input, so there is no request-forgery surface. Account names
+travel as GraphQL variables rather than in a URL. **The scoring endpoint is the single
+exception** and is settable, because a self-hosted model has no address anybody but the operator
+knows; D38 replaces the protection a constant gave with three guards on what may be entered, and
+bounds what a failing endpoint is allowed to say back. Cap the response size as import caps
+upload size — a hostile or malfunctioning endpoint is
 the same problem as a hostile file — and size the cap generously: a measured 753-entry library is
 424 KB, so a few thousand entries is a few megabytes and a tight cap would reject a legitimate
 large library. Do not persist cookies; the endpoint sets a session cookie that serves no purpose
@@ -1753,9 +1961,11 @@ Every phase ends **buildable, tested and green**. `dotnet build` + `dotnet test`
 boundary. Phases are front-loaded so a genuinely useful application exists from Phase 4
 onward even if later phases slip.
 
-**There is no Phase 12, and 7 through 11 were renumbered by D31.** The gap is deliberate: these
-numbers are cited from code comments, commit messages and PR titles that already exist, so a
-vacant number costs less than a renumbering that makes older citations point at the wrong work.
+**7 through 11 were renumbered by D31**, which left 12 vacant rather than renumbering what
+followed: these numbers are cited from code comments, commit messages and PR titles that already
+exist, so a gap costs less than making older citations point at the wrong work. **Phase 12 now
+holds optional single-user authentication**, which arrived without a number of its own and needed
+to land before Phase 14 rather than after it. The gap is spent; nothing is renumbered.
 
 | # | Phase | Exit criteria |
 |---|---|---|
@@ -1773,10 +1983,14 @@ vacant number costs less than a renumbering that makes older citations point at 
 | 6d | Queue what follows | One click queues a title and its unwatched sequels, in release order |
 | 7a | Scoring contract | Request built, response validated, ranking applied — all of it without a page |
 | 7b | Scoring surface | Export, prompt, paste or upload, preview, apply |
-| 8 | Hosted model scoring | A configured endpoint returns a ranking AniQueue applies without anything being copied by hand |
+| 8a | Settings store | Every setting has one home; the application writes `userconfig.json` and both existing pages read through it |
+| 8b | Scoring courier | A stubbed endpoint returns a ranking that becomes a preview — client, guards and extraction, with no page involved |
+| 8c | Scoring surface | Remote and Manual cards; a run started, waited on, cancelled and applied without anything being copied by hand |
+| 8d | Scheduled sweep | A backlog scores itself in batches with nobody present, and idles when nothing has been rated |
 | 9 | Metadata + artwork | Ids mapped and art cached under `/data` by jobs that idle when there is nothing to fetch |
-| 10 | Settings | One page for preferences; operator configuration shown and not editable |
+| 10 | Settings page | One page for preferences; operator configuration shown and not editable |
 | 11 | Docker + README | Migrations squashed to one baseline; compose up, health check, container recreated without data loss |
+| 12 | Optional auth | A single-user login can be turned on; off by default, and off is still a supported deployment |
 | 13 | CI | Build and tests on every push; image built on a tag, published only once Phase 14 has run |
 | 14 | Security pass | §6's high-risk surfaces reviewed against the finished application; release gate opens |
 
@@ -2378,31 +2592,129 @@ order, hidden flags, settings and run history are all deliberately absent from i
 The same round trip as Phase 7 with the copying removed: AniQueue posts the generated prompt
 and candidate payload to a model the operator hosts — LM Studio, Ollama, anything speaking a
 chat-completions API — and parses the reply against the Phase 7 response schema. What is sent
-and what is accepted do not change. Only who carries it does.
+and what is accepted do not change. Only who carries it does, and then how often.
 
-**The endpoint is operator configuration, never a user preference** (D20). Host, port, model
-name and timeout come from `userconfig.json` or the environment, the same place AniList
-settings come from, and are not writable from a browser session. That is not tidiness: a server
-that will POST to an address supplied by a page is an SSRF, and the way to not have one is for
-the address never to come from the page.
-
-**A dedicated `/settings` page is created here**, holding only the model section — where the
-endpoint is, whether it answered, and a test action that sends a trivial request and reports
-verbatim what came back. Phase 10 expands this page rather than building a second one.
-
-**The reply is data.** §6's rule that AI content is never executed or evaluated is load-bearing
-rather than decorative here: the response is validated against the schema and what survives is
-four numeric-and-text columns. A model that returns prose, wraps its JSON in markdown, or omits
-a required field fails validation and is reported — not repaired by guessing, because a guess
-about what a model meant is a score the user cannot audit.
-
-**Failure reports, unlike enrichment.** D25 has enrichment degrade silently because a missing
-detail is not a wrong library. A scoring run has a person waiting on it, so it says which side
-failed and what the response looked like when the schema rejected it.
+**Split in four**, because it grew three things after it was first written: a settings store
+that is not scoring work, an unattended sweep that D31 did not anticipate, and a page that is
+now a restructure rather than a button. *8a* is the settings store. *8b* is the courier, ending
+with a stubbed endpoint producing a preview and no page involved — the review where the guards
+are either read or not. *8c* is the surface. *8d* is the sweep.
 
 **No API key is required for any of this**, and Phase 11's README promise survives literally: a
-self-hosted model is reachable without credentials, and Phase 7's manual path remains for
-anyone who would rather not host one at all.
+self-hosted model is reachable without credentials, and Phase 7's manual path remains permanent
+for anyone who would rather not host one at all.
+
+#### Phase 8a — Settings store
+D36's file, and both existing pages moved onto it. The application regenerates
+`userconfig.json` whole on every save from the key set it knows, writes through a temporary file
+and a rename, and reports an unwritable directory rather than failing over it — the behaviour
+the inert template already has (D20).
+
+**One migration, and it only removes.** `RecommendationHistorySize`,
+`RecommendationCandidateLimit`, `RecommendationReturnTop` and `IncludePersonalNotesInAiExport`
+leave `ProfileSettings` for the file; `RecommendationRun` gains a duration, so the second run
+onwards can say how long the first one took. Phase 11 squashes the history immediately
+afterwards, so a column added here costs nothing.
+
+`IRecommendationService` loses `GetOptionsAsync` and `SaveOptionsAsync`. It already takes
+`ScoringRequestOptions` as an argument; this removes the only place it also owned them.
+
+**The AniList account becomes editable on the Sources card**, which is a field once the store
+exists and is what proves the store with two consumers rather than one. It is the same value it
+always was; what changes is that a page may write it (D36).
+
+#### Phase 8b — Scoring courier
+A `POST` to `{endpoint}/v1/chat/completions` carrying the prompt as the system message and the
+payload as the user message — byte-identical to what the Manual card puts on screen, so the two
+routes carry one contract and cannot drift (D31). Its own `HttpClient`: the AniList one's
+thirty-second timeout is right for a list and absurd for a model, and the two should not share a
+ceiling.
+
+**`max_tokens` is calculated, because it is the failure everybody hits.** A reply is generated a
+token at a time and most local servers cap output far below what two hundred rankings need; the
+model then stops mid-object and the reply is malformed JSON for a reason the user did not cause.
+`ExpectedResults` is already on the request, so the ceiling is derived from it — and where the
+server reports `finish_reason`, truncation is read off the response rather than inferred. What
+it reports is the lever that fixes it: ask for fewer rankings, or raise the server's limit.
+
+**Guards per D38, extraction per D37**, both tested here rather than through a page.
+`temperature` is fixed low and is not a setting: it is a correctness knob, and the same backlog
+should rank roughly the same way twice. Nothing streams — a partial ranking cannot be validated
+or shown, so the complexity buys nothing.
+
+**Failure reports, unlike enrichment.** D25 has enrichment degrade silently because a missing
+detail is not a wrong library. A scoring run has somebody waiting on it, so it says which side
+failed: nothing answered, the model ran out of room, the schema rejected what came back — and
+for the last, what came back, bounded per D38.
+
+#### Phase 8c — Scoring surface
+The page becomes a Sources page (D35): a Remote card, a Manual card, a shared *How much to send*
+card, and a preview that replaces them. Settings sit behind `<details>` disclosures grouped by
+what they govern rather than by which card they sit on — connection, schedule, and the shared
+sizes — because the sizes govern a run down either route and drawing them twice is D30's bug.
+
+*Phase 7b's note that a disclosure "does not read as settings you can change" is corrected here
+rather than left contradicting the code:* it was learned about a panel floating above a request
+summary on a page with no card structure, and that page no longer exists.
+
+**A run started by hand is one request**, bounded by the sizes the user set. Where it would ask
+for more than a model can plausibly return, the card says so before sending and offers the two
+real routes — rank fewer, or run the whole backlog on a schedule — rather than silently changing
+what was asked.
+
+**The wait is honest.** `OperationProgress` already covers this and already returns no fraction
+when work cannot be counted, which is the truth here: nothing arrives until everything does. So
+elapsed time, no progress bar, the previous run's duration for scale, and a cancel — which
+`BusyDialog` gains as an optional callback, since it is modal and nothing behind it can be
+reached. Leaving the page abandons the run, and the card says so.
+
+**Test sends the smallest request that exercises the whole path** — a real completion asking for
+a two-line ranking of two invented candidates, through the same client and the same
+`response_format` — and reports verbatim what came back. An endpoint that answers but cannot
+produce JSON is a distinct outcome from one that does not answer, and it is the failure that
+would otherwise surface only after a ten-minute run.
+
+#### Phase 8d — Scheduled sweep
+`ScoringSweepJob`, the third `IBackgroundJob` and the one that interface named in advance. Its
+`TickPeriod` is polling resolution, not schedule; the job decides whether it is due from a
+setting that can change while the application runs.
+
+**Every title sent comes back.** The return limit is a Manual lever and must not apply here: send
+fifty, take the best twenty, and the other thirty stay unscored, are picked again next tick as
+the never-scored ones, and the tail of the backlog is never reached. That is precisely the blind
+spot "a cap is a page size, not a horizon" was written against, arriving by the other door.
+
+**A sweep runs many batches, bounded by time rather than by count.** One batch per tick would
+mean twenty-five titles a day on a daily schedule, so a due sweep runs batches back to back until
+there is no stale work, a time budget expires, or its error budget is spent. A failed batch is
+recorded and skipped rather than ending the sweep — one odd title must not block everything
+behind it — and three consecutive failures stop it and leave the runner's existing backoff to
+retry.
+
+**Chunking does not distort the result, and the schema is why.** `rank` is placement within a
+batch and never leaves it; `predictedScore` is a prediction against the user's history, which
+every batch carries identically. `LibraryEntry` stores only the score, and the backlog sorts by
+it — so the batch-relative number is never what is compared across the library. The remaining
+effect is calibration drift between batches, which is a difference of degree from re-running one
+batch twice rather than a difference of kind.
+
+*Which is why the history is sent in full with every batch, and why `generatedAt` moves to the
+end of the payload:* local servers reuse the cached state of an identical prompt prefix, so an
+invariant prompt-and-history costs almost nothing after the first batch — but only if nothing
+varying appears near the top of the document.
+
+**Staleness per D39.** Off by default, for the reason sync is: a scheduled run is a thing the
+user turns on having read what it does, and this one spends their electricity. `Scoring:Enabled`
+is the kill switch, mirroring `Sync:Enabled` and for D20's reason.
+
+**Interactive runs win.** A single gate around outbound scoring calls, which the sweep checks
+between batches and stands down for — it resumes next tick from wherever it stopped, so nothing
+is lost, and the person waiting waits for one batch rather than an hour. The same gate covers two
+browser tabs pressing the button at once.
+
+**A run says which route produced it.** `ProviderName` takes a third value, so the runs list can
+tell a scheduled sweep from a manual paste and the card can report when the sweep last ran and
+what it did. An unattended job that leaves no trace is indistinguishable from one that never ran.
 
 ### Phase 9 — Metadata and artwork enrichment
 Cross-service identifiers and artwork, fetched by background jobs and cached under `/data`.
@@ -2440,20 +2752,25 @@ read it.
 richer TMDB and TVDB art after the MVP with the id-mapping job; the art is a decision input
 rather than decoration, and the filesystem cache under `/data` costs the same either way.
 
-### Phase 10 — Settings
-Expands the `/settings` page Phase 8 created into the one place preferences are changed. It has
-to hold two kinds of setting without letting them look alike (D20):
+### Phase 10 — Settings page
+Creates `/settings` as the one place preferences are changed. Phase 8 was to have created it and
+does not (D35) — remote scoring lives on a card beside the route it serves, in the shape Sources
+already uses — so this page starts from nothing rather than expanding something. Its contents are
+unchanged, and it still has to hold two kinds of setting without letting them look alike (D36):
 
 - **Preferences**, on `ProfileSettings`, edited here: displayed title language — moved from the
   Sources page, where Phase 5b left it sitting under a source it has nothing to do with (D22) —
   theme, date format, default queue size, and the backlog's default sort and filters. The last
   of those has no columns yet and needs a migration; Phase 11 squashes the history immediately
   afterwards, so adding one here costs nothing.
-- **Operator configuration**, from `userconfig.json` and the environment, shown but not edited:
-  the AniList account, the model endpoint from Phase 8, sync frequency and absence policy. The
-  page says where the file is and what is currently in effect, which is what makes a
-  misconfiguration diagnosable without shell access. It does not offer to write it, because a
-  browser session is not the operator.
+- **A register of everything in `userconfig.json`**, and where each value came from: the AniList
+  account, the model endpoint, sync frequency, absence policy, the scoring schedule. D36 makes
+  these editable, but on the cards that use them — the point of this half is not a second set of
+  controls (D30) but the one place that answers "what is actually in effect, and which file do I
+  edit when the pages cannot be reached". Naming the file and quoting the effective value is what
+  makes a misconfiguration diagnosable without shell access, and it is the answer to the failure
+  mode a layered settings system otherwise has: a value set in two places and nothing saying
+  which won.
 
 Destructive actions confirm explicitly. The accessibility and responsive passes happen here,
 after Phase 9, so they run against the layout that ships rather than one about to gain images.
@@ -2493,6 +2810,32 @@ here, so it is listed as a gate rather than left to judgement.
 
 Final gate: Release build, full test run, image build, `docker compose up -d`, health check
 verified, **container recreated and the database confirmed intact**.
+
+### Phase 12 — Optional single-user authentication
+A login that can be switched on, off by default, and **off remains a supported deployment** —
+this is a lock for people who want one, not a requirement discovered late. Single user only;
+multi-user accounts, roles and per-profile libraries stay out of scope, and nothing here should
+make them harder later.
+
+**It fills the number D31 left vacant**, and lands before Phase 14 rather than after it, because
+the security pass reviews §6's high-risk surfaces against the finished application and this is
+one of them. Publishing has the same ordering for the same reason (D34): both clocks start on the
+first tag.
+
+**Several earlier decisions are conditional on it and say so.** D38's guards on the scoring
+endpoint are cheap insurance while there is no trust boundary and become an actual defence once
+there is; the capped diagnostic echo is the same. Nothing in Phase 8 assumes this exists, and
+nothing in it has to change when it does.
+
+**Enabling it is a setting like any other** (D36), which means the credential is the one value
+that cannot follow the rule: a password is not written to a file in plain text and is not shown
+back. Storing a hash in the database rather than in `userconfig.json` is the exception D36 has to
+carve, and the settings file names the account without holding the secret.
+
+**What it must not break:** the unattended jobs, which run without a session and must keep doing
+so; `/health`, which a compose health check reaches before anybody has logged in; and the kill
+switches, whose whole purpose is to work when the UI cannot be reached. A lock that locks the
+operator out of their own escape hatches is worse than none.
 
 ### Phase 13 — Continuous integration
 GitHub Actions: build and full test run on every push and every pull request, and a tagged
@@ -3046,6 +3389,11 @@ has every one of them.
   pre-approved, and only for Phase 4.
 - **Phase 6 needs no new dependency either.** Pacing the relation backfill is tested against
   `TimeProvider`, which is in the box, so nothing was needed to avoid sleeping in tests.
+- **Phase 8 needs no new dependency either.** A chat-completions call is an HTTP POST with a JSON
+  body, so `HttpClient` and `System.Text.Json` cover the courier as they covered AniList; D37's
+  extraction uses `Utf8JsonReader`, which is the same package and is what makes it string-aware
+  without hand-rolled brace counting; and the settings writer regenerates a document rather than
+  round-tripping one, which is why no comment-preserving JSON library is needed (D36).
 - **Phase 5 needs no new dependency**, which is worth recording because two were considered and
   both declined. YamlDotNet was declined by D20 in favour of the in-box JSON configuration
   provider; a GraphQL client library was declined because a GraphQL request is an HTTP POST with
