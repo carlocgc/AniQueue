@@ -259,6 +259,18 @@
                 Apply @_preview.ApplicableCount @Plural(_preview.ApplicableCount, "score", "scores")
             </button>
             <button @onclick="Discard" disabled="@_busy.IsRunning">Discard</button>
+
+            @* Recorded with the run, and asked for here because here is the only
+               moment anybody knows the answer: the payload does not say what read
+               it, and by the time a score is being questioned on the backlog the
+               memory of which model produced it has gone. Optional — a blank one
+               falls back to naming the route, which is still true if less useful.
+
+               Phase 8 fills this in from its own configuration rather than asking. *@
+            <input type="text" class="model-name" maxlength="100"
+                   placeholder="Which model? (optional)" disabled="@_busy.IsRunning"
+                   aria-label="Which model produced this ranking"
+                   @bind="_modelIdentifier" @bind:event="oninput" />
         </div>
 
         @if (_preview.Items.Count > 0)
@@ -401,6 +413,9 @@
     private int _historySize = ScoringRequestOptions.Default.MaxHistory;
     private int? _candidateLimit;
     private int? _returnTop;
+
+    /// <summary>What the user says produced the ranking. Recorded with the run.</summary>
+    private string? _modelIdentifier;
 
     /// <summary>Whether the size controls are on screen.</summary>
     private bool _showSizes;
@@ -569,7 +584,11 @@
         var result = await _busy.RunAsync(
             "Applying the ranking",
             progress => Scoring.ApplyAsync(
-                Profile.DefaultProfileId, _preview!, ProviderName, progress: progress));
+                Profile.DefaultProfileId,
+                _preview!,
+                ProviderName,
+                string.IsNullOrWhiteSpace(_modelIdentifier) ? null : _modelIdentifier.Trim(),
+                progress));
 
         _applied = result.Skipped == 0
             ? $"Scored {result.Applied} {Plural(result.Applied, "title", "titles")}."

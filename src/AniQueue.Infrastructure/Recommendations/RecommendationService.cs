@@ -349,6 +349,38 @@ public sealed class RecommendationService(
         return new ScoringApplyResult(run.Id, applied, skipped);
     }
 
+    public async Task<RecommendationDetail?> GetDetailAsync(
+        int profileId,
+        int animeId,
+        CancellationToken cancellationToken = default)
+    {
+        await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
+
+        // Ordered by run key, not CreatedAt: SQLite cannot ORDER BY a DateTimeOffset
+        // and throws at query time. Runs are append-only, so the key is the same
+        // order.
+        //
+        // Applied runs only. A run that was previewed and abandoned never wrote the
+        // score this is explaining, so offering its reasoning would explain the
+        // number with a sentence from somewhere else.
+        return await context.RecommendationRunItems
+            .AsNoTracking()
+            .Where(i => i.AnimeId == animeId && i.Run!.ProfileId == profileId && i.Run.WasApplied)
+            .OrderByDescending(i => i.RunId)
+            .Select(i => new RecommendationDetail
+            {
+                Rank = i.Rank,
+                PredictedScore = i.PredictedScore,
+                Confidence = i.Confidence,
+                Reason = i.Reason,
+                DeterminedAt = i.Run!.CreatedAt,
+                ProviderName = i.Run.ProviderName,
+                ModelIdentifier = i.Run.ModelIdentifier,
+                CandidateCount = i.Run.CandidateCount
+            })
+            .FirstOrDefaultAsync(cancellationToken);
+    }
+
     public async Task<IReadOnlyList<RecommendationRunSummary>> GetRunsAsync(
         int profileId,
         int take = 20,

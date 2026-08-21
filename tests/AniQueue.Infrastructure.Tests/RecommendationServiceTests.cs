@@ -787,6 +787,79 @@ public class RecommendationServiceTests
     }
 
     [Fact]
+    public async Task A_score_can_say_where_it_came_from()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        await using var context = fixture.Database.CreateContext();
+
+        var anime = await AddAsync(context, fixture.ProfileId, "Explained");
+        await AddAsync(context, fixture.ProfileId, "Also waiting");
+
+        var preview = await fixture.Recommendations.PreviewAsync(fixture.ProfileId, Ranking((anime.Id, 1, 8.6)));
+        await fixture.Recommendations.ApplyAsync(fixture.ProfileId, preview, "Manual", "some-local-model");
+
+        var detail = await fixture.Recommendations.GetDetailAsync(fixture.ProfileId, anime.Id);
+
+        Assert.NotNull(detail);
+        Assert.Equal(1, detail.Rank);
+        Assert.Equal(8.6, detail.PredictedScore);
+        Assert.Equal(0.8, detail.Confidence);
+        Assert.Equal("Because.", detail.Reason);
+        Assert.Equal("Manual", detail.ProviderName);
+        Assert.Equal("some-local-model", detail.ModelIdentifier);
+        Assert.Equal(Now, detail.DeterminedAt);
+
+        // How many titles were weighed to place it, which is what makes "ranked 1 of
+        // 2" mean something.
+        Assert.Equal(2, detail.CandidateCount);
+    }
+
+    [Fact]
+    public async Task A_score_explains_itself_with_the_ranking_that_wrote_it()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        await using var context = fixture.Database.CreateContext();
+
+        var anime = await AddAsync(context, fixture.ProfileId, "Reconsidered");
+
+        foreach (var score in new[] { 4.0, 9.0 })
+        {
+            var preview = await fixture.Recommendations.PreviewAsync(fixture.ProfileId, Ranking((anime.Id, 1, score)));
+            await fixture.Recommendations.ApplyAsync(fixture.ProfileId, preview, "Manual");
+        }
+
+        // The latest applied run, not the first. Ordered by run key rather than
+        // CreatedAt, because SQLite cannot ORDER BY a DateTimeOffset and throws at
+        // query time — reaching this assertion is half the test.
+        var detail = await fixture.Recommendations.GetDetailAsync(fixture.ProfileId, anime.Id);
+
+        Assert.Equal(9.0, detail!.PredictedScore);
+    }
+
+    [Fact]
+    public async Task A_title_no_applied_ranking_mentions_has_nothing_to_explain()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        await using var context = fixture.Database.CreateContext();
+
+        var anime = await AddAsync(context, fixture.ProfileId, "Never ranked");
+
+        Assert.Null(await fixture.Recommendations.GetDetailAsync(fixture.ProfileId, anime.Id));
+    }
+
+    [Fact]
+    public async Task Another_profiles_ranking_does_not_explain_this_ones_score()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        await using var context = fixture.Database.CreateContext();
+
+        var other = await SeedData.CreateProfileAsync(context, "Someone else");
+        var theirs = await AddAsync(context, other.Id, "Their title");
+
+        Assert.Null(await fixture.Recommendations.GetDetailAsync(fixture.ProfileId, theirs.Id));
+    }
+
+    [Fact]
     public async Task Run_history_reads_newest_first()
     {
         await using var fixture = await Fixture.CreateAsync();

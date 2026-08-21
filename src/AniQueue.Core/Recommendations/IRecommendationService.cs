@@ -154,6 +154,39 @@ public sealed record ScoringPreview
 /// <summary>What applying a ranking did.</summary>
 public sealed record ScoringApplyResult(int RunId, int Applied, int Skipped);
 
+/// <summary>
+/// Everything known about why one title carries the score it does.
+/// </summary>
+/// <remarks>
+/// Read from the run that produced it rather than from the columns denormalised
+/// onto the entry (D4). Those exist so the backlog can sort by score in one
+/// query; they deliberately do not carry which run wrote them, and the run is
+/// where "when" and "by what" live. Asking the run also means this cannot drift
+/// from the history the user can browse.
+/// </remarks>
+public sealed record RecommendationDetail
+{
+    /// <summary>Placement within the ranking this came from, not within the backlog.</summary>
+    public required int Rank { get; init; }
+
+    public required double PredictedScore { get; init; }
+
+    public required double Confidence { get; init; }
+
+    public string? Reason { get; init; }
+
+    public required DateTimeOffset DeterminedAt { get; init; }
+
+    /// <summary>How the ranking was carried — the manual path, or an endpoint.</summary>
+    public required string ProviderName { get; init; }
+
+    /// <summary>What the user said produced it, when they said anything.</summary>
+    public string? ModelIdentifier { get; init; }
+
+    /// <summary>How many titles were weighed against each other to place this one.</summary>
+    public int CandidateCount { get; init; }
+}
+
 /// <summary>One past ranking, for the list of them.</summary>
 public sealed record RecommendationRunSummary
 {
@@ -253,6 +286,21 @@ public interface IRecommendationService
         string providerName,
         string? modelIdentifier = null,
         IProgress<OperationProgress>? progress = null,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Why one title carries the score it does, from the most recent ranking that
+    /// placed it. Null when no applied run mentions it.
+    /// </summary>
+    /// <remarks>
+    /// Per title rather than per page, because it answers a question about one row
+    /// that is only asked about a few of them: the reasoning is a paragraph, and
+    /// joining it onto every listing would carry a page of prose to render a column
+    /// of numbers.
+    /// </remarks>
+    Task<RecommendationDetail?> GetDetailAsync(
+        int profileId,
+        int animeId,
         CancellationToken cancellationToken = default);
 
     /// <summary>Past runs, newest first.</summary>

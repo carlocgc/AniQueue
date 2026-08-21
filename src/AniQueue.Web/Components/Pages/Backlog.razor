@@ -1,9 +1,11 @@
 @page "/backlog"
 @using System.Globalization
 @using AniQueue.Core.Queue
+@using AniQueue.Core.Recommendations
 @inject ILibraryService LibraryService
 @inject IRelationService RelationService
 @inject IQueueService QueueService
+@inject IRecommendationService Scoring
 
 <PageTitle>Backlog — AniQueue</PageTitle>
 
@@ -316,7 +318,34 @@ else
                                 <td class="numeric">@(item.UserScore?.ToString() ?? "—")</td>
                                 @if (Facets.HasRecommendations)
                                 {
-                                    <td class="numeric">@(item.RecommendationScore?.ToString("0.0") ?? "—")</td>
+                                    <td class="numeric">
+                                        @* The score stays legible in the row: it is the
+                                           column's whole job, and a listing sorted by it
+                                           that made you open something to read it would
+                                           be unusable. The button is the number, with a
+                                           chevron beside it.
+
+                                           Offered only where there is something behind
+                                           it — an unscored row has nothing to explain,
+                                           and a control that opens an empty panel is
+                                           worse than no control. *@
+                                        @if (item.RecommendationScore is { } score)
+                                        {
+                                            <button class="score-expander @(IsScoring(item.AnimeId) ? "open" : null)"
+                                                    @onclick="() => ToggleScoringAsync(item.AnimeId)"
+                                                    aria-expanded="@(IsScoring(item.AnimeId) ? "true" : "false")"
+                                                    aria-controls="@(IsScoring(item.AnimeId) ? ScoringRowId(item.AnimeId) : null)"
+                                                    title="@ScoringLabel(item, IsScoring(item.AnimeId))"
+                                                    aria-label="@ScoringLabel(item, IsScoring(item.AnimeId))">
+                                                <span class="score">@score.ToString("0.0")</span>
+                                                <span class="chevron" aria-hidden="true"></span>
+                                            </button>
+                                        }
+                                        else
+                                        {
+                                            @:—
+                                        }
+                                    </td>
                                 }
                                 <td class="actions-col">
                                     <div class="row-actions">
@@ -329,6 +358,86 @@ else
                                     </div>
                                 </td>
                             </tr>
+
+                            @if (IsScoring(item.AnimeId))
+                            {
+                                @* Its own row, the same shape the relatives use, and for
+                                   the same reason: this explains the title above it and
+                                   detaching it into a floating panel would put a
+                                   paragraph of reasoning somewhere it has to be dismissed
+                                   rather than read.
+
+                                   A tooltip was the other candidate and is the wrong
+                                   tool here — it cannot hold a heading, it is gone on
+                                   touch, and this is several fields rather than a
+                                   caption. *@
+                                <tr class="scoring-row" id="@ScoringRowId(item.AnimeId)">
+                                    <td></td>
+                                    <td colspan="@(ColumnCount - 1)">
+                                        @if (_scoring.TryGetValue(item.AnimeId, out var detail))
+                                        {
+                                            @if (detail is null)
+                                            {
+                                                @* The score is on the entry but no applied
+                                                   run mentions this title — the history was
+                                                   cleared, or the row was scored by a build
+                                                   that kept no run. Said plainly rather
+                                                   than shown as an empty panel. *@
+                                                <p class="muted">
+                                                    This score is on the title, but the ranking that
+                                                    produced it is no longer on record.
+                                                </p>
+                                            }
+                                            else
+                                            {
+                                                <div class="scoring-detail">
+                                                    <h3>Why this score</h3>
+
+                                                    @if (detail.Reason is { } reason)
+                                                    {
+                                                        <p class="reason">@reason</p>
+                                                    }
+                                                    else
+                                                    {
+                                                        <p class="muted">The model gave no reason for this one.</p>
+                                                    }
+
+                                                    @* A definition list, because every line is a
+                                                       label and its value — and it is what lets the
+                                                       fields stay readable when the panel narrows. *@
+                                                    @* Each pair wrapped in a div — permitted in a
+                                                       dl since HTML5, and necessary here: flexing
+                                                       the list itself would make every dt and dd
+                                                       its own item, so a label could wrap onto a
+                                                       different line from its value. *@
+                                                    <dl class="scoring-facts">
+                                                        <div>
+                                                            <dt>Confidence</dt>
+                                                            <dd>@Percent(detail.Confidence)</dd>
+                                                        </div>
+                                                        <div>
+                                                            <dt>Ranked</dt>
+                                                            <dd>@detail.Rank of @detail.CandidateCount</dd>
+                                                        </div>
+                                                        <div>
+                                                            <dt>Decided</dt>
+                                                            <dd>@Determined(detail.DeterminedAt)</dd>
+                                                        </div>
+                                                        <div>
+                                                            <dt>By</dt>
+                                                            <dd>@(detail.ModelIdentifier ?? detail.ProviderName)</dd>
+                                                        </div>
+                                                    </dl>
+                                                </div>
+                                            }
+                                        }
+                                        else
+                                        {
+                                            <p class="muted" aria-live="polite">Loading…</p>
+                                        }
+                                    </td>
+                                </tr>
+                            }
 
                             @if (IsExpanded(item.AnimeId))
                             {
@@ -491,6 +600,13 @@ else
     // have done when the panel was opened.
     private readonly Dictionary<int, int> _sequelCounts = [];
 
+    // Which score panels are open, and what each one found. The value is nullable
+    // inside a dictionary that records the key: present-with-null means "asked, and
+    // no applied run mentions this title", which is a different thing from "not
+    // asked yet" and has to render differently.
+    private readonly HashSet<int> _scoringOpen = [];
+    private readonly Dictionary<int, RecommendationDetail?> _scoring = [];
+
     /// <summary>
     /// The hidden view's option value.
     /// </summary>
@@ -535,6 +651,12 @@ else
         _expanded.Clear();
         _relations.Clear();
         _sequelCounts.Clear();
+
+        // Cleared with the rest: a reload can change which titles are on the page,
+        // and a panel left open against a row that is no longer here would be
+        // explaining a score the user cannot see.
+        _scoringOpen.Clear();
+        _scoring.Clear();
 
         // The overlay is discarded rather than merged: what just came back from the
         // database is now the truth about these rows, and keeping a local answer on
@@ -650,6 +772,52 @@ else
     private bool IsExpanded(int animeId) => _expanded.Contains(animeId);
 
     private static string RelatedRowId(int animeId) => $"related-{animeId}";
+
+    private static string ScoringRowId(int animeId) => $"scoring-{animeId}";
+
+    private bool IsScoring(int animeId) => _scoringOpen.Contains(animeId);
+
+    private static string ScoringLabel(LibraryListItem item, bool open) =>
+        open ? $"Hide why {item.Title} scored {item.RecommendationScore:0.0}"
+             : $"Why {item.Title} scored {item.RecommendationScore:0.0}";
+
+    /// <summary>
+    /// Opens or closes a row's scoring detail, fetching it the first time.
+    /// </summary>
+    /// <remarks>
+    /// Cached for the life of the page and not routed through
+    /// <see cref="BusyScope"/>, both for the reasons the relatives panel gives: it
+    /// is one indexed read about a row already on screen, and a modal to announce it
+    /// would be more disruptive than the wait.
+    ///
+    /// Unlike the relatives, nothing here goes stale while the panel is shut. A
+    /// ranking is a fact about a run that has already happened, so the only thing
+    /// that could change it is applying another one — which reloads the page.
+    /// </remarks>
+    private async Task ToggleScoringAsync(int animeId)
+    {
+        if (!_scoringOpen.Add(animeId))
+        {
+            _scoringOpen.Remove(animeId);
+            return;
+        }
+
+        if (_scoring.ContainsKey(animeId))
+        {
+            return;
+        }
+
+        _scoring[animeId] = await Scoring.GetDetailAsync(Profile.DefaultProfileId, animeId);
+    }
+
+    private static string Percent(double value) =>
+        ((int)Math.Round(value * 100)).ToString(CultureInfo.CurrentCulture) + "%";
+
+    /// <summary>
+    /// When a ranking was decided, in local time and in the profile's date format.
+    /// </summary>
+    private string Determined(DateTimeOffset when) =>
+        when.ToLocalTime().ToString("g", CultureInfo.CurrentCulture);
 
     /// <summary>
     /// Opens or closes a row's relatives, fetching them the first time.

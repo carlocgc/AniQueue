@@ -458,11 +458,75 @@ tbody tr.row-hidden > td { opacity: 0.55; }
 
 .expander .count { font-size: 0.8rem; }
 
+/* The score, made pressable without ceasing to be the score. It borrows the
+   expander's behaviour but keeps the column's alignment and tabular figures,
+   because the number is what the column is for and a sorted listing has to stay
+   readable down its edge. */
+.score-expander {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    padding: 0.15rem 0.35rem;
+    background: none;
+    border: 1px solid transparent;
+    color: inherit;
+    font: inherit;
+    font-variant-numeric: tabular-nums;
+}
+
+.score-expander:hover, .score-expander:focus-visible { border-color: var(--border); }
+
+.score-expander .chevron {
+    width: 0;
+    height: 0;
+    border-top: 0.28rem solid transparent;
+    border-bottom: 0.28rem solid transparent;
+    border-left: 0.36rem solid currentColor;
+    color: var(--text-muted);
+    transition: transform 0.12s ease-out;
+}
+
+.score-expander.open .chevron { transform: rotate(90deg); }
+
 /* Tinted rather than bordered: the expansion belongs to the row above it, and a
    box around it would read as a separate thing on the page. */
-.relations-row > td { background: var(--surface-alt); }
+.relations-row > td, .scoring-row > td { background: var(--surface-alt); }
 
-.relations-row:hover > td { background: var(--surface-alt); }
+.relations-row:hover > td, .scoring-row:hover > td { background: var(--surface-alt); }
+
+.scoring-detail h3 {
+    font-size: 0.78rem;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--text-muted);
+    margin: 0 0 0.4rem;
+}
+
+/* The reasoning is a sentence to read, so it is given a measure rather than the
+   full width of a table that may be a very wide one. */
+.scoring-detail .reason { margin: 0 0 0.6rem; max-width: 60ch; }
+
+/* Label above value rather than beside it: the four facts are short and of
+   different lengths, and a two-column grid of them leaves one column mostly air. */
+.scoring-facts {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem 1.6rem;
+    margin: 0;
+}
+
+.scoring-facts dt {
+    font-size: 0.72rem;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--text-muted);
+}
+
+.scoring-facts dd { margin: 0.1rem 0 0; font-size: 0.9rem; }
+
+/* Each label sits over its own value, and the pair travels together when the
+   panel is narrow enough to wrap. */
+.scoring-facts > div { display: block; }
 
 /* The only control on the page that acts on more than one title, so it is the only
    one that is a worded button rather than a glyph — "queue six things" is not
@@ -866,3 +930,8 @@ tr.muted td { opacity: 0.6; }
     right: 0.75rem;
     top: 0.5rem;
 }
+
+/* Beside Apply rather than in a field of its own: it is answered in the same
+   breath as the decision, and a labelled row above the button would give a note
+   more prominence than the action it annotates. */
+.model-name { width: 16rem; }
