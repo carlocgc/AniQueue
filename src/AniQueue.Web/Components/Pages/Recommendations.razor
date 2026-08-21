@@ -246,6 +246,21 @@
             }
         </div>
 
+        @* Above the table, not below it. A ranking runs to a couple of hundred rows,
+           and a decision that has already been described in the notice above should
+           not be at the far end of them: it is the first thing wanted after reading
+           what would happen, and the last thing reachable.
+
+           "Apply 182 scores" says the whole ranking, not this page of it, which is
+           the one thing paging could otherwise make ambiguous. *@
+        <div class="toolbar">
+            <button class="primary" disabled="@(_busy.IsRunning || !_preview.CanApply)"
+                    @onclick="ApplyAsync">
+                Apply @_preview.ApplicableCount @Plural(_preview.ApplicableCount, "score", "scores")
+            </button>
+            <button @onclick="Discard" disabled="@_busy.IsRunning">Discard</button>
+        </div>
+
         @if (_preview.Items.Count > 0)
         {
             @* The numeric headers carry the class their cells do, so a right-aligned
@@ -262,7 +277,7 @@
                         </tr>
                     </thead>
                     <tbody>
-                        @foreach (var item in _preview.Items)
+                        @foreach (var item in VisibleItems)
                         {
                             <tr class="@(item.WillApply ? null : "muted")">
                                 <td class="numeric">@item.Result.Rank</td>
@@ -298,15 +313,29 @@
                     </tbody>
                 </table>
             </div>
-        }
 
-        <div class="toolbar">
-            <button class="primary" disabled="@(_busy.IsRunning || !_preview.CanApply)"
-                    @onclick="ApplyAsync">
-                Apply @_preview.ApplicableCount @Plural(_preview.ApplicableCount, "score", "scores")
-            </button>
-            <button @onclick="Discard" disabled="@_busy.IsRunning">Discard</button>
-        </div>
+            @* Paged in memory, unlike the backlog's, which pages in the database
+               because it is reading several thousand rows it does not have. This is
+               reading a list it already holds in full — the whole ranking arrived in
+               one reply and has to be applied as one — so paging is purely a matter
+               of how much to draw at once. Nothing is fetched by pressing these. *@
+            @if (_preview.Items.Count > PreviewPageSize)
+            {
+                <div class="toolbar">
+                    <button @onclick="() => _previewSkip = 0" disabled="@(_previewSkip == 0)">First</button>
+                    <button @onclick="() => _previewSkip -= PreviewPageSize"
+                            disabled="@(_previewSkip == 0)">Previous</button>
+                    <span class="muted">
+                        @(_previewSkip + 1)–@Math.Min(_previewSkip + PreviewPageSize, _preview.Items.Count)
+                        of @_preview.Items.Count
+                    </span>
+                    <button @onclick="() => _previewSkip += PreviewPageSize"
+                            disabled="@(_previewSkip + PreviewPageSize >= _preview.Items.Count)">Next</button>
+                    <button @onclick="() => _previewSkip = (_preview.Items.Count - 1) / PreviewPageSize * PreviewPageSize"
+                            disabled="@(_previewSkip + PreviewPageSize >= _preview.Items.Count)">Last</button>
+                </div>
+            }
+        }
     }
 </div>
 
@@ -375,6 +404,22 @@
 
     /// <summary>Whether the size controls are on screen.</summary>
     private bool _showSizes;
+
+    /// <summary>
+    /// How many rows of a ranking to draw at once.
+    /// </summary>
+    /// <remarks>
+    /// Half the backlog's fifty, because these rows are taller: each carries a
+    /// sentence of reasoning, and a screen of them is the point of reading the
+    /// preview at all.
+    /// </remarks>
+    private const int PreviewPageSize = 25;
+
+    private int _previewSkip;
+
+    /// <summary>The rows currently drawn. Applying is never limited to these.</summary>
+    private IEnumerable<ScoringPreviewItem> VisibleItems =>
+        _preview!.Items.Skip(_previewSkip).Take(PreviewPageSize);
 
     /// <summary>How many titles are waiting, when the request covers only some.</summary>
     private int _waiting;
@@ -512,6 +557,11 @@
         _preview = await _busy.RunAsync(
             "Checking the reply",
             _ => Scoring.PreviewAsync(Profile.DefaultProfileId, json, _request));
+
+        // A new ranking starts at its own beginning. Left alone, checking a second
+        // reply while on page four opens it four pages in, or on nothing at all when
+        // the new one is shorter.
+        _previewSkip = 0;
     }
 
     private async Task ApplyAsync()
@@ -543,6 +593,7 @@
         _preview = null;
         _response = null;
         _error = null;
+        _previewSkip = 0;
     }
 
     private void Reset()

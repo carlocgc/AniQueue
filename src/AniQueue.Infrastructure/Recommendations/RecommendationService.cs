@@ -328,7 +328,12 @@ public sealed class RecommendationService(
 
             applied++;
 
-            progress?.Report(new OperationProgress($"Scoring {item.Title}", applied, applicable.Count));
+            // One message for the whole loop, with the count doing the moving — the
+            // same shape the importer uses. A message per title instead reads as a
+            // finished step each time it changes, so a ranking of a couple of hundred
+            // rows builds a couple of hundred "completed steps" in the dialog, which
+            // is a log rather than progress and is nobody's idea of reassurance.
+            progress?.Report(new OperationProgress("Applying the ranking", applied, applicable.Count));
         }
 
         await context.SaveChangesAsync(cancellationToken);
