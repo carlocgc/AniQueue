@@ -271,13 +271,14 @@
            payload does not say what read it, and by the time a score is being
            questioned on the backlog the memory of which model produced it has gone.
 
-           <b>Deliberately not asked of the model.</b> Adding "tell me your name" to
-           the response schema would fill this in by itself, and would fill it in
-           wrongly: a fine-tune will say it is ChatGPT, a quantised build does not
-           know its own quant, and self-reported identity is confidently wrong often
-           enough that a blank is worth more. This is the field somebody consults
-           when deciding whether a better model is worth re-running for, so a wrong
-           answer costs more than no answer. *@
+           <b>Deliberately left empty, and deliberately not asked of the model.</b>
+           Both shortcuts fill this in by themselves and both fill it in wrongly.
+           Asking the model gets a fine-tune claiming to be ChatGPT and a quantised
+           build that does not know its own quant; carrying the previous run's answer
+           forward gets last week's ChatGPT stamped on today's local model. This is
+           the field somebody consults when deciding whether a better model is worth
+           re-running for, so a wrong answer costs more than no answer — and neither
+           shortcut is distinguishable, afterwards, from something a person typed. *@
         <div class="field model-field">
             <label for="model-identifier">Which model produced this?</label>
             <input id="model-identifier" type="text" maxlength="100"
@@ -285,8 +286,8 @@
                    @bind="_modelIdentifier" @bind:event="oninput" />
             <p class="muted">
                 Recorded with the ranking and shown beside every score it writes, so a
-                score from a weaker model can be told apart later. Optional — left blank
-                it says @ProviderName instead, which is true but less useful.
+                score from a weaker model can be told apart later. Leave it blank if you
+                are not sure — an unspecified model is worth more than a wrong one.
             </p>
         </div>
 
@@ -412,7 +413,7 @@
                                 }
                                 else
                                 {
-                                    <span class="muted">Not recorded</span>
+                                    <span class="muted">Unspecified</span>
                                 }
                             </td>
                             <td class="numeric">@run.ResultCount of @run.CandidateCount</td>
@@ -690,18 +691,19 @@
         _copied = null;
     }
 
-    private async Task LoadRunsAsync()
-    {
+    private async Task LoadRunsAsync() =>
         _runs = await Scoring.GetRunsAsync(Profile.DefaultProfileId);
 
-        // Carried forward from the last run that named one, because almost nobody
-        // changes model between rankings and typing it again every time is the kind of
-        // chore that gets skipped once and then forever. It only pre-fills a field the
-        // user has not touched, so it can never overwrite an answer being given now.
-        _modelIdentifier ??= _runs
-            .Select(run => run.ModelIdentifier)
-            .FirstOrDefault(name => !string.IsNullOrWhiteSpace(name));
-    }
+    // This briefly carried the previous run's model forward, on the grounds that
+    // almost nobody changes model between rankings. It is not there any more, and the
+    // argument against it is the same one that keeps the schema from asking a model
+    // its own name: a wrong answer in this field costs more than no answer.
+    //
+    // "Almost nobody" is the whole problem. Someone who ranked with ChatGPT last week
+    // and is trying a local model today would have had the old name applied silently,
+    // and the field they would consult later to explain a bad score would be lying
+    // — with no way to tell, because a pre-filled value looks exactly like a typed one.
+    // Saving a few keystrokes is not worth a provenance record nobody can trust.
 
     /// <summary>
     /// An example of what to type, rather than a note that typing is optional.
