@@ -423,9 +423,43 @@ else
                                                             <dt>Decided</dt>
                                                             <dd>@Determined(detail.DeterminedAt)</dd>
                                                         </div>
+                                                        @* Two facts, not one. These were a single
+                                                           "By" cell falling back from the model to
+                                                           the route, which meant each hid the other:
+                                                           a named model concealed how it was carried,
+                                                           and an unnamed one left the route standing
+                                                           where a model name was expected — so
+                                                           "Manual" read as the name of a model. *@
                                                         <div>
-                                                            <dt>By</dt>
-                                                            <dd>@(detail.ModelIdentifier ?? detail.ProviderName)</dd>
+                                                            <dt>Type</dt>
+                                                            <dd>@detail.ProviderName</dd>
+                                                        </div>
+                                                        @* The model earns its own line because it is
+                                                           the one fact here that tells a user whether
+                                                           to run this again. A score from a small
+                                                           local model is worth revisiting once a
+                                                           better one is available; the same score
+                                                           from the best model they have is not, and
+                                                           nothing else on this panel separates
+                                                           those. *@
+                                                        <div>
+                                                            <dt>Model</dt>
+                                                            <dd>
+                                                                @if (detail.ModelIdentifier is { } model)
+                                                                {
+                                                                    @model
+                                                                }
+                                                                else
+                                                                {
+                                                                    @* Shown rather than omitted. A
+                                                                       missing row is indistinguishable
+                                                                       from a panel that never had the
+                                                                       field, and "I did not say" is a
+                                                                       different answer from "there was
+                                                                       no model". *@
+                                                                    <span class="muted">Not recorded</span>
+                                                                }
+                                                            </dd>
                                                         </div>
                                                     </dl>
                                                 </div>
