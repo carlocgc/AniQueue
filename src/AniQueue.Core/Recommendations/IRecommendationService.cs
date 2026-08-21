@@ -223,6 +223,14 @@ public sealed record RecommendationRunSummary
     public int CompletedCount { get; init; }
 
     public bool WasApplied { get; init; }
+
+    /// <summary>How long the model took, when anything measured it.</summary>
+    /// <remarks>
+    /// Read back so the page can quote the last endpoint run as a scale for the next
+    /// one. Null for a manual ranking, and for anything applied before this was
+    /// recorded.
+    /// </remarks>
+    public TimeSpan? Duration { get; init; }
 }
 
 /// <summary>
@@ -298,12 +306,23 @@ public interface IRecommendationService
     /// Refuses a preview whose problems include an error. Nothing is applied in
     /// part (D31).
     /// </remarks>
+    /// <param name="duration">
+    /// How long the model took, when anything measured it.
+    /// </param>
+    /// <remarks>
+    /// Null for the manual path, where the wait happened in somebody else's chat
+    /// window. Recorded so the next run can say "your last one took six minutes" while
+    /// a person waits on one that reports no progress — a ranking arrives all at once,
+    /// so elapsed time is the only honest thing to show and it means nothing without
+    /// something to compare it to.
+    /// </remarks>
     Task<ScoringApplyResult> ApplyAsync(
         int profileId,
         ScoringPreview preview,
         string providerName,
         string? modelIdentifier = null,
         IProgress<OperationProgress>? progress = null,
+        TimeSpan? duration = null,
         CancellationToken cancellationToken = default);
 
     /// <summary>

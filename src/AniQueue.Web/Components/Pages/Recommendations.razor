@@ -11,6 +11,9 @@
    changes the file (D36). *@
 @inject IOptionsMonitor<ScoringOptions> ScoringOptions
 @inject IUserSettingsStore Settings
+@* The second courier (D31). Injected even when nothing is configured, because
+   whether an endpoint exists is a question the card asks it. *@
+@inject IScoringEndpoint Endpoint
 @inject IJSRuntime JS
 @inject ILogger<Recommendations> Logger
 
@@ -27,7 +30,12 @@
     </p>
 </div>
 
-<BusyDialog State="_busy" />
+@* Cancel is offered only while a remote run is in flight. Everything else with a
+   dialog here is writing rows, where stopping raises a question about what half
+   done means; waiting on somebody else's model is the one place where giving up
+   costs nothing. *@
+<BusyDialog State="_busy" OnCancel="@(_running is null ? default : EventCallback.Factory.Create(this, CancelRun))"
+            CancelLabel="Stop waiting" />
 
 @if (_error is not null)
 {
@@ -39,194 +47,350 @@
     <div class="notice success" role="status">@_applied</div>
 }
 
-@* One page, two steps, and they stay in this order on purpose: the request has to
-   exist before a response can. Nothing here is a wizard — both halves stay
-   reachable, because pasting a reply an hour later is the normal case. *@
-<div class="card">
-    <h2>1. Ask</h2>
+@* Two ways to get a ranking, and one surface for what comes back (D35). The shape
+   is the Sources page's, deliberately: a card per route, its settings behind a
+   disclosure, and a preview that replaces the cards rather than joining them. Two
+   pages answering one question in two idioms is worse than either idiom. *@
+@if (_preview is null)
+{
+    <div class="card">
+        <h2>Remote model</h2>
 
-    @* A button rather than a <details>, and that is the second attempt at this. The
-       first moved these controls out of the "no request yet" branch so they survived
-       a build, which was necessary and not sufficient: a collapsed disclosure
-       triangle above the summary text does not read as "settings you can change",
-       and the person looking for them is looking at the row of buttons. So the
-       control lives in that row, says what it does, and this panel is what it
-       opens. *@
-    @if (_showSizes || _request is null)
-    {
-        <div class="request-size">
-        <div class="field">
-            <label for="candidate-limit">Titles to rank</label>
-            <input id="candidate-limit" type="number" min="1" max="5000"
-                   placeholder="All of them" disabled="@_busy.IsRunning"
-                   @bind="_candidateLimit" @bind:event="oninput" />
-            <p class="muted">
-                Leave this empty to offer everything you are planning to watch. If your
-                model struggles with a long list, set a number — each request then takes
-                the titles that have gone longest without a score, so running it again
-                works through the rest.
-            </p>
-        </div>
-
-        <div class="field">
-            <label for="return-top">Rankings to ask for back</label>
-            <input id="return-top" type="number" min="1" max="5000"
-                   placeholder="One for every title" disabled="@_busy.IsRunning"
-                   @bind="_returnTop" @bind:event="oninput" />
-            <p class="muted">
-                The model still weighs every title you send; this asks it to return only
-                the best of them. Worth setting when the reply is the slow part — a
-                ranking with a sentence of reasoning per title is generated a word at a
-                time, and a long one can run out of room halfway down the list.
-            </p>
-        </div>
-
-        <div class="field">
-            <label for="history-size">Scored titles to send as history</label>
-            <input id="history-size" type="number" min="0" max="5000"
-                   disabled="@_busy.IsRunning"
-                   @bind="_historySize" @bind:event="oninput" />
-            <p class="muted">
-                Most recently finished first. More history means a ranking that fits your
-                taste more closely, up to the point where it crowds out the backlog in
-                your model's context. Zero sends none, and the ranking is then general
-                rather than yours.
-            </p>
-        </div>
-        </div>
-    }
-
-    @if (_request is null)
-    {
-        <p class="muted">
-            Builds a file describing what you are planning to watch, together with the
-            titles you have already scored — that history is what makes the ranking
-            yours rather than a list of what is generally popular.
-        </p>
-
-        <div class="toolbar">
-            <button class="primary" disabled="@_busy.IsRunning" @onclick="BuildAsync">
-                Build the request
-            </button>
-        </div>
-    }
-    else if (_request.Candidates.Count == 0)
-    {
-        <div class="empty-state">
-            <p>Nothing is waiting to be watched, so there is nothing to rank.</p>
-            <a class="button primary" href="backlog">Open the backlog</a>
-        </div>
-    }
-    else
-    {
-        <p class="muted">
-            @_request.Candidates.Count @Plural(_request.Candidates.Count, "title", "titles") to rank,
-            with @_request.History.Count of your @_request.HistoryAvailable scored
-            @Plural(_request.HistoryAvailable, "title", "titles") as history.
-            @* The size is the number that decides whether a model can read this at
-               all, and nothing else on the page implies it — a count of titles says
-               nothing about how much context they occupy. *@
-            About @Size(_payload!.Length) of text.
-        </p>
-
-        @if (_capped is { } capped)
+        @if (!Endpoint.IsConfigured)
         {
+            @* The normal state of a fresh install, so it is the state that has to read
+               well. It says what to do rather than what is wrong. *@
             <p class="muted">
-                This request covers @capped of your @_waiting waiting
-                @Plural(_waiting, "title", "titles") — the ones longest without a score.
-                Build it again after applying to work through the rest.
+                No model is configured. Point AniQueue at one that speaks the
+                chat-completions API — LM Studio, Ollama, llama.cpp — and it can rank
+                your backlog without anything being copied by hand. No account and no
+                API key: the model runs on your own hardware.
             </p>
         }
-
-        @if (_request.IsRankingLimited)
+        else
         {
             <p class="muted">
-                It asks for the best @_request.ExpectedResults back, not all
-                @_request.Candidates.Count. Every title is still weighed; only the top of
-                the result is returned.
+                Ranking with <strong>@(Endpoint.Model ?? "the configured model")</strong>
+                at <strong>@Endpoint.Endpoint</strong>.
+                @if (LastRemoteDuration is { } previous)
+                {
+                    <text> Your last run took @Elapsed(previous).</text>
+                }
             </p>
+
+            @if (_waitingCount > 0)
+            {
+                <p class="muted">
+                    @_waitingCount @Plural(_waitingCount, "title", "titles") waiting to be
+                    ranked. Local models usually take several minutes to answer.
+                </p>
+            }
         }
 
-        @if (_request.IsHistoryCapped)
+        @if (_testResult is { } test)
         {
-            <p class="muted">
-                The history is a sample, most recently finished first — enough for a model
-                to read your taste without crowding out the backlog it is ranking.
-            </p>
+            <div class="notice @(test.Succeeded ? "success" : "error")" role="status">
+                <strong>@TestHeadline(test)</strong>
+
+                @if (test.Diagnostic is { } diagnostic)
+                {
+                    @* Bounded, body only, and behind a disclosure (D38). It is what
+                       somebody debugging their own server needs and very little of
+                       what anything else does. *@
+                    <details>
+                        <summary>Show what came back</summary>
+                        <pre class="payload">@diagnostic</pre>
+                    </details>
+                }
+            </div>
+        }
+
+        @if (_softGuard is { } guard)
+        {
+            @* Warns and offers the two real routes rather than silently changing what
+               was asked. A request for four hundred rankings in one reply is the
+               first experience of exactly the library that most needs this feature,
+               and "your model ran out of room" after ten minutes is a worse way to
+               learn it. *@
+            <div class="notice warning" role="alert">
+                <strong>That is a lot to ask for in one reply.</strong>
+                <p>
+                    You are asking for @guard rankings at once. Most self-hosted models
+                    cannot generate that much before running out of room.
+                </p>
+                <div class="toolbar">
+                    <button class="primary" @onclick="() => RankRemotelyAsync(RemoteBatchSize)">
+                        Rank @RemoteBatchSize of them
+                    </button>
+                    <button @onclick="() => RankRemotelyAsync(null, force: true)">
+                        Ask for all @guard anyway
+                    </button>
+                    <button @onclick="() => _softGuard = null">Cancel</button>
+                </div>
+            </div>
         }
 
         <div class="toolbar">
-            <button class="primary" @onclick="DownloadRequestAsync">Download the file</button>
-            <button @onclick="CopyRequestAsync">Copy the request</button>
-            <button @onclick="CopyPromptAsync">Copy the instructions</button>
-            @* In the row somebody is already looking at, and named for what it
-               changes rather than for the panel it opens. *@
-            <button @onclick="() => _showSizes = !_showSizes" aria-expanded="@_showSizes">
-                @(_showSizes ? "Hide sizes" : "Change sizes")
+            <button class="primary" disabled="@(_busy.IsRunning || !Endpoint.IsConfigured)"
+                    @onclick="() => RankRemotelyAsync(null)">
+                Rank now
             </button>
-            <button @onclick="BuildAsync" disabled="@_busy.IsRunning">Rebuild</button>
+            <button disabled="@(_busy.IsRunning || !Endpoint.IsConfigured)" @onclick="TestAsync">
+                Test connection
+            </button>
         </div>
 
-        @if (_copied is not null)
+        @* Settings behind a disclosure, like every per-source setting on Sources. The
+           7b note that a disclosure "does not read as settings you can change" was
+           learned about a panel floating above a request summary on a page with no
+           card structure, and that page is what this replaces. *@
+        <details class="source-settings" open="@(!Endpoint.IsConfigured)">
+            <summary>Connection</summary>
+
+            <div class="field">
+                <label for="scoring-endpoint">Where your model is listening</label>
+                <input id="scoring-endpoint" type="text" spellcheck="false" maxlength="200"
+                       placeholder="http://192.168.1.50:1234" disabled="@_busy.IsRunning"
+                       @bind="_endpoint" @bind:event="oninput" />
+                <p class="muted">
+                    LM Studio serves <code>http://localhost:1234</code> and Ollama
+                    <code>http://localhost:11434</code> by default. AniQueue adds the rest
+                    of the address itself.
+                </p>
+            </div>
+
+            <div class="field">
+                <label for="scoring-model">Which model</label>
+                <input id="scoring-model" type="text" spellcheck="false" maxlength="200"
+                       placeholder="Whatever your server calls it" disabled="@_busy.IsRunning"
+                       @bind="_model" @bind:event="oninput" />
+            </div>
+
+            <div class="field">
+                <label for="scoring-timeout">Give up after (seconds)</label>
+                <input id="scoring-timeout" type="number" min="5" max="3600"
+                       disabled="@_busy.IsRunning"
+                       @bind="_timeoutSeconds" @bind:event="oninput" />
+            </div>
+
+            <div class="field">
+                <label for="scoring-structured">
+                    <input type="checkbox" id="scoring-structured" checked="@_structuredOutput"
+                           @onchange="e => _structuredOutput = (bool)(e.Value ?? false)" />
+                    Ask the server for JSON only
+                </label>
+                <p class="muted">
+                    Leave this on unless your server rejects the request. It stops a model
+                    wrapping its answer in explanation, which AniQueue can cope with but
+                    would rather not have to.
+                </p>
+            </div>
+
+            <div class="toolbar">
+                <button class="primary" disabled="@_busy.IsRunning" @onclick="SaveConnectionAsync">
+                    Save
+                </button>
+            </div>
+
+            <p class="muted">
+                Saved to <code>@Settings.Path</code>, which is where to change it by hand if
+                this page is ever unreachable.
+            </p>
+        </details>
+    </div>
+
+    <div class="card">
+        <h2>By hand</h2>
+
+        @if (_request is null)
         {
-            <p class="muted" role="status">@_copied</p>
+            <p class="muted">
+                Build a file describing what you are planning to watch, paste it into any
+                model you like, and bring the answer back. The same request the remote
+                option sends, carried by you.
+            </p>
+
+            <div class="toolbar">
+                <button class="primary" disabled="@_busy.IsRunning" @onclick="BuildAsync">
+                    Build the request
+                </button>
+            </div>
+        }
+        else if (_request.Candidates.Count == 0)
+        {
+            <div class="empty-state">
+                <p>Nothing is waiting to be watched, so there is nothing to rank.</p>
+                <a class="button primary" href="backlog">Open the backlog</a>
+            </div>
+        }
+        else
+        {
+            <p class="muted">
+                @_request.Candidates.Count @Plural(_request.Candidates.Count, "title", "titles") to rank,
+                with @_request.History.Count of your @_request.HistoryAvailable scored
+                @Plural(_request.HistoryAvailable, "title", "titles") as history.
+                @* The size is the number that decides whether a model can read this at
+                   all, and nothing else on the page implies it — a count of titles says
+                   nothing about how much context they occupy. *@
+                About @Size(_payload!.Length) of text.
+            </p>
+
+            @if (_capped is { } capped)
+            {
+                <p class="muted">
+                    This request covers @capped of your @_waiting waiting
+                    @Plural(_waiting, "title", "titles") — the ones longest without a score.
+                    Build it again after applying to work through the rest.
+                </p>
+            }
+
+            @if (_request.IsRankingLimited)
+            {
+                <p class="muted">
+                    It asks for the best @_request.ExpectedResults back, not all
+                    @_request.Candidates.Count. Every title is still weighed; only the top of
+                    the result is returned.
+                </p>
+            }
+
+            @if (_request.IsHistoryCapped)
+            {
+                <p class="muted">
+                    The history is a sample, most recently finished first — enough for a model
+                    to read your taste without crowding out the backlog it is ranking.
+                </p>
+            }
+
+            <div class="toolbar">
+                <button class="primary" @onclick="DownloadRequestAsync">Download the file</button>
+                <button @onclick="CopyRequestAsync">Copy the request</button>
+                <button @onclick="CopyPromptAsync">Copy the instructions</button>
+                <button @onclick="BuildAsync" disabled="@_busy.IsRunning">Rebuild</button>
+            </div>
+
+            @if (_copied is not null)
+            {
+                <p class="muted" role="status">@_copied</p>
+            }
+
+            <p class="muted">
+                Paste the instructions into your model, then the request below them. The
+                instructions tell it exactly what to send back.
+            </p>
+
+            @* Both are shown rather than only offered, because on a self-hosted install
+               over plain http the clipboard API does not exist and the fallback can be
+               refused too. Text on the page can always be selected by hand, so the copy
+               buttons are a convenience over a route that already works. *@
+            <details>
+                <summary>Read the instructions</summary>
+                <pre class="payload">@_prompt</pre>
+            </details>
+
+            <details>
+                <summary>Read the request</summary>
+                <pre class="payload">@_payload</pre>
+            </details>
         }
 
-        <p class="muted">
-            Paste the instructions into your model, then the request below them. The
-            instructions tell it exactly what to send back.
-        </p>
+        <div class="field">
+            <label for="response">Paste the reply</label>
+            @* The placeholder comes from a C# string rather than being written inline
+               with entities. Razor encodes a literal attribute value, so a &quot; in the
+               markup reaches the browser as &amp;quot; and the field advertises the
+               wrong shape — quotation marks are exactly what a person is checking their
+               reply against here. *@
+            <textarea id="response" rows="8" spellcheck="false"
+                      placeholder="@ResponseExample"
+                      disabled="@_busy.IsRunning"
+                      @bind="_response" @bind:event="oninput"></textarea>
+        </div>
 
-        @* Both are shown rather than only offered, because on a self-hosted install
-           over plain http the clipboard API does not exist and the fallback can be
-           refused too. Text on the page can always be selected by hand, so the copy
-           buttons are a convenience over a route that already works. *@
-        <details>
-            <summary>Read the instructions</summary>
-            <pre class="payload">@_prompt</pre>
-        </details>
+        <div class="toolbar">
+            <button class="primary" disabled="@(_busy.IsRunning || string.IsNullOrWhiteSpace(_response))"
+                    @onclick="PreviewPastedAsync">
+                Check the reply
+            </button>
 
-        <details>
-            <summary>Read the request</summary>
-            <pre class="payload">@_payload</pre>
-        </details>
-    }
-</div>
-
-<div class="card">
-    <h2>2. Apply</h2>
-
-    <p class="muted">
-        Paste what the model replied, or upload it. Nothing is written until you have
-        seen what it would do.
-    </p>
-
-    <div class="field">
-        <label for="response">The model's reply</label>
-        @* The placeholder comes from a C# string rather than being written inline
-           with entities. Razor encodes a literal attribute value, so a &quot; in the
-           markup reaches the browser as &amp;quot; and the field advertises the
-           wrong shape — quotation marks are exactly what a person is checking their
-           reply against here. *@
-        <textarea id="response" rows="8" spellcheck="false"
-                  placeholder="@ResponseExample"
-                  disabled="@_busy.IsRunning"
-                  @bind="_response" @bind:event="oninput"></textarea>
+            <InputFile id="response-file" class="file-input" OnChange="OnFileSelectedAsync"
+                       accept=".json,.txt" disabled="@_busy.IsRunning"
+                       aria-label="Upload the model's reply" />
+        </div>
     </div>
 
-    <div class="toolbar">
-        <button class="primary" disabled="@(_busy.IsRunning || string.IsNullOrWhiteSpace(_response))"
-                @onclick="PreviewPastedAsync">
-            Check the reply
-        </button>
+    @* Lifted out of both cards, because it governs a run down either route. Drawn in
+       one card it would otherwise be drawn in two, which is D30's two-controls-over-
+       one-setting exactly. Same lift, same reason, as the title language control on
+       Sources. *@
+    <div class="card">
+        <details class="source-settings">
+            <summary>How much to send</summary>
 
-        <InputFile id="response-file" class="file-input" OnChange="OnFileSelectedAsync"
-                   accept=".json,.txt" disabled="@_busy.IsRunning"
-                   aria-label="Upload the model's reply" />
+            <div class="field">
+                <label for="candidate-limit">Titles to rank</label>
+                <input id="candidate-limit" type="number" min="1" max="5000"
+                       placeholder="All of them" disabled="@_busy.IsRunning"
+                       @bind="_candidateLimit" @bind:event="oninput" />
+                <p class="muted">
+                    Leave this empty to offer everything you are planning to watch. If your
+                    model struggles with a long list, set a number — each request then takes
+                    the titles that have gone longest without a score, so running it again
+                    works through the rest.
+                </p>
+            </div>
+
+            <div class="field">
+                <label for="return-top">Rankings to ask for back</label>
+                <input id="return-top" type="number" min="1" max="5000"
+                       placeholder="One for every title" disabled="@_busy.IsRunning"
+                       @bind="_returnTop" @bind:event="oninput" />
+                <p class="muted">
+                    The model still weighs every title you send; this asks it to return only
+                    the best of them. Worth setting when the reply is the slow part — a
+                    ranking with a sentence of reasoning per title is generated a word at a
+                    time, and a long one can run out of room halfway down the list.
+                </p>
+            </div>
+
+            <div class="field">
+                <label for="history-size">Scored titles to send as history</label>
+                <input id="history-size" type="number" min="0" max="5000"
+                       disabled="@_busy.IsRunning"
+                       @bind="_historySize" @bind:event="oninput" />
+                <p class="muted">
+                    Most recently finished first. More history means a ranking that fits your
+                    taste more closely, up to the point where it crowds out the backlog in
+                    your model's context. Zero sends none, and the ranking is then general
+                    rather than yours.
+                </p>
+            </div>
+
+            <div class="toolbar">
+                <button class="primary" disabled="@_busy.IsRunning" @onclick="SaveSizesAsync">
+                    Save
+                </button>
+            </div>
+        </details>
+    </div>
+}
+else
+{
+    @* One card while a preview is up, and only the card that produced it. Sources
+       learned this the hard way: rendering every card let each draw its own Discard,
+       so two sources meant two ways out of one preview. A preview is one route's
+       answer, so it is one route's card.
+
+       <b>A heading and nothing else</b>, which is where this departs from Sources.
+       There the collapsed card carries the Discard because the preview below it has
+       none; here the preview pairs Discard with Apply at the point the decision is
+       actually made, so a second one up here would be the same two-ways-out bug in a
+       new shape. What is left is the one thing the preview cannot say for itself:
+       which route produced it. *@
+    <div class="card collapsed">
+        <h2>@(_source == ScoringRoute.Remote ? "Remote model" : "By hand")</h2>
     </div>
 
-    @if (_preview is not null)
-    {
+    <div class="card">
         <h3>What this would do</h3>
 
         @* One notice, carrying its own severity, rather than a heading followed by a
@@ -254,6 +418,34 @@
             }
         </div>
 
+        @if (_source == ScoringRoute.Manual)
+        {
+            @* Manual only. A remote run knows what answered — the server says so in
+               its own reply — and asking somebody to type what AniQueue was just told
+               would be inviting a worse answer than the one it has.
+
+               <b>Deliberately left empty, and deliberately not asked of the model.</b>
+               Both shortcuts fill this in by themselves and both fill it in wrongly.
+               Asking the model gets a fine-tune claiming to be ChatGPT and a quantised
+               build that does not know its own quant; carrying the previous run's
+               answer forward gets last week's ChatGPT stamped on today's local model.
+               This is the field somebody consults when deciding whether a better model
+               is worth re-running for, so a wrong answer costs more than no answer —
+               and neither shortcut is distinguishable, afterwards, from something a
+               person typed. *@
+            <div class="field model-field">
+                <label for="model-identifier">Which model produced this?</label>
+                <input id="model-identifier" type="text" maxlength="100"
+                       placeholder="@ModelPlaceholder" disabled="@_busy.IsRunning"
+                       @bind="_modelIdentifier" @bind:event="oninput" />
+                <p class="muted">
+                    Recorded with the ranking and shown beside every score it writes, so a
+                    score from a weaker model can be told apart later. Leave it blank if you
+                    are not sure — an unspecified model is worth more than a wrong one.
+                </p>
+            </div>
+        }
+
         @* Above the table, not below it. A ranking runs to a couple of hundred rows,
            and a decision that has already been described in the notice above should
            not be at the far end of them: it is the first thing wanted after reading
@@ -261,36 +453,6 @@
 
            "Apply 182 scores" says the whole ranking, not this page of it, which is
            the one thing paging could otherwise make ambiguous. *@
-        @* A labelled field above the buttons, not a bare box beside them. It sat in
-           the toolbar with only a placeholder to say what it was, which is how it
-           came to be skipped: by the time the eye reaches a row of buttons it is
-           looking for the button, and a control read after Apply is a control read
-           after it stopped mattering.
-
-           Asked here because here is the only moment anybody knows the answer — the
-           payload does not say what read it, and by the time a score is being
-           questioned on the backlog the memory of which model produced it has gone.
-
-           <b>Deliberately left empty, and deliberately not asked of the model.</b>
-           Both shortcuts fill this in by themselves and both fill it in wrongly.
-           Asking the model gets a fine-tune claiming to be ChatGPT and a quantised
-           build that does not know its own quant; carrying the previous run's answer
-           forward gets last week's ChatGPT stamped on today's local model. This is
-           the field somebody consults when deciding whether a better model is worth
-           re-running for, so a wrong answer costs more than no answer — and neither
-           shortcut is distinguishable, afterwards, from something a person typed. *@
-        <div class="field model-field">
-            <label for="model-identifier">Which model produced this?</label>
-            <input id="model-identifier" type="text" maxlength="100"
-                   placeholder="@ModelPlaceholder" disabled="@_busy.IsRunning"
-                   @bind="_modelIdentifier" @bind:event="oninput" />
-            <p class="muted">
-                Recorded with the ranking and shown beside every score it writes, so a
-                score from a weaker model can be told apart later. Leave it blank if you
-                are not sure — an unspecified model is worth more than a wrong one.
-            </p>
-        </div>
-
         <div class="toolbar">
             <button class="primary" disabled="@(_busy.IsRunning || !_preview.CanApply)"
                     @onclick="ApplyAsync">
@@ -298,7 +460,6 @@
             </button>
             <button @onclick="Discard" disabled="@_busy.IsRunning">Discard</button>
         </div>
-
         @if (_preview.Items.Count > 0)
         {
             @* The numeric headers carry the class their cells do, so a right-aligned
@@ -374,8 +535,8 @@
                 </div>
             }
         }
-    }
-</div>
+    </div>
+}
 
 @if (_runs.Count > 0)
 {
@@ -427,7 +588,67 @@
 }
 
 @code {
-    private const string ProviderName = "Manual";
+    /// <summary>
+    /// Which route produced the preview on screen.
+    /// </summary>
+    /// <remarks>
+    /// Held by the page rather than carried on <c>ScoringPreview</c>, which stays
+    /// ignorant of how its reply arrived — that ignorance is what makes the two routes
+    /// one contract (D31). The page needs it anyway to render only the card that
+    /// produced the preview, so asking the model name of a manual run costs nothing
+    /// extra.
+    /// </remarks>
+    private enum ScoringRoute
+    {
+        Manual,
+        Remote
+    }
+
+    private ScoringRoute _source = ScoringRoute.Manual;
+
+    /// <summary>What a run records about how it was carried.</summary>
+    /// <remarks>
+    /// Free text on <c>RecommendationRun</c>, and now shown to users in its own column
+    /// rather than as a fallback for a missing model name — so the values are the
+    /// vocabulary rather than an implementation detail. Phase 8d adds "Scheduled".
+    /// </remarks>
+    private string ProviderName => _source == ScoringRoute.Remote ? "Remote" : "Manual";
+
+    /// <summary>
+    /// What the soft guard offers instead of one enormous reply.
+    /// </summary>
+    /// <remarks>
+    /// The same twenty-five the scheduled sweep will use, and for the same reason:
+    /// about three thousand output tokens, which is inside any local server's budget
+    /// including a stingy default.
+    /// </remarks>
+    private const int RemoteBatchSize = 25;
+
+    /// <summary>
+    /// Above this, asking for every ranking in one reply is a bad bet.
+    /// </summary>
+    /// <remarks>
+    /// Not a cap. A user who knows their model can produce two hundred rankings may
+    /// say so and be believed — what this prevents is finding out the hard way after
+    /// ten minutes of waiting, on precisely the large library the feature is for.
+    /// </remarks>
+    private const int SoftGuardThreshold = 60;
+
+    /// <summary>How many rankings the guard is asking about, or null when it is quiet.</summary>
+    private int? _softGuard;
+
+    private ScoringEndpointResult? _testResult;
+
+    private string? _endpoint;
+    private string? _model;
+    private int _timeoutSeconds;
+    private bool _structuredOutput;
+
+    /// <summary>Cancels a run in flight. Null when nothing is running.</summary>
+    private CancellationTokenSource? _running;
+
+    /// <summary>Titles waiting to be ranked, for the Remote card to quote.</summary>
+    private int _waitingCount;
 
     /// <summary>
     /// The shape the field expects, shown while it is empty.
@@ -458,8 +679,11 @@
     /// <summary>What the user says produced the ranking. Recorded with the run.</summary>
     private string? _modelIdentifier;
 
-    /// <summary>Whether the size controls are on screen.</summary>
-    private bool _showSizes;
+    // _showSizes is gone with the button that drove it. 7b used a button rather than a
+    // disclosure because a triangle above a request summary did not read as "settings
+    // you can change" — an argument about a page with no card structure, which is what
+    // this replaced. The sizes now sit behind a <summary> in a card of their own, where
+    // every other setting in this application already lives.
 
     /// <summary>
     /// How many rows of a ranking to draw at once.
@@ -499,13 +723,38 @@
         // owns a setting (D36). The monitor gives the value currently in effect,
         // including one an environment variable supplied, so the inputs show what a
         // request would actually use rather than only what this page last wrote.
-        var options = ScoringOptions.CurrentValue.ToRequestOptions();
+        var current = ScoringOptions.CurrentValue;
+        var options = current.ToRequestOptions();
 
         _historySize = options.MaxHistory;
         _candidateLimit = options.MaxCandidates;
         _returnTop = options.ReturnTop;
 
+        _endpoint = current.Endpoint;
+        _model = current.Model;
+        _timeoutSeconds = current.TimeoutSeconds;
+        _structuredOutput = current.UseStructuredOutput;
+
         await LoadRunsAsync();
+        await CountWaitingAsync();
+    }
+
+    /// <summary>
+    /// How many titles are waiting, without building a request to find out.
+    /// </summary>
+    /// <remarks>
+    /// The Remote card says what a run would cover before anybody asks for one, and
+    /// building a whole request to render a number would mean loading the backlog on
+    /// every page view. A request that is capped still reports the full count on it,
+    /// so this is the cheapest thing that answers the question honestly.
+    /// </remarks>
+    private async Task CountWaitingAsync()
+    {
+        var request = await Scoring.BuildRequestAsync(
+            Profile.DefaultProfileId,
+            new ScoringRequestOptions { MaxHistory = 0, MaxCandidates = 1 });
+
+        _waitingCount = request.CandidatesAvailable;
     }
 
     private async Task BuildAsync()
@@ -518,37 +767,12 @@
             _returnTop,
             ScoringOptions.CurrentValue.IncludePersonalNotes);
 
-        // Saved as a side effect of using them rather than behind a separate button.
-        // These are only ever changed in order to build a request, so a Save the user
-        // has to find afterwards is a step whose only purpose is to be forgotten —
-        // and the effect of the setting is visible immediately either way.
-        //
-        // The whole file is rewritten, so everything not being edited here is read
-        // back and passed through untouched — a save from this page must not silently
-        // clear the AniList account the Sources page wrote.
-        var settings = Settings.Read() with
-        {
-            ScoringHistorySize = options.MaxHistory,
-            ScoringCandidateLimit = options.MaxCandidates,
-            ScoringReturnTop = options.ReturnTop
-        };
-
-        var saved = await Settings.SaveAsync(settings);
-
-        if (!saved.Saved)
-        {
-            // Worth saying rather than swallowing: the request below still uses these
-            // numbers, so the run works and only the remembering failed, and that is a
-            // different thing from the page being broken.
-            _error = $"These sizes could not be saved to {saved.Path}: {saved.Error}. "
-                + "This request still uses them.";
-        }
-
-        // Clamped values back into the inputs, so a number the settings refused does
-        // not sit on screen looking like it was accepted.
-        _historySize = options.MaxHistory;
-        _candidateLimit = options.MaxCandidates;
-        _returnTop = options.ReturnTop;
+        // The sizes are saved by their own button now, not as a side effect of
+        // building. They used to belong to this card alone, so saving them when it was
+        // used was the whole of it; they now govern a run down either route, and a
+        // remote run that quietly rewrote them because somebody had opened the manual
+        // card would be a setting changing itself.
+        _source = ScoringRoute.Manual;
 
         _request = await _busy.RunAsync(
             "Building the request",
@@ -560,6 +784,194 @@
         // are three views of one string rather than three builds of it.
         _payload = ScoringRequestWriter.Write(_request);
         _prompt = ScoringPromptBuilder.Build(_request);
+    }
+
+    /// <summary>
+    /// Builds a request, sends it, and turns the reply into a preview.
+    /// </summary>
+    /// <remarks>
+    /// <b>Its own request, built here rather than shared with the Manual card.</b> 7b
+    /// holds one built request so that the file, the clipboard and the text on screen
+    /// are three views of one string — and nothing is reading this one, so the only
+    /// thing sharing would add is a way to send a payload built before a sync landed.
+    ///
+    /// <b>One request, not batches.</b> The scheduled sweep works through a backlog in
+    /// batches because nobody is waiting; a run somebody pressed is one question and
+    /// one answer they look at. The guard below is what keeps that from being a bad
+    /// bet on a large library.
+    /// </remarks>
+    private async Task RankRemotelyAsync(int? limit, bool force = false)
+    {
+        Reset();
+        _testResult = null;
+        _softGuard = null;
+
+        var configured = ScoringOptions.CurrentValue;
+
+        var options = ScoringRequestOptions.From(
+            _historySize,
+            limit ?? _candidateLimit,
+            limit ?? _returnTop,
+            configured.IncludePersonalNotes);
+
+        var request = await _busy.RunAsync(
+            "Building the request",
+            _ => Scoring.BuildRequestAsync(Profile.DefaultProfileId, options));
+
+        if (request.Candidates.Count == 0)
+        {
+            _error = "Nothing is waiting to be watched, so there is nothing to rank.";
+            return;
+        }
+
+        if (!force && request.ExpectedResults > SoftGuardThreshold)
+        {
+            // Warned before sending rather than after failing. The alternative is a
+            // ten-minute wait ending in "your model ran out of room", which teaches the
+            // same lesson at the worst possible moment.
+            _softGuard = request.ExpectedResults;
+            return;
+        }
+
+        _source = ScoringRoute.Remote;
+        _request = request;
+
+        using var cancellation = new CancellationTokenSource();
+        _running = cancellation;
+
+        try
+        {
+            var answer = await _busy.RunAsync(
+                "Ranking your backlog",
+                async progress =>
+                {
+                    // Nothing streams, so there is no fraction to report and no partial
+                    // ranking to show. What can honestly be said is how long it has been
+                    // waiting, and — after a first run — how long that took, which is the
+                    // difference between "this is hung" and "this is normal".
+                    progress.Report(new OperationProgress(WaitingMessage()));
+
+                    using var ticker = new PeriodicTimer(TimeSpan.FromSeconds(1));
+                    var sending = Endpoint.AskAsync(_request, cancellation.Token);
+
+                    while (await ticker.WaitForNextTickAsync(CancellationToken.None))
+                    {
+                        if (sending.IsCompleted)
+                        {
+                            break;
+                        }
+
+                        _elapsed += TimeSpan.FromSeconds(1);
+                        progress.Report(new OperationProgress(WaitingMessage()));
+                    }
+
+                    return await sending;
+                });
+
+            if (!answer.Succeeded)
+            {
+                _error = answer.Message;
+                _request = null;
+                return;
+            }
+
+            _remoteModel = answer.ModelIdentifier;
+            _remoteDuration = answer.Duration;
+
+            await PreviewAsync(answer.Reply!);
+        }
+        finally
+        {
+            _running = null;
+            _elapsed = TimeSpan.Zero;
+        }
+    }
+
+    private TimeSpan _elapsed;
+    private string? _remoteModel;
+    private TimeSpan? _remoteDuration;
+
+    private string WaitingMessage()
+    {
+        var model = Endpoint.Model ?? "your model";
+
+        return LastRemoteDuration is { } previous
+            ? $"Waiting for {model} — {Elapsed(_elapsed)}. Your last run took {Elapsed(previous)}."
+            : $"Waiting for {model} — {Elapsed(_elapsed)}.";
+    }
+
+    /// <summary>How long the last endpoint run took, when one has been recorded.</summary>
+    /// <remarks>
+    /// From the run history rather than remembered in the page, so it survives a
+    /// reload and a restart. Without it every wait is open-ended forever; with it the
+    /// application learns the hardware after exactly one run.
+    /// </remarks>
+    private TimeSpan? LastRemoteDuration =>
+        _runs.Select(run => run.Duration).FirstOrDefault(duration => duration is not null);
+
+    private void CancelRun() => _running?.Cancel();
+
+    private async Task TestAsync()
+    {
+        Reset();
+        _softGuard = null;
+
+        _testResult = await _busy.RunAsync(
+            "Testing the connection",
+            _ => Endpoint.TestAsync());
+
+        // A server that answers and cannot produce a ranking is a distinct outcome
+        // from one that does not answer, and it is the whole reason this sends a real
+        // request rather than a ping. The parser decides which happened.
+        if (_testResult.Succeeded && new ScoringResponseParser().Parse(_testResult.Reply!).HasErrors)
+        {
+            _testResult = _testResult with
+            {
+                Failure = ScoringEndpointFailure.Unreadable,
+                Message = "It answered, but not with a ranking AniQueue could read. "
+                    + "Try turning on \"Ask the server for JSON only\", or a larger model.",
+                Diagnostic = _testResult.Reply
+            };
+        }
+    }
+
+    private string TestHeadline(ScoringEndpointResult test) => test.Succeeded
+        ? $"Answered in {Elapsed(test.Duration)}"
+            + (test.ModelIdentifier is { } model ? $" using {model}." : ".")
+        : test.Message ?? "It did not answer.";
+
+    private async Task SaveConnectionAsync()
+    {
+        var saved = await Settings.SaveAsync(Settings.Read() with
+        {
+            ScoringEndpoint = string.IsNullOrWhiteSpace(_endpoint) ? null : _endpoint.Trim(),
+            ScoringModel = string.IsNullOrWhiteSpace(_model) ? null : _model.Trim(),
+            ScoringTimeoutSeconds = Math.Clamp(_timeoutSeconds, 5, 3600),
+            ScoringUseStructuredOutput = _structuredOutput
+        });
+
+        _error = saved.Saved ? null : $"Could not save to {saved.Path}: {saved.Error}";
+        _testResult = null;
+    }
+
+    private async Task SaveSizesAsync()
+    {
+        var options = ScoringRequestOptions.From(_historySize, _candidateLimit, _returnTop);
+
+        var saved = await Settings.SaveAsync(Settings.Read() with
+        {
+            ScoringHistorySize = options.MaxHistory,
+            ScoringCandidateLimit = options.MaxCandidates,
+            ScoringReturnTop = options.ReturnTop
+        });
+
+        // Clamped values back into the inputs, so a number the settings refused does
+        // not sit on screen looking like it was accepted.
+        _historySize = options.MaxHistory;
+        _candidateLimit = options.MaxCandidates;
+        _returnTop = options.ReturnTop;
+
+        _error = saved.Saved ? null : $"Could not save to {saved.Path}: {saved.Error}";
     }
 
     private async Task DownloadRequestAsync()
@@ -650,14 +1062,23 @@
 
     private async Task ApplyAsync()
     {
+        // A remote run knows what answered because the server said so in its own
+        // reply, which is a better source than anything a person could be asked to
+        // type — and better than asking the model, which would be the model's opinion
+        // of itself rather than the server's account of what it loaded.
+        var model = _source == ScoringRoute.Remote
+            ? _remoteModel
+            : string.IsNullOrWhiteSpace(_modelIdentifier) ? null : _modelIdentifier.Trim();
+
         var result = await _busy.RunAsync(
             "Applying the ranking",
             progress => Scoring.ApplyAsync(
                 Profile.DefaultProfileId,
                 _preview!,
                 ProviderName,
-                string.IsNullOrWhiteSpace(_modelIdentifier) ? null : _modelIdentifier.Trim(),
-                progress));
+                model,
+                progress,
+                _source == ScoringRoute.Remote ? _remoteDuration : null));
 
         _applied = result.Skipped == 0
             ? $"Scored {result.Applied} {Plural(result.Applied, "title", "titles")}."
@@ -666,6 +1087,7 @@
 
         Discard();
         await LoadRunsAsync();
+        await CountWaitingAsync();
     }
 
     /// <summary>
@@ -814,6 +1236,17 @@
         ((int)Math.Round(value * 100)).ToString(CultureInfo.CurrentCulture) + "%";
 
     private static string Plural(int count, string one, string many) => count == 1 ? one : many;
+
+    /// <summary>
+    /// A duration as somebody waiting on it would say it.
+    /// </summary>
+    /// <remarks>
+    /// Seconds while the number is small enough to read as progress, then minutes and
+    /// seconds. "0:47" is a clock rather than a wait, and "203 seconds" is arithmetic.
+    /// </remarks>
+    private static string Elapsed(TimeSpan elapsed) => elapsed.TotalMinutes < 1
+        ? $"{(int)elapsed.TotalSeconds}s"
+        : $"{(int)elapsed.TotalMinutes}m {elapsed.Seconds:00}s";
 
     public async ValueTask DisposeAsync()
     {

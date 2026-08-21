@@ -661,6 +661,56 @@ public class RecommendationServiceTests
     }
 
     [Fact]
+    public async Task How_long_a_run_took_is_recorded_and_read_back()
+    {
+        // The page quotes the last endpoint run to say how long a wait normally is,
+        // which is the difference between a dialog that looks hung and one that looks
+        // busy. It survives a restart because it is on the run rather than in the page.
+        await using var fixture = await Fixture.CreateAsync();
+        await using var context = fixture.Database.CreateContext();
+
+        var anime = await AddAsync(context, fixture.ProfileId, "Ranked");
+
+        var preview = await fixture.Recommendations.PreviewAsync(
+            fixture.ProfileId,
+            Ranking((anime.Id, 1, 8.0)));
+
+        await fixture.Recommendations.ApplyAsync(
+            fixture.ProfileId,
+            preview,
+            "Remote",
+            "qwen2.5-14b",
+            progress: null,
+            duration: TimeSpan.FromSeconds(374));
+
+        var run = Assert.Single(await fixture.Recommendations.GetRunsAsync(fixture.ProfileId));
+
+        Assert.Equal(TimeSpan.FromSeconds(374), run.Duration);
+    }
+
+    [Fact]
+    public async Task A_run_nobody_timed_records_no_duration()
+    {
+        // The manual path, where the wait happened in somebody else's chat window and
+        // AniQueue has no idea how long it was. Null rather than zero, because zero
+        // would read as an instant answer.
+        await using var fixture = await Fixture.CreateAsync();
+        await using var context = fixture.Database.CreateContext();
+
+        var anime = await AddAsync(context, fixture.ProfileId, "Ranked");
+
+        var preview = await fixture.Recommendations.PreviewAsync(
+            fixture.ProfileId,
+            Ranking((anime.Id, 1, 8.0)));
+
+        await fixture.Recommendations.ApplyAsync(fixture.ProfileId, preview, "Manual");
+
+        var run = Assert.Single(await fixture.Recommendations.GetRunsAsync(fixture.ProfileId));
+
+        Assert.Null(run.Duration);
+    }
+
+    [Fact]
     public async Task Applying_writes_the_score_the_run_and_its_items()
     {
         await using var fixture = await Fixture.CreateAsync();

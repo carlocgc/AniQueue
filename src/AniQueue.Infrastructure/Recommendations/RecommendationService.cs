@@ -230,6 +230,7 @@ public sealed class RecommendationService(
         string providerName,
         string? modelIdentifier = null,
         IProgress<OperationProgress>? progress = null,
+        TimeSpan? duration = null,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(preview);
@@ -278,7 +279,8 @@ public sealed class RecommendationService(
             CandidateCount = preview.CandidateCount,
             ResultCount = preview.Items.Count,
             CompletedCount = completedCount,
-            WasApplied = true
+            WasApplied = true,
+            DurationMilliseconds = duration is { } elapsed ? (long)elapsed.TotalMilliseconds : null
         };
 
         context.RecommendationRuns.Add(run);
@@ -395,7 +397,10 @@ public sealed class RecommendationService(
                 CandidateCount = r.CandidateCount,
                 ResultCount = r.ResultCount,
                 CompletedCount = r.CompletedCount,
-                WasApplied = r.WasApplied
+                WasApplied = r.WasApplied,
+                Duration = r.DurationMilliseconds == null
+                    ? null
+                    : TimeSpan.FromMilliseconds(r.DurationMilliseconds.Value)
             })
             .ToListAsync(cancellationToken);
     }
