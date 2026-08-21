@@ -68,6 +68,24 @@ public sealed record UserSettings
     /// <summary>How many rankings to ask for back, or null for one per title sent.</summary>
     public int? ScoringReturnTop { get; init; }
 
+    /// <summary>Where a self-hosted model is listening, as an origin. Null for none.</summary>
+    /// <remarks>
+    /// The clearest case of D36's rule: it describes somebody else's software, on the
+    /// operator's own network, and AniQueue has no way to discover it. Guarded before
+    /// it is used (D38) rather than kept out of reach, because keeping it out of reach
+    /// meant editing a file and restarting to change a hostname.
+    /// </remarks>
+    public string? ScoringEndpoint { get; init; }
+
+    /// <summary>Which model to ask for at that endpoint.</summary>
+    public string? ScoringModel { get; init; }
+
+    /// <summary>How long to wait for a ranking, in seconds.</summary>
+    public int ScoringTimeoutSeconds { get; init; } = 600;
+
+    /// <summary>Whether to ask the server to constrain its output to JSON.</summary>
+    public bool ScoringUseStructuredOutput { get; init; } = true;
+
     // Scoring:IncludePersonalNotes is not offered, because nothing can write a
     // personal note yet. LibraryEntry.PersonalNotes has a column, §6 protects it,
     // and the import pipeline is careful not to overwrite it — but no surface fills

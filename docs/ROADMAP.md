@@ -1615,26 +1615,36 @@ is not an edge case — it is what a small model does most of the time, whatever
 so taken literally the scheduled sweep would reject a correct answer, log it, and reject the same
 answer identically on every tick thereafter.
 
-**The envelope makes extraction mechanical rather than hopeful.** Every valid reply declares
-`"aniqueue": { "format": "aniqueue-scoring-response", "version": 1 }`. So the parser does not
-look for something JSON-shaped and hope; it looks for **the object that identifies itself as
-ours**, reading candidate values with `Utf8JsonReader` so that a brace inside a title cannot
-fool it. Text before it, text after it, and a code fence around it are discarded.
+**A `results` array is what identifies a candidate**, and extraction is mechanical rather than
+hopeful because of it. The parser does not look for something JSON-shaped and hope: it offers
+every `{` to `Utf8JsonReader`, which either reads one complete value from there or does not, and
+keeps the ones shaped like a reply. A brace inside a title cannot start a candidate, because the
+reader is inside a string when it reaches it. Text before, text after, and a fence around are
+discarded.
 
-**Where two candidates both declare the format, the last one wins.** This is not hypothetical:
-the prompt contains a worked example carrying that exact envelope, and a model that restates the
-question before answering it produces two. A model's answer follows its preamble, so the last is
-the answer — and a reasoning model that thinks out loud lands the same way.
+*This decision first said the **envelope** was the identifier, and that was wrong.* 7a's parser
+deliberately tolerates a missing envelope — "a model asked for JSON reliably returns the array it
+was asked for and unreliably returns the wrapper around it" — so requiring one here would have
+rejected exactly the replies 7a went out of its way to accept. Using the `results` array instead
+means the extractor and the reader ask the same question about the same document, which is a
+better property than the one that was intended.
+
+**Where two candidates qualify, the last one wins.** This is not hypothetical: the prompt
+contains a worked example carrying that exact shape, and a model that restates the question
+before answering it produces two. A model's answer follows its preamble, so the last is the
+answer — and a reasoning model that thinks out loud lands the same way.
 
 **Everything discarded is reported.** A `ScoringProblem` at warning severity states how much
 surrounding text was thrown away and whether an earlier matching object was ignored, so it
 appears in the preview notice without blocking apply. That is what keeps §6's actual goal —
 no score the user cannot account for — while accepting a messy reply.
 
-**Two floors, and they are the difference between unwrapping and guessing.** Nothing that fails
-to declare the envelope is a candidate, however plausible it looks; and extraction never relaxes
-what follows it — unknown ids, duplicate ids, rank collisions and out-of-range values are
-rejected exactly as before.
+**Three floors, and they are the difference between unwrapping and guessing.** Nothing without a
+`results` array is a candidate, however JSON-shaped it looks — a server's own error object is not
+a ranking. A ranking nested inside another object is not dug out, because reaching into a
+structure for the part that looks right is reconstruction rather than unwrapping. And extraction
+never relaxes what follows it: unknown ids, duplicate ids, rank collisions and out-of-range
+values are rejected exactly as before.
 
 **Structured output is asked for first, so this is a fallback rather than the path.**
 `response_format` constrains the model at the source, and a constrained model cannot emit a

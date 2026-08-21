@@ -78,6 +78,7 @@ public sealed class ScoringResponseParser(ScoringLimits? limits = null)
         }
 
         JsonDocument document;
+        ScoringProblem? unwrapped = null;
 
         try
         {
@@ -85,16 +86,173 @@ public sealed class ScoringResponseParser(ScoringLimits? limits = null)
         }
         catch (JsonException ex)
         {
-            // The message carries the line and position, which is the only thing that
-            // makes a hand-edit practical.
-            return ScoringParseResult.Rejected($"The response is not valid JSON: {ex.Message}");
+            // Not JSON as it stands, which is the ordinary case rather than the sad one:
+            // a small model told to return only JSON very often returns it inside a
+            // markdown fence, or after a sentence of introduction. So look for the
+            // answer inside the text before giving up (D37).
+            if (!TryUnwrap(json, out document!, out unwrapped))
+            {
+                // The original message, not one about unwrapping. It carries the line
+                // and position, which is the only thing that makes a hand-edit
+                // practical, and the reply is far more often malformed than wrapped.
+                return ScoringParseResult.Rejected($"The response is not valid JSON: {ex.Message}");
+            }
         }
 
         using (document)
         {
-            return Read(document.RootElement);
+            var result = Read(document.RootElement);
+
+            // First, because it is the reason everything below it is about a fragment
+            // of what was pasted rather than the whole of it.
+            return unwrapped is null
+                ? result
+                : result with { Problems = [unwrapped, .. result.Problems] };
         }
     }
+
+    /// <summary>
+    /// The most starting positions to try before giving up on a reply.
+    /// </summary>
+    /// <remarks>
+    /// Every unmatched brace costs an attempted parse, so a pathological input — four
+    /// megabytes of <c>{</c> — would otherwise be quadratic on a machine that is also
+    /// somebody's media server. A real reply needs a handful of attempts.
+    /// </remarks>
+    private const int MaxUnwrapAttempts = 10_000;
+
+    /// <summary>
+    /// Finds a ranking inside text that is not JSON, and reports what it ignored.
+    /// </summary>
+    /// <remarks>
+    /// <b>This unwraps; it never reconstructs (D37).</b> Each <c>{</c> is offered to
+    /// <see cref="Utf8JsonReader"/>, which either reads one complete value from it or
+    /// does not — so what comes out is bytes the model actually emitted, parsed by the
+    /// same reader that would have parsed the whole reply. Nothing is repaired, no
+    /// braces are counted by hand, and a <c>{</c> inside a title cannot start a
+    /// candidate because the reader is inside a string when it reaches it.
+    ///
+    /// <b>What makes a candidate ours is a <c>results</c> array</b>, which is the same
+    /// question <see cref="Read"/> asks of a reply that arrived clean. D37 said the
+    /// envelope, and the envelope will not do: <see cref="ReadEnvelope"/> deliberately
+    /// tolerates its absence, because models return the array reliably and the wrapper
+    /// around it unreliably — so requiring it here would reject exactly the replies 7a
+    /// went out of its way to accept.
+    ///
+    /// <b>The last match wins.</b> The prompt shows a worked example carrying this
+    /// shape, so a model that restates the question before answering it produces two
+    /// candidates; a model that thinks aloud does the same. In both, the answer is the
+    /// one at the end.
+    ///
+    /// A matched value is skipped past rather than descended into, so a ranking nested
+    /// inside some other object is not found. That is deliberate: reaching into a
+    /// structure to pull out the part that looks right is the guessing this is supposed
+    /// not to do.
+    /// </remarks>
+    private static bool TryUnwrap(string text, out JsonDocument? document, out ScoringProblem? note)
+    {
+        document = null;
+        note = null;
+
+        var bytes = System.Text.Encoding.UTF8.GetBytes(text);
+
+        JsonDocument? found = null;
+        var start = 0;
+        var length = 0;
+        var matches = 0;
+        var attempts = 0;
+
+        for (var i = 0; i < bytes.Length;)
+        {
+            if (bytes[i] != (byte)'{')
+            {
+                i++;
+                continue;
+            }
+
+            if (++attempts > MaxUnwrapAttempts)
+            {
+                break;
+            }
+
+            if (!TryReadValue(bytes, i, out var candidate, out var consumed))
+            {
+                i++;
+                continue;
+            }
+
+            if (HasResults(candidate.RootElement))
+            {
+                found?.Dispose();
+                found = candidate;
+                start = i;
+                length = consumed;
+                matches++;
+            }
+            else
+            {
+                candidate.Dispose();
+            }
+
+            i += consumed;
+        }
+
+        if (found is null)
+        {
+            return false;
+        }
+
+        document = found;
+
+        // Counted in characters because that is what the person looking at the reply on
+        // screen is counting, and reported at all because a score nobody can account
+        // for is what this pipeline exists to avoid: the preview says what was thrown
+        // away, so a ranking read out of a mess is still one the user can audit.
+        var ignored = text.Length - System.Text.Encoding.UTF8.GetString(bytes, start, length).Length;
+
+        var message = matches > 1
+            ? $"The reply had text around the ranking. {ignored} characters were ignored, "
+                + $"including {matches - 1} earlier block(s) that also looked like a ranking."
+            : $"The reply had text around the ranking. {ignored} characters were ignored.";
+
+        note = ScoringProblem.Warning(message);
+
+        return true;
+    }
+
+    /// <summary>Reads one complete JSON value beginning at <paramref name="start"/>.</summary>
+    private static bool TryReadValue(byte[] bytes, int start, out JsonDocument document, out int consumed)
+    {
+        document = null!;
+        consumed = 0;
+
+        try
+        {
+            var reader = new Utf8JsonReader(bytes.AsSpan(start), isFinalBlock: true, state: default);
+
+            // Read the opening token, then skip the whole value it begins. BytesConsumed
+            // is then exactly the extent of that value, which is what makes this a
+            // measurement rather than a guess.
+            if (!reader.Read() || !reader.TrySkip())
+            {
+                return false;
+            }
+
+            consumed = (int)reader.BytesConsumed;
+            document = JsonDocument.Parse(bytes.AsMemory(start, consumed));
+
+            return true;
+        }
+        catch (JsonException)
+        {
+            return false;
+        }
+    }
+
+    private static bool HasResults(JsonElement element) =>
+        element.ValueKind == JsonValueKind.Object
+        && element.TryGetProperty("results", out var results)
+        && results.ValueKind == JsonValueKind.Array;
 
     private ScoringParseResult Read(JsonElement root)
     {

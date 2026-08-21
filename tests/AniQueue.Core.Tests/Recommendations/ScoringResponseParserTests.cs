@@ -113,11 +113,19 @@ public class ScoringResponseParserTests
     }
 
     [Fact]
-    public void Prose_around_the_json_is_an_error_rather_than_something_to_salvage()
+    public void Prose_around_an_empty_ranking_is_unwrapped_and_then_still_refused()
     {
-        // The single most common failure from a small model, and D31 is explicit that
-        // it is reported rather than repaired: stripping a fence here is the first
-        // step towards inferring what the model meant.
+        // This asserted the opposite until D37: prose around the JSON was an error,
+        // on the grounds that stripping a fence is the first step towards inferring
+        // what a model meant. That held while a person was pasting the reply and could
+        // delete the backticks; Phase 8 removed the person, and fencing is what small
+        // models do most of the time — so the rule would have failed correct rankings
+        // every night, forever, with nobody to fix them.
+        //
+        // What survives is the part that was actually load-bearing. Unwrapping changes
+        // nothing about what is accepted: this reply is still refused, for the reason
+        // it was always going to be refused, and the warning names what was discarded
+        // so the refusal is about the ranking rather than about the backticks.
         var result = Parser.Parse(
             """
             Sure! Here is your ranking:
@@ -127,7 +135,8 @@ public class ScoringResponseParserTests
             """);
 
         Assert.True(result.HasErrors);
-        Assert.Contains(result.Problems, p => p.Message.Contains("not valid JSON"));
+        Assert.Contains(result.Problems, p => p.Message.Contains("ranked nothing"));
+        Assert.Contains(result.Problems, p => p.Severity == ScoringSeverity.Warning);
     }
 
     [Fact]
@@ -315,5 +324,207 @@ public class ScoringResponseParserTests
 
         Assert.True(result.HasErrors);
         Assert.Equal([7, 11], result.Response!.Results.Select(r => r.Id));
+    }
+
+    // D37: a reply may be unwrapped, never reconstructed. Every case below is one a
+    // self-hosted model produces routinely — and the phase that automated the carrying
+    // is the phase these had to start passing, because the manual path had a person to
+    // delete the backticks and a scheduled sweep has nobody.
+
+    [Fact]
+    public void A_ranking_inside_a_markdown_fence_is_read()
+    {
+        // The single most common reply shape from a small model, whatever the prompt
+        // says. Rejecting it would have made the scheduled sweep fail every night on a
+        // model that was working perfectly.
+        var result = Parser.Parse(
+            $"""
+             ```json
+             {Wrap("""[{ "id": 7, "rank": 1, "predictedScore": 8.0, "confidence": 0.6 }]""")}
+             ```
+             """);
+
+        Assert.False(result.HasErrors);
+        Assert.Equal([7], result.Response!.Results.Select(r => r.Id));
+    }
+
+    [Fact]
+    public void Prose_on_both_sides_of_the_ranking_is_ignored()
+    {
+        var result = Parser.Parse(
+            $"""
+             Sure! Here is the ranking you asked for:
+
+             {Wrap("""[{ "id": 7, "rank": 1, "predictedScore": 8.0, "confidence": 0.6 }]""")}
+
+             Hope that helps! Let me know if you would like me to explain any of these.
+             """);
+
+        Assert.False(result.HasErrors);
+        Assert.Single(result.Response!.Results);
+    }
+
+    [Fact]
+    public void Unwrapping_says_what_it_ignored()
+    {
+        // The audit trail, and the reason unwrapping is not the black box D31 forbids:
+        // the preview states what was discarded, so a ranking read out of a mess is
+        // still one somebody can check.
+        var result = Parser.Parse(
+            $"""
+             Here you go:
+             {Wrap("""[{ "id": 7, "rank": 1, "predictedScore": 8.0, "confidence": 0.6 }]""")}
+             """);
+
+        var note = Assert.Single(result.Problems, p => p.Severity == ScoringSeverity.Warning);
+
+        Assert.Contains("ignored", note.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.False(result.HasErrors);
+    }
+
+    [Fact]
+    public void A_clean_reply_is_not_reported_as_unwrapped()
+    {
+        // Nothing was thrown away, so nothing is said. A warning on every reply would
+        // train the reader to ignore the one that matters.
+        var result = Parser.Parse(Wrap(
+            """[{ "id": 7, "rank": 1, "predictedScore": 8.0, "confidence": 0.6 }]"""));
+
+        Assert.Empty(result.Problems);
+    }
+
+    [Fact]
+    public void The_last_ranking_wins_when_a_model_echoes_the_example_first()
+    {
+        // Not hypothetical: the prompt contains a worked example carrying this exact
+        // shape, so a model that restates the question before answering it emits two.
+        // The answer follows the preamble, so the answer is the last one.
+        var result = Parser.Parse(
+            $"""
+             You asked me to return this shape:
+             {Wrap("""[{ "id": 412, "rank": 1, "predictedScore": 9.5, "confidence": 0.8 }]""")}
+
+             Here is my actual ranking:
+             {Wrap("""[{ "id": 7, "rank": 1, "predictedScore": 8.0, "confidence": 0.6 }]""")}
+             """);
+
+        Assert.Equal([7], result.Response!.Results.Select(r => r.Id));
+
+        var note = Assert.Single(result.Problems, p => p.Severity == ScoringSeverity.Warning);
+        Assert.Contains("earlier block", note.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void A_reasoning_block_before_the_answer_is_ignored()
+    {
+        var result = Parser.Parse(
+            $"""
+             <think>
+             The user rated Gunbuster 10 and Najica 4, so they like dense sci-fi.
+             I should rank the OVA highest.
+             </think>
+             {Wrap("""[{ "id": 7, "rank": 1, "predictedScore": 8.0, "confidence": 0.6 }]""")}
+             """);
+
+        Assert.False(result.HasErrors);
+        Assert.Equal([7], result.Response!.Results.Select(r => r.Id));
+    }
+
+    [Fact]
+    public void An_envelope_free_ranking_is_still_found()
+    {
+        // The envelope is optional by design — ReadEnvelope tolerates its absence
+        // because models return the array reliably and the wrapper unreliably. So the
+        // thing that identifies a candidate is the results array, and a fenced reply
+        // without an envelope has to be found exactly like one with it.
+        var result = Parser.Parse(
+            """
+            ```
+            { "results": [{ "id": 7, "rank": 1, "predictedScore": 8.0, "confidence": 0.6 }] }
+            ```
+            """);
+
+        Assert.False(result.HasErrors);
+        Assert.Equal([7], result.Response!.Results.Select(r => r.Id));
+    }
+
+    [Fact]
+    public void A_brace_inside_a_title_cannot_start_a_candidate()
+    {
+        // Utf8JsonReader is inside a string when it reaches that brace, which is the
+        // whole reason the extent is measured by the reader rather than by counting
+        // braces by hand.
+        var result = Parser.Parse(
+            """
+            Here:
+            { "results": [{ "id": 7, "rank": 1, "predictedScore": 8.0, "confidence": 0.6,
+                            "reason": "Like Re:Zero {Director's Cut}, but shorter." }] }
+            """);
+
+        Assert.False(result.HasErrors);
+        Assert.Equal("Like Re:Zero {Director's Cut}, but shorter.", result.Response!.Results.Single().Reason);
+    }
+
+    [Fact]
+    public void Prose_with_no_ranking_in_it_is_still_refused()
+    {
+        // The floor. A model that answered in sentences has not answered, and inventing
+        // a ranking from what it said is the guessing D31 exists to forbid.
+        var result = Parser.Parse(
+            "I would start with Hinamatsuri, then Dragon Maid. Lain is excellent but heavy.");
+
+        Assert.True(result.HasErrors);
+        Assert.Null(result.Response);
+    }
+
+    [Fact]
+    public void An_object_that_is_not_a_ranking_is_not_mistaken_for_one()
+    {
+        // JSON-shaped is not the same as ours. Something has to identify a candidate,
+        // and "it parsed" is not enough.
+        var result = Parser.Parse(
+            """
+            ```json
+            { "error": "context length exceeded", "code": 400 }
+            ```
+            """);
+
+        Assert.True(result.HasErrors);
+        Assert.Null(result.Response);
+    }
+
+    [Fact]
+    public void A_ranking_nested_inside_another_object_is_not_dug_out()
+    {
+        // Reaching into a structure to pull out the part that looks right is
+        // reconstruction rather than unwrapping, and the line has to be somewhere.
+        // A model that wraps its answer has not produced the agreed shape.
+        var result = Parser.Parse(
+            """
+            ```json
+            { "output": { "results": [{ "id": 7, "rank": 1, "predictedScore": 8.0, "confidence": 0.6 }] } }
+            ```
+            """);
+
+        Assert.True(result.HasErrors);
+    }
+
+    [Fact]
+    public void Unwrapping_does_not_relax_anything_that_follows_it()
+    {
+        // The second floor: what is found is validated exactly as a clean reply is.
+        var result = Parser.Parse(
+            """
+            Here you go:
+            ```json
+            { "results": [
+                { "id": 7, "rank": 1, "predictedScore": 8.0, "confidence": 0.6 },
+                { "id": 9, "rank": 1, "predictedScore": 7.0, "confidence": 0.6 }
+            ] }
+            ```
+            """);
+
+        Assert.True(result.HasErrors);
+        Assert.Contains(result.Problems, p => p.Message.Contains("rank 1 was used more than once"));
     }
 }
