@@ -824,7 +824,15 @@ tr.muted td { opacity: 0.6; }
 .ranking th:nth-child(4), .ranking td:nth-child(4) { width: 6rem; }
 .ranking th:nth-child(2), .ranking td:nth-child(2) { width: 30%; }
 
-.ranking td { overflow-wrap: anywhere; }
+/* break-word rather than anywhere. "anywhere" also lets a word be broken when it
+   would merely be tidier to, which is how "Mugenjou-hen" ends up split across two
+   lines inside a column with room to spare. This breaks only what genuinely does
+   not fit. */
+.ranking td { overflow-wrap: break-word; }
+
+/* The reasons behind a notice's colour, listed inside it. */
+.notice-list { margin: 0.5rem 0 0; padding-left: 1.1rem; }
+.notice-list li + li { margin-top: 0.25rem; }
 
 /* The reason is the column with the most to say and the least emphasis, so it
    reads a step down from the title beside it. */

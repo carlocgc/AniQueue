@@ -221,27 +221,30 @@
     {
         <h3>What this would do</h3>
 
-        @* Errors first and separately. A response with one bad rank applies nothing
-           at all, and burying that under a table of what was read would let someone
-           scroll past the only sentence that matters. *@
-        @foreach (var problem in _preview.Problems.Where(p => p.Severity == ScoringSeverity.Error))
-        {
-            <div class="notice error" role="alert">@problem.Message</div>
-        }
+        @* One notice, carrying its own severity, rather than a heading followed by a
+           stack of separate banners. The colour is the summary: green means the
+           reply needed nothing said about it, and that reassurance was previously
+           expressed by showing nothing at all — which is indistinguishable from a
+           page that has not finished thinking.
 
-        @foreach (var problem in _preview.Problems.Where(p => p.Severity == ScoringSeverity.Warning))
-        {
-            <div class="notice warning" role="status">@problem.Message</div>
-        }
+           Problems are listed inside it rather than beside it, because they are the
+           reasons for the colour rather than separate news. *@
+        <div class="notice @Status" role="@(_preview.HasErrors ? "alert" : "status")">
+            <strong>@Headline()</strong>
 
-        @if (_preview.HasErrors)
-        {
-            <p class="muted">
-                Nothing is applied while there is an error above — a ranking that is
-                wrong in part cannot be told apart from a whole one afterwards. Fix the
-                reply, or ask the model again.
-            </p>
-        }
+            @if (_preview.Problems.Count > 0)
+            {
+                <ul class="notice-list">
+                    @* Errors first whatever order they arrived in: with one present
+                       nothing applies at all, so it is the only line that changes what
+                       happens next. *@
+                    @foreach (var problem in _preview.Problems.OrderByDescending(p => p.Severity))
+                    {
+                        <li>@problem.Message</li>
+                    }
+                </ul>
+            }
+        </div>
 
         @if (_preview.Items.Count > 0)
         {
@@ -263,8 +266,14 @@
                         {
                             <tr class="@(item.WillApply ? null : "muted")">
                                 <td class="numeric">@item.Result.Rank</td>
-                                <td class="title-cell">
-                                    @item.Title
+                                @* The flex wrapper goes inside the cell, never on it.
+                                   A td set to display:flex stops being a table cell —
+                                   it leaves the column sizing entirely, so a fixed
+                                   layout cannot give it a width and it collapses to
+                                   its content while the header above it stays put.
+                                   Same structure as the backlog's rows. *@
+                                <td>
+                                    <div class="title-cell"><span>@item.Title</span></div>
                                     @if (item.SkippedBecause is { } reason)
                                     {
                                         <div class="row-meta">Skipped — @reason</div>
@@ -574,6 +583,32 @@
         {
             return default;
         }
+    }
+
+    /// <summary>Which of the three notice colours the preview earns.</summary>
+    private string Status => _preview switch
+    {
+        { HasErrors: true } => "error",
+        { Problems.Count: > 0 } => "warning",
+        _ => "success"
+    };
+
+    /// <summary>The one sentence the colour is summarising.</summary>
+    private string Headline()
+    {
+        if (_preview!.HasErrors)
+        {
+            // States the consequence rather than the count, because with an error
+            // present the count is not what happens next — nothing is.
+            return "Nothing will be applied. A ranking that is wrong in part cannot be "
+                + "told apart from a whole one afterwards, so fix the reply or ask again.";
+        }
+
+        var scores = $"{_preview.ApplicableCount} {Plural(_preview.ApplicableCount, "score", "scores")}";
+
+        return _preview.Problems.Count > 0
+            ? $"{scores} will be applied. Worth reading first:"
+            : $"{scores} will be applied, and nothing about the reply needs your attention.";
     }
 
     private static string Score(double value) =>
