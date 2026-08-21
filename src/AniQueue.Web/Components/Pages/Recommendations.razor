@@ -833,8 +833,14 @@ else
             return;
         }
 
+        // Held locally and never assigned to _request, which belongs to the Manual
+        // card. Sharing it crashed the circuit: _request is what that card uses to
+        // decide it has something to show, so a remote run filled it and the card
+        // rendered a payload only the manual path ever writes. The two routes build
+        // separate requests for separate reasons — one to be read by a person, one to
+        // be sent — and the field that says "a request is on screen" is not the field
+        // that says "a request exists".
         _source = ScoringRoute.Remote;
-        _request = request;
 
         using var cancellation = new CancellationTokenSource();
         _running = cancellation;
@@ -852,7 +858,7 @@ else
                     progress.Report(new OperationProgress(WaitingMessage()));
 
                     using var ticker = new PeriodicTimer(TimeSpan.FromSeconds(1));
-                    var sending = Endpoint.AskAsync(_request, cancellation.Token);
+                    var sending = Endpoint.AskAsync(request, cancellation.Token);
 
                     while (await ticker.WaitForNextTickAsync(CancellationToken.None))
                     {
@@ -871,14 +877,16 @@ else
             if (!answer.Succeeded)
             {
                 _error = answer.Message;
-                _request = null;
                 return;
             }
 
             _remoteModel = answer.ModelIdentifier;
             _remoteDuration = answer.Duration;
 
-            await PreviewAsync(answer.Reply!);
+            // The request goes with the reply rather than being read from a field, so
+            // the preview is checked against what this run actually asked — which is
+            // what makes "short" and "complete" mean anything when a limit is set.
+            await PreviewAsync(answer.Reply!, request);
         }
         finally
         {
@@ -1008,7 +1016,7 @@ else
         }
     }
 
-    private async Task PreviewPastedAsync() => await PreviewAsync(_response!);
+    private async Task PreviewPastedAsync() => await PreviewAsync(_response!, _request);
 
     /// <summary>
     /// Reads a reply from a file, for a model whose output was saved rather than
@@ -1036,7 +1044,7 @@ else
                 return await reader.ReadToEndAsync();
             });
 
-            await PreviewAsync(_response);
+            await PreviewAsync(_response, _request);
         }
         catch (IOException ex)
         {
@@ -1045,14 +1053,14 @@ else
         }
     }
 
-    private async Task PreviewAsync(string json)
+    private async Task PreviewAsync(string json, ScoringRequest? request = null)
     {
         _error = null;
         _applied = null;
 
         _preview = await _busy.RunAsync(
             "Checking the reply",
-            _ => Scoring.PreviewAsync(Profile.DefaultProfileId, json, _request));
+            _ => Scoring.PreviewAsync(Profile.DefaultProfileId, json, request));
 
         // A new ranking starts at its own beginning. Left alone, checking a second
         // reply while on page four opens it four pages in, or on nothing at all when

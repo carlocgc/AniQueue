@@ -156,7 +156,23 @@ public class ChatCompletionsEndpointTests
 
         using (var sent = JsonDocument.Parse(onHandler.LastBody!))
         {
-            Assert.Equal("json_object", sent.RootElement.GetProperty("response_format").GetProperty("type").GetString());
+            // json_schema, not json_object. LM Studio answers json_object with
+            // "400: 'response_format.type' must be 'json_schema' or 'text'", which is
+            // how the original choice was found to be wrong — so this asserts the shape
+            // a real server actually accepts rather than the one that reads simplest.
+            var format = sent.RootElement.GetProperty("response_format");
+
+            Assert.Equal("json_schema", format.GetProperty("type").GetString());
+            Assert.Equal(
+                ScoringResponseSchema.Name,
+                format.GetProperty("json_schema").GetProperty("name").GetString());
+
+            // Sent as an object rather than as a string containing an object, which is
+            // the mistake that makes a server reject a schema it would otherwise honour.
+            var schema = format.GetProperty("json_schema").GetProperty("schema");
+
+            Assert.Equal(JsonValueKind.Object, schema.ValueKind);
+            Assert.True(schema.GetProperty("properties").TryGetProperty("results", out _));
         }
 
         var (off, offHandler) = Create(

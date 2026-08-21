@@ -1,3 +1,4 @@
+using System.Text.Json;
 using AniQueue.Core.Recommendations;
 
 namespace AniQueue.Core.Tests.Recommendations;
@@ -526,5 +527,48 @@ public class ScoringResponseParserTests
 
         Assert.True(result.HasErrors);
         Assert.Contains(result.Problems, p => p.Message.Contains("rank 1 was used more than once"));
+    }
+
+    [Fact]
+    public void The_wire_schema_describes_what_the_parser_accepts()
+    {
+        // Three statements of one contract — the prompt's example, the schema a server
+        // enforces, and what the parser will take. This is the cheapest guard on the
+        // pair most likely to drift: a schema that forbids what the parser accepts
+        // makes a server refuse good rankings, and one that permits what the parser
+        // rejects wastes a ten-minute run.
+        using var schema = JsonDocument.Parse(ScoringResponseSchema.Json);
+
+        var item = schema.RootElement
+            .GetProperty("properties").GetProperty("results")
+            .GetProperty("items");
+
+        var required = item.GetProperty("required").EnumerateArray()
+            .Select(value => value.GetString())
+            .ToList();
+
+        // The four the parser refuses a result without. "reason" is deliberately absent:
+        // a model that omits it has still answered the question.
+        Assert.Equal(["id", "rank", "predictedScore", "confidence"], required);
+        Assert.True(item.GetProperty("properties").TryGetProperty("reason", out _));
+
+        // And a reply built to this schema is one the parser reads without complaint.
+        var result = new ScoringResponseParser().Parse(
+            """{ "results": [{ "id": 7, "rank": 1, "predictedScore": 8.0, "confidence": 0.6 }] }""");
+
+        Assert.False(result.HasErrors);
+    }
+
+    [Fact]
+    public void The_schema_does_not_require_the_envelope_the_parser_tolerates_missing()
+    {
+        // Requiring it on the wire would make a server refuse replies AniQueue would
+        // have accepted, which is a worse failure than the one it would prevent.
+        using var schema = JsonDocument.Parse(ScoringResponseSchema.Json);
+
+        var required = schema.RootElement.GetProperty("required").EnumerateArray()
+            .Select(value => value.GetString());
+
+        Assert.Equal(["results"], required);
     }
 }
