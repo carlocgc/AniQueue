@@ -1,8 +1,16 @@
 @page "/recommendations"
 @using System.Globalization
 @using AniQueue.Core.Recommendations
+@using AniQueue.Core.Settings
+@using Microsoft.Extensions.Options
 @implements IAsyncDisposable
 @inject IRecommendationService Scoring
+@* The sizes in effect, and where they are written. Two injections rather than one
+   because reading and writing are genuinely different: the monitor reports what any
+   configuration source currently says, while the store is the only thing that
+   changes the file (D36). *@
+@inject IOptionsMonitor<ScoringOptions> ScoringOptions
+@inject IUserSettingsStore Settings
 @inject IJSRuntime JS
 @inject ILogger<Recommendations> Logger
 
@@ -454,7 +462,11 @@
 
     protected override async Task OnInitializedAsync()
     {
-        var options = await Scoring.GetOptionsAsync(Profile.DefaultProfileId);
+        // Read from the settings file rather than from the service, which no longer
+        // owns a setting (D36). The monitor gives the value currently in effect,
+        // including one an environment variable supplied, so the inputs show what a
+        // request would actually use rather than only what this page last wrote.
+        var options = ScoringOptions.CurrentValue.ToRequestOptions();
 
         _historySize = options.MaxHistory;
         _candidateLimit = options.MaxCandidates;
@@ -467,15 +479,39 @@
     {
         Reset();
 
-        var options = ScoringRequestOptions.From(_historySize, _candidateLimit, _returnTop);
+        var options = ScoringRequestOptions.From(
+            _historySize,
+            _candidateLimit,
+            _returnTop,
+            ScoringOptions.CurrentValue.IncludePersonalNotes);
 
         // Saved as a side effect of using them rather than behind a separate button.
         // These are only ever changed in order to build a request, so a Save the user
         // has to find afterwards is a step whose only purpose is to be forgotten —
         // and the effect of the setting is visible immediately either way.
-        await Scoring.SaveOptionsAsync(Profile.DefaultProfileId, options);
+        //
+        // The whole file is rewritten, so everything not being edited here is read
+        // back and passed through untouched — a save from this page must not silently
+        // clear the AniList account the Sources page wrote.
+        var settings = Settings.Read() with
+        {
+            ScoringHistorySize = options.MaxHistory,
+            ScoringCandidateLimit = options.MaxCandidates,
+            ScoringReturnTop = options.ReturnTop
+        };
 
-        // Clamped values back into the inputs, so a number the storage refused does
+        var saved = await Settings.SaveAsync(settings);
+
+        if (!saved.Saved)
+        {
+            // Worth saying rather than swallowing: the request below still uses these
+            // numbers, so the run works and only the remembering failed, and that is a
+            // different thing from the page being broken.
+            _error = $"These sizes could not be saved to {saved.Path}: {saved.Error}. "
+                + "This request still uses them.";
+        }
+
+        // Clamped values back into the inputs, so a number the settings refused does
         // not sit on screen looking like it was accepted.
         _historySize = options.MaxHistory;
         _candidateLimit = options.MaxCandidates;

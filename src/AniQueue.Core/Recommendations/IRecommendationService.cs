@@ -54,19 +54,37 @@ public sealed record ScoringRequestOptions
     /// </remarks>
     public int? ReturnTop { get; init; }
 
+    /// <summary>
+    /// Whether the user's own notes travel with the candidates (§6, opt in).
+    /// </summary>
+    /// <remarks>
+    /// Carried here rather than read from the database beside the candidates, which
+    /// is where it used to live. D36 moved it to <c>userconfig.json</c> with the
+    /// rest of the scoring settings — it describes what leaves the machine, which
+    /// is a property of the integration — and this is the only route by which the
+    /// service learns it. A caller that says nothing gets false, which is the answer
+    /// §6 requires when nobody has opted in.
+    /// </remarks>
+    public bool IncludePersonalNotes { get; init; }
+
     /// <summary>The bounds a stored preference is clamped into before it is used.</summary>
     /// <remarks>
     /// Applied where the settings are read rather than where they are written, so a
-    /// row edited by hand or left behind by an older build cannot produce a request
+    /// file edited by hand or left behind by an older build cannot produce a request
     /// nothing can send. The ceilings are deliberately far above any sensible answer:
     /// they exist to stop a typed extra zero costing a minute of database work, not
     /// to second-guess someone who really does want everything.
     /// </remarks>
-    public static ScoringRequestOptions From(int historySize, int? candidateLimit, int? returnTop = null) => new()
+    public static ScoringRequestOptions From(
+        int historySize,
+        int? candidateLimit,
+        int? returnTop = null,
+        bool includePersonalNotes = false) => new()
     {
         MaxHistory = Math.Clamp(historySize, 0, 5_000),
         MaxCandidates = candidateLimit is { } limit ? Math.Clamp(limit, 1, 5_000) : null,
-        ReturnTop = returnTop is { } top ? Math.Clamp(top, 1, 5_000) : null
+        ReturnTop = returnTop is { } top ? Math.Clamp(top, 1, 5_000) : null,
+        IncludePersonalNotes = includePersonalNotes
     };
 }
 
@@ -309,22 +327,9 @@ public interface IRecommendationService
         int take = 20,
         CancellationToken cancellationToken = default);
 
-    /// <summary>What the profile currently asks for, clamped into usable bounds.</summary>
-    Task<ScoringRequestOptions> GetOptionsAsync(
-        int profileId,
-        CancellationToken cancellationToken = default);
-
-    /// <summary>
-    /// Stores how much of the library future requests carry.
-    /// </summary>
-    /// <remarks>
-    /// A preference, so it lives in the database rather than in operator
-    /// configuration (D20) — it describes a model the user chose, and they change it
-    /// from the page where they will see the effect. Phase 10 offers the same two
-    /// values beside the rest of the preferences; this is where they start.
-    /// </remarks>
-    Task SaveOptionsAsync(
-        int profileId,
-        ScoringRequestOptions options,
-        CancellationToken cancellationToken = default);
+    // Reading and writing the request sizes used to live here, on ProfileSettings.
+    // D36 moved them to userconfig.json, and with them the last reason this service
+    // owned a setting: it already takes ScoringRequestOptions as an argument, so a
+    // caller now reads them from IUserSettingsStore and passes them in. The service
+    // is a function of what it is given again, which is what it always claimed to be.
 }

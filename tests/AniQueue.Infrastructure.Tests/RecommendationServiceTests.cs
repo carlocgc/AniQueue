@@ -249,25 +249,6 @@ public class RecommendationServiceTests
     }
 
     [Fact]
-    public async Task Notes_travel_only_when_they_were_opted_in()
-    {
-        await using var fixture = await Fixture.CreateAsync();
-        await using var context = fixture.Database.CreateContext();
-
-        await AddAsync(context, fixture.ProfileId, "Recommended", notes: "Ben says start here");
-
-        Assert.Null((await fixture.Recommendations.BuildRequestAsync(fixture.ProfileId)).Candidates.Single().Notes);
-
-        var settings = await context.ProfileSettings.FirstAsync(s => s.ProfileId == fixture.ProfileId);
-        settings.IncludePersonalNotesInAiExport = true;
-        await context.SaveChangesAsync();
-
-        Assert.Equal(
-            "Ben says start here",
-            (await fixture.Recommendations.BuildRequestAsync(fixture.ProfileId)).Candidates.Single().Notes);
-    }
-
-    [Fact]
     public async Task A_capped_request_takes_the_titles_longest_without_a_score()
     {
         await using var fixture = await Fixture.CreateAsync();
@@ -522,24 +503,12 @@ public class RecommendationServiceTests
     }
 
     [Fact]
-    public async Task History_size_and_candidate_limit_are_remembered()
+    public async Task What_a_request_carries_is_what_the_caller_asked_for()
     {
-        await using var fixture = await Fixture.CreateAsync();
-
-        await fixture.Recommendations.SaveOptionsAsync(
-            fixture.ProfileId,
-            new ScoringRequestOptions { MaxHistory = 25, MaxCandidates = 50, ReturnTop = 20 });
-
-        var stored = await fixture.Recommendations.GetOptionsAsync(fixture.ProfileId);
-
-        Assert.Equal(25, stored.MaxHistory);
-        Assert.Equal(50, stored.MaxCandidates);
-        Assert.Equal(20, stored.ReturnTop);
-    }
-
-    [Fact]
-    public async Task A_stored_preference_is_what_a_request_uses_when_none_is_given()
-    {
+        // These sizes used to be read from ProfileSettings inside the service, which
+        // is why there was once a test that they were "remembered". D36 moved them to
+        // userconfig.json, so what is worth asserting here is that the service honours
+        // what it is handed — where they were stored is UserSettingsStoreTests' problem.
         await using var fixture = await Fixture.CreateAsync();
         await using var context = fixture.Database.CreateContext();
 
@@ -549,30 +518,33 @@ public class RecommendationServiceTests
             await AddAsync(context, fixture.ProfileId, $"Rated {i}", LibraryStatus.Completed, userScore: 7);
         }
 
-        await fixture.Recommendations.SaveOptionsAsync(
+        var request = await fixture.Recommendations.BuildRequestAsync(
             fixture.ProfileId,
             new ScoringRequestOptions { MaxHistory = 1, MaxCandidates = 2 });
 
-        var request = await fixture.Recommendations.BuildRequestAsync(fixture.ProfileId);
-
         Assert.Equal(2, request.Candidates.Count);
         Assert.Single(request.History);
+
+        // Still stated in full, so a capped request is visible as a sample rather than
+        // as a smaller library.
+        Assert.Equal(4, request.CandidatesAvailable);
+        Assert.Equal(4, request.HistoryAvailable);
     }
 
-    [Theory]
-    [InlineData(-5, 0)]
-    [InlineData(99_999, 5_000)]
-    public async Task An_out_of_range_preference_is_clamped_rather_than_stored(int given, int expected)
+    [Fact]
+    public async Task A_caller_that_asks_for_nothing_gets_the_defaults()
     {
-        // Clamped where it is read as well as where it is written, so a row edited by
-        // hand cannot produce a request nothing can send.
         await using var fixture = await Fixture.CreateAsync();
+        await using var context = fixture.Database.CreateContext();
 
-        await fixture.Recommendations.SaveOptionsAsync(
-            fixture.ProfileId,
-            new ScoringRequestOptions { MaxHistory = given });
+        await AddAsync(context, fixture.ProfileId, "Waiting");
+        await AddAsync(context, fixture.ProfileId, "Rated", LibraryStatus.Completed, userScore: 8);
 
-        Assert.Equal(expected, (await fixture.Recommendations.GetOptionsAsync(fixture.ProfileId)).MaxHistory);
+        var request = await fixture.Recommendations.BuildRequestAsync(fixture.ProfileId);
+
+        Assert.Single(request.Candidates);
+        Assert.Single(request.History);
+        Assert.Null(request.ReturnTop);
     }
 
     [Fact]
@@ -587,14 +559,37 @@ public class RecommendationServiceTests
         await AddAsync(context, fixture.ProfileId, "Rated", LibraryStatus.Completed, userScore: 8);
         await AddAsync(context, fixture.ProfileId, "Waiting");
 
-        await fixture.Recommendations.SaveOptionsAsync(
+        var request = await fixture.Recommendations.BuildRequestAsync(
             fixture.ProfileId,
             new ScoringRequestOptions { MaxHistory = 0 });
 
-        var request = await fixture.Recommendations.BuildRequestAsync(fixture.ProfileId);
-
         Assert.Empty(request.History);
         Assert.Equal(1, request.HistoryAvailable);
+    }
+
+    [Fact]
+    public async Task Personal_notes_travel_only_when_the_caller_opts_in()
+    {
+        // §6's privacy rule, and the one setting whose default matters more than its
+        // value: a caller that says nothing must get exclusion. The flag used to be a
+        // ProfileSettings column read here; it now arrives with the options (D36), and
+        // this is the assertion that the move did not turn "unset" into "included".
+        await using var fixture = await Fixture.CreateAsync();
+        await using var context = fixture.Database.CreateContext();
+
+        var entry = await AddAsync(context, fixture.ProfileId, "Noted");
+        var stored = await context.LibraryEntries.FirstAsync(e => e.AnimeId == entry.Id);
+        stored.PersonalNotes = "Recommended by a friend";
+        await context.SaveChangesAsync();
+
+        var withheld = await fixture.Recommendations.BuildRequestAsync(fixture.ProfileId);
+        Assert.Null(withheld.Candidates.Single().Notes);
+
+        var shared = await fixture.Recommendations.BuildRequestAsync(
+            fixture.ProfileId,
+            new ScoringRequestOptions { IncludePersonalNotes = true });
+
+        Assert.Equal("Recommended by a friend", shared.Candidates.Single().Notes);
     }
 
     [Fact]

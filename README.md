@@ -27,8 +27,10 @@ architectural decisions and acceptance criteria. Nothing here is installable yet
 | 3 | Backlog page — filters, sorting, bulk actions | **complete** |
 | 4 | Up Next queue — manual ordering, drag and drop | **complete** |
 | 5 | AniList read sync — reconciliation, on demand, then unattended | **complete** |
-| 6 | Relations — a title's prequels, sequels and spin-offs | next |
-| 7–11 | Dashboard → interchange → AI ranking → artwork → Docker | planned |
+| 6 | Relations — a title's prequels, sequels and spin-offs | **complete** |
+| 7 | Scoring interchange — export the backlog, bring a ranking back | **complete** |
+| 8 | Hosted model scoring — settings store, endpoint, scheduled sweep | in progress |
+| 9–14 | Artwork → settings → Docker → auth → CI → security pass | planned |
 
 ## Documentation
 
@@ -92,20 +94,42 @@ reported as conflicts and skipped rather than merged.
 
 ## Syncing an AniList list
 
-AniList lists are read without authentication, so there is no OAuth and no API key. Two
-settings, in two places, deliberately:
+AniList lists are read without authentication, so there is no OAuth and no API key. Open
+**Sources**, type the username on the AniList card, and press Save. It takes effect
+immediately — no restart. How often to read it, what to do with conflicts and disappearances,
+and which source is **primary** are all on the same card.
 
-- **Which account to read** is operator configuration. Set `Sync:AniList:UserName` — as an
-  environment variable (`Sync__AniList__UserName`), in `appsettings.json`, or by uncommenting
-  the line in the `userconfig.json` written beside the database on first run.
-- **How often, and what to do with conflicts and disappearances** are your settings, on the
-  **Sources** page — along with which source is **primary**, which decides who wins when two
-  of them describe one title differently.
-
-`Sync:Enabled=false` is the kill switch. It is a configuration key rather than a toggle in the
-application because the moment it is needed is the moment the UI cannot be reached.
+`Sync:Enabled=false` is the kill switch, and it lives in the settings file rather than only in
+the application: the moment it is needed is the moment the UI may not be reachable.
 
 Only your list is read. Nothing is ever written back to AniList or MyAnimeList.
+
+## Settings
+
+Every setting you can change lives in one file — `userconfig.json`, written beside the database
+in your `/data` volume on first run. AniQueue writes it whenever you change something in the
+application, and you can edit it by hand, which is how you change its behaviour when its own
+pages cannot be reached.
+
+It holds every setting it accepts, one key per line, each with a line saying what it does. What
+you see is what AniQueue is doing — there are no hidden defaults to know about. Edit a value,
+save, and restart to be certain a hand edit took effect.
+
+AniQueue rewrites the file whole each time a setting changes, so anything else you put in it
+will not survive.
+
+Your compose file or Unraid template holds the container's concerns — the `/data` volume and
+the published port — and nothing else. There is no second place to look.
+
+Database settings are the exception, and stay in the environment. `Database:Path` could not live
+in the file even in principle — AniQueue finds the file by looking *beside* the database, so a
+path set inside it could not be read until it was already in use. The rest are tuning for the
+storage engine rather than choices about your library, and their defaults are right unless
+something is already wrong.
+
+Preferences about how AniQueue *looks* to you — the language titles are shown in, and later the
+theme and date format — are kept in the database instead, so they travel with a copy of your
+library rather than cluttering the file you edit when something is wrong.
 
 ---
 

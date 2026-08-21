@@ -16,6 +16,20 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!--
+      The settings tests build a real configuration chain with the real JSON provider,
+      because what that provider accepts is the contract userconfig.json is written
+      against and a second implementation of ours could disagree with it (D20, D36).
+
+      A FrameworkReference rather than a PackageReference: Microsoft.Extensions
+      .Configuration.Json ships inside the ASP.NET Core shared framework that is
+      already installed to run this application, so this costs no new package and §12
+      has nothing to approve.
+    -->
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\..\src\AniQueue.Core\AniQueue.Core.csproj" />
     <ProjectReference Include="..\..\src\AniQueue.Infrastructure\AniQueue.Infrastructure.csproj" />
   </ItemGroup>

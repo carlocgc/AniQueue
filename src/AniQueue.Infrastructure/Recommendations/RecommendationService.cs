@@ -25,27 +25,16 @@ public sealed class RecommendationService(
     {
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
 
-        var settings = await context.ProfileSettings
-            .AsNoTracking()
-            .Where(s => s.ProfileId == profileId)
-            .Select(s => new
-            {
-                s.IncludePersonalNotesInAiExport,
-                s.RecommendationHistorySize,
-                s.RecommendationCandidateLimit,
-                s.RecommendationReturnTop
-            })
-            .FirstOrDefaultAsync(cancellationToken);
-
-        // An explicit argument wins, so a caller can ask for something other than the
-        // stored preference without writing to it first — which is what a "try this
-        // once" control on a page needs, and what Phase 8 will need to retry smaller.
-        options ??= settings is null
-            ? ScoringRequestOptions.Default
-            : ScoringRequestOptions.From(
-                settings.RecommendationHistorySize,
-                settings.RecommendationCandidateLimit,
-                settings.RecommendationReturnTop);
+        // Everything about how much to send now arrives as an argument. It used to be
+        // read from ProfileSettings here, which made this service the owner of a
+        // preference as well as the builder of a request; D36 moved the settings to
+        // userconfig.json and the caller reads them, so this is a function of what it
+        // is given again.
+        //
+        // The default is what a caller who says nothing gets — notably a test, and
+        // notably with notes excluded, which is the answer §6 requires when nobody has
+        // opted in.
+        options ??= ScoringRequestOptions.Default;
 
         var waiting = context.LibraryEntries
             .AsNoTracking()
@@ -55,7 +44,7 @@ public sealed class RecommendationService(
 
         var candidates = await ReadCandidatesAsync(
             waiting,
-            settings?.IncludePersonalNotesInAiExport ?? false,
+            options.IncludePersonalNotes,
             options.MaxCandidates,
             cancellationToken);
 
@@ -409,59 +398,6 @@ public sealed class RecommendationService(
                 WasApplied = r.WasApplied
             })
             .ToListAsync(cancellationToken);
-    }
-
-    public async Task<ScoringRequestOptions> GetOptionsAsync(
-        int profileId,
-        CancellationToken cancellationToken = default)
-    {
-        await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
-
-        var stored = await context.ProfileSettings
-            .AsNoTracking()
-            .Where(s => s.ProfileId == profileId)
-            .Select(s => new { s.RecommendationHistorySize, s.RecommendationCandidateLimit, s.RecommendationReturnTop })
-            .FirstOrDefaultAsync(cancellationToken);
-
-        return stored is null
-            ? ScoringRequestOptions.Default
-            : ScoringRequestOptions.From(
-                stored.RecommendationHistorySize,
-                stored.RecommendationCandidateLimit,
-                stored.RecommendationReturnTop);
-    }
-
-    public async Task SaveOptionsAsync(
-        int profileId,
-        ScoringRequestOptions options,
-        CancellationToken cancellationToken = default)
-    {
-        ArgumentNullException.ThrowIfNull(options);
-
-        await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
-
-        var settings = await context.ProfileSettings
-            .FirstOrDefaultAsync(s => s.ProfileId == profileId, cancellationToken);
-
-        if (settings is null)
-        {
-            // Nothing to write to. A profile without settings is a state the seeder
-            // does not produce, and inventing a row here would be this service
-            // deciding what a display name is.
-            logger.LogWarning("No settings row for profile {ProfileId}; preferences not saved.", profileId);
-            return;
-        }
-
-        // Clamped on the way in as well as on the way out. The page bounds its inputs
-        // too, but a bound the storage does not enforce is one an older page or a
-        // hand-edited row walks straight past.
-        var clamped = ScoringRequestOptions.From(options.MaxHistory, options.MaxCandidates, options.ReturnTop);
-
-        settings.RecommendationHistorySize = clamped.MaxHistory;
-        settings.RecommendationCandidateLimit = clamped.MaxCandidates;
-        settings.RecommendationReturnTop = clamped.ReturnTop;
-
-        await context.SaveChangesAsync(cancellationToken);
     }
 
     private static async Task<List<ScoringCandidate>> ReadCandidatesAsync(
