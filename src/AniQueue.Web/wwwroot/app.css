@@ -112,7 +112,13 @@ a { color: var(--accent); }
     font-weight: 500;
 }
 
-main { padding: 1.5rem; max-width: 1100px; }
+/* min-width: 0 because this is a grid item, and a grid item defaults to
+   min-width: auto — meaning it refuses to be narrower than its content. Anything
+   wide inside it therefore pushes the column open instead of scrolling within it,
+   and the whole page ends up scrolling sideways while the .table-wrap that was
+   supposed to catch it sits there at full width with nothing to scroll. Every wide
+   table on every page depends on this line. */
+main { padding: 1.5rem; max-width: 1100px; min-width: 0; }
 
 .page-header { margin-bottom: 1.25rem; }
 .page-header p { color: var(--text-muted); margin: 0.25rem 0 0; }
@@ -208,7 +214,12 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
 
 .file-input:disabled::file-selector-button { opacity: 0.5; cursor: not-allowed; }
 
-input[type="text"], input[type="search"], select {
+/* number is here because it was not, and the omission showed: an unstyled number
+   input keeps the browser's default width, which is narrow enough that a
+   placeholder like "All of them" is cut to "All of t". The spinner takes a slice
+   of that width again, so the box is sized explicitly rather than left to
+   content. */
+input[type="text"], input[type="search"], input[type="number"], select {
     font: inherit;
     padding: 0.4rem 0.6rem;
     border: 1px solid var(--border);
@@ -216,6 +227,8 @@ input[type="text"], input[type="search"], select {
     background: var(--surface);
     color: var(--text);
 }
+
+input[type="number"] { width: 12rem; }
 
 .toolbar { display: flex; gap: 0.5rem; flex-wrap: wrap; align-items: center; margin-bottom: var(--gap); }
 
@@ -794,6 +807,32 @@ details > summary {
 /* A skipped row is still worth reading — it says which title left the backlog —
    so it is dimmed rather than removed. */
 tr.muted td { opacity: 0.6; }
+
+/* The ranking preview is five columns of very unequal need: three are a couple of
+   characters, one is a title, and the last is a sentence. Left to itself the
+   browser gives the title column whatever it wants and squeezes the reasoning into
+   a ribbon, which is the column a person is actually reading. So the narrow ones
+   are pinned and the remaining width is split between the two that vary. */
+/* min-width matters as much as the layout mode. Fixed layout divides the width it
+   is given, so on a narrow screen the three pinned columns take their rem widths
+   and the last column — the reasoning — is handed whatever is left, which is
+   nothing. Below this the wrap scrolls instead, which is what .table-wrap is for. */
+.ranking { table-layout: fixed; min-width: 44rem; }
+
+.ranking th:nth-child(1), .ranking td:nth-child(1) { width: 3.5rem; }
+.ranking th:nth-child(3), .ranking td:nth-child(3) { width: 5rem; }
+.ranking th:nth-child(4), .ranking td:nth-child(4) { width: 6rem; }
+.ranking th:nth-child(2), .ranking td:nth-child(2) { width: 30%; }
+
+.ranking td { overflow-wrap: anywhere; }
+
+/* The reason is the column with the most to say and the least emphasis, so it
+   reads a step down from the title beside it. */
+.ranking td:last-child { color: var(--text-muted); }
+
+/* Under a right-aligned number, and small: it is a footnote to the score rather
+   than a second value. */
+.ranking td.numeric .row-meta { margin-top: 0.15rem; }
 
 /* Framework error UI ------------------------------------------------------ */
 

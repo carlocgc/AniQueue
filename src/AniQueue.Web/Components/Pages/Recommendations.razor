@@ -245,14 +245,16 @@
 
         @if (_preview.Items.Count > 0)
         {
+            @* The numeric headers carry the class their cells do, so a right-aligned
+               column does not sit under a left-aligned label. *@
             <div class="table-wrap">
-                <table>
+                <table class="ranking">
                     <thead>
                         <tr>
-                            <th scope="col">Rank</th>
+                            <th scope="col" class="numeric">Rank</th>
                             <th scope="col">Title</th>
-                            <th scope="col">Score</th>
-                            <th scope="col">Confidence</th>
+                            <th scope="col" class="numeric">Score</th>
+                            <th scope="col" class="numeric">Confidence</th>
                             <th scope="col">Why</th>
                         </tr>
                     </thead>
@@ -268,11 +270,16 @@
                                         <div class="row-meta">Skipped — @reason</div>
                                     }
                                 </td>
+                                @* "was" only when it changed. Applying the same ranking
+                                   twice, or re-checking a reply already applied, otherwise
+                                   prints "10, was 10" down the whole table — a second line
+                                   on every row that says nothing, and the noise arrives
+                                   exactly when the least is happening. *@
                                 <td class="numeric">
                                     @Score(item.Result.PredictedScore)
-                                    @if (item.PreviousScore is { } previous)
+                                    @if (Changed(item) is { } previous)
                                     {
-                                        <div class="row-meta">was @Score(previous)</div>
+                                        <div class="row-meta">was @previous</div>
                                     }
                                 </td>
                                 <td class="numeric">@Percent(item.Result.Confidence)</td>
@@ -571,6 +578,27 @@
 
     private static string Score(double value) =>
         value.ToString("0.#", CultureInfo.CurrentCulture);
+
+    /// <summary>
+    /// The score this row replaces, or null when it replaces nothing or replaces it
+    /// with the same number.
+    /// </summary>
+    /// <remarks>
+    /// Compared as displayed rather than as stored, so 8.64 and 8.6 do not count as a
+    /// change the table cannot show. A difference nobody can see is not one worth a
+    /// line of its own.
+    /// </remarks>
+    private static string? Changed(ScoringPreviewItem item)
+    {
+        if (item.PreviousScore is not { } previous)
+        {
+            return null;
+        }
+
+        var was = Score(previous);
+
+        return was == Score(item.Result.PredictedScore) ? null : was;
+    }
 
     /// <summary>
     /// Roughly how much text a request is, in the units a context window is discussed
