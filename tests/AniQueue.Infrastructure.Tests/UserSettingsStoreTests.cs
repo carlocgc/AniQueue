@@ -17,6 +17,15 @@ public class UserSettingsStoreTests : IDisposable
 
     private string SettingsPath => Path.Combine(_directory, UserConfigStatus.FileName);
 
+    private static readonly string[] ExpectedKeys =
+    [
+        "Sync:Enabled",
+        "Sync:AniList:UserName",
+        "Scoring:HistorySize",
+        "Scoring:CandidateLimit",
+        "Scoring:ReturnTop"
+    ];
+
     /// <summary>
     /// A store wired the way the application wires it: the same file added to the
     /// configuration chain that the store writes to, so a save and a read are talking
@@ -104,16 +113,7 @@ public class UserSettingsStoreTests : IDisposable
 
         // A key nobody can find is a key nobody can use when the pages are unreachable,
         // which is the whole reason the file exists.
-        Assert.All(
-            new[]
-            {
-                "Sync:Enabled",
-                "Sync:AniList:UserName",
-                "Scoring:HistorySize",
-                "Scoring:CandidateLimit",
-                "Scoring:ReturnTop"
-            },
-            key => Assert.Contains(key, text, StringComparison.Ordinal));
+        Assert.All(ExpectedKeys, key => Assert.Contains(key, text, StringComparison.Ordinal));
     }
 
     [Fact]

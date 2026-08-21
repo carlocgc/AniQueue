@@ -930,8 +930,12 @@ tr.muted td { opacity: 0.6; }
     right: 0.75rem;
     top: 0.5rem;
 }
+/* A labelled field above Apply, which reverses what this said. "Beside the button,
+   because it is answered in the same breath as the decision" was the argument, and
+   it lost: a placeholder-only box in a row of buttons is read as decoration, and the
+   field went unfilled often enough that scores were landing with no provenance at
+   all. A note that is skipped has less prominence than one that is read, whatever
+   the layout implies. */
+.model-field { max-width: 28rem; }
 
-/* Beside Apply rather than in a field of its own: it is answered in the same
-   breath as the decision, and a labelled row above the button would give a note
-   more prominence than the action it annotates. */
-.model-name { width: 16rem; }
+.model-field input { width: 100%; }
