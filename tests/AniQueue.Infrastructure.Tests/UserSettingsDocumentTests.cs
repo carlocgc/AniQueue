@@ -31,11 +31,11 @@ public class UserSettingsDocumentTests
     }
 
     [Fact]
-    public void A_default_document_parses_as_configuration()
+    public void A_default_document_round_trips_every_default()
     {
-        // Every line commented out has to leave a file the JSON provider accepts —
-        // otherwise a first boot produces a file whose settings are all silently
-        // absent, which is the failure the one-key-per-line format exists to prevent.
+        // What a first boot leaves. It has to parse, and reading it back has to produce
+        // the settings it was rendered from — a file that says something subtly
+        // different from what is running is worse than no file.
         var text = Render(UserSettings.Defaults);
 
         var path = Path.Combine(Path.GetTempPath(), $"aniqueue-doc-{Guid.NewGuid():N}.json");
@@ -48,7 +48,18 @@ public class UserSettingsDocumentTests
                 .AddJsonFile(path, optional: false, reloadOnChange: false)
                 .Build();
 
-            Assert.Empty(configuration.AsEnumerable().Where(pair => pair.Value is not null));
+            Assert.Equal("true", configuration["Sync:Enabled"], ignoreCase: true);
+            Assert.Equal("200", configuration["Scoring:HistorySize"]);
+
+            // An empty string rather than null, because this is the line a fresh
+            // installation edits by hand and replacing "" with a name needs no thought
+            // about quoting.
+            Assert.Contains("\"Sync:AniList:UserName\": \"\"", text, StringComparison.Ordinal);
+
+            // Unset stays unset. A null in the file must not read back as a value, or
+            // "rank everything" would silently become a cap.
+            Assert.Null(configuration["Scoring:CandidateLimit"]);
+            Assert.Null(configuration["Scoring:ReturnTop"]);
         }
         finally
         {

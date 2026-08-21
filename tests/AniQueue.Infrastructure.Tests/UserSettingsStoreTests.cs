@@ -59,19 +59,38 @@ public class UserSettingsStoreTests : IDisposable
     }
 
     [Fact]
-    public async Task A_first_boot_leaves_a_file_that_configures_nothing()
+    public async Task A_first_boot_leaves_a_file_describing_the_defaults()
     {
         var (store, configuration) = Create();
 
         Assert.True(await store.EnsureExistsAsync());
         Assert.True(File.Exists(SettingsPath));
 
-        // The property D20 made load-bearing and D36 keeps: a template that shipped
-        // real values would override whatever an operator had set elsewhere, on a
-        // machine where nobody had opened the file.
         configuration.Reload();
 
-        Assert.Empty(configuration.AsEnumerable().Where(pair => pair.Value is not null));
+        // Written out rather than commented out, so the file reads as the settings
+        // themselves. Reloading it changes nothing, because it says what was already
+        // true.
+        Assert.Equal("200", configuration["Scoring:HistorySize"]);
+        Assert.True(store.Read().SyncEnabled);
+        Assert.Equal(UserSettings.Defaults, store.Read());
+    }
+
+    [Fact]
+    public async Task A_first_boot_cannot_override_what_the_environment_supplied()
+    {
+        // The reason a first boot writes what is in effect rather than the defaults.
+        // This file is added last, so a default-valued file would set an empty account
+        // over the one an operator put in their environment — silently, on a machine
+        // where nobody had opened it. It is the whole risk of writing real values, and
+        // it exists only at this moment.
+        var (store, configuration) = Create([new("Sync:AniList:UserName", "from-the-environment")]);
+
+        await store.EnsureExistsAsync();
+        configuration.Reload();
+
+        Assert.Equal("from-the-environment", configuration["Sync:AniList:UserName"]);
+        Assert.Equal("from-the-environment", store.Read().AniListUserName);
     }
 
     [Fact]
@@ -126,11 +145,11 @@ public class UserSettingsStoreTests : IDisposable
     }
 
     [Fact]
-    public async Task A_value_left_at_its_default_is_written_commented_out()
+    public async Task Every_setting_is_written_out_whatever_its_value()
     {
-        // So that a default improved in a later version reaches an installation whose
-        // file predates it, rather than being pinned by whatever was true when the file
-        // was created.
+        // The file is the settings, not a commentary on them. Somebody opening it
+        // should see what AniQueue is doing without having to know that an absent line
+        // means a default they cannot see.
         var (store, configuration) = Create();
 
         await store.SaveAsync(UserSettings.Defaults with { AniListUserName = "hibari" });
@@ -138,24 +157,27 @@ public class UserSettingsStoreTests : IDisposable
         var text = await File.ReadAllTextAsync(SettingsPath);
 
         Assert.Contains("\"Sync:AniList:UserName\": \"hibari\"", text, StringComparison.Ordinal);
-        Assert.Contains("// \"Sync:Enabled\"", text, StringComparison.Ordinal);
-        Assert.Null(configuration["Sync:Enabled"]);
+        Assert.Contains("\"Sync:Enabled\": true", text, StringComparison.Ordinal);
+        Assert.DoesNotContain("// \"", text, StringComparison.Ordinal);
+        Assert.Equal("true", configuration["Sync:Enabled"], ignoreCase: true);
     }
 
     [Fact]
-    public async Task Setting_something_back_to_its_default_stops_setting_it()
+    public async Task An_unset_value_is_written_as_null_and_reads_back_as_unset()
     {
-        var (store, configuration) = Create();
+        // "No limit" has to survive the round trip as null rather than as a number, or
+        // a saved file would quietly cap a request that was meant to be uncapped.
+        var (store, _) = Create();
 
-        await store.SaveAsync(UserSettings.Defaults with { SyncEnabled = false });
-        Assert.Equal("False", configuration["Sync:Enabled"], ignoreCase: true);
+        await store.SaveAsync(UserSettings.Defaults with { ScoringCandidateLimit = 50 });
+        Assert.Equal(50, store.Read().ScoringCandidateLimit);
 
-        await store.SaveAsync(UserSettings.Defaults with { SyncEnabled = true });
+        await store.SaveAsync(store.Read() with { ScoringCandidateLimit = null });
 
-        // Not "written as true" — written as nothing, which means the same thing today
-        // and keeps meaning the right thing if the default ever changes.
-        Assert.Null(configuration["Sync:Enabled"]);
-        Assert.True(store.Read().SyncEnabled);
+        var text = await File.ReadAllTextAsync(SettingsPath);
+
+        Assert.Contains("\"Scoring:CandidateLimit\": null", text, StringComparison.Ordinal);
+        Assert.Null(store.Read().ScoringCandidateLimit);
     }
 
     [Fact]

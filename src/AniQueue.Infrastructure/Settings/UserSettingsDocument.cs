@@ -17,28 +17,22 @@ namespace AniQueue.Infrastructure.Settings;
 /// <b>One line per setting, written as a full key path.</b> The JSON configuration
 /// provider reads a property name containing colons as the whole key, so
 /// <c>"Sync:AniList:UserName"</c> means the same as the nested spelling — and it is
-/// the spelling that survives being edited by hand at two in the morning.
-/// Uncommenting a line out of a nested block leaves its closing braces behind, and a
-/// file that will not parse is one whose settings are all silently absent (D20).
+/// the spelling that survives being edited by hand at two in the morning. A nested
+/// block edited badly leaves stray braces, and a file that will not parse is one
+/// whose settings are all silently absent (D20).
 ///
-/// <b>Unset means commented, and that is load-bearing twice over.</b> A commented
-/// key documents itself without configuring anything, so the file is readable as a
-/// list of what exists; and a default changed in a later version reaches an
-/// installation whose file predates it, rather than being pinned by a value written
-/// out years earlier.
+/// <b>Every setting is written out, and each carries one line saying what it does.</b>
+/// The file is what somebody opens when something is already wrong, so it has to be
+/// readable in one pass: the values are the content, and the comments are captions
+/// rather than documentation. Anything longer belongs in the README.
 /// </remarks>
 internal static class UserSettingsDocument
 {
     /// <summary>One setting, as the file describes it.</summary>
     /// <param name="Key">The full configuration key path.</param>
-    /// <param name="Comment">Why somebody would change it, in their terms.</param>
-    /// <param name="Read">The value this setting currently holds.</param>
-    /// <param name="Default">What it means when the line stays commented.</param>
-    private sealed record Entry(
-        string Key,
-        string[] Comment,
-        Func<UserSettings, object?> Read,
-        Func<object?> Default);
+    /// <param name="Comment">What it does, in as few words as will carry it.</param>
+    /// <param name="Read">The value to write.</param>
+    private sealed record Entry(string Key, string[] Comment, Func<UserSettings, object?> Read);
 
     /// <summary>
     /// Every key the file accepts. <b>Adding a setting means adding a line here</b>,
@@ -48,72 +42,58 @@ internal static class UserSettingsDocument
     [
         new(
             "Sync:Enabled",
-            ["Syncing at all. Set false to stop it when AniQueue's pages cannot be reached."],
-            s => s.SyncEnabled,
-            () => UserSettings.Defaults.SyncEnabled),
+            ["Sync at all. false stops every sync, including any you have scheduled."],
+            s => s.SyncEnabled),
 
         new(
             "Sync:AniList:UserName",
-            [
-                "Whose AniList list to read. Must be public — AniQueue does not sign in.",
-                "Also editable on the Sources page."
-            ],
-            s => s.AniListUserName,
-            () => UserSettings.Defaults.AniListUserName ?? string.Empty),
+            ["Whose AniList list to read. Must be public — AniQueue does not sign in."],
+            // Empty rather than null when unset, because this is the line a new
+            // installation is most likely to edit by hand: replacing "" with a name is
+            // obvious, while replacing null means also knowing to add the quotes. The
+            // reader treats blank and absent alike, so nothing changes meaning.
+            s => s.AniListUserName ?? string.Empty),
 
         new(
             "Scoring:HistorySize",
             ["Your scored titles sent with a ranking request, newest first. 0 sends none."],
-            s => s.ScoringHistorySize,
-            () => UserSettings.Defaults.ScoringHistorySize),
+            s => s.ScoringHistorySize),
 
         new(
             "Scoring:CandidateLimit",
             [
-                "Titles offered per ranking request. Unset offers all of them.",
-                "When set, takes those longest without a score, so repeats sweep the rest."
+                "Titles offered per ranking request. null offers all of them.",
+                "A number takes those longest without a score, so repeats sweep the rest."
             ],
-            s => s.ScoringCandidateLimit,
-            () => 50),
+            s => s.ScoringCandidateLimit),
 
         new(
             "Scoring:ReturnTop",
             [
-                "Rankings asked for back. Unset asks for one per title offered.",
+                "Rankings asked for back. null asks for one per title offered.",
                 "Every title sent is still weighed; this only shortens the reply."
             ],
-            s => s.ScoringReturnTop,
-            () => 50)
+            s => s.ScoringReturnTop)
     ];
 
     /// <summary>The keys this document writes, for the test that guards the list.</summary>
     internal static IReadOnlyList<string> Keys => [.. Entries.Select(e => e.Key)];
 
     /// <summary>
-    /// The preamble, kept short on purpose.
+    /// The only line of preamble, and it earns its place by preventing data loss.
     /// </summary>
     /// <remarks>
-    /// This file is read by somebody who is already having a problem, so it is scanned
-    /// rather than studied. Every line that explains something they did not ask about
-    /// pushes the line they need further down — which is why the guidance here is the
-    /// four facts that change what they do, and the per-key comments below are one
-    /// line each wherever one line will carry it.
+    /// Everything else that was here has gone. Explaining the format, the reload
+    /// semantics, and which settings deliberately live elsewhere is documentation, and
+    /// documentation at the top of a settings file is read once and then scrolled past
+    /// forever — while pushing the thing somebody actually came for further down.
+    ///
+    /// This line stays because it is not documentation but a warning about a surprise:
+    /// AniQueue regenerates the whole file, so a note somebody adds here disappears at
+    /// the next save with nothing to explain why.
     /// </remarks>
     private const string Header =
-        """
-        // AniQueue settings.
-        //
-        // AniQueue rewrites this file whole when you change something in the app, so
-        // notes of your own will not survive. Editing it by hand works, and is how you
-        // change AniQueue's behaviour when its pages cannot be reached — restart
-        // afterwards to be sure a hand edit took.
-        //
-        // A commented-out line is that setting at its default. Uncomment to change it;
-        // leaving it commented lets a later version improve the default.
-        //
-        // Comments and trailing commas are fine. Database settings are not here — set
-        // Database__Path or Database__BusyTimeoutSeconds in the environment.
-        """;
+        "// AniQueue rewrites this file whenever a setting changes, so notes you add here will not survive.";
 
     /// <summary>Renders the whole file for the settings given.</summary>
     public static string Render(UserSettings settings)
@@ -122,8 +102,7 @@ internal static class UserSettingsDocument
 
         var text = new StringBuilder();
 
-        text.Append(Header);
-        text.AppendLine();
+        text.AppendLine(Header);
         text.AppendLine("{");
 
         for (var i = 0; i < Entries.Length; i++)
@@ -132,21 +111,17 @@ internal static class UserSettingsDocument
 
             foreach (var line in entry.Comment)
             {
-                text.AppendLine(line.Length == 0 ? "  //" : $"  // {line}");
+                text.AppendLine($"  // {line}");
             }
 
-            var current = entry.Read(settings);
-            var isSet = !Equals(current, entry.Read(UserSettings.Defaults));
-
-            // A value that equals its default is shown as an illustration rather than
-            // written: the line documents the key and configures nothing. For a
-            // setting whose default is "unset", the illustration is a plausible value
-            // rather than null, because "// key: null" teaches nobody the shape.
-            var shown = isSet ? current : entry.Default();
+            // No trailing comma on the last one. The provider permits it, but this file
+            // is meant to be read, and a stray comma is the kind of thing that makes a
+            // reader wonder whether something is missing below it.
+            var separator = i < Entries.Length - 1 ? "," : string.Empty;
 
             text.AppendLine(
                 CultureInfo.InvariantCulture,
-                $"  {(isSet ? string.Empty : "// ")}{JsonSerializer.Serialize(entry.Key)}: {JsonSerializer.Serialize(shown)},");
+                $"  {JsonSerializer.Serialize(entry.Key)}: {JsonSerializer.Serialize(entry.Read(settings))}{separator}");
 
             if (i < Entries.Length - 1)
             {

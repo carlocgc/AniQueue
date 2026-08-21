@@ -25,11 +25,17 @@ public sealed record UserSettingsSaveResult(bool Saved, string Path, string? Err
 /// writes the whole file — header, per-key comment, value — so nothing is preserved
 /// because nothing is read back.
 ///
-/// <b>A value equal to its default is written commented out.</b> The file therefore
-/// documents every key it accepts while setting only what somebody chose, which
-/// keeps two properties that would otherwise conflict: an operator can read the file
-/// to see what exists, and a default changed in a later version still reaches an
-/// installation whose file was written before it.
+/// <b>Every setting is written out with its real value.</b> An earlier version wrote
+/// unset keys commented out, so that a default improved in a later release would
+/// still reach an existing installation. That hedge was dropped: it cost a file
+/// nobody could read at a glance — values buried among the comments that described
+/// them — and the argument that made it load-bearing had already gone. Commenting
+/// began as D20's way of stopping a shipped template overriding an operator's
+/// environment variable, and D36 removed the environment as a settings channel.
+///
+/// What remains of that risk is handled once, at the only moment it exists:
+/// <see cref="EnsureExistsAsync"/> seeds the first file from the configuration
+/// already in effect, so it can never contradict what something else supplied.
 /// </remarks>
 public interface IUserSettingsStore
 {
@@ -70,9 +76,15 @@ public interface IUserSettingsStore
     /// <remarks>
     /// A settings file nobody knows exists is a poor escape hatch, and "create it
     /// yourself, in the right place, with the right key names" is worse — so a first
-    /// boot leaves one naming every key it accepts (D20). What it writes is the same
-    /// document a save writes, with nothing set, so there is one generator and one
-    /// format rather than a template that can drift from the writer.
+    /// boot leaves one naming every key it accepts (D20). It is the same document a
+    /// save writes, so there is one generator and one format rather than a template
+    /// that can drift from the writer.
+    ///
+    /// <b>It describes what is already in effect, not the defaults.</b> This file is
+    /// added last to the configuration chain, so a first boot writing defaults would
+    /// set an empty AniList account over one an operator supplied through the
+    /// environment — silently, on a machine where nobody had opened the file. Writing
+    /// what is already true cannot override anything, because it agrees with it.
     ///
     /// <b>Never overwrites and never throws.</b> An existing file is the operator's
     /// work, including one they emptied deliberately.

@@ -123,11 +123,17 @@ public sealed class UserSettingsStore(
                 return false;
             }
 
-            await WriteAsync(UserSettingsDocument.Render(UserSettings.Defaults), cancellationToken);
+            // Seeded from what is currently in effect rather than from the defaults,
+            // and that is what makes writing real values safe. This file is added last
+            // to the configuration chain, so a first boot that wrote UserSettings
+            // .Defaults would set an empty AniList account over one an operator had
+            // supplied through the environment — silently, on a machine where nobody
+            // had opened the file. Writing what is already true cannot override
+            // anything, because it agrees with it.
+            await WriteAsync(UserSettingsDocument.Render(Read()), cancellationToken);
 
             logger.LogInformation(
-                "Wrote a settings file to {UserConfigPath}. Every setting in it is commented "
-                    + "out, so it changes nothing until you edit it or change something in AniQueue",
+                "Wrote a settings file to {UserConfigPath} describing the settings currently in effect",
                 Path);
 
             return true;
