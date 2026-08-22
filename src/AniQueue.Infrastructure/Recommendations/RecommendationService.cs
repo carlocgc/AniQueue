@@ -230,6 +230,7 @@ public sealed class RecommendationService(
         string providerName,
         string? modelIdentifier = null,
         IProgress<OperationProgress>? progress = null,
+        TimeSpan? duration = null,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(preview);
@@ -278,7 +279,8 @@ public sealed class RecommendationService(
             CandidateCount = preview.CandidateCount,
             ResultCount = preview.Items.Count,
             CompletedCount = completedCount,
-            WasApplied = true
+            WasApplied = true,
+            DurationMilliseconds = duration is { } elapsed ? (long)elapsed.TotalMilliseconds : null
         };
 
         context.RecommendationRuns.Add(run);
@@ -370,6 +372,70 @@ public sealed class RecommendationService(
             .FirstOrDefaultAsync(cancellationToken);
     }
 
+    public async Task<ScoringCoverage> GetCoverageAsync(
+        int profileId,
+        int staleAfterRatings,
+        CancellationToken cancellationToken = default)
+    {
+        await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
+
+        var waiting = context.LibraryEntries
+            .AsNoTracking()
+            .Where(e => e.ProfileId == profileId && e.Status == LibraryStatus.Planning && !e.IsHidden);
+
+        var total = await waiting.CountAsync(cancellationToken);
+
+        // When each ranked title was scored, read rather than compared in SQL: SQLite
+        // can neither order nor compare a DateTimeOffset, so both halves of D39's rule
+        // have to be decided here. One nullable column over the ranked part of a
+        // backlog is a small thing to carry, and it answers both questions at once.
+        var scoredAt = await waiting
+            .Where(e => e.RecommendationScore != null)
+            .Select(e => e.RecommendationUpdatedAt)
+            .ToListAsync(cancellationToken);
+
+        var ranked = scoredAt.Count;
+
+        // The moment before which a score no longer reflects this person's taste (D39).
+        //
+        // Found as the timestamp of the Nth most recent rating rather than by counting
+        // ratings per title: one scalar and one indexed comparison, instead of a
+        // correlated subquery for every row in the backlog. The two say the same thing —
+        // a score is stale exactly when N titles have been rated since it was written.
+        // Sorted here rather than in SQL because SQLite cannot ORDER BY a
+        // DateTimeOffset at all — the same limitation BuildRequestAsync works around
+        // when it orders history by DateOnly and Id instead. There is no such stand-in
+        // for "when was this rated", so the timestamps come back and are ordered in
+        // memory: one column of a few hundred rows, against a query that runs when a
+        // page is opened.
+        var rated = staleAfterRatings <= 0
+            ? []
+            : await context.LibraryEntries
+                .AsNoTracking()
+                .Where(e => e.ProfileId == profileId
+                    && e.Status == LibraryStatus.Completed
+                    && e.UserScore != null)
+                .Select(e => e.LastUpdated)
+                .ToListAsync(cancellationToken);
+
+        // Nothing is stale until enough has been rated to make it so, which is the
+        // right answer for a new library rather than a special case: a backlog scored
+        // against three ratings has not been overtaken by anything.
+        var staleBefore = staleAfterRatings <= 0 || rated.Count < staleAfterRatings
+            ? (DateTimeOffset?)null
+            : rated.OrderByDescending(when => when).Skip(staleAfterRatings - 1).First();
+
+        // A score with no timestamp counts as stale. Nothing writes one that way today,
+        // but a score whose age cannot be established is exactly the score worth making
+        // again — the alternative is a row that can never be picked up and never
+        // refreshed.
+        var stale = staleBefore is null
+            ? 0
+            : scoredAt.Count(when => when is null || when < staleBefore);
+
+        return new ScoringCoverage { Waiting = total, Ranked = ranked, Stale = stale };
+    }
+
     public async Task<IReadOnlyList<RecommendationRunSummary>> GetRunsAsync(
         int profileId,
         int take = 20,
@@ -395,7 +461,10 @@ public sealed class RecommendationService(
                 CandidateCount = r.CandidateCount,
                 ResultCount = r.ResultCount,
                 CompletedCount = r.CompletedCount,
-                WasApplied = r.WasApplied
+                WasApplied = r.WasApplied,
+                Duration = r.DurationMilliseconds == null
+                    ? null
+                    : TimeSpan.FromMilliseconds(r.DurationMilliseconds.Value)
             })
             .ToListAsync(cancellationToken);
     }

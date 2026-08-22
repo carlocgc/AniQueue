@@ -38,6 +38,25 @@
                     }
                 </ul>
             }
+
+            @* Inside the dialog because the dialog is modal: nothing behind it can be
+               reached, so a way out that lived on the page would be a way out nobody
+               could take.
+
+               Only rendered when an operation supplies one. Every operation that had
+               a dialog before this could not usefully be interrupted — an import is
+               committing rows, a sync is reconciling them — and offering to stop them
+               would raise a question about what half-done means. Waiting on somebody
+               else's model is the first thing here where stopping is free and the
+               wait can be long enough to want to. *@
+            @if (OnCancel.HasDelegate)
+            {
+                <div class="toolbar busy-actions">
+                    <button @onclick="CancelAsync" disabled="@_cancelling">
+                        @(_cancelling ? "Stopping…" : CancelLabel)
+                    </button>
+                </div>
+            }
         </div>
     </div>
 }
@@ -46,4 +65,39 @@
     /// <summary>The scope driving this dialog. Owned by the page.</summary>
     [Parameter, EditorRequired]
     public required BusyScope State { get; set; }
+
+    /// <summary>
+    /// What to do when the user gives up. Omit it and no way out is offered.
+    /// </summary>
+    [Parameter]
+    public EventCallback OnCancel { get; set; }
+
+    [Parameter]
+    public string CancelLabel { get; set; } = "Cancel";
+
+    private bool _cancelling;
+
+    /// <summary>
+    /// Latches once pressed, and unlatches when the dialog closes.
+    /// </summary>
+    /// <remarks>
+    /// Cancelling is not instant — an HTTP call in flight is abandoned rather than
+    /// undone — so without this the button stays live and invites a second press that
+    /// does nothing. The label saying "Stopping…" is the only feedback available,
+    /// because the work reports nothing more once it has been told to stop.
+    /// </remarks>
+    protected override void OnParametersSet()
+    {
+        if (!State.IsVisible)
+        {
+            _cancelling = false;
+        }
+    }
+
+    private async Task CancelAsync()
+    {
+        _cancelling = true;
+
+        await OnCancel.InvokeAsync();
+    }
 }

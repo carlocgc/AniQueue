@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using AniQueue.Core.Recommendations;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -23,7 +24,7 @@ namespace AniQueue.Infrastructure.Recommendations;
 /// name, which is the thing D31 exists to prevent — so nothing here composes text of
 /// its own beyond the envelope the API requires.
 /// </remarks>
-public sealed class ChatCompletionsEndpoint(
+public sealed partial class ChatCompletionsEndpoint(
     HttpClient client,
     IOptionsMonitor<ScoringOptions> options,
     ILogger<ChatCompletionsEndpoint> logger,
@@ -154,9 +155,22 @@ public sealed class ChatCompletionsEndpoint(
                     target,
                     (int)response.StatusCode);
 
+                // A request that did not fit is not a server that refused: it is the
+                // one 400 with a specific remedy, and reporting it as "answered 400 Bad
+                // Request" leaves that remedy inside a disclosure nobody opens.
+                if (TooLarge(body) is { } tooLarge)
+                {
+                    return ScoringEndpointResult.Failed(
+                        ScoringEndpointFailure.TooLarge,
+                        tooLarge,
+                        Elapsed(started),
+                        Trim(body));
+                }
+
                 return ScoringEndpointResult.Failed(
                     ScoringEndpointFailure.Rejected,
-                    $"{target.Host} answered {(int)response.StatusCode} {response.ReasonPhrase}.",
+                    $"{target.Host} answered {(int)response.StatusCode} {response.ReasonPhrase}."
+                        + Hint(current, body),
                     Elapsed(started),
                     Trim(body));
             }
@@ -317,13 +331,32 @@ public sealed class ChatCompletionsEndpoint(
 
             if (current.UseStructuredOutput)
             {
-                // The weakest form on purpose. json_object is understood by every
-                // server that supports anything here, while a full json_schema is not
-                // — and the schema's real enforcement lives in the parser, where it can
-                // be tested. Asking for more would trade compatibility for a guarantee
-                // this application does not rely on.
+                // json_schema rather than json_object, which is a correction rather
+                // than a preference. This sent json_object on the grounds that it was
+                // "the weakest form every server in scope understands" — and LM Studio,
+                // the most likely target of all, answers that with
+                //
+                //   400: 'response_format.type' must be 'json_schema' or 'text'
+                //
+                // so the compatibility argument pointed the other way the whole time.
+                // The schema is also the stronger request: a server that converts it to
+                // a grammar cannot emit a code fence at all, which turns D37's
+                // unwrapping back into the fallback it was meant to be.
                 writer.WriteStartObject("response_format");
-                writer.WriteString("type", "json_object");
+                writer.WriteString("type", "json_schema");
+
+                writer.WriteStartObject("json_schema");
+                writer.WriteString("name", ScoringResponseSchema.Name);
+
+                // Written through the reader so the schema is parsed once here rather
+                // than pasted as a string a server would have to accept as text.
+                using (var schema = JsonDocument.Parse(ScoringResponseSchema.Json))
+                {
+                    writer.WritePropertyName("schema");
+                    schema.RootElement.WriteTo(writer);
+                }
+
+                writer.WriteEndObject();
                 writer.WriteEndObject();
             }
 
@@ -332,6 +365,66 @@ public sealed class ChatCompletionsEndpoint(
 
         return Encoding.UTF8.GetString(buffer.ToArray());
     }
+
+    /// <summary>
+    /// A next step, when the server's own complaint names something AniQueue chose.
+    /// </summary>
+    /// <remarks>
+    /// Reading the error rather than guessing at it: the only case handled is a server
+    /// objecting to <c>response_format</c>, which is a field this application decided
+    /// to send and can be told to stop sending. Everything else is left as the
+    /// server's own words, because a hint about something we did not choose would be
+    /// speculation dressed as help.
+    ///
+    /// This exists because the field's first real outing was rejected — LM Studio
+    /// requires <c>json_schema</c> and refuses <c>json_object</c> — and a rejection
+    /// naming a setting the user cannot connect to a checkbox is a dead end.
+    /// </remarks>
+    /// <summary>
+    /// Recognises a request that did not fit, and says so in the server's own numbers.
+    /// </summary>
+    /// <remarks>
+    /// Matched on the message text rather than on a field, because the shape of the
+    /// error is the server's business and differs between them — LM Studio wraps
+    /// llama.cpp's, and what reaches this client is the wrapping. The words survive
+    /// the wrapping; the structure does not.
+    ///
+    /// The two numbers are read out of it where they are there, because "13,782
+    /// against 8,192" tells somebody how far over they are and therefore which of the
+    /// three remedies is likely to be enough. Without them the message is still true,
+    /// just less useful, so their absence is not a reason to fall back to a worse
+    /// error.
+    /// </remarks>
+    private static string? TooLarge(string? body)
+    {
+        if (body is null
+            || (!body.Contains("context size", StringComparison.OrdinalIgnoreCase)
+                && !body.Contains("context length", StringComparison.OrdinalIgnoreCase)
+                && !body.Contains("exceed_context_size", StringComparison.OrdinalIgnoreCase)))
+        {
+            return null;
+        }
+
+        var sizes = ContextSizes().Matches(body);
+
+        var measured = sizes.Count >= 2
+            ? $" It needed {sizes[0].Groups[1].Value} tokens and the model has room for {sizes[1].Groups[1].Value}."
+            : string.Empty;
+
+        return "Your request was too big for the model to read." + measured
+            + " Send fewer scored titles as history, rank fewer titles at once, "
+            + "or give the model a larger context window.";
+    }
+
+    [GeneratedRegex(@"\((\d[\d,]*) tokens\)", RegexOptions.IgnoreCase)]
+    private static partial Regex ContextSizes();
+
+    private static string Hint(ScoringOptions current, string? body) =>
+        current.UseStructuredOutput
+        && body?.Contains("response_format", StringComparison.OrdinalIgnoreCase) == true
+            ? " Your server will not accept the JSON format AniQueue asked for — "
+                + "turn off \"Ask the server for JSON only\" and try again."
+            : string.Empty;
 
     private TimeSpan Elapsed(long started) => _time.GetElapsedTime(started);
 

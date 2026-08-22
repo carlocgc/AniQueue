@@ -99,7 +99,15 @@ internal static class UserSettingsDocument
                 "Ask the server to reply in JSON and nothing else. Leave this on unless",
                 "your server rejects the request; AniQueue copes either way."
             ],
-            s => s.ScoringUseStructuredOutput)
+            s => s.ScoringUseStructuredOutput),
+
+        new(
+            "Scoring:StaleAfterRatings",
+            [
+                "How many shows you must finish and rate before AniQueue counts existing",
+                "rankings as out of date. 0 never counts them stale."
+            ],
+            s => s.ScoringStaleAfterRatings)
     ];
 
     /// <summary>The keys this document writes, for the test that guards the list.</summary>

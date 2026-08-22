@@ -661,6 +661,56 @@ public class RecommendationServiceTests
     }
 
     [Fact]
+    public async Task How_long_a_run_took_is_recorded_and_read_back()
+    {
+        // The page quotes the last endpoint run to say how long a wait normally is,
+        // which is the difference between a dialog that looks hung and one that looks
+        // busy. It survives a restart because it is on the run rather than in the page.
+        await using var fixture = await Fixture.CreateAsync();
+        await using var context = fixture.Database.CreateContext();
+
+        var anime = await AddAsync(context, fixture.ProfileId, "Ranked");
+
+        var preview = await fixture.Recommendations.PreviewAsync(
+            fixture.ProfileId,
+            Ranking((anime.Id, 1, 8.0)));
+
+        await fixture.Recommendations.ApplyAsync(
+            fixture.ProfileId,
+            preview,
+            "Remote",
+            "qwen2.5-14b",
+            progress: null,
+            duration: TimeSpan.FromSeconds(374));
+
+        var run = Assert.Single(await fixture.Recommendations.GetRunsAsync(fixture.ProfileId));
+
+        Assert.Equal(TimeSpan.FromSeconds(374), run.Duration);
+    }
+
+    [Fact]
+    public async Task A_run_nobody_timed_records_no_duration()
+    {
+        // The manual path, where the wait happened in somebody else's chat window and
+        // AniQueue has no idea how long it was. Null rather than zero, because zero
+        // would read as an instant answer.
+        await using var fixture = await Fixture.CreateAsync();
+        await using var context = fixture.Database.CreateContext();
+
+        var anime = await AddAsync(context, fixture.ProfileId, "Ranked");
+
+        var preview = await fixture.Recommendations.PreviewAsync(
+            fixture.ProfileId,
+            Ranking((anime.Id, 1, 8.0)));
+
+        await fixture.Recommendations.ApplyAsync(fixture.ProfileId, preview, "Manual");
+
+        var run = Assert.Single(await fixture.Recommendations.GetRunsAsync(fixture.ProfileId));
+
+        Assert.Null(run.Duration);
+    }
+
+    [Fact]
     public async Task Applying_writes_the_score_the_run_and_its_items()
     {
         await using var fixture = await Fixture.CreateAsync();
@@ -889,5 +939,162 @@ public class RecommendationServiceTests
         var preview = await fixture.Recommendations.PreviewAsync(fixture.ProfileId, Ranking((theirs.Id, 1, 8.0)));
 
         Assert.True(preview.HasErrors);
+    }
+
+    // D39's read half, which the Recommendations card reports and Phase 8d's sweep
+    // will pick its batches from. Both come from this one query so that what the page
+    // says and what the job does cannot describe different backlogs.
+
+    [Fact]
+    public async Task Coverage_counts_what_is_waiting_ranked_and_never_ranked()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        await using var context = fixture.Database.CreateContext();
+
+        var ranked = await AddAsync(context, fixture.ProfileId, "Ranked");
+        await AddAsync(context, fixture.ProfileId, "Never ranked");
+        await AddAsync(context, fixture.ProfileId, "Set aside", hidden: true);
+        await AddAsync(context, fixture.ProfileId, "Watching", LibraryStatus.Watching);
+
+        await ScoreAsync(context, ranked.Id, Now);
+
+        var coverage = await fixture.Recommendations.GetCoverageAsync(fixture.ProfileId, staleAfterRatings: 5);
+
+        // Hidden and non-Planning titles are not waiting, so they are not this card's
+        // business — the same set a request is built from.
+        Assert.Equal(2, coverage.Waiting);
+        Assert.Equal(1, coverage.Ranked);
+        Assert.Equal(1, coverage.Unranked);
+        Assert.Equal(0, coverage.Stale);
+    }
+
+    [Fact]
+    public async Task A_score_goes_stale_once_enough_further_titles_have_been_rated()
+    {
+        // The rule itself: a score is overtaken by ratings made after it, not by time.
+        await using var fixture = await Fixture.CreateAsync();
+        await using var context = fixture.Database.CreateContext();
+
+        var waiting = await AddAsync(context, fixture.ProfileId, "Waiting");
+        await ScoreAsync(context, waiting.Id, Now.AddDays(-30));
+
+        // Four ratings since. One short of the threshold, so nothing has moved yet.
+        for (var i = 0; i < 4; i++)
+        {
+            var rated = await AddAsync(
+                context, fixture.ProfileId, $"Rated {i}", LibraryStatus.Completed, userScore: 8);
+
+            await TouchAsync(context, rated.Id, Now.AddDays(-1));
+        }
+
+        Assert.Equal(
+            0,
+            (await fixture.Recommendations.GetCoverageAsync(fixture.ProfileId, staleAfterRatings: 5)).Stale);
+
+        var fifth = await AddAsync(
+            context, fixture.ProfileId, "Rated 5", LibraryStatus.Completed, userScore: 9);
+
+        await TouchAsync(context, fifth.Id, Now.AddDays(-1));
+
+        var coverage = await fixture.Recommendations.GetCoverageAsync(fixture.ProfileId, staleAfterRatings: 5);
+
+        Assert.Equal(1, coverage.Stale);
+        Assert.Equal(0, coverage.UpToDate);
+        Assert.False(coverage.IsSettled);
+    }
+
+    [Fact]
+    public async Task A_score_made_after_the_ratings_is_not_stale()
+    {
+        // The other direction, and the one that makes the sweep terminate: re-scoring
+        // a title has to actually settle it, or the job would pick the same rows
+        // forever.
+        await using var fixture = await Fixture.CreateAsync();
+        await using var context = fixture.Database.CreateContext();
+
+        for (var i = 0; i < 6; i++)
+        {
+            var rated = await AddAsync(
+                context, fixture.ProfileId, $"Rated {i}", LibraryStatus.Completed, userScore: 8);
+
+            await TouchAsync(context, rated.Id, Now.AddDays(-10));
+        }
+
+        var waiting = await AddAsync(context, fixture.ProfileId, "Waiting");
+        await ScoreAsync(context, waiting.Id, Now);
+
+        var coverage = await fixture.Recommendations.GetCoverageAsync(fixture.ProfileId, staleAfterRatings: 5);
+
+        Assert.Equal(0, coverage.Stale);
+        Assert.Equal(1, coverage.UpToDate);
+        Assert.True(coverage.IsSettled);
+    }
+
+    [Fact]
+    public async Task Nothing_is_stale_until_enough_has_been_rated_to_make_it_so()
+    {
+        // A backlog scored against three ratings has not been overtaken by anything.
+        // The right answer for a new library, and not a special case in the query.
+        await using var fixture = await Fixture.CreateAsync();
+        await using var context = fixture.Database.CreateContext();
+
+        var waiting = await AddAsync(context, fixture.ProfileId, "Waiting");
+        await ScoreAsync(context, waiting.Id, Now.AddYears(-1));
+
+        await AddAsync(context, fixture.ProfileId, "Rated", LibraryStatus.Completed, userScore: 8);
+
+        var coverage = await fixture.Recommendations.GetCoverageAsync(fixture.ProfileId, staleAfterRatings: 5);
+
+        Assert.Equal(0, coverage.Stale);
+        Assert.True(coverage.IsSettled);
+    }
+
+    [Fact]
+    public async Task A_threshold_of_zero_never_calls_anything_stale()
+    {
+        // Somebody who wants scores to stay put, which D39 records as a legitimate
+        // choice rather than a misconfiguration.
+        await using var fixture = await Fixture.CreateAsync();
+        await using var context = fixture.Database.CreateContext();
+
+        var waiting = await AddAsync(context, fixture.ProfileId, "Waiting");
+        await ScoreAsync(context, waiting.Id, Now.AddYears(-5));
+
+        for (var i = 0; i < 20; i++)
+        {
+            var rated = await AddAsync(
+                context, fixture.ProfileId, $"Rated {i}", LibraryStatus.Completed, userScore: 8);
+
+            await TouchAsync(context, rated.Id, Now);
+        }
+
+        var coverage = await fixture.Recommendations.GetCoverageAsync(fixture.ProfileId, staleAfterRatings: 0);
+
+        Assert.Equal(0, coverage.Stale);
+        Assert.True(coverage.IsSettled);
+    }
+
+    [Fact]
+    public async Task An_empty_backlog_is_neither_settled_nor_in_need_of_work()
+    {
+        // Nothing waiting means nothing to rank, and a green "all up to date" over an
+        // empty backlog would be a claim about nothing. The card does not draw at all.
+        await using var fixture = await Fixture.CreateAsync();
+
+        var coverage = await fixture.Recommendations.GetCoverageAsync(fixture.ProfileId, staleAfterRatings: 5);
+
+        Assert.Equal(0, coverage.Waiting);
+        Assert.False(coverage.IsSettled);
+        Assert.True(coverage.IsUntouched);
+    }
+
+    /// <summary>Moves an entry's last-updated stamp, which is what "rated since" means.</summary>
+    private static async Task TouchAsync(AniQueueDbContext context, int animeId, DateTimeOffset when)
+    {
+        var entry = await context.LibraryEntries.SingleAsync(e => e.AnimeId == animeId);
+
+        entry.LastUpdated = when;
+
+        await context.SaveChangesAsync();
     }
 }

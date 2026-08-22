@@ -792,6 +792,11 @@ button.icon.remove:hover:not(:disabled) {
 
 .card.collapsed h2 { font-size: 1rem; margin-bottom: 0.4rem; }
 
+/* Nothing below it on the Recommendations page, where the collapsed card is a label
+   rather than a way out — so the heading should not reserve room for a toolbar that
+   is not there. */
+.card.collapsed h2:only-child { margin-bottom: 0; }
+
 .card.collapsed .toolbar { margin-bottom: 0; }
 
 .source-settings > summary {
@@ -939,3 +944,68 @@ tr.muted td { opacity: 0.6; }
 .model-field { max-width: 28rem; }
 
 .model-field input { width: 100%; }
+
+/* The way out of a modal wait. Separated from the steps above it so it does not
+   read as another line of progress, and full width because it is the only thing
+   on the dialog that can be pressed. */
+.busy-actions {
+    margin-top: 1rem;
+    justify-content: center;
+}
+
+/* A confirmation that takes itself away. Fixed rather than in the flow, because the
+   control that triggers it is often inside a collapsed disclosure well down the
+   page — a banner at the top would confirm a save nobody could see it confirm. */
+.toast {
+    position: fixed;
+    right: var(--gap);
+    bottom: var(--gap);
+    z-index: 60;
+
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+
+    padding: 0.6rem 0.9rem;
+    border: 1px solid var(--success);
+    border-radius: var(--radius);
+    background: var(--success-bg);
+    color: var(--success);
+    box-shadow: 0 6px 20px rgb(0 0 0 / 0.18);
+
+    animation: toast-in 140ms ease-out;
+}
+
+.toast-mark { font-weight: 700; }
+
+@keyframes toast-in {
+    from { opacity: 0; transform: translateY(0.4rem); }
+    to { opacity: 1; transform: none; }
+}
+
+/* Movement is decoration here; the message is the content. */
+@media (prefers-reduced-motion: reduce) {
+    .toast { animation: none; }
+}
+
+/* A card that reports a state rather than offering an action. The colour is the
+   answer — "is there anything left to do" should be readable without reading — and
+   it is a left edge rather than a filled block so that a page of cards does not
+   become a page of banners. */
+.card.status { border-left: 4px solid var(--border); }
+
+.card.status.attention { border-left-color: var(--warning); }
+
+.card.status.settled { border-left-color: var(--success); }
+
+.card.status > details > summary {
+    cursor: pointer;
+    font-weight: 600;
+    list-style-position: inside;
+}
+
+.card.status.attention > details > summary { color: var(--warning); }
+
+.card.status.settled > details > summary { color: var(--success); }
+
+.card.status .scoring-facts { margin-top: 0.75rem; }

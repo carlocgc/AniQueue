@@ -173,6 +173,51 @@ public sealed record ScoringPreview
 public sealed record ScoringApplyResult(int RunId, int Applied, int Skipped);
 
 /// <summary>
+/// How much of the backlog carries a ranking worth trusting.
+/// </summary>
+/// <remarks>
+/// The read half of D39. A score is not wrong because time passed — it is wrong
+/// because the history it was predicted against has grown, so "stale" means rated
+/// titles have been added since this one was scored rather than that a clock ran out.
+///
+/// Phase 8d's sweep picks its batches from exactly these two groups, never-scored
+/// first and then stalest. Both halves therefore come from one query, so what the
+/// page reports and what the job does cannot describe different backlogs.
+/// </remarks>
+public sealed record ScoringCoverage
+{
+    /// <summary>Titles waiting to be watched and visible.</summary>
+    public required int Waiting { get; init; }
+
+    /// <summary>Of those, how many carry a score at all.</summary>
+    public required int Ranked { get; init; }
+
+    /// <summary>Of those ranked, how many were scored before the taste they predict.</summary>
+    public required int Stale { get; init; }
+
+    public int Unranked => Math.Max(Waiting - Ranked, 0);
+
+    public int UpToDate => Math.Max(Ranked - Stale, 0);
+
+    /// <summary>
+    /// How many of the three groups actually have anything in them.
+    /// </summary>
+    /// <remarks>
+    /// Whether a breakdown is worth showing as a breakdown. With one group the total
+    /// equals it, so printing both says one number twice and invites the reader to
+    /// look for a difference that cannot exist.
+    /// </remarks>
+    public int Parts =>
+        (UpToDate > 0 ? 1 : 0) + (Stale > 0 ? 1 : 0) + (Unranked > 0 ? 1 : 0);
+
+    /// <summary>Whether there is anything left for a ranking run to usefully do.</summary>
+    public bool IsSettled => Waiting > 0 && Unranked == 0 && Stale == 0;
+
+    /// <summary>Whether the backlog has never been ranked at all.</summary>
+    public bool IsUntouched => Ranked == 0;
+}
+
+/// <summary>
 /// Everything known about why one title carries the score it does.
 /// </summary>
 /// <remarks>
@@ -223,6 +268,14 @@ public sealed record RecommendationRunSummary
     public int CompletedCount { get; init; }
 
     public bool WasApplied { get; init; }
+
+    /// <summary>How long the model took, when anything measured it.</summary>
+    /// <remarks>
+    /// Read back so the page can quote the last endpoint run as a scale for the next
+    /// one. Null for a manual ranking, and for anything applied before this was
+    /// recorded.
+    /// </remarks>
+    public TimeSpan? Duration { get; init; }
 }
 
 /// <summary>
@@ -298,12 +351,23 @@ public interface IRecommendationService
     /// Refuses a preview whose problems include an error. Nothing is applied in
     /// part (D31).
     /// </remarks>
+    /// <param name="duration">
+    /// How long the model took, when anything measured it.
+    /// </param>
+    /// <remarks>
+    /// Null for the manual path, where the wait happened in somebody else's chat
+    /// window. Recorded so the next run can say "your last one took six minutes" while
+    /// a person waits on one that reports no progress — a ranking arrives all at once,
+    /// so elapsed time is the only honest thing to show and it means nothing without
+    /// something to compare it to.
+    /// </remarks>
     Task<ScoringApplyResult> ApplyAsync(
         int profileId,
         ScoringPreview preview,
         string providerName,
         string? modelIdentifier = null,
         IProgress<OperationProgress>? progress = null,
+        TimeSpan? duration = null,
         CancellationToken cancellationToken = default);
 
     /// <summary>
@@ -325,6 +389,21 @@ public interface IRecommendationService
     Task<IReadOnlyList<RecommendationRunSummary>> GetRunsAsync(
         int profileId,
         int take = 20,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// How much of the backlog is ranked, and how much of that is worth trusting.
+    /// </summary>
+    /// <param name="staleAfterRatings">
+    /// How many further titles must be rated before a score counts as stale (D39).
+    /// </param>
+    /// <remarks>
+    /// Counted rather than listed, because the question it answers — "is there
+    /// anything left to do?" — needs three numbers and not several hundred rows.
+    /// </remarks>
+    Task<ScoringCoverage> GetCoverageAsync(
+        int profileId,
+        int staleAfterRatings,
         CancellationToken cancellationToken = default);
 
     // Reading and writing the request sizes used to live here, on ProfileSettings.

@@ -26,6 +26,23 @@ public enum ScoringEndpointFailure
     Rejected,
 
     /// <summary>
+    /// The request did not fit in the model's context window.
+    /// </summary>
+    /// <remarks>
+    /// Its own value because the remedy is specific and nothing else shares it: send
+    /// less history, offer fewer titles, or give the model a larger context. It is
+    /// also the one failure a scheduled sweep can act on by itself — a batch that did
+    /// not fit is a batch to halve rather than a run to abandon.
+    ///
+    /// <b>This is an input failure, and <see cref="Truncated"/> is an output one.</b>
+    /// They read alike and are fixed differently: one is the question being too long
+    /// to ask, the other the answer being too long to give. Sizing <c>max_tokens</c>
+    /// carefully does nothing for this, which is how it went unnoticed until a real
+    /// library met a real 8K model.
+    /// </remarks>
+    TooLarge,
+
+    /// <summary>
     /// It began an answer and stopped part-way through, having run out of output room.
     /// </summary>
     /// <remarks>
