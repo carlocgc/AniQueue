@@ -363,4 +363,17 @@ public class ScoringSweepJobTests
         Assert.Empty(library.Applied);
         Assert.Equal(3, endpoint.Calls);
     }
+
+    [Fact]
+    public async Task It_never_asks_for_more_than_there_is_work()
+    {
+        // Requests are ordered neediest-first, so a batch larger than the outstanding
+        // work still fixes the right titles — and then spends the model re-ranking ones
+        // that were already up to date, which on a small backlog is most of the run.
+        var (job, library, _, _, _) = Create(unranked: 6, o => o.BatchSize = 25);
+
+        await job.RunAsync(CancellationToken.None);
+
+        Assert.Equal([6], library.BatchSizes);
+    }
 }

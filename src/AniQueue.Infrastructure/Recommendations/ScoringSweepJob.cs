@@ -133,7 +133,15 @@ public sealed class ScoringSweepJob(
                 break;
             }
 
-            var outcome = await RunBatchAsync(current, batchSize, cancellationToken);
+            // Never larger than the work outstanding. The request is ordered
+            // neediest-first, so a batch of twenty-five against five unranked titles
+            // still fixes the right five — and then spends the model on twenty that
+            // did not need it, which on a small backlog is most of the run. Asking for
+            // exactly what is left also makes the log agree with the card above it.
+            var outcome = await RunBatchAsync(
+                current,
+                Math.Min(batchSize, coverage.Unranked + coverage.Stale),
+                cancellationToken);
 
             batches++;
 

@@ -1,3 +1,5 @@
+using AniQueue.Core.Domain;
+using AniQueue.Core.Recommendations;
 using AniQueue.Core.Settings;
 using AniQueue.Infrastructure.Settings;
 using Microsoft.Extensions.Configuration;
@@ -278,5 +280,42 @@ public class UserSettingsStoreTests : IDisposable
         {
             // A temp directory that outlives a test run is not worth failing over.
         }
+    }
+
+    [Fact]
+    public void The_schedule_binds_from_the_name_written_in_the_file()
+    {
+        // The one setting whose type is not a string, a number or a bool, and so the
+        // one whose binding is worth proving: the sweep declines silently when the
+        // schedule reads as Off, which is indistinguishable from a schedule nobody
+        // turned on.
+        var configuration = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["Scoring:Schedule"] = "Hourly",
+                ["Scoring:BatchSize"] = "40",
+                ["Scoring:SweepMinutes"] = "30",
+                ["Scoring:Enabled"] = "false"
+            })
+            .Build();
+
+        var options = new ScoringOptions();
+        configuration.GetSection(ScoringOptions.SectionName).Bind(options);
+
+        Assert.Equal(SyncSchedule.Hourly, options.Schedule);
+        Assert.Equal(40, options.BatchSize);
+        Assert.Equal(30, options.SweepMinutes);
+        Assert.False(options.Enabled);
+    }
+
+    [Fact]
+    public void An_unset_schedule_stays_off()
+    {
+        var options = new ScoringOptions();
+
+        new ConfigurationBuilder().Build().GetSection(ScoringOptions.SectionName).Bind(options);
+
+        Assert.Equal(SyncSchedule.Off, options.Schedule);
+        Assert.True(options.Enabled);
     }
 }
