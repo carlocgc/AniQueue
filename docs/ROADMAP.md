@@ -808,6 +808,12 @@ and D19's absence policy live.
 
 ### D21 — Unattended sync applies the unambiguous and holds the rest
 
+*Amended by D40 and D42 in what operates this, never in what it decides. The fetch button and its
+modal leave the Sources card; a background run that held something surfaces one "Review held
+changes" button, which re-fetches inline and renders the same review. Review still persists
+nothing, for the reason given below, and holding a fetch behind a button is what makes that
+possible.*
+
 The remote platform is where the user maintains their list, so the most recent sync is the
 better record and AniQueue should accept it without asking. But nobody is present to answer a
 question, and §6 forbids silently merging a match the application cannot confidently identify.
@@ -1270,6 +1276,9 @@ libraries. Seed a database or sync one.
 
 ### D28 — Enrichment wakes on a library change, without anything orchestrating it
 
+*Extended by D41, which gives every job the broadcast only the two sync entry points had, and adds
+the rule for how much work a wake-up is worth. The test stated here is the one D41 keeps.*
+
 *Amends D25's "sequencing is emergent" with the one thing emergence was missing: a reason to
 look.*
 
@@ -1503,6 +1512,10 @@ instant. Both clocks start on the first published tag, and neither can be wound 
 
 ### D35 — Remote scoring is a source card, not a settings page
 
+*Amended by D42. The card shape stated here survives and is why the Recommendations page still
+reads as Sources does; what leaves it is the run started from it. Connection settings, the shared
+sizes and the test remain on the card, and the schedule leaves for the single cadence of D40.*
+
 *Withdraws the `/settings` page Phase 8 was to create. Phase 10 creates it instead.*
 
 Phase 8 said it would build a dedicated `/settings` page holding only the model section, and
@@ -1568,6 +1581,11 @@ sync refactor inside a scoring phase and would make a regression found in 8c har
 and the entity is keyed `(ProfileId, Source)`, which a flat file cannot express, so the move has
 to answer the one-profile question somewhere more load-bearing than scoring did. Phase 10 is the
 settings phase and is already opening `ProfileSettings`, so it is where this belongs.
+
+**Phase 10a pulls that chunk forward, ahead of Phase 15.** D40 writes the task toggles to the
+file, and cannot while the entity still owns them — so the move happens first, on its own branch,
+rather than inside a tasks phase where a sync regression would be hard to attribute. That is the
+same argument this decision used to defer it out of Phase 8. The rest of Phase 10 is unaffected.
 
 *Until then the Sources page writes an account to the file and a schedule to the database, in
 one card.* That is the confusion this decision exists to end, and it is tolerable only because
@@ -1691,6 +1709,11 @@ should find a decision rather than an open question.
 
 ### D39 — Scoring re-runs when taste changes, not on a clock
 
+*Amended by D40 in one place only: how often staleness is checked is now the single task cadence
+rather than a scoring-specific schedule. The staleness rule below — N further titles rated — is
+what decides the work and is untouched. D41 adds that a library change scores what is new without
+re-scoring what has gone stale, which is what keeps an import from starting a full re-score.*
+
 A ranking is only as good as the history it was anchored to, and that history grows. A title
 dismissed at 4.2 against forty ratings may deserve 7.5 against three hundred, so re-scoring is
 normal rather than exceptional — but a job that re-scores continuously spends someone's
@@ -1719,6 +1742,207 @@ title *is* new information about that title, and is a reason to re-score it alon
 lands hundreds of ratings at one timestamp, so everything scored beforehand goes stale at once.
 That import genuinely changed everything the model knows, and the sweep works through it in
 batches rather than all at once.
+
+### D40 — Background work is a surface, not a side effect
+
+*Amends `IBackgroundJob`'s "a second job gets a second typed table", replaces every schedule with
+one, and deletes the reschedule-on-failure logic in both places it exists.*
+
+Three background jobs run and none of them can be seen. `UnattendedSyncJob` reads a schedule set
+on the Sources card, `ScoringSweepJob` reads one set on the Recommendations card, and
+`RelationBackfillJob` has no setting anywhere and leaves no record at all. Nothing says what is
+running now, nothing starts a run early, and nothing stops one.
+
+**Whether that was tolerable is answered by the surfaces built to compensate for it.** A
+*Refresh related titles* button on Sources, a last-synced line, a stalled banner, a coverage card
+on Recommendations — each one a hole punched through a page to see a single job through it. D28
+already recorded the failure mode in its own words: *an automatic job being operated by hand is a
+design that has failed regardless of what its timer says.*
+
+**Decision:** `/tasks` is where background work is seen and operated.
+
+**A row is a schedulable unit, not a job.** `UnattendedSyncJob` loops over sources that have their
+own enabled state and their own failure history, so one row for it would aggregate two of
+everything and *Run now* would mean "whichever of these are due". The runner therefore iterates
+units and calls the job once per unit — which is also what makes a per-source cancel expressible.
+MyAnimeList never appears at all: `CanFetch` is false, nothing runs on its behalf, and a row whose
+button is permanently disabled is a worse answer than no row.
+
+**One cadence, and it is the only clock.** `SourceSyncSettings.Schedule` and
+`ScoringOptions.Schedule` are deleted in favour of a single interval covering every task. Each job
+still decides for itself whether it has anything to do — that is D25's gate and it is untouched —
+but *when it is asked* is now one setting in one place. Two schedules that could disagree, on two
+pages, for a single-user application reading one list and one model, was a control surface nobody
+was using and a second thing to check when something had not run.
+
+**Nothing reschedules itself.** `UnattendedSyncJob.BackoffMultiplier` doubled a source's interval
+per consecutive failure to a cap of sixteen, and `BackgroundJobRunner` delayed its own loop on an
+unhandled exception to the same cap. Both are deleted.
+
+*The argument that lost is worth leaving legible, because it is a good one.* Backoff reasoned that
+the failures worth backing off from — a rate limit, an outage, an account that cannot be read —
+*none of them improve for being asked again on the dot.* True, and beside the point. What it costs
+to ask again is one request. What it costs not to is a schedule the user chose being rewritten by
+the application, invisibly, in response to a condition the user may already know about. A model
+served from a machine that is switched on for a few hours a day fails most of the time **by
+design**, and an application that answers that by stretching a daily check out to sixteen days
+looks broken rather than patient. A user-defined schedule is respected, including while the task
+is failing.
+
+**Which requires a `JobRun` row for an unhandled exception**, not only for a handled one. Due-ness
+is measured from the last run, so a job that throws before recording anything stays due and throws
+again on the next tick, forever. Recording the throw advances the clock, and is what makes it safe
+to delete the backoff that used to absorb it. The row carries a plain-words failure reason; the
+exception and its stack stay in the log, because §6 forbids the latter reaching a page.
+
+**`JobRun` is the record, and `SyncRun` stays exactly what it was.** This is the amendment to
+`IBackgroundJob`'s doctrine, and it is a narrowing rather than a reversal: a typed table remains
+where a job needs to *reason* about its own history — `SyncRun` still drives the Sources badges,
+D21's held counts and the stalled banner — while `JobRun` holds only what every task has in
+common, because that is what a page listing every task can render.
+
+*The alternative was to union the typed tables at read time, and it does not survive SQLite.*
+`SyncRun.StartedAt` and `RecommendationRun.CreatedAt` are both `DateTimeOffset`, which SQLite can
+neither order nor compare, so a merged, paged, time-ordered history would have to be sorted in
+memory over an unbounded set. One table ordered by `Id` has no such problem — the same workaround
+`BuildRequestAsync` already uses.
+
+**`RunAsync` returns what it did**, and the runner persists what it is handed. Computing the counts
+a second time in the runner would create two records of one event that could disagree, which is the
+objection `SourceSyncStatus.ConsecutiveFailures` already makes about a stored counter. Both jobs
+already produce exactly this shape: `RelationBackfillResult` and `UnattendedSyncResult` existed
+before this decision needed them.
+
+**Runs that found nothing to do are recorded; ticks that were not due are not.** A converged task
+and a broken task look identical if the page can only report the last run that changed something —
+relations in its steady state legitimately does nothing for weeks. *"Checked forty minutes ago,
+nothing to do"* is the single most reassuring line a task page has, and it costs one row per
+cadence. Retention is the last two hundred runs per task, pruned on insert: five tasks, a thousand
+rows, no cleaner and no policy setting.
+
+**Cancel means skip this cycle.** It is cooperative and lands at the next safe point — between
+batches, between requests, before a commit — and the button latches to *Stopping…*, as
+`BusyDialog` already does for the same reason. A cancelled run writes a `JobRun` row and **no**
+`SyncRun` row: nothing reached the library, so the library's audit trail has nothing to record, and
+`SyncOutcome` needs no new value that would otherwise leak into `ConsecutiveFailures` and raise a
+stalled banner over a button somebody pressed on purpose. Because due-ness reads `JobRun`, the
+cancelled run advances the clock, and the task next runs when it was next going to.
+
+*Mid-commit is safe, and this is why it can be stated rather than hoped:* `ImportService` opens an
+explicit transaction, so a token tripped inside `SaveChangesAsync` rolls the whole thing back.
+There is no half-applied sync.
+
+**A toggle per row, written to `userconfig.json`.** D36 already places the per-source settings
+there and Phase 10a moves them; the task toggles are the same values under a different button.
+`Sync:Enabled` is deleted rather than kept above them — a global switch over a single per-source
+switch, both in the same file, is one more thing to check and nothing D20's escape-hatch argument
+needs, since the file is equally reachable either way. `Scoring:Enabled` is unchanged and simply
+becomes that task's toggle. `Relations:Enabled` is new, and is a small reversal of *"there is no
+decision to offer"*: there was none while the job was invisible, and a row carrying a button and no
+switch invites the question.
+
+**Failure is reported on the row, in plain words. A log file was declined.**
+`SyncRun.FailureReason` already exists to be *"rendered to whoever opens the page"*, and replacing
+*profile is private* with *failed — go and read a file* would be a regression dressed as a
+simplification. Behind that line the log is stdout and nothing else: the container runtime captures
+it and every layer above Docker reads it from there, while a file written inside the container is
+invisible to all of them. Declining it also declines a §12 dependency approval, since
+`Microsoft.Extensions.Logging` ships no file provider and the shared framework has none either.
+Phase 11's README documents `docker logs` and the `max-size` / `max-file` options an operator
+should set, because the default `json-file` driver does not rotate.
+
+### D41 — A job announces what it changed; nothing announces what to run next
+
+*Extends D28's broadcast from the two sync entry points to every job, and adds the rule that
+decides how much work a wake-up is worth.*
+
+D28 gave the runner a second wake source so a sync's commits did not sit unenriched until the next
+tick, and it holds for exactly one hop. The second hop has no signal: relations writes edges, and
+the metadata job that wants them discovers them on its own timer. At a fifteen-minute tick that is
+invisible. Under D40's single relaxed cadence it is a day per link, so the three-job chain D25
+describes converges in three days.
+
+**Decision:** every job publishes when it changed something, and no job names another.
+
+**This is D28's mechanism rather than a new one.** The signal remains *the data changed*, never
+*run X next*, so D28's own test still passes: delete every broadcast and everything still
+converges, one cadence later. A job disabled, rerun or replaced affects nothing downstream except
+how soon it notices, which is what D25 asked for and what an orchestrator would take away.
+
+**Explicit chaining was considered and declined.** A sync that enqueued relations, which enqueued
+metadata, would give the same immediacy and a causal chain legible in the history. It also makes
+every job know what follows it, so disabling metadata silently breaks artwork — the coupling D25
+was written against. The legibility is recoverable without the coupling: `JobRun` records the
+trigger, so the history says *woken by a library change* rather than leaving it to be inferred.
+
+**A wake-up is not the same as a due run**, and conflating them is how a ten-second import turns
+into hours of somebody's GPU:
+
+| Trigger | Due-ness | Work selected |
+|---|---|---|
+| `Timer` | the cadence must have elapsed | new and stale |
+| `Manual` | skipped — the user is the timer | new and stale |
+| `LibraryChange` | skipped | new only |
+
+*The case that rule fixes is already documented in D39:* a MyAnimeList import lands hundreds of
+ratings at one timestamp, so every score taken before it goes stale at once. Under a bare broadcast
+that import immediately starts an unattended re-score of the whole back catalogue. Under this rule
+it scores what is new, and the re-score waits for the cadence, when nobody is standing over it. The
+two populations are already separated by `GetCoverageAsync`, which reports `Unranked` and `Stale`
+apart, so nothing new is computed to tell them apart.
+
+*And a manual run is a cadence check brought forward* — not a bigger run, and not a different one.
+That is what makes *Run now* safe to press: it cannot do work a scheduled run would not have done
+anyway, only sooner.
+
+**Terminating is structural.** A job publishes only when it changed something, exactly as
+`UnattendedSyncJob` already gates on `result.ChangedLibrary`, and a job woken with nothing to do
+changes nothing and therefore says nothing. Publish unconditionally and the jobs wake each other in
+a ring, each finding nothing; that is the one discipline this decision depends on.
+
+**What it costs:** `LibraryChange` is sync-shaped — `Source`, `Created`, `Updated`,
+`SlotsReleased`, `AbsentFlagged` — and has to generalise to carry "relations changed" or degrade to
+a bare signal. Nothing reads those fields to decide whether to run, so degrading is available if
+generalising turns ugly.
+
+### D42 — The model is only ever asked with nobody waiting
+
+*Withdraws 8c's interactive remote run, and with it the decisions built to make waiting bearable.*
+
+8c put a *Rank now* button on the Recommendations card and worked hard on the wait behind it:
+elapsed time with the previous run's duration for scale, a cancel that `BusyDialog` gained a
+parameter to support, and a soft guard for requests too large to plausibly come back. All of it
+correct, and all of it in service of a person sitting in front of a modal for ten minutes while a
+self-hosted model thinks. That is not a workable primary flow for the application's main work, and
+the two routes that do not require it — the copy-and-paste exchange and the scheduled sweep — are
+sufficient between them.
+
+**Decision:** a ranking arrives either by hand through the paste route, or from the sweep with
+nobody present. AniQueue never opens an outbound scoring request that somebody is waiting on.
+
+**`IScoringGate` is deleted, and this is what it was for.** Its whole purpose was deciding which of
+two claimants on a single-request-at-a-time model yields, and D39 settled it as *the person wins,
+and the sweep loses nothing*. Remove the person and `EnterInteractiveAsync` has no callers;
+`EnterSweepAsync` has none either, because a sweep and a *Run now* both go through the same
+`BackgroundJobRunner` loop, which is sequential, so two sweeps cannot overlap by construction. The
+interface, its implementation, its tests and the sweep's between-batch stand-down all go with it.
+
+**Test connection survives, and yields by interface rather than by lock.** It is the one outbound
+call left outside the runner, and firing it into a sweep batch would queue behind it and look like
+a timeout. The task registry already knows the scoring task is running, so the button is disabled
+while it is and says why. That is a smaller mechanism than a gate and a more honest one, because
+the user learns the model is busy rather than watching a test hang.
+
+**What is kept is everything local.** `BusyDialog` and `BusyScope` survive and still cover
+`PreviewAsync`, `ApplyAsync`, `BuildAsync`, the settings saves and the test — an apply is several
+hundred rows reporting real progress, and `BusyScope`'s show-delay means a small one never raises a
+dialog at all. What `BusyDialog` loses is its `OnCancel` parameter: its own comment records that
+the remote run was the first operation here where stopping was free, and it was also the last.
+
+**`RecommendationRun.DurationMilliseconds` is kept and its reasoning replaced.** It was argued for
+as something to show *while a person waits on a request with no progress to report*. Nobody waits
+now. The sweep still measures it and *Past rankings* still shows it, and what it answers — how long
+the model took — is worth knowing after the fact as well as during.
 
 ---
 
@@ -1821,6 +2045,32 @@ Keyed `(ProfileId, Source)`, which is why these are not on `ProfileSettings` (D2
 D18's precedence rank, D19's absence policy and D21's application and conflict policies. The
 account identifier is **not** here — it is operator configuration (D20).
 
+> **Deleted by Phase 10a.** D36 places every one of these in `userconfig.json`, and D40 depends
+> on the move because the task toggles are written there. The precedence rank becomes a single
+> key naming the primary source rather than an integer per row.
+
+### JobRun
+
+`Id, TaskKey, UnitKey?, Trigger, StartedAt, FinishedAt, Outcome, ItemsProcessed, ItemsChanged,
+FailureReason?`
+
+What every background task has in common, and the only table the tasks page reads (D40). Written
+by `BackgroundJobRunner` from the `JobRunOutcome` its job returned, so it cannot disagree with the
+typed record the job also wrote. `Outcome` distinguishes success, nothing-to-do, failure and
+cancellation — a cancelled run is not a failed one, and conflating them would raise a stalled
+banner over a button somebody pressed on purpose.
+
+`UnitKey` is the schedulable unit within a job, e.g. which source a sync read; null where the job
+has only one. Due-ness is read from here rather than from `SyncRun`, which is what makes a
+cancelled run skip its cycle instead of restarting on the next tick.
+
+Ordered and paged by `Id`. A `DateTimeOffset` can be neither ordered nor compared in SQLite, which
+is also why this is one table rather than a union over the typed ones.
+
+Pruned to the last two hundred rows per task on insert. Runs that found nothing to do are kept —
+a converged task and a broken one are otherwise indistinguishable — but a tick that was not due is
+not a run and is not recorded.
+
 ### SyncRun
 
 `Id, ProfileId, Source, StartedAt, FinishedAt?, Outcome, Created, Updated, Skipped,
@@ -1876,6 +2126,7 @@ carries `ProfileId` so multi-user — post-MVP per §10 — stays possible. Sett
 | `ISyncService` | Infrastructure | Orchestrates fetch → preview → apply per source; owns `SyncRun` |
 | `IAiRecommendationProvider` | Core | `ManualJsonRecommendationProvider` (Phase 7) and a hosted-endpoint provider (Phase 8). The interface is what keeps the second additive |
 | `IRuntimeCalculator` | **Core** | episode×duration maths, sums, formatting |
+| `ITaskRegistry` | Web | **Phase 15** — per-unit task state, the trigger channel and the cancellation source. The only thing the tasks page talks to; it never reaches a job (D40) |
 | `IIdMappingJob` | Infrastructure | Phase 9 — maps a title to TVDB/TMDB ids; gated on titles with no mapping (D25) |
 | `IArtworkService` | Infrastructure | Phase 9 — fetches and caches one image per title per type under `/data`; gated on what is missing (D25) |
 | `ICoverImageResolver` | Core | **Phase 9**, promoted from post-MVP by D25 and again by D34. The reason it was drawn — art must be served by AniQueue rather than hotlinked — is measured in §10 |
@@ -1946,6 +2197,13 @@ Never assume requests originate from localhost.
 generated, import committed, recommendation exported, recommendation imported, queue
 changed. Never log whole uploaded files, AI payloads, or secrets.
 
+**To stdout, and nowhere else.** The container runtime captures it and every layer above Docker
+reads it from there; a file written inside the container is invisible to all of them, needs a
+package the shared framework does not supply, and would grow inside the image's filesystem. What a
+user needs without reading a log at all — which task failed, and why, in plain words — is on the
+task's own row (D40). Phase 11's README covers `docker logs` and the `max-size` / `max-file`
+options an operator should set, because the default `json-file` driver does not rotate.
+
 **Performance.** Must handle several thousand anime. Server-side filtering, pagination or
 virtualisation, `AsNoTracking` for reads, async EF, real indexes. Never load the whole
 library for an ordinary page. AI export may intentionally load the full relevant set.
@@ -1990,6 +2248,14 @@ exist, so a gap costs less than making older citations point at the wrong work. 
 holds optional single-user authentication**, which arrived without a number of its own and needed
 to land before Phase 14 rather than after it. The gap is spent; nothing is renumbered.
 
+**Phase 15 is the same situation and takes the same answer.** Background tasks (D40, D41, D42)
+were not in the original plan and are the next thing built, ahead of Phase 9 — and `Phase 10a`,
+D36's per-source move, runs before even that because D40 depends on it. Renumbering to put them
+in execution order would mean rewriting 49 phase citations in this file and the phase numbers
+carried in source comments, making every existing citation point at the wrong work. **The number
+is identity; the table is not a running order.** The order of work is: 10a, 15a–15e, then 9, then
+the remainder of 10, then 11 onwards.
+
 | # | Phase | Exit criteria |
 |---|---|---|
 | 0 | Foundation | Solution + 5 projects build; F5 serves the app; repo hygiene in place |
@@ -2012,10 +2278,16 @@ to land before Phase 14 rather than after it. The gap is spent; nothing is renum
 | 8d | Scheduled sweep | A backlog scores itself in batches with nobody present, and idles when nothing has been rated |
 | 9 | Metadata + artwork | Ids mapped and art cached under `/data` by jobs that idle when there is nothing to fetch |
 | 10 | Settings page | One page for preferences; operator configuration shown and not editable |
+| 10a | Per-source settings to the file | `SourceSyncSettings` deleted; every sync setting read from `userconfig.json` |
 | 11 | Docker + README | Migrations squashed to one baseline; compose up, health check, container recreated without data loss |
 | 12 | Optional auth | A single-user login can be turned on; off by default, and off is still a supported deployment |
 | 13 | CI | Build and tests on every push; image built on a tag, published only once Phase 14 has run |
 | 14 | Security pass | §6's high-risk surfaces reviewed against the finished application; release gate opens |
+| 15a | Job contract | Jobs take a trigger and return an outcome; the runner drives units and reschedules nothing |
+| 15b | Job runs + cadence | Every executed run is recorded; one cadence drives every task; cancel skips a cycle |
+| 15c | Tasks page | Every task seen, started, cancelled and switched off from one page |
+| 15d | Scoring demolition | No outbound scoring request has anybody waiting on it |
+| 15e | Sources reshape | Sources is configuration, one review button and a file import |
 
 ### Phase 0 — Foundation
 Repo hygiene (`.gitignore`, `.gitattributes`, `.editorconfig`), solution and five projects,
@@ -2671,6 +2943,13 @@ failed: nothing answered, the model ran out of room, the schema rejected what ca
 for the last, what came back, bounded per D38.
 
 #### Phase 8c — Scoring surface
+
+> **Partly withdrawn by D42.** The card shape, the disclosures grouped by what they govern, the
+> shared sizes and the test all stand. What is deleted is the run started from the page and
+> everything built to make waiting on it bearable — so "the wait is honest" below describes a wait
+> that no longer exists, and is kept because the reasoning about `OperationProgress` and about what
+> a cancel costs is what D42 weighed against.
+
 The page becomes a Sources page (D35): a Remote card, a Manual card, a shared *How much to send*
 card, and a preview that replaces them. Settings sit behind `<details>` disclosures grouped by
 what they govern rather than by which card they sit on — connection, schedule, and the shared
@@ -2698,6 +2977,12 @@ produce JSON is a distinct outcome from one that does not answer, and it is the 
 would otherwise surface only after a ten-minute run.
 
 #### Phase 8d — Scheduled sweep
+
+> **Amended by D40, D41 and D42.** Its `Schedule` becomes the single task cadence; the gate and
+> the interactive stand-down are deleted with the run they yielded to; a library change now wakes
+> it for never-scored titles only. The batching, the error budget, the halving on `TooLarge` and
+> the reasoning about calibration drift are untouched.
+
 `ScoringSweepJob`, the third `IBackgroundJob` and the one that interface named in advance. Its
 `TickPeriod` is polling resolution, not schedule; the job decides whether it is due from a
 setting that can change while the application runs.
@@ -2760,6 +3045,12 @@ stronger property than either would have had alone.
 staleness rule are decided in memory over one column of the ranked backlog.
 
 ### Phase 9 — Metadata and artwork enrichment
+
+> **Runs after Phase 15, and gets easier for it.** Both jobs land into a structure that already
+> exists: registering them gives each a row, a run-now, a cancel, a toggle, a cadence and a
+> recorded history without writing any of it. D41's broadcast is how they hear about new work.
+> The blocker is unchanged — the `Fribb/anime-lists` licence still has not been read.
+
 Cross-service identifiers and artwork, fetched by background jobs and cached under `/data`.
 This is D25's chain reaching the two jobs it was written for, and D25's two schema warnings are
 the design rather than a caveat on it:
@@ -2796,6 +3087,13 @@ richer TMDB and TVDB art after the MVP with the id-mapping job; the art is a dec
 rather than decoration, and the filesystem cache under `/data` costs the same either way.
 
 ### Phase 10 — Settings page
+
+> **Smaller than it was, and split.** `Phase 10a` takes the per-source move out of it and runs
+> first, ahead of Phase 15 (D36). The single task cadence and the per-task toggles have found a
+> home on the tasks page rather than here (D40). What is left is the display preferences still in
+> `ProfileSettings` — theme, date format, default queue size, backlog defaults — and showing
+> operator configuration read-only.
+
 Creates `/settings` as the one place preferences are changed. Phase 8 was to have created it and
 does not (D35) — remote scoring lives on a card beside the route it serves, in the shape Sources
 already uses — so this page starts from nothing rather than expanding something. Its contents are
@@ -2915,6 +3213,92 @@ be distributed across the phases that created the surfaces:
 - Forwarded headers, error output in production, and the non-root container's permissions.
 
 Plus whatever the bug list has accumulated. It gates Phase 13's first published tag.
+
+### Phase 15 — Background tasks
+Everything the application does on its own becomes visible, operable and recorded (D40), every
+job learns to say what it changed (D41), and the modal wait in front of a model is deleted (D42).
+
+**It runs next, before Phase 9**, and `Phase 10a` runs before it — see §7's preamble for why the
+numbers and the order disagree.
+
+**The five parts are ordered so that the deletions come last.** 15d and 15e remove surfaces that
+are the only way to do certain things today, and removing them before the tasks page exists would
+leave a commit that is buildable, green and unusable — a state §7's exit criteria do not catch.
+
+#### Phase 10a — Per-source settings to the file
+D36's dagger, discharged early because D40 depends on it. `SourceSyncSettings` moves wholesale
+into `userconfig.json` and the entity, its table and its configuration are deleted; the primary
+source becomes a single key naming a source rather than a rank per row. Touches `SyncService`,
+`ImportService`, the Sources page and the seeder, which is exactly why it is not folded into a
+tasks phase.
+
+*Exit:* every sync setting is read from the file, the Sources card writes only there, the
+migration drops the table, and the suite is green.
+
+#### Phase 15a — The job contract
+`IBackgroundJob` takes a `JobRunContext` — trigger and unit — and returns a `JobRunOutcome`. Jobs
+expose the units they own, so `BackgroundJobRunner` iterates units and calls the job once per
+unit rather than the job looping sources inside itself. The runner gains a trigger channel and a
+per-run `CancellationTokenSource` linked to its stopping token, and loses both backoffs.
+`RelationBackfillJob` loses `MaxRequestsPerVisit` in favour of a time budget, because the ceiling
+was never the rate-limit guard — `RelationPacing` is — and a manual run that stops half-way is
+the behaviour this phase exists to remove. Every job publishes what it changed (D41).
+
+Deliberately behaviour-neutral: the same schedules drive the same work, outcomes go to the log,
+and nothing new is stored. That is what makes the next part's failures attributable.
+
+*Exit:* jobs run as before on the new contract; a cancelled run is distinguishable from a
+shutdown and from a failure; suite green.
+
+#### Phase 15b — Job runs and the cadence
+`JobRun` lands with pruning at two hundred rows per task. Due-ness moves off `SyncRun` onto
+`JobRun`, which is what makes "cancel skips this cycle" true rather than aspirational — without
+it a cancelled sync leaves no trace the due check can see and the next tick restarts it. The
+single `Tasks:Schedule` key replaces `SourceSyncSettings.Schedule` and `ScoringOptions.Schedule`.
+
+*Exit:* every executed run is recorded including the ones that found nothing; one cadence drives
+every task; a cancelled run advances the clock and the task next runs when it was going to.
+
+#### Phase 15c — The tasks page
+`/tasks`: a singleton registry each runner registers with, holding per-unit state, the started-at,
+the trigger channel and the token source. One row per schedulable unit with run now, cancel, an
+on/off toggle writing to `userconfig.json`, the last run, its outcome and its failure reason in
+plain words. One cadence control above them. A history card below, reading `JobRun`.
+
+The page talks only to the registry and never to a job, so the runner's sequential loop stays the
+only thing that executes anything. It stays live by subscribing to the registry's event, plus a
+one-second timer *only while something is running* — so an idle page left open costs nothing, and
+the subscription is disposed with the same discipline `BackgroundJobRunner` already documents for
+`ILibraryChangeNotifier`.
+
+Rows come from what is registered, so Phase 9's jobs appear as rows the day they are registered.
+
+*Exit:* every task can be seen, started, cancelled and switched off from one page, and a failing
+task says why on its own row.
+
+#### Phase 15d — Scoring demolition
+D42. The *Rank now* button, `RankRemotelyAsync`, the cancel, the soft guard, the waiting count,
+the previous-run duration display, the remote branch of the preview, `IScoringGate`, `ScoringGate`
+and their tests are deleted. `BusyDialog` loses `OnCancel`. *Test connection* is disabled while
+the scoring task runs and says so.
+
+*Exit:* no outbound scoring request exists that anybody is waiting on; the paste route and the
+sweep both still produce and apply a ranking.
+
+#### Phase 15e — Sources reshape
+The sync fetch modal goes. Sources keeps AniList configuration, the MyAnimeList file import and
+its dialog, and gains one *Review held changes* button — shown only when a background run held
+something, fetching inline with a spinner in the card rather than an overlay. D21's review is
+otherwise untouched, including that it persists nothing.
+
+*Refresh related titles* is replaced by *Delete all title relationships*, a destructive action
+that deletes the edges **and** nulls `AnimeExternalId.RelationsFetchedAt`. Nulling the markers is
+not optional: without it every title reads as already fetched and nothing rebuilds the graph until
+`StaleAfter` expires thirty days later. `IRelationBackfill.RefreshAsync` is deleted, since
+delete-and-forget plus the next relation run is what it did.
+
+*Exit:* Sources is configuration, one review button and a file import; the relation graph can be
+emptied and rebuilt from the tasks page.
 
 ---
 
