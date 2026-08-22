@@ -29,7 +29,7 @@ architectural decisions and acceptance criteria. Nothing here is installable yet
 | 5 | AniList read sync — reconciliation, on demand, then unattended | **complete** |
 | 6 | Relations — a title's prequels, sequels and spin-offs | **complete** |
 | 7 | Scoring interchange — export the backlog, bring a ranking back | **complete** |
-| 8 | Hosted model scoring — settings store, endpoint, scheduled sweep | in progress |
+| 8 | Hosted model scoring — settings store, endpoint, surface, scheduled sweep | **complete** |
 | 9–14 | Artwork → settings → Docker → auth → CI → security pass | planned |
 
 ## Documentation
@@ -103,6 +103,42 @@ and which source is **primary** are all on the same card.
 the application: the moment it is needed is the moment the UI may not be reachable.
 
 Only your list is read. Nothing is ever written back to AniList or MyAnimeList.
+
+## Ranking your backlog
+
+AniQueue asks a model to predict what **you** would rate each thing you are planning to watch,
+against the scores you have already given — so the answer is your taste rather than general
+reputation. It writes a score, a confidence and a sentence of reasoning, and it never touches
+your Up Next order.
+
+Two ways to get one, on the **Recommendations** page. Both send the same request and accept the
+same reply; only the carrying differs.
+
+- **By hand.** Build the request, paste it into any model you like, bring the answer back. No
+  configuration at all, and it works with a model you have no API access to.
+- **A model you host.** Point AniQueue at anything speaking the OpenAI chat-completions API —
+  LM Studio, Ollama, llama.cpp — and press **Rank now**. No account and no API key: it runs on
+  your own hardware.
+
+Nothing is written until you have seen what it would do. A reply that does not fit the schema is
+reported rather than repaired, because a score nobody can account for is exactly what this
+feature exists to avoid.
+
+### Letting it run on its own
+
+Turn on a schedule under **Run on a schedule** and AniQueue works through the backlog unattended,
+a batch at a time, stopping when there is nothing left that needs doing.
+
+It only ranks what is worth ranking: titles that have never been scored, and titles whose score
+has been overtaken by your later ratings. **A ranking goes out of date because you rated more
+shows, not because time passed** — so a library you have not touched costs nothing to leave the
+schedule switched on for, and the day you finish and rate a few more, it quietly brings the
+backlog back up to date.
+
+A run you press takes priority over one running in the background, and the card at the top of the
+page says whether there is anything outstanding.
+
+`Scoring:Enabled=false` is the kill switch, for the same reason sync has one.
 
 ## Settings
 

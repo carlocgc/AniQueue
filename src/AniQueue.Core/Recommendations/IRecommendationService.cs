@@ -401,6 +401,18 @@ public interface IRecommendationService
     /// Counted rather than listed, because the question it answers — "is there
     /// anything left to do?" — needs three numbers and not several hundred rows.
     /// </remarks>
+    /// <summary>When a run of this kind last happened, or null if never.</summary>
+    /// <remarks>
+    /// What the scheduled sweep decides "due" against. Taken from the run history
+    /// rather than remembered by the job, for the reason the sync job's is: a field
+    /// would forget across a restart, and a schedule that resets every time the
+    /// container is recreated is one that runs far more often than it was asked to.
+    /// </remarks>
+    Task<DateTimeOffset?> GetLastRunAtAsync(
+        int profileId,
+        string providerName,
+        CancellationToken cancellationToken = default);
+
     Task<ScoringCoverage> GetCoverageAsync(
         int profileId,
         int staleAfterRatings,

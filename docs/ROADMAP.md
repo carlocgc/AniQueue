@@ -2739,6 +2739,26 @@ browser tabs pressing the button at once.
 tell a scheduled sweep from a manual paste and the card can report when the sweep last ran and
 what it did. An unattended job that leaves no trace is indistinguishable from one that never ran.
 
+*Two things this section did not anticipate, both found by building it:*
+
+**A batch that will not fit halves rather than failing.** 8b gave `TooLarge` its own value on the
+strength of a real refusal — a request too long for the model's context, which is an input
+failure where `Truncated` is an output one. It is the only failure a sweep can act on by itself,
+so it does: the batch halves down to a floor of five and the attempt is not counted against the
+error budget, because the next one asks a different question. Without it a model with a small
+context would fail three times and stop, every night, having ranked nothing.
+
+**How much is left is a count, and so is what has been done.** D39's rule needed a read half
+before 8d could pick batches from it, and the Recommendations page needed the same numbers to
+say whether the work was finished — so `GetCoverageAsync` landed in 8c and both use it. What the
+page reports and what the job does therefore cannot describe different backlogs, which is a
+stronger property than either would have had alone.
+
+*Also worth recording, because it shaped the query:* SQLite can neither order nor compare a
+`DateTimeOffset`, which `BuildRequestAsync` already worked around by ordering history on
+`DateOnly` and `Id`. There is no such stand-in for "when was this rated", so both halves of the
+staleness rule are decided in memory over one column of the ranked backlog.
+
 ### Phase 9 — Metadata and artwork enrichment
 Cross-service identifiers and artwork, fetched by background jobs and cached under `/data`.
 This is D25's chain reaching the two jobs it was written for, and D25's two schema warnings are

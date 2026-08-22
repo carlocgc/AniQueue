@@ -1,5 +1,6 @@
 @page "/recommendations"
 @using System.Globalization
+@using AniQueue.Core.Domain
 @using AniQueue.Core.Recommendations
 @using AniQueue.Core.Settings
 @using Microsoft.Extensions.Options
@@ -14,6 +15,9 @@
 @* The second courier (D31). Injected even when nothing is configured, because
    whether an endpoint exists is a question the card asks it. *@
 @inject IScoringEndpoint Endpoint
+@* One model, one request at a time. Injected here so that pressing Rank now while a
+   sweep is running takes priority instead of queueing behind an hour of batches. *@
+@inject IScoringGate Gate
 @inject IJSRuntime JS
 @inject ILogger<Recommendations> Logger
 
@@ -280,6 +284,78 @@
                     Save
                 </button>
             </div>
+
+            @* Its own disclosure rather than a field among the connection details.
+               These are the settings that spend electricity while nobody is watching,
+               and burying them under the same triangle as a hostname makes them easy
+               to switch on without reading what they do. *@
+            <details class="source-settings">
+                <summary>Run on a schedule</summary>
+
+                <p class="muted">
+                    AniQueue can rank on its own — never touching your Up Next order, and
+                    never applying a reply it could not read in full. It works through the
+                    titles that have never been ranked first, then the ones your later
+                    ratings have overtaken.
+                </p>
+
+                <div class="field">
+                    <label for="scoring-schedule">Rank unattended</label>
+                    <select id="scoring-schedule" value="@_schedule"
+                            @onchange="e => _schedule = Enum.Parse<SyncSchedule>(e.Value?.ToString() ?? nameof(SyncSchedule.Off))">
+                        <option value="@SyncSchedule.Off">Never — only when I ask</option>
+                        <option value="@SyncSchedule.Hourly">Every hour</option>
+                        <option value="@SyncSchedule.EverySixHours">Every six hours</option>
+                        <option value="@SyncSchedule.Daily">Once a day</option>
+                        <option value="@SyncSchedule.Weekly">Once a week</option>
+                    </select>
+                    <p class="muted">
+                        A run stops as soon as there is nothing out of date, so leaving this
+                        on costs nothing on a backlog that is already ranked.
+                    </p>
+                </div>
+
+                <div class="field">
+                    <label for="scoring-batch">Titles per unattended request</label>
+                    <input id="scoring-batch" type="number" min="5" max="500"
+                           disabled="@_busy.IsRunning"
+                           @bind="_batchSize" @bind:event="oninput" />
+                    <p class="muted">
+                        Smaller batches fit a smaller model. If one turns out to be too big to
+                        read, AniQueue halves it and carries on rather than giving up.
+                    </p>
+                </div>
+
+                <div class="field">
+                    <label for="scoring-budget">Stop after (minutes)</label>
+                    <input id="scoring-budget" type="number" min="1" max="1440"
+                           disabled="@_busy.IsRunning"
+                           @bind="_sweepMinutes" @bind:event="oninput" />
+                    <p class="muted">
+                        How long one run may keep your model busy. Whatever it does not reach
+                        is picked up by the next one.
+                    </p>
+                </div>
+
+                <div class="field">
+                    <label for="scoring-stale">Re-rank after this many new ratings</label>
+                    <input id="scoring-stale" type="number" min="0" max="1000"
+                           disabled="@_busy.IsRunning"
+                           @bind="_staleAfterRatings" @bind:event="oninput" />
+                    <p class="muted">
+                        A ranking is only as good as the taste it was predicted against, so it
+                        goes out of date when you rate more shows rather than when time passes.
+                        Nobody has to pick an interval — it follows how much you actually
+                        watch. Zero leaves existing rankings alone for good.
+                    </p>
+                </div>
+
+                <div class="toolbar">
+                    <button class="primary" disabled="@_busy.IsRunning" @onclick="SaveScheduleAsync">
+                        Save
+                    </button>
+                </div>
+            </details>
 
             <p class="muted">
                 Saved to <code>@Settings.Path</code>, which is where to change it by hand if
@@ -761,6 +837,37 @@ else
 
     private int _staleAfterRatings = 5;
 
+    private SyncSchedule _schedule = SyncSchedule.Off;
+    private int _batchSize = 25;
+    private int _sweepMinutes = 60;
+
+    private async Task SaveScheduleAsync()
+    {
+        _batchSize = Math.Clamp(_batchSize, 5, 500);
+        _sweepMinutes = Math.Clamp(_sweepMinutes, 1, 1440);
+        _staleAfterRatings = Math.Clamp(_staleAfterRatings, 0, 1000);
+
+        var saved = await Settings.SaveAsync(Settings.Read() with
+        {
+            ScoringSchedule = _schedule,
+            ScoringBatchSize = _batchSize,
+            ScoringSweepMinutes = _sweepMinutes,
+            ScoringStaleAfterRatings = _staleAfterRatings
+        });
+
+        _error = saved.Saved ? null : $"Could not save to {saved.Path}: {saved.Error}";
+
+        if (saved.Saved)
+        {
+            await _toasts.ShowAsync("Schedule saved");
+        }
+
+        // The staleness threshold decides what the card above counts, so the card has
+        // to be recounted rather than left describing the rule that was in force a
+        // moment ago.
+        await CountWaitingAsync();
+    }
+
     /// <summary>The one line the card is read for.</summary>
     /// <remarks>
     /// Three states rather than two, because "nothing has been ranked yet" and "some
@@ -927,6 +1034,10 @@ else
         _timeoutSeconds = current.TimeoutSeconds;
         _structuredOutput = current.UseStructuredOutput;
 
+        _schedule = current.Schedule;
+        _batchSize = current.BatchSize;
+        _sweepMinutes = current.SweepMinutes;
+
         await LoadRunsAsync();
         await CountWaitingAsync();
     }
@@ -1070,6 +1181,14 @@ else
                     progress.Report(new OperationProgress(WaitingMessage(), Continues: true));
 
                     using var ticker = new PeriodicTimer(TimeSpan.FromSeconds(1));
+
+                    // Takes the model, waiting for a scheduled batch already in flight
+                    // if there is one. Claimed before sending rather than around the
+                    // whole run, because holding it is what tells the sweep to stand
+                    // down — and what the person waits for is one batch rather than the
+                    // rest of an hour.
+                    using var claim = await Gate.EnterInteractiveAsync(cancellation.Token);
+
                     var sending = Endpoint.AskAsync(request, cancellation.Token);
 
                     while (await ticker.WaitForNextTickAsync(CancellationToken.None))
