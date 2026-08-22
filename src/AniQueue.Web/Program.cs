@@ -3,6 +3,7 @@ using AniQueue.Core.Settings;
 using AniQueue.Infrastructure;
 using AniQueue.Infrastructure.Persistence;
 using AniQueue.Infrastructure.Persistence.Seeding;
+using AniQueue.Infrastructure.Recommendations;
 using AniQueue.Infrastructure.Settings;
 using AniQueue.Infrastructure.Sync;
 using AniQueue.Web.Components;
@@ -129,6 +130,12 @@ builder.Services.AddHostedService<BackgroundJobRunner<UnattendedSyncJob>>();
 // a backfill spreading itself across a rate limit must never be what delays a
 // queue advancing.
 builder.Services.AddHostedService<BackgroundJobRunner<RelationBackfillJob>>();
+
+// The third job, and the one that spends somebody's GPU rather than somebody
+// else's API budget — so it is off until it is turned on (D39). Its own runner
+// like the others: a sweep that runs for an hour must never be what delays a
+// queue advancing.
+builder.Services.AddHostedService<BackgroundJobRunner<ScoringSweepJob>>();
 
 // Registered even when the file is fine, so the banner component can ask without
 // caring whether a data directory was configured at all.

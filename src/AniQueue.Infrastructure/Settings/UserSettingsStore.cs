@@ -1,4 +1,5 @@
 using System.Globalization;
+using AniQueue.Core.Domain;
 using AniQueue.Core.Recommendations;
 using AniQueue.Core.Settings;
 using AniQueue.Infrastructure.Sync;
@@ -63,7 +64,24 @@ public sealed class UserSettingsStore(
 
         ScoringStaleAfterRatings = Number(
                 ScoringKey(nameof(ScoringOptions.StaleAfterRatings)))
-            ?? UserSettings.Defaults.ScoringStaleAfterRatings
+            ?? UserSettings.Defaults.ScoringStaleAfterRatings,
+
+        ScoringEnabled = Bool(
+            ScoringKey(nameof(ScoringOptions.Enabled)),
+            UserSettings.Defaults.ScoringEnabled),
+
+        ScoringSchedule = Enum.TryParse<SyncSchedule>(
+                configuration[ScoringKey(nameof(ScoringOptions.Schedule))], ignoreCase: true, out var schedule)
+            ? schedule
+            : UserSettings.Defaults.ScoringSchedule,
+
+        ScoringBatchSize = Number(
+                ScoringKey(nameof(ScoringOptions.BatchSize)))
+            ?? UserSettings.Defaults.ScoringBatchSize,
+
+        ScoringSweepMinutes = Number(
+                ScoringKey(nameof(ScoringOptions.SweepMinutes)))
+            ?? UserSettings.Defaults.ScoringSweepMinutes
     };
 
     private static string SyncKey(string key) => $"{SyncOptions.SectionName}:{key}";

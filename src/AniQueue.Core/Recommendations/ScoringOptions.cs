@@ -1,3 +1,5 @@
+using AniQueue.Core.Domain;
+
 namespace AniQueue.Core.Recommendations;
 
 /// <summary>
@@ -87,6 +89,48 @@ public class ScoringOptions
     /// choice for somebody who wants scores to stay put.
     /// </remarks>
     public int StaleAfterRatings { get; set; } = 5;
+
+    /// <summary>
+    /// The kill switch for scoring, mirroring <c>Sync:Enabled</c>.
+    /// </summary>
+    /// <remarks>
+    /// A configuration key for D20's reason: the moment it is needed is the moment
+    /// somebody wants a model to stop being hammered, which may be the moment the
+    /// pages cannot be reached. It refuses every run, scheduled or pressed.
+    /// </remarks>
+    public bool Enabled { get; set; } = true;
+
+    /// <summary>How often a sweep runs on its own. <see cref="SyncSchedule.Off"/> is the default.</summary>
+    /// <remarks>
+    /// Off, for the reason sync is off: a scheduled run is a thing the user turns on
+    /// having read what it does, and this one spends their electricity rather than
+    /// somebody else's API budget.
+    ///
+    /// The type is <c>SyncSchedule</c> and the name now lies slightly. Its values are
+    /// the vocabulary wanted here — never, hourly, six-hourly, daily, weekly — and
+    /// renaming it would touch every Sources surface for no behavioural gain, so the
+    /// wart is accepted rather than paid for.
+    /// </remarks>
+    public SyncSchedule Schedule { get; set; } = SyncSchedule.Off;
+
+    /// <summary>
+    /// How many titles one unattended batch carries.
+    /// </summary>
+    /// <remarks>
+    /// Twenty-five is about three thousand output tokens, which is inside any local
+    /// server's budget including a stingy default. Small enough that a failure costs
+    /// little and a stand-down is quick; large enough that a backlog of several
+    /// hundred is worked through in an evening rather than a fortnight.
+    /// </remarks>
+    public int BatchSize { get; set; } = 25;
+
+    /// <summary>How long one sweep may keep going, in minutes.</summary>
+    /// <remarks>
+    /// Bounded by time rather than by a batch count, because what the operator cares
+    /// about is how long their hardware is busy — not how many requests that took. A
+    /// sweep that finishes the backlog stops early regardless.
+    /// </remarks>
+    public int SweepMinutes { get; set; } = 60;
 
     /// <summary>Whether an endpoint has been configured at all.</summary>
     public bool HasEndpoint => !string.IsNullOrWhiteSpace(Endpoint);

@@ -107,7 +107,30 @@ internal static class UserSettingsDocument
                 "How many shows you must finish and rate before AniQueue counts existing",
                 "rankings as out of date. 0 never counts them stale."
             ],
-            s => s.ScoringStaleAfterRatings)
+            s => s.ScoringStaleAfterRatings),
+
+        new(
+            "Scoring:Enabled",
+            ["Ranking at all. false stops every run, scheduled or pressed."],
+            s => s.ScoringEnabled),
+
+        new(
+            "Scoring:Schedule",
+            [
+                "Rank unranked and out-of-date titles on your own hardware, unattended.",
+                "Off, Hourly, EverySixHours, Daily or Weekly. Off does nothing on its own."
+            ],
+            s => s.ScoringSchedule.ToString()),
+
+        new(
+            "Scoring:BatchSize",
+            ["Titles per unattended request. Smaller fits a smaller model."],
+            s => s.ScoringBatchSize),
+
+        new(
+            "Scoring:SweepMinutes",
+            ["How long one unattended run may keep your model busy."],
+            s => s.ScoringSweepMinutes)
     ];
 
     /// <summary>The keys this document writes, for the test that guards the list.</summary>

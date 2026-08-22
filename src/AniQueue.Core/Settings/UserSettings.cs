@@ -1,3 +1,5 @@
+using AniQueue.Core.Domain;
+
 namespace AniQueue.Core.Settings;
 
 /// <summary>
@@ -88,6 +90,18 @@ public sealed record UserSettings
 
     /// <summary>How many further titles must be rated before a score is stale (D39).</summary>
     public int ScoringStaleAfterRatings { get; init; } = 5;
+
+    /// <summary>The kill switch for scoring, mirroring SyncEnabled.</summary>
+    public bool ScoringEnabled { get; init; } = true;
+
+    /// <summary>How often an unattended sweep runs. Off by default.</summary>
+    public SyncSchedule ScoringSchedule { get; init; } = SyncSchedule.Off;
+
+    /// <summary>How many titles one unattended batch carries.</summary>
+    public int ScoringBatchSize { get; init; } = 25;
+
+    /// <summary>How long one sweep may keep going, in minutes.</summary>
+    public int ScoringSweepMinutes { get; init; } = 60;
 
     // Scoring:IncludePersonalNotes is not offered, because nothing can write a
     // personal note yet. LibraryEntry.PersonalNotes has a column, §6 protects it,

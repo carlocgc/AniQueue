@@ -48,6 +48,16 @@ public static class SettingsServiceCollectionExtensions
     /// </remarks>
     public static IServiceCollection AddAniQueueScoringEndpoint(this IServiceCollection services)
     {
+        // A rendezvous between a background sweep and whichever circuit pressed Rank
+        // now, so a singleton for the same reason ILibraryChangeNotifier is one:
+        // neither half has any other way to reach the other.
+        services.AddSingleton<IScoringGate, ScoringGate>();
+
+        // Scoped, and resolved once per tick by whatever runs it, like every other
+        // background job here. It holds nothing between runs: what it needs to know
+        // about the last one is in the run record, which survives a restart.
+        services.AddScoped<ScoringSweepJob>();
+
         services.AddSingleton<IScoringEndpoint>(serviceProvider =>
         {
             var handler = new SocketsHttpHandler
