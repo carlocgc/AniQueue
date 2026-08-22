@@ -1,0 +1,23 @@
+@using AniQueue.Web.Services
+
+@* Presentational only. The timing lives in ToastScope so that every confirmation in
+   the application behaves identically, the same division BusyDialog and BusyScope
+   already use. *@
+
+@if (State.IsVisible)
+{
+    @* aria-live rather than a role that steals focus. A confirmation is worth
+       announcing and never worth interrupting for — the user has already moved on to
+       whatever they were doing, and a message that grabs the keyboard to say "Saved"
+       would cost more than it tells. *@
+    <div class="toast" role="status" aria-live="polite">
+        <span class="toast-mark" aria-hidden="true">✓</span>
+        <span>@State.Message</span>
+    </div>
+}
+
+@code {
+    /// <summary>The scope driving this toast. Owned by the page.</summary>
+    [Parameter, EditorRequired]
+    public required ToastScope State { get; set; }
+}

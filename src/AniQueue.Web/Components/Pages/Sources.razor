@@ -1,4 +1,5 @@
 @page "/sources"
+@implements IDisposable
 @using AniQueue.Core.Settings
 @using AniQueue.Infrastructure.Sync
 @using Microsoft.Extensions.Options
@@ -11,6 +12,11 @@
 @inject ILogger<Sources> Logger
 
 <PageTitle>Sources — AniQueue</PageTitle>
+
+@* Confirmations only, and this is the page that needed one most: several controls
+   here save the moment they are changed, so until now a setting that worked and a
+   setting that did nothing looked exactly alike. *@
+<Toast State="_toasts" />
 
 <div class="page-header">
     <h1>Sources</h1>
@@ -573,9 +579,15 @@
     private AnimeSource? PendingSource => IsPreviewing ? _pendingSource : null;
 
     private BusyScope _busy = null!;
+    private ToastScope _toasts = null!;
 
-    protected override void OnInitialized() =>
+    protected override void OnInitialized()
+    {
         _busy = new BusyScope(() => InvokeAsync(StateHasChanged));
+        _toasts = new ToastScope(() => InvokeAsync(StateHasChanged));
+    }
+
+    public void Dispose() => _toasts.Dispose();
 
     protected override Task OnInitializedAsync() => LoadAsync();
 
@@ -627,6 +639,8 @@
             _accountError = $"Could not save to {result.Path}: {result.Error}";
             return;
         }
+
+        await _toasts.ShowAsync("Username saved");
 
         // Reloaded rather than assumed: the status carries whether the source is
         // configured and what it is reading, and both have just changed. Sync now has
@@ -742,6 +756,11 @@
         change(status.Settings);
         await SyncService.SaveSettingsAsync(status.Settings);
         await LoadAsync();
+
+        // These are the controls that most needed saying so: they save the moment they
+        // are changed, with no button to go quiet afterwards, so until now a checkbox
+        // that worked and a checkbox that did nothing looked identical.
+        await _toasts.ShowAsync("Saved");
     }
 
     private async Task OnTitleLanguageChangedAsync(ChangeEventArgs e)
@@ -753,6 +772,8 @@
 
         _titleLanguage = language;
         await SyncService.SavePreferredTitleLanguageAsync(Profile.DefaultProfileId, language);
+
+        await _toasts.ShowAsync("Saved");
     }
 
     private static int ParseInt(object? value, int fallback) =>

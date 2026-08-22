@@ -37,6 +37,11 @@
 <BusyDialog State="_busy" OnCancel="@(_running is null ? default : EventCallback.Factory.Create(this, CancelRun))"
             CancelLabel="Stop waiting" />
 
+@* Confirmations only. A save that failed says so in a notice that stays until it is
+   dealt with; a save that worked has nothing to leave behind but the fact that it
+   happened, and silence is indistinguishable from a button that does nothing. *@
+<Toast State="_toasts" />
+
 @if (_error is not null)
 {
     <div class="notice error" role="alert">@_error</div>
@@ -705,6 +710,7 @@ else
     private const string ResponseExample = """{ "results": [ … ] }""";
 
     private BusyScope _busy = default!;
+    private ToastScope _toasts = default!;
     private IJSObjectReference? _module;
 
     private ScoringRequest? _request;
@@ -758,8 +764,11 @@ else
         : null;
 
 
-    protected override void OnInitialized() =>
+    protected override void OnInitialized()
+    {
         _busy = new BusyScope(() => InvokeAsync(StateHasChanged));
+        _toasts = new ToastScope(() => InvokeAsync(StateHasChanged));
+    }
 
     protected override async Task OnInitializedAsync()
     {
@@ -1019,7 +1028,16 @@ else
         });
 
         _error = saved.Saved ? null : $"Could not save to {saved.Path}: {saved.Error}";
+
+        // Cleared because it describes a connection that may no longer be the one
+        // configured: a green "answered in 1s" sitting under a hostname somebody has
+        // just changed is a claim about the wrong server.
         _testResult = null;
+
+        if (saved.Saved)
+        {
+            await _toasts.ShowAsync("Connection saved");
+        }
     }
 
     private async Task SaveSizesAsync()
@@ -1040,6 +1058,11 @@ else
         _returnTop = options.ReturnTop;
 
         _error = saved.Saved ? null : $"Could not save to {saved.Path}: {saved.Error}";
+
+        if (saved.Saved)
+        {
+            await _toasts.ShowAsync("Sizes saved");
+        }
 
         // Re-measured, because the size on the Remote card is derived from the history
         // that was current when it was taken. Without this the card answers "40 scored
@@ -1325,6 +1348,10 @@ else
 
     public async ValueTask DisposeAsync()
     {
+        // Cancels a dismissal still counting down, so a toast shown just before the
+        // user navigated does not wake up to notify a page that has gone.
+        _toasts.Dispose();
+
         if (_module is not null)
         {
             try
