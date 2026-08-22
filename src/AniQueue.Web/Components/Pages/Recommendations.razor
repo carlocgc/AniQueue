@@ -340,30 +340,40 @@
        one-setting exactly. Same lift, same reason, as the title language control on
        Sources. *@
     <div class="card">
+        @* Bounded by the library rather than by an arbitrary ceiling. These offered
+           anything up to five thousand — the clamp the storage happens to apply — on a
+           library with a hundred and eighty titles waiting and five hundred scored, so
+           every value past the real count meant the same thing as the real count while
+           looking like a choice. A control whose range is mostly fiction teaches that
+           its numbers do not matter, which is the opposite of what these need to
+           teach: this is the page where a number too large is how a request stops
+           fitting in a model. *@
         <details class="source-settings">
-            <summary>How much to send</summary>
+            <summary>Settings</summary>
 
             <div class="field">
                 <label for="candidate-limit">Titles to rank</label>
-                <input id="candidate-limit" type="number" min="1" max="5000"
-                       placeholder="All of them" disabled="@_busy.IsRunning"
+                <input id="candidate-limit" type="number" min="1" max="@_waitingCount"
+                       placeholder="All @_waitingCount of them" disabled="@_busy.IsRunning"
                        @bind="_candidateLimit" @bind:event="oninput" />
                 <p class="muted">
-                    Leave this empty to offer everything you are planning to watch. If your
-                    model struggles with a long list, set a number — each request then takes
-                    the titles that have gone longest without a score, so running it again
-                    works through the rest.
+                    Leave this empty to offer everything you are planning to watch — all
+                    @_waitingCount of them, and it stays "everything" as your backlog grows.
+                    If your model struggles with a long list, set a number: each request then
+                    takes the titles that have gone longest without a score, so running it
+                    again works through the rest.
                 </p>
             </div>
 
             <div class="field">
                 <label for="return-top">Rankings to ask for back</label>
-                <input id="return-top" type="number" min="1" max="5000"
+                <input id="return-top" type="number" min="1" max="@MaxReturnTop"
                        placeholder="One for every title" disabled="@_busy.IsRunning"
                        @bind="_returnTop" @bind:event="oninput" />
                 <p class="muted">
                     The model still weighs every title you send; this asks it to return only
-                    the best of them. Worth setting when the reply is the slow part — a
+                    the best of them. At most @MaxReturnTop, because nothing can come back
+                    that was not offered. Worth setting when the reply is the slow part — a
                     ranking with a sentence of reasoning per title is generated a word at a
                     time, and a long one can run out of room halfway down the list.
                 </p>
@@ -371,14 +381,15 @@
 
             <div class="field">
                 <label for="history-size">Scored titles to send as history</label>
-                <input id="history-size" type="number" min="0" max="5000"
+                <input id="history-size" type="number" min="0" max="@_scoredCount"
                        disabled="@_busy.IsRunning"
                        @bind="_historySize" @bind:event="oninput" />
                 <p class="muted">
-                    Most recently finished first. More history means a ranking that fits your
-                    taste more closely, up to the point where it crowds out the backlog in
-                    your model's context. Zero sends none, and the ranking is then general
-                    rather than yours.
+                    Most recently finished first, out of the @_scoredCount titles you have
+                    scored. More history means a ranking that fits your taste more closely,
+                    up to the point where it crowds out the backlog in your model's context —
+                    it is the larger half of a request, and the usual reason one is too big to
+                    read. Zero sends none, and the ranking is then general rather than yours.
                 </p>
             </div>
 
@@ -667,6 +678,20 @@ else
     /// <summary>Titles waiting to be ranked, for the Remote card to quote.</summary>
     private int _waitingCount;
 
+    /// <summary>Scored titles that exist, which is the most history there can be.</summary>
+    private int _scoredCount;
+
+    /// <summary>
+    /// The most rankings that could come back, which is however many were offered.
+    /// </summary>
+    /// <remarks>
+    /// Follows the candidate limit rather than the backlog: asking for fifty back out
+    /// of a request that offers twenty-five is not a smaller answer, it is an
+    /// impossible one, and the preview would then report twenty-five omissions the
+    /// user never chose.
+    /// </remarks>
+    private int MaxReturnTop => Math.Max(Math.Min(_candidateLimit ?? _waitingCount, _waitingCount), 1);
+
     /// <summary>Characters in a one-candidate request, so the fixed part can be sized.</summary>
     private int _baselineCharacters;
 
@@ -818,6 +843,7 @@ else
             ScoringRequestOptions.From(_historySize, candidateLimit: 2));
 
         _waitingCount = baseline.CandidatesAvailable;
+        _scoredCount = baseline.HistoryAvailable;
         _baselineCharacters = ScoringRequestWriter.Write(baseline).Length
             + ScoringPromptBuilder.Build(baseline).Length;
 
@@ -1042,6 +1068,27 @@ else
 
     private async Task SaveSizesAsync()
     {
+        // Bounded by the library before the storage bounds them by its own ceiling. The
+        // max attributes above stop a spinner going past the real count, and a typed or
+        // pasted number walks straight past those — a control that gates only in the
+        // browser gates only the people who were not going to overshoot anyway.
+        //
+        // Asking for more than exists was never an error and never will be: the request
+        // simply carries what there is. What it was, was a number on screen that did not
+        // describe anything, on the one page where a number too large is how a request
+        // stops fitting in a model.
+        _historySize = Math.Clamp(_historySize, 0, Math.Max(_scoredCount, 0));
+
+        if (_candidateLimit is { } candidates)
+        {
+            _candidateLimit = Math.Clamp(candidates, 1, Math.Max(_waitingCount, 1));
+        }
+
+        if (_returnTop is { } top)
+        {
+            _returnTop = Math.Clamp(top, 1, MaxReturnTop);
+        }
+
         var options = ScoringRequestOptions.From(_historySize, _candidateLimit, _returnTop);
 
         var saved = await Settings.SaveAsync(Settings.Read() with
