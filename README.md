@@ -38,6 +38,7 @@ architectural decisions and acceptance criteria. Nothing here is installable yet
 |---|---|
 | [`docs/ROADMAP.md`](docs/ROADMAP.md) | Authoritative plan: architecture, domain model, phases, decisions |
 | [`docs/BUILD-PROMPT.md`](docs/BUILD-PROMPT.md) | Original project brief, preserved for reference |
+| [`CLAUDE.md`](CLAUDE.md) | Working conventions: the development database, verification, testing, platform gotchas |
 
 ## Technology
 
