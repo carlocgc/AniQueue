@@ -199,6 +199,17 @@ public sealed record ScoringCoverage
 
     public int UpToDate => Math.Max(Ranked - Stale, 0);
 
+    /// <summary>
+    /// How many of the three groups actually have anything in them.
+    /// </summary>
+    /// <remarks>
+    /// Whether a breakdown is worth showing as a breakdown. With one group the total
+    /// equals it, so printing both says one number twice and invites the reader to
+    /// look for a difference that cannot exist.
+    /// </remarks>
+    public int Parts =>
+        (UpToDate > 0 ? 1 : 0) + (Stale > 0 ? 1 : 0) + (Unranked > 0 ? 1 : 0);
+
     /// <summary>Whether there is anything left for a ranking run to usefully do.</summary>
     public bool IsSettled => Waiting > 0 && Unranked == 0 && Stale == 0;
 

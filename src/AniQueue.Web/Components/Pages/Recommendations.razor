@@ -92,10 +92,23 @@
                             <dd>@coverage.Unranked</dd>
                         </div>
                     }
-                    <div>
-                        <dt>Waiting</dt>
-                        <dd>@coverage.Waiting</dd>
-                    </div>
+
+                    @* A total, and only when there are parts to total. These are shares
+                       of one backlog, so when the backlog is entirely one share the
+                       total is that share printed a second time — "up to date 180,
+                       waiting 180" said nothing twice and left the reader working out
+                       whether the two numbers were meant to differ.
+
+                       It is also no longer called "waiting", which meant "waiting to be
+                       watched" here and "waiting to be ranked" two cards down: one word
+                       for two counts on one page, one of which was wrong. *@
+                    @if (coverage.Parts > 1)
+                    {
+                        <div>
+                            <dt>Total</dt>
+                            <dd>@coverage.Waiting</dd>
+                        </div>
+                    }
                 </dl>
 
                 @if (coverage.Stale > 0)
@@ -138,9 +151,15 @@
 
             @if (_waitingCount > 0)
             {
+                @* "Waiting to be ranked" until it was read next to a card reporting all
+                   of them already ranked. It was never the unranked count — it is the
+                   backlog, which is what a run covers whether those titles carry a
+                   score or not, since re-ranking is the normal case rather than the
+                   exception. So it says which it is. *@
                 <p class="muted">
-                    @_waitingCount @Plural(_waitingCount, "title", "titles") waiting to be
-                    ranked. Local models usually take several minutes to answer.
+                    A run covers your backlog — @_waitingCount
+                    @Plural(_waitingCount, "title", "titles"). Local models usually take
+                    several minutes to answer.
                 </p>
 
                 @* The size of the question, beside the size of the answer. Only the
@@ -732,7 +751,7 @@ else
     /// <summary>Cancels a run in flight. Null when nothing is running.</summary>
     private CancellationTokenSource? _running;
 
-    /// <summary>Titles waiting to be ranked, for the Remote card to quote.</summary>
+    /// <summary>Titles in the visible backlog, which is what a run covers.</summary>
     private int _waitingCount;
 
     /// <summary>Scored titles that exist, which is the most history there can be.</summary>
