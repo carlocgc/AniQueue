@@ -84,6 +84,18 @@
                     @_waitingCount @Plural(_waitingCount, "title", "titles") waiting to be
                     ranked. Local models usually take several minutes to answer.
                 </p>
+
+                @* The size of the question, beside the size of the answer. Only the
+                   output was ever bounded, which is why a request of twenty-five titles
+                   could still be refused for being too long to read — the history
+                   travels with every one of them and is by far the larger half. A
+                   number nobody can see is one nobody can act on. *@
+                <p class="muted">
+                    A request sends @_historySize scored
+                    @Plural(_historySize, "title", "titles") as history — roughly
+                    @Tokens(EstimatedRequestTokens) to read. Your model needs a context
+                    window at least that large.
+                </p>
             }
         }
 
@@ -650,6 +662,38 @@ else
     /// <summary>Titles waiting to be ranked, for the Remote card to quote.</summary>
     private int _waitingCount;
 
+    /// <summary>Characters in a one-candidate request, so the fixed part can be sized.</summary>
+    private int _baselineCharacters;
+
+    /// <summary>Characters one candidate adds, measured rather than assumed.</summary>
+    private int _perCandidateCharacters;
+
+    /// <summary>
+    /// Roughly how much a run would ask the model to read.
+    /// </summary>
+    /// <remarks>
+    /// Measured from two real requests at startup rather than estimated from a formula,
+    /// because a candidate's size depends on how many identifiers and title variants it
+    /// carries and that varies by library. Four characters to the token is the usual
+    /// rule of thumb, and this is a rule-of-thumb number: it exists to tell somebody
+    /// whether they are near their model's limit, not to predict the tokeniser.
+    /// </remarks>
+    private int EstimatedRequestTokens
+    {
+        get
+        {
+            var candidates = Math.Min(_candidateLimit ?? _waitingCount, _waitingCount);
+            var characters = _baselineCharacters + (Math.Max(candidates - 1, 0) * _perCandidateCharacters);
+
+            return characters / 4;
+        }
+    }
+
+    /// <summary>A token count as a person would read it.</summary>
+    private static string Tokens(int tokens) => tokens < 1000
+        ? $"{tokens} tokens"
+        : $"{tokens / 1000.0:0.#}K tokens";
+
     /// <summary>
     /// The shape the field expects, shown while it is empty.
     /// </summary>
@@ -750,11 +794,27 @@ else
     /// </remarks>
     private async Task CountWaitingAsync()
     {
-        var request = await Scoring.BuildRequestAsync(
+        // Two requests rather than one, and the second is what makes the size on the
+        // card mean anything: a request with the real history and one candidate is the
+        // fixed cost, and the difference against two candidates is what each further
+        // title adds. Measuring beats estimating here because a candidate carrying
+        // three title variants and two external ids is several times the size of one
+        // added by hand, and which a library has is not something to guess at.
+        var baseline = await Scoring.BuildRequestAsync(
             Profile.DefaultProfileId,
-            new ScoringRequestOptions { MaxHistory = 0, MaxCandidates = 1 });
+            ScoringRequestOptions.From(_historySize, candidateLimit: 1));
 
-        _waitingCount = request.CandidatesAvailable;
+        var withTwo = await Scoring.BuildRequestAsync(
+            Profile.DefaultProfileId,
+            ScoringRequestOptions.From(_historySize, candidateLimit: 2));
+
+        _waitingCount = baseline.CandidatesAvailable;
+        _baselineCharacters = ScoringRequestWriter.Write(baseline).Length
+            + ScoringPromptBuilder.Build(baseline).Length;
+
+        _perCandidateCharacters = Math.Max(
+            ScoringRequestWriter.Write(withTwo).Length - ScoringRequestWriter.Write(baseline).Length,
+            0);
     }
 
     private async Task BuildAsync()
@@ -855,7 +915,7 @@ else
                     // ranking to show. What can honestly be said is how long it has been
                     // waiting, and — after a first run — how long that took, which is the
                     // difference between "this is hung" and "this is normal".
-                    progress.Report(new OperationProgress(WaitingMessage()));
+                    progress.Report(new OperationProgress(WaitingMessage(), Continues: true));
 
                     using var ticker = new PeriodicTimer(TimeSpan.FromSeconds(1));
                     var sending = Endpoint.AskAsync(request, cancellation.Token);
@@ -868,7 +928,7 @@ else
                         }
 
                         _elapsed += TimeSpan.FromSeconds(1);
-                        progress.Report(new OperationProgress(WaitingMessage()));
+                        progress.Report(new OperationProgress(WaitingMessage(), Continues: true));
                     }
 
                     return await sending;
@@ -980,6 +1040,13 @@ else
         _returnTop = options.ReturnTop;
 
         _error = saved.Saved ? null : $"Could not save to {saved.Path}: {saved.Error}";
+
+        // Re-measured, because the size on the Remote card is derived from the history
+        // that was current when it was taken. Without this the card answers "40 scored
+        // titles — roughly 27.1K tokens", which is the old cost beside the new count and
+        // is worse than showing nothing: the number exists to be acted on, and one that
+        // does not move when the setting does teaches that acting on it is pointless.
+        await CountWaitingAsync();
     }
 
     private async Task DownloadRequestAsync()

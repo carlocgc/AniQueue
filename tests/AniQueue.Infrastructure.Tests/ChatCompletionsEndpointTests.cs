@@ -352,6 +352,76 @@ public class ChatCompletionsEndpointTests
         Assert.False(parsed.HasErrors);
         Assert.Equal([1], parsed.Response!.Results.Select(r => r.Id));
     }
+
+    [Fact]
+    public async Task A_request_too_big_for_the_context_says_so_and_says_what_to_change()
+    {
+        // The body LM Studio actually returned, against a real 8K model. Reported as
+        // "answered 400 Bad Request" this is a dead end: the remedy sits inside a
+        // disclosure, and none of the three things that would fix it are named.
+        var (endpoint, _) = Create(_ => Json(
+            """
+            {"error":{"code":400,"message":"request (13782 tokens) exceeds the available context size (8192 tokens), try increasing it","type":"exceed_context_size_error","n_prompt_tokens":13782,"n_ctx":8192}}
+            """,
+            HttpStatusCode.BadRequest));
+
+        var result = await endpoint.AskAsync(Request());
+
+        Assert.Equal(ScoringEndpointFailure.TooLarge, result.Failure);
+
+        // Both numbers, because how far over decides which remedy is enough.
+        Assert.Contains("13782", result.Message!, StringComparison.Ordinal);
+        Assert.Contains("8192", result.Message!, StringComparison.Ordinal);
+
+        // And the remedies, in the order they cost the user anything.
+        Assert.Contains("history", result.Message!, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("context window", result.Message!, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task A_context_failure_without_numbers_still_says_what_to_change()
+    {
+        // Servers word this differently and some wrap it past recognition. The advice
+        // does not depend on the numbers, so their absence must not cost the message.
+        var (endpoint, _) = Create(_ => Json(
+            """{"error":"This model's maximum context length is 8192 tokens."}""",
+            HttpStatusCode.BadRequest));
+
+        var result = await endpoint.AskAsync(Request());
+
+        Assert.Equal(ScoringEndpointFailure.TooLarge, result.Failure);
+        Assert.Contains("too big", result.Message!, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task An_ordinary_rejection_is_not_mistaken_for_one_that_did_not_fit()
+    {
+        // The floor on the match: a 400 about something else keeps the generic message
+        // and the server's own words, because inventing advice about a problem we did
+        // not diagnose is worse than reporting the problem.
+        var (endpoint, _) = Create(_ => Json(
+            """{"error":"model 'qwen' not found"}""",
+            HttpStatusCode.BadRequest));
+
+        var result = await endpoint.AskAsync(Request());
+
+        Assert.Equal(ScoringEndpointFailure.Rejected, result.Failure);
+    }
+
+    [Fact]
+    public async Task A_server_that_refuses_the_json_format_says_which_setting_to_turn_off()
+    {
+        // What LM Studio answered json_object with, before 8c sent json_schema. A
+        // rejection naming a field the user cannot connect to a checkbox is a dead end.
+        var (endpoint, _) = Create(_ => Json(
+            """{"error":"'response_format.type' must be 'json_schema' or 'text'"}""",
+            HttpStatusCode.BadRequest));
+
+        var result = await endpoint.AskAsync(Request());
+
+        Assert.Equal(ScoringEndpointFailure.Rejected, result.Failure);
+        Assert.Contains("JSON only", result.Message!, StringComparison.OrdinalIgnoreCase);
+    }
 }
 
 /// <summary>An options monitor that never changes, for tests that do not need one to.</summary>

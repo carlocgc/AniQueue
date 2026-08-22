@@ -47,6 +47,9 @@ public sealed class BusyScope(Func<Task> notifyStateChanged)
     /// </remarks>
     private IReadOnlyList<string> _completedSteps = [];
 
+    /// <summary>Whether the message on screen restates a step rather than starting one.</summary>
+    private bool _messageContinues;
+
     private DateTimeOffset _shownAt;
 
     /// <summary>How long work may run before a dialog appears at all.</summary>
@@ -148,22 +151,28 @@ public sealed class BusyScope(Func<Task> notifyStateChanged)
         Fraction = null;
         CountText = null;
         _completedSteps = [];
+        _messageContinues = false;
         IsVisible = false;
         IsRunning = true;
     }
 
     private async Task OnProgressAsync(OperationProgress progress)
     {
-        // A changed message means the previous step is done; keep it on screen.
+        // A changed message means the previous step is done; keep it on screen. Unless
+        // the message it is replacing was itself a restatement of the same step — a
+        // ticking clock changes every second and finishes nothing, and promoting each
+        // tick filled the dialog with a step per second of waiting.
         if (!string.IsNullOrEmpty(Message)
             && Message != progress.Message
             && Message != "Starting…"
+            && !_messageContinues
             && !_completedSteps.Contains(Message))
         {
             // A new list each time, never an append to the one being rendered.
             _completedSteps = [.. _completedSteps, Message];
         }
 
+        _messageContinues = progress.Continues;
         Message = progress.Message;
         Fraction = progress.Fraction;
 

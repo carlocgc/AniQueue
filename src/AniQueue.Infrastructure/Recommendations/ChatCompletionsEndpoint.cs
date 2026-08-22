@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using AniQueue.Core.Recommendations;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -23,7 +24,7 @@ namespace AniQueue.Infrastructure.Recommendations;
 /// name, which is the thing D31 exists to prevent — so nothing here composes text of
 /// its own beyond the envelope the API requires.
 /// </remarks>
-public sealed class ChatCompletionsEndpoint(
+public sealed partial class ChatCompletionsEndpoint(
     HttpClient client,
     IOptionsMonitor<ScoringOptions> options,
     ILogger<ChatCompletionsEndpoint> logger,
@@ -153,6 +154,18 @@ public sealed class ChatCompletionsEndpoint(
                     "Scoring endpoint {Endpoint} answered {Status}",
                     target,
                     (int)response.StatusCode);
+
+                // A request that did not fit is not a server that refused: it is the
+                // one 400 with a specific remedy, and reporting it as "answered 400 Bad
+                // Request" leaves that remedy inside a disclosure nobody opens.
+                if (TooLarge(body) is { } tooLarge)
+                {
+                    return ScoringEndpointResult.Failed(
+                        ScoringEndpointFailure.TooLarge,
+                        tooLarge,
+                        Elapsed(started),
+                        Trim(body));
+                }
 
                 return ScoringEndpointResult.Failed(
                     ScoringEndpointFailure.Rejected,
@@ -367,6 +380,45 @@ public sealed class ChatCompletionsEndpoint(
     /// requires <c>json_schema</c> and refuses <c>json_object</c> — and a rejection
     /// naming a setting the user cannot connect to a checkbox is a dead end.
     /// </remarks>
+    /// <summary>
+    /// Recognises a request that did not fit, and says so in the server's own numbers.
+    /// </summary>
+    /// <remarks>
+    /// Matched on the message text rather than on a field, because the shape of the
+    /// error is the server's business and differs between them — LM Studio wraps
+    /// llama.cpp's, and what reaches this client is the wrapping. The words survive
+    /// the wrapping; the structure does not.
+    ///
+    /// The two numbers are read out of it where they are there, because "13,782
+    /// against 8,192" tells somebody how far over they are and therefore which of the
+    /// three remedies is likely to be enough. Without them the message is still true,
+    /// just less useful, so their absence is not a reason to fall back to a worse
+    /// error.
+    /// </remarks>
+    private static string? TooLarge(string? body)
+    {
+        if (body is null
+            || (!body.Contains("context size", StringComparison.OrdinalIgnoreCase)
+                && !body.Contains("context length", StringComparison.OrdinalIgnoreCase)
+                && !body.Contains("exceed_context_size", StringComparison.OrdinalIgnoreCase)))
+        {
+            return null;
+        }
+
+        var sizes = ContextSizes().Matches(body);
+
+        var measured = sizes.Count >= 2
+            ? $" It needed {sizes[0].Groups[1].Value} tokens and the model has room for {sizes[1].Groups[1].Value}."
+            : string.Empty;
+
+        return "Your request was too big for the model to read." + measured
+            + " Send fewer scored titles as history, rank fewer titles at once, "
+            + "or give the model a larger context window.";
+    }
+
+    [GeneratedRegex(@"\((\d[\d,]*) tokens\)", RegexOptions.IgnoreCase)]
+    private static partial Regex ContextSizes();
+
     private static string Hint(ScoringOptions current, string? body) =>
         current.UseStructuredOutput
         && body?.Contains("response_format", StringComparison.OrdinalIgnoreCase) == true
