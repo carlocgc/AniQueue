@@ -77,6 +77,17 @@ public class ScoringOptions
     /// </remarks>
     public bool UseStructuredOutput { get; set; } = true;
 
+    /// <summary>
+    /// How many further titles must be rated before a score counts as stale (D39).
+    /// </summary>
+    /// <remarks>
+    /// Five by default. One rating is noise; several is a changed picture, and nobody
+    /// has to guess at an interval because the interval emerges from how much they
+    /// actually watch. Zero turns re-scoring off entirely, which is a legitimate
+    /// choice for somebody who wants scores to stay put.
+    /// </remarks>
+    public int StaleAfterRatings { get; set; } = 5;
+
     /// <summary>Whether an endpoint has been configured at all.</summary>
     public bool HasEndpoint => !string.IsNullOrWhiteSpace(Endpoint);
 

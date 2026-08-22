@@ -59,7 +59,11 @@ public sealed class UserSettingsStore(
 
         ScoringUseStructuredOutput = Bool(
             ScoringKey(nameof(ScoringOptions.UseStructuredOutput)),
-            UserSettings.Defaults.ScoringUseStructuredOutput)
+            UserSettings.Defaults.ScoringUseStructuredOutput),
+
+        ScoringStaleAfterRatings = Number(
+                ScoringKey(nameof(ScoringOptions.StaleAfterRatings)))
+            ?? UserSettings.Defaults.ScoringStaleAfterRatings
     };
 
     private static string SyncKey(string key) => $"{SyncOptions.SectionName}:{key}";

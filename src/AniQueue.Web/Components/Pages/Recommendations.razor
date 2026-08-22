@@ -58,6 +58,59 @@
    pages answering one question in two idioms is worse than either idiom. *@
 @if (_preview is null)
 {
+    @* Answers "is there anything left to do?" before either card offers to do it.
+       Collapsed, because the answer is usually yes-or-no and the numbers behind it
+       are only wanted when it is no — and coloured, because that answer should be
+       readable without reading.
+
+       Stale is D39's sense of the word: a score is not wrong because time passed, it
+       is wrong because the history it was predicted against has grown. So this goes
+       amber when there is work, and green only when every waiting title carries a
+       ranking made against the taste the user has now. *@
+    @if (_coverage is { Waiting: > 0 } coverage)
+    {
+        <div class="card status @(coverage.IsSettled ? "settled" : "attention")">
+            <details>
+                <summary>@CoverageHeadline(coverage)</summary>
+
+                <dl class="scoring-facts">
+                    <div>
+                        <dt>Up to date</dt>
+                        <dd>@coverage.UpToDate</dd>
+                    </div>
+                    @if (coverage.Stale > 0)
+                    {
+                        <div>
+                            <dt>Stale</dt>
+                            <dd>@coverage.Stale</dd>
+                        </div>
+                    }
+                    @if (coverage.Unranked > 0)
+                    {
+                        <div>
+                            <dt>Never ranked</dt>
+                            <dd>@coverage.Unranked</dd>
+                        </div>
+                    }
+                    <div>
+                        <dt>Waiting</dt>
+                        <dd>@coverage.Waiting</dd>
+                    </div>
+                </dl>
+
+                @if (coverage.Stale > 0)
+                {
+                    <p class="muted">
+                        A ranking goes stale once you have finished and rated
+                        @_staleAfterRatings more @Plural(_staleAfterRatings, "title", "titles")
+                        since it was made — what the model knew about your taste has moved on
+                        since it guessed.
+                    </p>
+                }
+            </details>
+        </div>
+    }
+
     <div class="card">
         <h2>Remote model</h2>
 
@@ -353,9 +406,13 @@
 
             <div class="field">
                 <label for="candidate-limit">Titles to rank</label>
+                @* Lowering this lowers the other one with it. Without that the ceiling
+                   moved and the value did not, leaving "at most 25" printed under a
+                   field reading 180 — a control contradicting its own caption. *@
                 <input id="candidate-limit" type="number" min="1" max="@_waitingCount"
                        placeholder="All @_waitingCount of them" disabled="@_busy.IsRunning"
-                       @bind="_candidateLimit" @bind:event="oninput" />
+                       @bind="_candidateLimit" @bind:event="oninput"
+                       @bind:after="ClampReturnTop" />
                 <p class="muted">
                     Leave this empty to offer everything you are planning to watch — all
                     @_waitingCount of them, and it stays "everything" as your backlog grows.
@@ -681,6 +738,26 @@ else
     /// <summary>Scored titles that exist, which is the most history there can be.</summary>
     private int _scoredCount;
 
+    private ScoringCoverage? _coverage;
+
+    private int _staleAfterRatings = 5;
+
+    /// <summary>The one line the card is read for.</summary>
+    /// <remarks>
+    /// Three states rather than two, because "nothing has been ranked yet" and "some
+    /// of this is out of date" call for different things: the first is an invitation
+    /// to start, the second a nudge to run it again. Collapsing them into "not up to
+    /// date" would tell a new user their empty backlog has gone off.
+    /// </remarks>
+    private static string CoverageHeadline(ScoringCoverage coverage) => coverage switch
+    {
+        { IsUntouched: true } => "No titles have been ranked yet",
+        { IsSettled: true } => "All rankings up to date",
+        { Stale: > 0, Unranked: > 0 } => $"{coverage.Unranked} unranked, {coverage.Stale} out of date",
+        { Stale: > 0 } => $"{coverage.Stale} {Plural(coverage.Stale, "ranking is", "rankings are")} out of date",
+        _ => $"{coverage.Unranked} {Plural(coverage.Unranked, "title has", "titles have")} never been ranked"
+    };
+
     /// <summary>
     /// The most rankings that could come back, which is however many were offered.
     /// </summary>
@@ -691,6 +768,24 @@ else
     /// user never chose.
     /// </remarks>
     private int MaxReturnTop => Math.Max(Math.Min(_candidateLimit ?? _waitingCount, _waitingCount), 1);
+
+    /// <summary>
+    /// Brings the return limit down when the offer it depends on shrinks.
+    /// </summary>
+    /// <remarks>
+    /// Only ever downwards. Raising the candidate limit again does not restore a
+    /// number the user has not asked for a second time — a setting that moves on its
+    /// own in both directions is one nobody can predict, and the one direction that
+    /// has to move is the one that would otherwise leave an impossible value on
+    /// screen.
+    /// </remarks>
+    private void ClampReturnTop()
+    {
+        if (_returnTop is { } top && top > MaxReturnTop)
+        {
+            _returnTop = MaxReturnTop;
+        }
+    }
 
     /// <summary>Characters in a one-candidate request, so the fixed part can be sized.</summary>
     private int _baselineCharacters;
@@ -844,6 +939,9 @@ else
 
         _waitingCount = baseline.CandidatesAvailable;
         _scoredCount = baseline.HistoryAvailable;
+
+        _staleAfterRatings = ScoringOptions.CurrentValue.StaleAfterRatings;
+        _coverage = await Scoring.GetCoverageAsync(Profile.DefaultProfileId, _staleAfterRatings);
         _baselineCharacters = ScoringRequestWriter.Write(baseline).Length
             + ScoringPromptBuilder.Build(baseline).Length;
 

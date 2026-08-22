@@ -86,6 +86,9 @@ public sealed record UserSettings
     /// <summary>Whether to ask the server to constrain its output to JSON.</summary>
     public bool ScoringUseStructuredOutput { get; init; } = true;
 
+    /// <summary>How many further titles must be rated before a score is stale (D39).</summary>
+    public int ScoringStaleAfterRatings { get; init; } = 5;
+
     // Scoring:IncludePersonalNotes is not offered, because nothing can write a
     // personal note yet. LibraryEntry.PersonalNotes has a column, §6 protects it,
     // and the import pipeline is careful not to overwrite it — but no surface fills

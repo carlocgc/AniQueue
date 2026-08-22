@@ -987,3 +987,25 @@ tr.muted td { opacity: 0.6; }
 @media (prefers-reduced-motion: reduce) {
     .toast { animation: none; }
 }
+
+/* A card that reports a state rather than offering an action. The colour is the
+   answer — "is there anything left to do" should be readable without reading — and
+   it is a left edge rather than a filled block so that a page of cards does not
+   become a page of banners. */
+.card.status { border-left: 4px solid var(--border); }
+
+.card.status.attention { border-left-color: var(--warning); }
+
+.card.status.settled { border-left-color: var(--success); }
+
+.card.status > details > summary {
+    cursor: pointer;
+    font-weight: 600;
+    list-style-position: inside;
+}
+
+.card.status.attention > details > summary { color: var(--warning); }
+
+.card.status.settled > details > summary { color: var(--success); }
+
+.card.status .scoring-facts { margin-top: 0.75rem; }
