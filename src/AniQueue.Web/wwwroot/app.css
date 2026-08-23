@@ -1048,3 +1048,27 @@ table.runs th:nth-child(3), table.runs td:nth-child(3) { white-space: nowrap; }
 p.failure { margin: 0.25rem 0 0; font-size: 0.85rem; }
 
 .switch { display: inline-flex; align-items: center; }
+
+/* Sources: the one destructive action, and the one inline wait (Phase 15e).
+
+   A danger button is drawn rather than merely worded because it sits in a toolbar
+   beside a button that keeps the data — colour is what stops the two reading as
+   equals when somebody is skimming. */
+button.danger {
+    color: var(--danger);
+    border-color: var(--danger);
+    background: var(--danger-bg);
+}
+
+button.danger:hover:not(:disabled) { filter: brightness(0.95); }
+
+/* The spinner is sized and centred for the modal it was built for. Beside a button
+   it needs neither, and it needs to sit on the text baseline instead. */
+.spinner.inline {
+    width: 1rem;
+    height: 1rem;
+    margin: 0;
+    border-width: 2px;
+    display: inline-block;
+    vertical-align: middle;
+}
