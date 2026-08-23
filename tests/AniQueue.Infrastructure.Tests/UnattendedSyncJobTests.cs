@@ -1,4 +1,5 @@
 using AniQueue.Core.Domain;
+using AniQueue.Core.Jobs;
 using AniQueue.Core.Import;
 using AniQueue.Core.Library;
 using AniQueue.Core.Progress;
@@ -74,11 +75,11 @@ public class UnattendedSyncJobTests
 
     private sealed class RecordingNotifier : ILibraryChangeNotifier
     {
-        public List<LibraryChange> Published { get; } = [];
+        public List<LibraryChange?> Published { get; } = [];
 
-        public event Action<LibraryChange>? Changed;
+        public event Action<LibraryChange?>? Changed;
 
-        public void Publish(LibraryChange change)
+        public void Publish(LibraryChange? change = null)
         {
             Published.Add(change);
             Changed?.Invoke(change);
@@ -112,7 +113,8 @@ public class UnattendedSyncJobTests
 
     private static async Task<(StubSyncService Sync, RecordingNotifier Notifier)> RunAsync(
         SourceSyncStatus status,
-        UnattendedSyncResult? result = null)
+        UnattendedSyncResult? result = null,
+        JobTrigger trigger = JobTrigger.Timer)
     {
         var sync = new StubSyncService(status);
         var notifier = new RecordingNotifier();
@@ -123,7 +125,7 @@ public class UnattendedSyncJobTests
         }
 
         var job = new UnattendedSyncJob(sync, notifier, NullLogger<UnattendedSyncJob>.Instance);
-        await job.RunAsync(CancellationToken.None);
+        await job.RunAsync(new JobRunContext(trigger, nameof(AnimeSource.AniList)), CancellationToken.None);
 
         return (sync, notifier);
     }
@@ -186,24 +188,55 @@ public class UnattendedSyncJobTests
         Assert.Empty(sync.Ran);
     }
 
+    /// <summary>
+    /// A failing source is retried on the schedule it was given, however long it has
+    /// been failing.
+    /// </summary>
+    /// <remarks>
+    /// This asserted the opposite until D40. The interval used to double per
+    /// consecutive failure to a cap of sixteen, reasoning that a rate limit or an
+    /// unreadable account does not improve for being asked again on the dot — true,
+    /// and outweighed. Asking again costs one request; not asking costs a schedule
+    /// the user chose being rewritten invisibly by the application, which is
+    /// indistinguishable from a broken schedule. The case that settled it is a model
+    /// or a service reachable only for a few hours a day, where failing is the normal
+    /// state rather than a fault.
+    /// </remarks>
     [Theory]
-    [InlineData(1, 90, false)]
-    [InlineData(1, 130, true)]
-    [InlineData(3, 400, false)]
-    [InlineData(3, 500, true)]
-    // Capped at sixteen hours, so a source that broke a month ago still notices
-    // within a day of being fixed rather than waiting years.
-    [InlineData(50, 900, false)]
-    [InlineData(50, 1_000, true)]
-    public async Task A_failing_source_is_retried_progressively_less_often(
-        int consecutiveFailures,
-        int minutesSinceLastRun,
-        bool expectedToRun)
+    [InlineData(1)]
+    [InlineData(3)]
+    [InlineData(50)]
+    public async Task A_failing_source_is_retried_on_its_ordinary_schedule(int consecutiveFailures)
     {
-        var (sync, _) = await RunAsync(Status(
-            SyncSchedule.Hourly,
-            TimeSpan.FromMinutes(minutesSinceLastRun),
-            consecutiveFailures));
+        var justUnder = await RunAsync(Status(
+            SyncSchedule.Hourly, TimeSpan.FromMinutes(50), consecutiveFailures));
+
+        Assert.Empty(justUnder.Sync.Ran);
+
+        var justOver = await RunAsync(Status(
+            SyncSchedule.Hourly, TimeSpan.FromMinutes(70), consecutiveFailures));
+
+        Assert.Single(justOver.Sync.Ran);
+    }
+
+    /// <summary>
+    /// Pressing the button ignores the schedule; new data arriving does not.
+    /// </summary>
+    /// <remarks>
+    /// Sync is what <i>publishes</i> a library change, and every runner including its
+    /// own hears the broadcast — so a sync that treated the signal as a reason to
+    /// fetch would schedule its own next run, forever. The jobs that bypass their
+    /// cadence on that signal are the ones consuming it (D41).
+    /// </remarks>
+    [Theory]
+    [InlineData(JobTrigger.Timer, false)]
+    [InlineData(JobTrigger.LibraryChange, false)]
+    [InlineData(JobTrigger.Manual, true)]
+    public async Task Only_a_manual_run_ignores_the_schedule(JobTrigger trigger, bool expectedToRun)
+    {
+        var (sync, _) = await RunAsync(
+            Status(SyncSchedule.Hourly, TimeSpan.FromMinutes(10)),
+            trigger: trigger);
 
         Assert.Equal(expectedToRun ? 1 : 0, sync.Ran.Count);
     }
@@ -221,7 +254,9 @@ public class UnattendedSyncJobTests
                 SlotsReleased = 1
             });
 
-        var change = Assert.Single(notifier.Published);
+        // Not null: a sync is the one job with something a page can render, so it
+        // always publishes a payload (D41).
+        var change = Assert.IsType<LibraryChange>(Assert.Single(notifier.Published));
         Assert.Equal(2, change.Created);
         Assert.Equal(1, change.SlotsReleased);
     }

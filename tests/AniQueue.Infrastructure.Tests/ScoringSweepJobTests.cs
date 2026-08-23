@@ -1,4 +1,6 @@
 using AniQueue.Core.Domain;
+using AniQueue.Core.Jobs;
+using AniQueue.Core.Library;
 using AniQueue.Core.Progress;
 using AniQueue.Core.Recommendations;
 using AniQueue.Infrastructure.Recommendations;
@@ -164,6 +166,7 @@ public class ScoringSweepJobTests
                 library,
                 endpoint,
                 gate,
+                new NullNotifier(),
                 new StaticOptionsMonitor<ScoringOptions>(settings),
                 NullLogger<ScoringSweepJob>.Instance,
                 clock),
@@ -178,7 +181,7 @@ public class ScoringSweepJobTests
     {
         var (job, library, endpoint, _, _) = Create(unranked: 100);
 
-        await job.RunAsync(CancellationToken.None);
+        await job.RunAsync(new JobRunContext(JobTrigger.Timer), CancellationToken.None);
 
         // Four batches of twenty-five, and then nothing left to ask about.
         Assert.Equal([25, 25, 25, 25], library.BatchSizes);
@@ -193,7 +196,7 @@ public class ScoringSweepJobTests
         // "when did this last run" has something to read.
         var (job, library, _, _, _) = Create(unranked: 25);
 
-        await job.RunAsync(CancellationToken.None);
+        await job.RunAsync(new JobRunContext(JobTrigger.Timer), CancellationToken.None);
 
         Assert.Equal([ScoringSweepJob.ProviderName], library.Applied);
     }
@@ -205,7 +208,7 @@ public class ScoringSweepJobTests
         // signal be safe to broadcast and a schedule be safe to leave on.
         var (job, _, endpoint, _, _) = Create(unranked: 0);
 
-        await job.RunAsync(CancellationToken.None);
+        await job.RunAsync(new JobRunContext(JobTrigger.Timer), CancellationToken.None);
 
         Assert.Equal(0, endpoint.Calls);
     }
@@ -225,7 +228,7 @@ public class ScoringSweepJobTests
             return ScoringEndpointResult.Success("{ \"results\": [] }", "m", TimeSpan.Zero);
         };
 
-        await job.RunAsync(CancellationToken.None);
+        await job.RunAsync(new JobRunContext(JobTrigger.Timer), CancellationToken.None);
 
         Assert.Null(sent!.ReturnTop);
         Assert.Equal(sent.Candidates.Count, sent.ExpectedResults);
@@ -249,7 +252,7 @@ public class ScoringSweepJobTests
 
         endpoint.IsConfigured = configured;
 
-        await job.RunAsync(CancellationToken.None);
+        await job.RunAsync(new JobRunContext(JobTrigger.Timer), CancellationToken.None);
 
         Assert.Empty(library.BatchSizes);
         Assert.Equal(0, endpoint.Calls);
@@ -262,7 +265,7 @@ public class ScoringSweepJobTests
 
         library.LastRunAt = clock.Now.AddHours(-1);
 
-        await job.RunAsync(CancellationToken.None);
+        await job.RunAsync(new JobRunContext(JobTrigger.Timer), CancellationToken.None);
 
         Assert.Equal(0, endpoint.Calls);
     }
@@ -274,7 +277,7 @@ public class ScoringSweepJobTests
 
         library.LastRunAt = clock.Now.AddDays(-2);
 
-        await job.RunAsync(CancellationToken.None);
+        await job.RunAsync(new JobRunContext(JobTrigger.Timer), CancellationToken.None);
 
         Assert.Equal(1, endpoint.Calls);
     }
@@ -293,7 +296,7 @@ public class ScoringSweepJobTests
             return ScoringEndpointResult.Success("{ \"results\": [] }", "m", TimeSpan.Zero);
         };
 
-        await job.RunAsync(CancellationToken.None);
+        await job.RunAsync(new JobRunContext(JobTrigger.Timer), CancellationToken.None);
 
         // One batch finished, then it noticed and stopped rather than carrying on.
         Assert.Equal(1, endpoint.Calls);
@@ -307,7 +310,7 @@ public class ScoringSweepJobTests
         // make "the sweep yields" mean "the sweep yields in an hour".
         var (job, _, endpoint, gate, _) = Create(unranked: 50);
 
-        await job.RunAsync(CancellationToken.None);
+        await job.RunAsync(new JobRunContext(JobTrigger.Timer), CancellationToken.None);
 
         Assert.Equal(endpoint.Calls, gate.Entries);
     }
@@ -325,7 +328,7 @@ public class ScoringSweepJobTests
             ? ScoringEndpointResult.Failed(ScoringEndpointFailure.TooLarge, "Too big.")
             : ScoringEndpointResult.Success("{ \"results\": [] }", "m", TimeSpan.Zero);
 
-        await job.RunAsync(CancellationToken.None);
+        await job.RunAsync(new JobRunContext(JobTrigger.Timer), CancellationToken.None);
 
         // 25, refused; 12, refused; then 6 and onwards, which land. A refusal is not
         // counted as a failure, because the next attempt asks a different question.
@@ -343,7 +346,7 @@ public class ScoringSweepJobTests
 
         endpoint.Respond = _ => ScoringEndpointResult.Failed(ScoringEndpointFailure.Rejected, "No.");
 
-        await job.RunAsync(CancellationToken.None);
+        await job.RunAsync(new JobRunContext(JobTrigger.Timer), CancellationToken.None);
 
         Assert.Equal(3, endpoint.Calls);
     }
@@ -358,7 +361,7 @@ public class ScoringSweepJobTests
 
         library.PreviewApplicable = false;
 
-        await job.RunAsync(CancellationToken.None);
+        await job.RunAsync(new JobRunContext(JobTrigger.Timer), CancellationToken.None);
 
         Assert.Empty(library.Applied);
         Assert.Equal(3, endpoint.Calls);
@@ -372,8 +375,21 @@ public class ScoringSweepJobTests
         // that were already up to date, which on a small backlog is most of the run.
         var (job, library, _, _, _) = Create(unranked: 6, o => o.BatchSize = 25);
 
-        await job.RunAsync(CancellationToken.None);
+        await job.RunAsync(new JobRunContext(JobTrigger.Timer), CancellationToken.None);
 
         Assert.Equal([6], library.BatchSizes);
+    }
+
+    /// <summary>Hears the broadcast and does nothing with it.</summary>
+    /// <remarks>
+    /// These tests are about what the sweep decides, not about who listens. A fake
+    /// that recorded publications would invite an assertion that the sweep announced
+    /// itself, which is the coupling D41 exists to prevent.
+    /// </remarks>
+    private sealed class NullNotifier : ILibraryChangeNotifier
+    {
+        public event Action<LibraryChange?>? Changed;
+
+        public void Publish(LibraryChange? change = null) => Changed?.Invoke(change);
     }
 }

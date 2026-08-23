@@ -19,6 +19,9 @@ namespace AniQueue.Infrastructure.Tests;
 /// </summary>
 public class RelationBackfillTests
 {
+    /// <summary>Long enough that no test spends it; the budget itself has its own test.</summary>
+    private static readonly TimeSpan Budget = TimeSpan.FromMinutes(10);
+
     /// <summary>
     /// Answers with whatever it was handed, and remembers what it was asked.
     /// </summary>
@@ -40,6 +43,17 @@ public class RelationBackfillTests
 
         public int? RemainingHeader { get; set; }
 
+        /// <summary>
+        /// How long each request appears to take, for the tests about the budget.
+        /// </summary>
+        /// <remarks>
+        /// Moved on the fake clock rather than really waited, so a test that proves a
+        /// ten-minute budget stops a pass costs milliseconds.
+        /// </remarks>
+        public TimeSpan TakesPerRequest { get; set; }
+
+        public ImmediateTimeProvider? Clock { get; set; }
+
         public Task<AniListFetch> FetchListAsync(string userName, CancellationToken cancellationToken = default) =>
             throw new NotSupportedException("This stub answers relation fetches only.");
 
@@ -48,6 +62,11 @@ public class RelationBackfillTests
             CancellationToken cancellationToken = default)
         {
             Requests.Add([.. externalIds]);
+
+            if (TakesPerRequest > TimeSpan.Zero)
+            {
+                Clock?.Advance(TakesPerRequest);
+            }
 
             if (FailWith is not null)
             {
@@ -86,6 +105,12 @@ public class RelationBackfillTests
         /// <summary>Moves the clock, which is how a test ages an answer past its cutoff.</summary>
         public void Advance(TimeSpan by) => _now += by;
 
+        // Elapsed time is measured from the same movable clock rather than from the
+        // real one, so a test can spend a budget without spending the wall time.
+        public override long GetTimestamp() => _now.Ticks;
+
+        public override long TimestampFrequency => TimeSpan.TicksPerSecond;
+
         public override ITimer CreateTimer(TimerCallback callback, object? state, TimeSpan dueTime, TimeSpan period)
         {
             Waits.Add(dueTime);
@@ -107,6 +132,8 @@ public class RelationBackfillTests
         {
             var database = await SqliteTestDatabase.CreateAsync();
             var time = new ImmediateTimeProvider();
+
+            client.Clock = time;
 
             return new Fixture
             {
@@ -187,7 +214,7 @@ public class RelationBackfillTests
 
         await fixture.SeedAsync("100");
 
-        var result = await fixture.Backfill.RunAsync(maxRequests: 1);
+        var result = await fixture.Backfill.RunAsync(Budget);
 
         Assert.Equal(1, result.Requested);
         Assert.Equal(2, result.EdgesWritten);
@@ -213,7 +240,7 @@ public class RelationBackfillTests
 
         await fixture.SeedAsync("100");
 
-        await fixture.Backfill.RunAsync(maxRequests: 1);
+        await fixture.Backfill.RunAsync(Budget);
 
         var relation = Assert.Single(await fixture.RelationsAsync());
         Assert.Equal("999", relation.RelatedExternalId);
@@ -230,12 +257,12 @@ public class RelationBackfillTests
 
         await fixture.SeedAsync("100");
 
-        await fixture.Backfill.RunAsync(maxRequests: 1);
+        await fixture.Backfill.RunAsync(Budget);
 
         Assert.Empty(await fixture.RelationsAsync());
         Assert.Empty(await fixture.UnfetchedAsync());
 
-        await fixture.Backfill.RunAsync(maxRequests: 1);
+        await fixture.Backfill.RunAsync(Budget);
 
         Assert.Single(client.Requests);
     }
@@ -250,7 +277,7 @@ public class RelationBackfillTests
 
         await fixture.SeedAsync("100", "101");
 
-        var result = await fixture.Backfill.RunAsync(maxRequests: 1);
+        var result = await fixture.Backfill.RunAsync(Budget);
 
         Assert.Equal(2, result.Requested);
         Assert.Equal(1, result.Answered);
@@ -268,7 +295,7 @@ public class RelationBackfillTests
 
         await fixture.SeedAsync("100");
 
-        await fixture.Backfill.RunAsync(maxRequests: 1);
+        await fixture.Backfill.RunAsync(Budget);
 
         // Clearing the marker is what a manual refresh would do. Without it the
         // second run has nothing to ask about and proves nothing.
@@ -278,7 +305,7 @@ public class RelationBackfillTests
                 s => s.SetProperty(x => x.RelationsFetchedAt, (DateTime?)null));
         }
 
-        var second = await fixture.Backfill.RunAsync(maxRequests: 1);
+        var second = await fixture.Backfill.RunAsync(Budget);
 
         Assert.Equal(0, second.EdgesWritten);
         Assert.Single(await fixture.RelationsAsync());
@@ -297,7 +324,7 @@ public class RelationBackfillTests
 
         await fixture.SeedAsync("100");
 
-        await fixture.Backfill.RunAsync(maxRequests: 1);
+        await fixture.Backfill.RunAsync(Budget);
 
         await using var context = fixture.Database.CreateContext();
         var anime = await context.Anime.SingleAsync();
@@ -330,7 +357,7 @@ public class RelationBackfillTests
             await setup.SaveChangesAsync();
         }
 
-        await fixture.Backfill.RunAsync(maxRequests: 1);
+        await fixture.Backfill.RunAsync(Budget);
 
         await using var context = fixture.Database.CreateContext();
         var anime = await context.Anime.SingleAsync();
@@ -347,7 +374,7 @@ public class RelationBackfillTests
 
         await fixture.SeedAsync("100");
 
-        var result = await fixture.Backfill.RunAsync(maxRequests: 4);
+        var result = await fixture.Backfill.RunAsync(Budget);
 
         Assert.NotNull(result.FailureReason);
         Assert.Equal(0, result.Requested);
@@ -369,7 +396,7 @@ public class RelationBackfillTests
 
         await fixture.SeedAsync("100");
 
-        var result = await fixture.Backfill.RunAsync(maxRequests: 1);
+        var result = await fixture.Backfill.RunAsync(Budget);
 
         Assert.NotNull(result.FailureReason);
         Assert.Equal(["100"], await fixture.UnfetchedAsync());
@@ -386,7 +413,7 @@ public class RelationBackfillTests
 
         await fixture.SeedAsync("100");
 
-        var result = await fixture.Backfill.RunAsync(maxRequests: 1);
+        var result = await fixture.Backfill.RunAsync(Budget);
 
         Assert.False(result.DidWork);
         Assert.Empty(client.Requests);
@@ -401,7 +428,7 @@ public class RelationBackfillTests
 
         await fixture.SeedAsync([.. Enumerable.Range(1, 60).Select(Identifier)]);
 
-        await fixture.Backfill.RunAsync(maxRequests: 4);
+        await fixture.Backfill.RunAsync(Budget);
 
         Assert.Equal(2, client.Requests.Count);
         Assert.Equal(50, client.Requests[0].Count);
@@ -412,6 +439,40 @@ public class RelationBackfillTests
         Assert.Equal([TimeSpan.FromSeconds(2)], fixture.Time.Waits);
     }
 
+    /// <summary>
+    /// A pass that runs out of time stops and says so, rather than throwing away what
+    /// it managed.
+    /// </summary>
+    /// <remarks>
+    /// The budget replaced a request ceiling in Phase 15a, and the difference that
+    /// matters is this one: the ceiling ended a visit on a count nobody chose, while
+    /// this ends it only where a library is large enough to need it — and either way
+    /// the markers already written mean the next pass carries on rather than starting
+    /// again.
+    /// </remarks>
+    [Fact]
+    public async Task A_pass_that_runs_out_of_time_keeps_what_it_did()
+    {
+        var client = new StubRelationClient(Response(("100", "")))
+        {
+            TakesPerRequest = TimeSpan.FromMinutes(1)
+        };
+
+        await using var fixture = await Fixture.CreateAsync(client);
+
+        await fixture.SeedAsync([.. Enumerable.Range(1, 60).Select(Identifier)]);
+
+        var result = await fixture.Backfill.RunAsync(TimeSpan.FromSeconds(30));
+
+        // One request, because the budget was spent before the second could start.
+        Assert.Single(client.Requests);
+        Assert.True(result.RanOutOfTime);
+        Assert.Null(result.FailureReason);
+
+        // And the fifty it did ask about are marked, so the next pass takes the rest.
+        Assert.Equal(10, (await fixture.UnfetchedAsync()).Count);
+    }
+
     [Fact]
     public async Task A_nearly_spent_budget_waits_for_the_window_rather_than_the_gap()
     {
@@ -420,7 +481,7 @@ public class RelationBackfillTests
 
         await fixture.SeedAsync([.. Enumerable.Range(1, 60).Select(Identifier)]);
 
-        await fixture.Backfill.RunAsync(maxRequests: 4);
+        await fixture.Backfill.RunAsync(Budget);
 
         Assert.Equal([TimeSpan.FromSeconds(60)], fixture.Time.Waits);
     }
@@ -438,7 +499,7 @@ public class RelationBackfillTests
             await SeedData.CreateAnimeAsync(context, "MAL only", AnimeSource.MyAnimeList, "268");
         }
 
-        var result = await fixture.Backfill.RunAsync(maxRequests: 1);
+        var result = await fixture.Backfill.RunAsync(Budget);
 
         Assert.False(result.DidWork);
         Assert.Empty(client.Requests);
@@ -456,18 +517,18 @@ public class RelationBackfillTests
         await using var fixture = await Fixture.CreateAsync(client);
 
         await fixture.SeedAsync("100");
-        await fixture.Backfill.RunAsync(maxRequests: 1);
+        await fixture.Backfill.RunAsync(Budget);
 
         Assert.Single(client.Requests);
 
         // A day short of the cutoff is still trusted.
         fixture.Time.Advance(RelationBackfillService.StaleAfter - TimeSpan.FromDays(1));
-        await fixture.Backfill.RunAsync(maxRequests: 1);
+        await fixture.Backfill.RunAsync(Budget);
 
         Assert.Single(client.Requests);
 
         fixture.Time.Advance(TimeSpan.FromDays(2));
-        await fixture.Backfill.RunAsync(maxRequests: 1);
+        await fixture.Backfill.RunAsync(Budget);
 
         Assert.Equal(2, client.Requests.Count);
     }
@@ -485,12 +546,12 @@ public class RelationBackfillTests
         await using var fixture = await Fixture.CreateAsync(client);
 
         await fixture.SeedAsync("100");
-        await fixture.Backfill.RunAsync(maxRequests: 1);
+        await fixture.Backfill.RunAsync(Budget);
 
         Assert.Equal(2, (await fixture.RelationsAsync()).Count);
 
         fixture.Time.Advance(RelationBackfillService.StaleAfter + TimeSpan.FromDays(1));
-        var second = await fixture.Backfill.RunAsync(maxRequests: 1);
+        var second = await fixture.Backfill.RunAsync(Budget);
 
         Assert.Equal(0, second.EdgesWritten);
         Assert.Equal(1, second.EdgesRemoved);
@@ -512,10 +573,10 @@ public class RelationBackfillTests
         await using var fixture = await Fixture.CreateAsync(client);
 
         await fixture.SeedAsync("100", "101");
-        await fixture.Backfill.RunAsync(maxRequests: 1);
+        await fixture.Backfill.RunAsync(Budget);
 
         fixture.Time.Advance(RelationBackfillService.StaleAfter + TimeSpan.FromDays(1));
-        var second = await fixture.Backfill.RunAsync(maxRequests: 1);
+        var second = await fixture.Backfill.RunAsync(Budget);
 
         Assert.Equal(0, second.EdgesRemoved);
         Assert.Equal(2, (await fixture.RelationsAsync()).Count);
@@ -528,12 +589,12 @@ public class RelationBackfillTests
         await using var fixture = await Fixture.CreateAsync(client);
 
         await fixture.SeedAsync("100");
-        await fixture.Backfill.RunAsync(maxRequests: 1);
+        await fixture.Backfill.RunAsync(Budget);
 
         fixture.Time.Advance(RelationBackfillService.StaleAfter + TimeSpan.FromDays(1));
         client.FailWith = "AniList could not be reached.";
 
-        var second = await fixture.Backfill.RunAsync(maxRequests: 1);
+        var second = await fixture.Backfill.RunAsync(Budget);
 
         Assert.NotNull(second.FailureReason);
         Assert.Equal(0, second.EdgesRemoved);
@@ -549,12 +610,12 @@ public class RelationBackfillTests
         await using var fixture = await Fixture.CreateAsync(client);
 
         await fixture.SeedAsync("100");
-        await fixture.Backfill.RunAsync(maxRequests: 1);
+        await fixture.Backfill.RunAsync(Budget);
 
         Assert.Single(client.Requests);
 
         // No clock movement at all: the point is that it does not wait for staleness.
-        var refreshed = await fixture.Backfill.RefreshAsync(maxRequests: 4);
+        var refreshed = await fixture.Backfill.RefreshAsync(Budget);
 
         Assert.Equal(2, client.Requests.Count);
         Assert.Equal(1, refreshed.Requested);
@@ -573,7 +634,7 @@ public class RelationBackfillTests
         var reports = new List<int?>();
         var progress = new Progress<AniQueue.Core.Progress.OperationProgress>(p => reports.Add(p.Total));
 
-        var result = await fixture.Backfill.RunAsync(maxRequests: 1, progress);
+        var result = await fixture.Backfill.RunAsync(Budget, progress);
 
         Assert.False(result.DidWork);
         Assert.Empty(client.Requests);
@@ -598,7 +659,7 @@ public class RelationBackfillTests
         Assert.Equal(new RelationCoverage(0, 2), before);
         Assert.False(before.IsComplete);
 
-        await fixture.Backfill.RunAsync(maxRequests: 1);
+        await fixture.Backfill.RunAsync(Budget);
 
         var after = await fixture.Backfill.GetCoverageAsync();
 

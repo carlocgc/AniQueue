@@ -7,13 +7,20 @@ using Microsoft.Extensions.Logging;
 namespace AniQueue.Infrastructure.Sync;
 
 /// <summary>
-/// Reads every source whose schedule says it is due, with nobody present.
+/// Reads one source whose schedule says it is due, with nobody present.
 ///
 /// The job owns <i>when</i>; <see cref="ISyncService"/> owns <i>what</i>. That
-/// split is what keeps the runner generic: scheduling here is a per-source user
-/// setting that can change while the application is running, so it is answered
-/// from the database on each tick rather than baked into a timer at startup.
+/// split is what keeps the runner generic: scheduling here is a user setting that
+/// can change while the application is running, so it is answered on each tick
+/// rather than baked into a timer at startup.
 /// </summary>
+/// <remarks>
+/// <b>One unit per fetchable source</b> (D40), which is why this no longer loops.
+/// Each source carries its own enabled state and its own failure history, so one row
+/// covering both would have to aggregate two of everything — and the runner asking
+/// once per unit is what lets one be run, cancelled or switched off without touching
+/// the other.
+/// </remarks>
 public sealed class UnattendedSyncJob(
     ISyncService syncService,
     ILibraryChangeNotifier notifier,
@@ -31,47 +38,87 @@ public sealed class UnattendedSyncJob(
     /// </remarks>
     public TimeSpan TickPeriod => TimeSpan.FromMinutes(5);
 
-    public string Name => "Unattended sync";
+    public string Name => "Sync";
 
-    public async Task RunAsync(CancellationToken cancellationToken)
+    /// <summary>
+    /// One per source something can actually be fetched from.
+    /// </summary>
+    /// <remarks>
+    /// A file source is never here. It has no list to go and read, so it can never be
+    /// due, and a row whose button could never do anything is a worse answer than no
+    /// row at all (D40).
+    /// </remarks>
+    public IReadOnlyList<JobUnit> Units { get; } =
+        [new JobUnit(nameof(AnimeSource.AniList), "AniList")];
+
+    public async Task<JobRunOutcome> RunAsync(
+        JobRunContext context,
+        CancellationToken cancellationToken)
     {
+        if (!Enum.TryParse<AnimeSource>(context.Unit, out var source))
+        {
+            // The runner only ever passes back a key this job published, so this is a
+            // programming error rather than a user-facing failure.
+            throw new ArgumentOutOfRangeException(
+                nameof(context), context.Unit, "This job has no such unit.");
+        }
+
         var statuses = await syncService.GetStatusAsync(Profile.DefaultProfileId, cancellationToken);
 
-        foreach (var status in statuses)
+        if (statuses.FirstOrDefault(s => s.Source == source) is not { } status)
         {
-            cancellationToken.ThrowIfCancellationRequested();
-
-            if (!IsDue(status, DateTimeOffset.UtcNow))
-            {
-                continue;
-            }
-
-            var result = await syncService.RunUnattendedAsync(
-                Profile.DefaultProfileId, status.Source, cancellationToken);
-
-            if (result.Outcome is { } outcome)
-            {
-                logger.LogInformation(
-                    "Unattended sync for {Source} finished as {Outcome}",
-                    status.Source,
-                    outcome);
-            }
-
-            // Only when something actually moved. A poll that found nothing is not
-            // news, and a page that offers to refresh itself hourly for no reason
-            // teaches its user to ignore the offer.
-            if (result.ChangedLibrary)
-            {
-                notifier.Publish(new LibraryChange
-                {
-                    Source = result.Source,
-                    Created = result.Created,
-                    Updated = result.Updated,
-                    SlotsReleased = result.SlotsReleased,
-                    AbsentFlagged = result.AbsentFlagged
-                });
-            }
+            return JobRunOutcome.NotDue;
         }
+
+        if (!IsDue(status, context, DateTimeOffset.UtcNow))
+        {
+            return JobRunOutcome.NotDue;
+        }
+
+        var result = await syncService.RunUnattendedAsync(
+            Profile.DefaultProfileId, source, cancellationToken);
+
+        if (result.Outcome is not { } outcome)
+        {
+            // Refused after the fact — the kill switch, or an account that went away
+            // between the status read and the run.
+            return JobRunOutcome.NotDue;
+        }
+
+        logger.LogInformation("Unattended sync for {Source} finished as {Outcome}", source, outcome);
+
+        // Only when something actually moved. A poll that found nothing is not news,
+        // and a page that offers to refresh itself hourly for no reason teaches its
+        // user to ignore the offer.
+        if (result.ChangedLibrary)
+        {
+            notifier.Publish(new LibraryChange
+            {
+                Source = result.Source,
+                Created = result.Created,
+                Updated = result.Updated,
+                SlotsReleased = result.SlotsReleased,
+                AbsentFlagged = result.AbsentFlagged
+            });
+        }
+
+        var changed = result.Created + result.Updated + result.SlotsReleased + result.AbsentFlagged;
+
+        return outcome switch
+        {
+            SyncOutcome.Failed => JobRunOutcome.Failed(
+                result.FailureReason ?? "The sync did not finish."),
+
+            SyncOutcome.NothingToDo => JobRunOutcome.NothingToDo,
+
+            // Held changes count as processed and not as changed, which is the honest
+            // reading: the run reached the source and found work, and deliberately did
+            // not apply it (D21).
+            SyncOutcome.HeldForReview => JobRunOutcome.Succeeded(
+                result.ChangesHeld + result.ConflictsHeld, 0),
+
+            _ => JobRunOutcome.Succeeded(changed, changed)
+        };
     }
 
     /// <summary>
@@ -84,21 +131,36 @@ public sealed class UnattendedSyncJob(
     /// A source that has never run is due immediately — which is deliberate, and
     /// safe, because turning the schedule on is what creates that state and the
     /// user has just said they want it read.
+    ///
+    /// <b>A failing source is not made to wait longer.</b> Until D40 the interval was
+    /// doubled per consecutive failure to a cap of sixteen, reasoning that a rate
+    /// limit or an unreadable account does not improve for being asked again on the
+    /// dot. True, and outweighed: asking again costs one request, while not asking
+    /// costs a schedule the user set being rewritten by the application, invisibly,
+    /// in response to a condition they may already know about.
     /// </remarks>
-    private static bool IsDue(SourceSyncStatus status, DateTimeOffset now)
+    private static bool IsDue(SourceSyncStatus status, JobRunContext context, DateTimeOffset now)
     {
-        // Nothing to fetch is the first question, because the status list widened to
-        // every source the Sources page shows once MyAnimeList gained a card there
-        // (D30). A file source has no list to go and read, so it is never due —
-        // asking would be a programming error, not a failed run.
-        if (!status.CanFetch)
+        // Nothing to fetch is the first question. A file source has no list to go and
+        // read, so it is never due — asking would be a programming error, not a
+        // failed run.
+        if (!status.CanFetch || !status.IsConfigured || !status.Settings.IsEnabled)
         {
             return false;
         }
 
-        if (!status.IsConfigured || !status.Settings.IsEnabled)
+        // Manual only, and deliberately not JobRunContext.IgnoresSchedule, which also
+        // covers a library change. Sync *publishes* library changes, and every runner
+        // including this one hears them — so treating the signal as a reason to fetch
+        // would make each sync schedule the next one, forever. This job is the
+        // producer; the jobs that bypass their cadence on that signal are the ones
+        // consuming it (D41).
+        //
+        // Pressing the button is a different thing entirely, and ignoring the schedule
+        // is what Sync Now has always meant.
+        if (context.Trigger is JobTrigger.Manual)
         {
-            return false;
+            return true;
         }
 
         if (status.Settings.Schedule.ToInterval() is not { } interval)
@@ -106,30 +168,6 @@ public sealed class UnattendedSyncJob(
             return false;
         }
 
-        if (status.LastRun is not { } last)
-        {
-            return true;
-        }
-
-        return now - last.StartedAt >= interval * BackoffMultiplier(status.ConsecutiveFailures);
+        return status.LastRun is not { } last || now - last.StartedAt >= interval;
     }
-
-    /// <summary>
-    /// Stretches the interval while a source keeps failing.
-    /// </summary>
-    /// <remarks>
-    /// Doubling per failure, capped at sixteen times the configured interval. What
-    /// this is protecting is the far end: the failures worth backing off from are a
-    /// rate limit, an outage, or an account that cannot be read at all, and none of
-    /// them improve for being asked again on the dot. The cap stops a source that
-    /// broke a month ago from waiting years to notice it is fixed, and Sync Now
-    /// ignores all of this — a user who has fixed the account should not have to
-    /// wait out a backoff they cannot see.
-    ///
-    /// Derived from the run record rather than held in memory, so a restart neither
-    /// forgets the backoff nor resets it — and a restart is exactly what somebody
-    /// does after editing the account in a settings file.
-    /// </remarks>
-    private static int BackoffMultiplier(int consecutiveFailures) =>
-        consecutiveFailures <= 0 ? 1 : 1 << Math.Min(consecutiveFailures, 4);
 }
