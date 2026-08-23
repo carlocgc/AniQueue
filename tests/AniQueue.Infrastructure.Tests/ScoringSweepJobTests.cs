@@ -347,8 +347,9 @@ public class ScoringSweepJobTests
     /// </remarks>
     private sealed class NullNotifier : ILibraryChangeNotifier
     {
-        public event Action<LibraryChange?>? Changed;
+        public event Action<LibraryChangeNotification>? Changed;
 
-        public void Publish(LibraryChange? change = null) => Changed?.Invoke(change);
+        public void Publish(LibraryChange? change = null, string? origin = null) =>
+            Changed?.Invoke(new LibraryChangeNotification(change, origin));
     }
 }

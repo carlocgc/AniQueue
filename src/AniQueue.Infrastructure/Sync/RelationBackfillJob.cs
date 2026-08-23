@@ -105,7 +105,7 @@ public sealed class RelationBackfillJob(
         // that wants detail only ever has it for a sync.
         if (result.ChangedAnything)
         {
-            notifier.Publish();
+            notifier.Publish(origin: Key);
         }
 
         return result.FailureReason is { } reason

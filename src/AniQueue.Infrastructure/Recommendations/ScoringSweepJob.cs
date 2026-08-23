@@ -239,7 +239,7 @@ public sealed class ScoringSweepJob(
         // who should care.
         if (applied > 0)
         {
-            notifier.Publish();
+            notifier.Publish(origin: Key);
         }
 
         // Every batch failing is a broken model or a broken endpoint, which is worth
@@ -248,7 +248,11 @@ public sealed class ScoringSweepJob(
             ? JobRunOutcome.Failed(
                 "The model rejected or could not answer every request. The log has the details.",
                 batches)
-            : JobRunOutcome.Succeeded(batches, applied);
+            // Titles for both, rather than batches considered against titles applied.
+            // A batch is this job's own bookkeeping and means nothing on a row beside
+            // a sync counting titles; how many were scored is the answer to what a
+            // sweep did.
+            : JobRunOutcome.Succeeded(applied, applied);
     }
 
     /// <summary>Asks for one batch, and applies it if the whole of it is sound.</summary>

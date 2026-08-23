@@ -19,6 +19,31 @@ public sealed record LibraryChange
 }
 
 /// <summary>
+/// One announcement: what changed, and who says so.
+/// </summary>
+/// <param name="Change">
+/// What a page could render, or null where the publisher has nothing to say in words.
+/// </param>
+/// <param name="Origin">
+/// The key of the job that published it, or null when a page did.
+/// </param>
+/// <remarks>
+/// <b>Origin exists so that a job never wakes itself.</b> D41 said every job announces
+/// what it changed and warned that publishing carelessly makes jobs wake each other in
+/// a ring; it left that as a discipline — publish only when something actually changed
+/// — and the discipline is not enough. A job that changes something on nearly every
+/// run wakes its own runner on nearly every run, which is exactly what the relation
+/// backfill did: a manual pass that wrote 826 edges immediately produced a second run
+/// triggered by "the library changed", finding nothing.
+///
+/// It terminated, because the second pass had nothing to do. That is the whole of what
+/// the discipline bought, and it is not worth the wasted pass or the history row that
+/// says a task ran for no reason. Nothing is served by a job hearing its own news, so
+/// the runner discards it.
+/// </remarks>
+public sealed record LibraryChangeNotification(LibraryChange? Change, string? Origin);
+
+/// <summary>
 /// Tells open pages that something changed underneath them.
 ///
 /// Blazor Server re-renders only when something calls <c>StateHasChanged</c>, and
@@ -42,7 +67,7 @@ public interface ILibraryChangeNotifier
     /// unsubscribe when it is disposed. A singleton holding a reference to a
     /// disposed component is a leak that survives every navigation.
     /// </summary>
-    event Action<LibraryChange?>? Changed;
+    event Action<LibraryChangeNotification>? Changed;
 
     /// <summary>
     /// Says something changed, with as much detail as the publisher has.
@@ -64,5 +89,9 @@ public interface ILibraryChangeNotifier
     /// This does not weaken D41's rule. The signal is still "data changed" and never
     /// "run X next"; what varies is how much the publisher can say about it.
     /// </remarks>
-    void Publish(LibraryChange? change = null);
+    /// <param name="origin">
+    /// The publishing job's key, so its own runner can ignore it. Null from a page,
+    /// which no runner is.
+    /// </param>
+    void Publish(LibraryChange? change = null, string? origin = null);
 }

@@ -17,7 +17,12 @@ namespace AniQueue.Core.Jobs;
 /// </remarks>
 /// <param name="Outcome">How the run ended.</param>
 /// <param name="ItemsProcessed">How many things the run considered.</param>
-/// <param name="ItemsChanged">How many it actually changed.</param>
+/// <param name="ItemsChanged">
+/// How many it actually changed, which is <b>not necessarily a subset of what it
+/// considered, nor even the same kind of thing</b>. A relation pass considers titles
+/// and changes edges, so 540 considered and 826 changed is a correct pair. Anything
+/// rendering both must not join them with a word like "of".
+/// </param>
 /// <param name="FailureReason">
 /// Why a failed run failed, in plain words. Never a stack trace — this reaches a
 /// page (§6).

@@ -62,6 +62,8 @@ public sealed class BackgroundJobRunner<TJob>(
 {
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
+        // Read before the wake-up handler is defined, because the handler closes over
+        // the key to recognise this job's own announcements.
         TimeSpan period;
         string name;
         string key;
@@ -92,8 +94,19 @@ public sealed class BackgroundJobRunner<TJob>(
         // because two things changed while it did.
         using var woken = new SemaphoreSlim(0, 1);
 
-        void OnLibraryChanged(LibraryChange? _)
+        void OnLibraryChanged(LibraryChangeNotification notification)
         {
+            // A job never wakes itself. Every job announces what it changed (D41), and
+            // a job that changes something on most runs would otherwise wake its own
+            // runner on most runs — one wasted pass and one history row per run saying
+            // a task ran for no reason. Seen for real: a relation pass that wrote 826
+            // edges produced a second run, triggered by its own news, that found
+            // nothing.
+            if (notification.Origin == key)
+            {
+                return;
+            }
+
             try
             {
                 woken.Release();
