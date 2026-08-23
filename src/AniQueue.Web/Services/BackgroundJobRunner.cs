@@ -1,3 +1,4 @@
+using AniQueue.Core.Domain;
 using AniQueue.Core.Jobs;
 using AniQueue.Core.Library;
 
@@ -165,6 +166,7 @@ public sealed class BackgroundJobRunner<TJob>(
     {
         using var scope = scopeFactory.CreateScope();
         var job = scope.ServiceProvider.GetRequiredService<TJob>();
+        var runs = scope.ServiceProvider.GetRequiredService<IJobRunStore>();
 
         foreach (var unit in job.Units)
         {
@@ -174,12 +176,13 @@ public sealed class BackgroundJobRunner<TJob>(
             }
 
             var context = new JobRunContext(trigger, unit.Key);
+            var startedAt = DateTimeOffset.UtcNow;
+
+            JobRunOutcome outcome;
 
             try
             {
-                var outcome = await job.RunAsync(context, stoppingToken);
-
-                Report(name, unit, outcome);
+                outcome = await job.RunAsync(context, stoppingToken);
             }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
             {
@@ -189,7 +192,7 @@ public sealed class BackgroundJobRunner<TJob>(
             {
                 // Everything a job expects to go wrong it reports itself, as a failed
                 // outcome. Reaching here means something unforeseen — so it is logged
-                // with its stack, and reported as a failure with a reason that is not
+                // with its stack, and recorded as a failure with a reason that is not
                 // one, because §6 forbids a stack trace reaching a page.
                 //
                 // Caught at all because an escaping exception ends the hosted service
@@ -197,22 +200,37 @@ public sealed class BackgroundJobRunner<TJob>(
                 // must not stop the application serving the pages that still work.
                 logger.LogError(ex, "{Job} threw while running {Unit}", name, unit.Name);
 
-                Report(name, unit, JobRunOutcome.Failed("Something went wrong. The log has the details."));
+                outcome = JobRunOutcome.Failed("Something went wrong. The log has the details.");
             }
+
+            await RecordAsync(runs, job.Key, name, unit, context, startedAt, outcome, stoppingToken);
         }
     }
 
     /// <summary>
-    /// Says what a run did.
+    /// Writes down what a run did, and says it in the log.
     /// </summary>
     /// <remarks>
-    /// The log is all there is in Phase 15a, deliberately: this phase changes the
-    /// contract and nothing else, so a regression in 15b's storage is attributable to
-    /// storage. Phase 15b writes a <c>JobRun</c> row here instead — from what the job
-    /// returned rather than counted again — and that row is what moves the cadence
-    /// clock, including for a run that threw.
+    /// <b>Recording a run that threw is what allows the backoff to be gone.</b>
+    /// Due-ness is measured from the last recorded run, so a job that fails before it
+    /// reports anything would leave that clock unmoved and be asked again on the very
+    /// next tick, forever. The old runner absorbed that by stretching its own
+    /// interval; D40 deletes the stretching, so the row has to exist instead.
+    ///
+    /// <b>The store failing must not take the job down with it.</b> A run that
+    /// happened and could not be written is worse remembered than not remembered at
+    /// all — but it is not a reason to stop the loop, so it is logged and the next
+    /// tick carries on.
     /// </remarks>
-    private void Report(string name, JobUnit unit, JobRunOutcome outcome)
+    private async Task RecordAsync(
+        IJobRunStore runs,
+        string key,
+        string name,
+        JobUnit unit,
+        JobRunContext context,
+        DateTimeOffset startedAt,
+        JobRunOutcome outcome,
+        CancellationToken cancellationToken)
     {
         if (!outcome.IsRecordable)
         {
@@ -227,5 +245,32 @@ public sealed class BackgroundJobRunner<TJob>(
             outcome.ItemsProcessed,
             outcome.ItemsChanged,
             outcome.FailureReason is { } reason ? $" — {reason}" : string.Empty);
+
+        try
+        {
+            await runs.RecordAsync(
+                new JobRun
+                {
+                    TaskKey = key,
+                    UnitKey = unit.Key ?? string.Empty,
+                    Trigger = context.Trigger,
+                    StartedAt = startedAt,
+                    FinishedAt = DateTimeOffset.UtcNow,
+                    Outcome = outcome.Outcome,
+                    ItemsProcessed = outcome.ItemsProcessed,
+                    ItemsChanged = outcome.ItemsChanged,
+                    FailureReason = outcome.FailureReason
+                },
+                cancellationToken);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "{Job} could not record what {Unit} did", name, unit.Name);
+        }
     }
+
 }

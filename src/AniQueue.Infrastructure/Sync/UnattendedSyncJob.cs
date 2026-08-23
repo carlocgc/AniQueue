@@ -24,6 +24,7 @@ namespace AniQueue.Infrastructure.Sync;
 public sealed class UnattendedSyncJob(
     ISyncService syncService,
     ILibraryChangeNotifier notifier,
+    IJobRunStore runs,
     ILogger<UnattendedSyncJob> logger) : IBackgroundJob
 {
     /// <summary>
@@ -37,6 +38,9 @@ public sealed class UnattendedSyncJob(
     /// with every tick.
     /// </remarks>
     public TimeSpan TickPeriod => TimeSpan.FromMinutes(5);
+
+    /// <summary>What this task's runs are filed under. Never shown.</summary>
+    public string Key => "sync";
 
     public string Name => "Sync";
 
@@ -70,7 +74,7 @@ public sealed class UnattendedSyncJob(
             return JobRunOutcome.NotDue;
         }
 
-        if (!IsDue(status, context, DateTimeOffset.UtcNow))
+        if (!await IsDueAsync(status, context, cancellationToken))
         {
             return JobRunOutcome.NotDue;
         }
@@ -128,6 +132,14 @@ public sealed class UnattendedSyncJob(
     /// Measured from the last run's start rather than its finish, so a slow fetch
     /// does not push the schedule out by its own duration.
     ///
+    /// <b>From <c>JobRun</c> rather than from <c>SyncRun</c>, since Phase 15b.</b>
+    /// <c>SyncRun</c> is written only when a run reaches a terminal state, so a run
+    /// that was cancelled — or that threw before it could record anything — left the
+    /// clock unmoved and was started again on the very next tick. Reading it from the
+    /// record every run writes is what makes cancelling mean "not this cycle" instead
+    /// of "try again in five minutes". <c>SyncRun</c> goes back to being purely the
+    /// library's audit trail, which is what its own documentation says it is.
+    ///
     /// A source that has never run is due immediately — which is deliberate, and
     /// safe, because turning the schedule on is what creates that state and the
     /// user has just said they want it read.
@@ -139,7 +151,10 @@ public sealed class UnattendedSyncJob(
     /// costs a schedule the user set being rewritten by the application, invisibly,
     /// in response to a condition they may already know about.
     /// </remarks>
-    private static bool IsDue(SourceSyncStatus status, JobRunContext context, DateTimeOffset now)
+    private async Task<bool> IsDueAsync(
+        SourceSyncStatus status,
+        JobRunContext context,
+        CancellationToken cancellationToken)
     {
         // Nothing to fetch is the first question. A file source has no list to go and
         // read, so it is never due — asking would be a programming error, not a
@@ -168,6 +183,8 @@ public sealed class UnattendedSyncJob(
             return false;
         }
 
-        return status.LastRun is not { } last || now - last.StartedAt >= interval;
+        var lastRun = await runs.LastRunAtAsync(Key, context.Unit, cancellationToken);
+
+        return lastRun is not { } last || DateTimeOffset.UtcNow - last >= interval;
     }
 }

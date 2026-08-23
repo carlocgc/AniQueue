@@ -372,23 +372,6 @@ public sealed class RecommendationService(
             .FirstOrDefaultAsync(cancellationToken);
     }
 
-    public async Task<DateTimeOffset?> GetLastRunAtAsync(
-        int profileId,
-        string providerName,
-        CancellationToken cancellationToken = default)
-    {
-        await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
-
-        // Ordered by Id rather than CreatedAt, because SQLite cannot ORDER BY a
-        // DateTimeOffset — and the key is a better answer here anyway: runs are only
-        // ever appended, so the highest id is the most recent whatever a clock did.
-        return await context.RecommendationRuns
-            .AsNoTracking()
-            .Where(r => r.ProfileId == profileId && r.ProviderName == providerName)
-            .OrderByDescending(r => r.Id)
-            .Select(r => (DateTimeOffset?)r.CreatedAt)
-            .FirstOrDefaultAsync(cancellationToken);
-    }
 
     public async Task<ScoringCoverage> GetCoverageAsync(
         int profileId,

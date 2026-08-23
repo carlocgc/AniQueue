@@ -49,6 +49,9 @@ public sealed class RelationBackfillJob(
     /// </remarks>
     public TimeSpan TickPeriod => TimeSpan.FromMinutes(15);
 
+    /// <summary>What this task's runs are filed under. Never shown.</summary>
+    public string Key => "relations";
+
     public string Name => "Related titles";
 
     /// <summary>

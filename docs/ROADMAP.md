@@ -2295,8 +2295,8 @@ the remainder of 10, then 11 onwards.
 | 13 | CI | Build and tests on every push; image built on a tag, published only once Phase 14 has run |
 | 14 | Security pass | §6's high-risk surfaces reviewed against the finished application; release gate opens |
 | 15a | Job contract | Jobs take a trigger and return an outcome; the runner drives units and reschedules nothing |
-| 15b | Job runs + cadence | Every executed run is recorded; one cadence drives every task; cancel skips a cycle |
-| 15c | Tasks page | Every task seen, started, cancelled and switched off from one page |
+| 15b | Job runs | Every executed run is recorded, including one that threw; every task reads its cadence from it |
+| 15c | Tasks page + cadence | Every task seen, started, cancelled and switched off from one page; one cadence drives them all |
 | 15d | Scoring demolition | No outbound scoring request has anybody waiting on it |
 | 15e | Sources reshape | Sources is configuration, one review button and a file import |
 
@@ -3267,19 +3267,38 @@ gives it the row that actually moves the clock.
 *Exit:* jobs run as before on the new contract; a run that found nothing is distinguishable from
 one that was not due; suite green.
 
-#### Phase 15b — Job runs and the cadence
-`JobRun` lands with pruning at two hundred rows per task. Due-ness moves off `SyncRun` onto
-`JobRun`, which is what makes "cancel skips this cycle" true rather than aspirational — without
-it a cancelled sync leaves no trace the due check can see and the next tick restarts it. The
-single `Tasks:Schedule` key replaces `SourceSyncSettings.Schedule` and `ScoringOptions.Schedule`.
+#### Phase 15b — Job runs
+`JobRun` lands with pruning at two hundred rows **per unit**, so a source syncing hourly cannot
+crowd out the history of one syncing weekly. Due-ness moves onto it, which is what makes "cancel
+skips this cycle" true rather than aspirational — without it a cancelled run leaves no trace the
+due check can see and the next tick restarts it.
 
-*Exit:* every executed run is recorded including the ones that found nothing; one cadence drives
-every task; a cancelled run advances the clock and the task next runs when it was going to.
+`IBackgroundJob` gains a stable `Key` separate from its display `Name`: what a task is called is
+a label somebody reads and may change, and a rename must not orphan the history it names.
+
+**Both jobs were reading the wrong clock, in the same shape.** Sync took due-ness from `SyncRun`,
+which is written only when a run reaches a terminal state; the sweep took it from the last
+`RecommendationRun` a schedule produced, which means the last time it *applied* a ranking. So a
+run that was cancelled, that failed, or that found nothing looked like a run that never happened,
+and the next tick started it again — for the sweep, minutes of somebody's GPU. Reading from the
+record every run writes fixes both, and returns `SyncRun` to being purely the library's audit
+trail, which is what its own documentation says it is. `IRecommendationService.GetLastRunAtAsync`
+is deleted with the question it answered.
+
+*The single cadence moved to 15c.* Consolidating `Sync:AniList:Schedule` and `Scoring:Schedule`
+here would delete the schedule controls from Sources and Recommendations one part before the page
+that hosts the replacement exists, leaving a merged state with no schedule UI at all. Storage
+belongs here; a setting and the surface that edits it belong together.
+
+*Exit:* every executed run is recorded including the ones that found nothing and the ones that
+threw; due-ness is answered from that record for every task; suite green.
 
 #### Phase 15c — The tasks page
 `/tasks`: a singleton registry each runner registers with, holding per-unit state, the started-at,
 the trigger channel and the token source — the last two moved here from 15a, because this is
-where the thing that writes to them arrives. One row per schedulable unit with run now, cancel, an
+where the thing that writes to them arrives. The single `Tasks:Schedule` key replaces
+`Sync:AniList:Schedule` and `Scoring:Schedule` here too, moved from 15b so that the setting and
+the control that edits it land together. One row per schedulable unit with run now, cancel, an
 on/off toggle writing to `userconfig.json`, the last run, its outcome and its failure reason in
 plain words. One cadence control above them. A history card below, reading `JobRun`.
 
