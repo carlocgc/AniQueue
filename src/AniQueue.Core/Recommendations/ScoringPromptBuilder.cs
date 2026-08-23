@@ -15,6 +15,14 @@ namespace AniQueue.Core.Recommendations;
 /// thing, and keeping them in the same folder is the cheapest way to notice when
 /// they stop agreeing.
 ///
+/// <b>The example teaches as much as the rules do.</b> Its reasons used to read
+/// "Same director as one you rated 9." beside a predictedScore of 9.5 — a number
+/// in the reason, adjacent to the score, attached to no particular title. Models
+/// reproduced exactly that: a rating they had invented, tracking the score they
+/// had just given. The reasons now name where a comparison comes from and carry no
+/// number at all, and one of them shows what to say when there is no comparison to
+/// make.
+///
 /// <b>Written for a small model.</b> The target is something self-hosted, so the
 /// instructions are short, ordered with the output format last — which is the part
 /// most likely to survive a truncated context — and state the failure explicitly
@@ -56,7 +64,22 @@ public static class ScoringPromptBuilder
         prompt.AppendLine("How to rank:");
         prompt.AppendLine("- Predict what THIS person would rate each candidate, not how well regarded it is.");
         prompt.AppendLine("- A title similar to something they rated low should rank low, however popular it is.");
-        prompt.AppendLine("- Say why in one short sentence, referring to their history where you can.");
+        // Two lines where there was one, and both are answers to output seen from real
+        // models rather than to anything imagined. "Referring to their history where
+        // you can" is what a model turns into an invented rating when nothing in the
+        // history is close: qwen3-vl-8b returned "You rated 'Haite Kudasai,
+        // Takamine-san' 6.0." about an unwatched candidate, with 6.0 being its own
+        // predictedScore; gpt-oss-20b wrote "Sci-fi thriller like Psycho-Pass you rated
+        // 7." about Psycho-Pass itself. Both named the candidate as something the user
+        // had rated, and both used their own score as the rating.
+        prompt.AppendLine(
+            "- Say why in one short sentence, naming a title from \"history\". Everything in "
+                + "\"candidates\" is unwatched: never say they rated one.");
+        prompt.AppendLine(
+            "- Never put your own predictedScore in the reason. A number there is one of "
+                + "THEIR ratings, copied from \"history\", or there is no number.");
+        prompt.AppendLine(
+            "- If nothing in their history is close, say so rather than forcing a comparison.");
         prompt.AppendLine("- If you do not recognise a title, give it a low confidence rather than a guessed score.");
 
         // Stated as "consider all, return some", in that order and in those words.
@@ -120,8 +143,8 @@ public static class ScoringPromptBuilder
         {
           "aniqueue": { "format": "{{ScoringResponse.ResponseFormat}}", "version": {{ScoringRequest.CurrentVersion}} },
           "results": [
-            { "id": 412, "rank": 1, "predictedScore": {{scale.Max - 1}}.5, "confidence": 0.8, "reason": "Same director as one you rated 9." },
-            { "id": 98, "rank": 2, "predictedScore": 7.0, "confidence": 0.6, "reason": "Close to a genre you rate well." }
+            { "id": 412, "rank": 1, "predictedScore": {{scale.Max - 1}}.5, "confidence": 0.8, "reason": "Same studio as several of your highest-rated titles." },
+            { "id": 98, "rank": 2, "predictedScore": 7.0, "confidence": 0.6, "reason": "Nothing close in your history; ranked on genre alone." }
           ]
         }
         """;
