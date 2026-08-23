@@ -178,17 +178,18 @@ public class SampleDataSeederTests
     /// data and a real account are alternatives, and this is the seeder saying so in
     /// the only place that can stop an unattended run: the database.
     /// </remarks>
-    [Fact]
-    public async Task A_seeded_database_leaves_anilist_sync_switched_off()
-    {
-        await using var database = await SeededDatabaseAsync();
-        await using var context = database.CreateContext();
-
-        var settings = await context.SourceSyncSettings
-            .SingleAsync(s => s.Source == AnimeSource.AniList);
-
-        Assert.False(settings.IsEnabled);
-    }
+    // A_seeded_database_leaves_anilist_sync_switched_off was deleted here rather than
+    // rewritten, and the reason is worth keeping. It asserted a settings row the
+    // seeder wrote; Phase 10a moved that setting into userconfig.json, which a seeder
+    // writing a database cannot reach — and must not, because the sample and real
+    // profiles shared one settings file, so seeding it would have switched off the
+    // user's actual sync.
+    //
+    // What replaces the protection is not a row but a path: the sample launch profile
+    // points at ./data/sample/, so it gets its own database and its own settings file
+    // with no account in it. That is a launchSettings.json fact, not something this
+    // suite can observe, and a test asserting it here would be asserting its own
+    // fixture rather than the application.
 
     [Fact]
     public async Task Seeding_twice_does_not_duplicate_anything()

@@ -15,7 +15,7 @@ git-ignored so it never needs cleaning for hygiene.
 Clear it only when the empty-database path is the thing under test — first boot, `userconfig.json`
 generation, the empty-library screen (D27) — and say so when doing it.
 
-## Sample data, and the trap in it
+## Sample data
 
 For a surface that needs rows, use the sample profile rather than touching the real database:
 
@@ -23,19 +23,21 @@ For a surface that needs rows, use the sample profile rather than touching the r
 dotnet run --project src/AniQueue.Web --launch-profile "http (sample data)"
 ```
 
-It writes its own `sample.db`, so the real library is untouched. Deleting **`sample.db` only** is
-fine and reseeds on next run.
+Everything it touches lives under `src/AniQueue.Web/data/sample/` — its own `sample.db` **and its
+own `userconfig.json`**. Deleting that whole directory is fine and it rebuilds on the next run.
 
-**But it shares `data/userconfig.json` with the real profile.** Both resolve settings from the
-same file, so saving settings during a sample run writes to the user's actual configuration.
-Back it up before testing anything that saves, and restore afterwards:
+**The trap here used to be that both profiles shared one `data/userconfig.json`**, so saving a
+setting during a sample run wrote to the real configuration, and testing anything that saves meant
+backing the file up first. Phase 10a closed it by moving the sample profile into its own
+directory, which it had to: that phase moved the per-source sync settings into the file, so the
+seeder could no longer switch AniList off in the sample database and would have switched it off
+for real instead.
 
-```bash
-cp src/AniQueue.Web/data/userconfig.json /tmp/userconfig.backup.json
-```
-
-Check what you restore against what is there now — the user edits settings between sessions, and
-a "stale backup" diff is more likely to be their deliberate change than a bug.
+Two consequences worth knowing. The sample run has **no AniList account**, because it no longer
+inherits one — so *Sync now* has nothing to read, which is the intended state (D27) rather than a
+setup step somebody forgot. And a settings change made during a sample run does **not** show up in
+the real application, which is what you want when testing and confusing for about ten seconds the
+first time it happens.
 
 ## Verify by running it, not by compiling it
 

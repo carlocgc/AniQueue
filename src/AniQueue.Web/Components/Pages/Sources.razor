@@ -297,7 +297,7 @@
                     <label for="@($"enabled-{status.Source}")">
                         <input type="checkbox" id="@($"enabled-{status.Source}")"
                                checked="@status.Settings.IsEnabled"
-                               @onchange="e => Update(status, s => s.IsEnabled = (bool)(e.Value ?? false))" />
+                               @onchange="e => Update(status, s => s with { IsEnabled = (bool)(e.Value ?? false) })" />
                         Sync this source
                     </label>
                 </div>
@@ -344,7 +344,7 @@
                 <div class="field">
                     <label for="@($"schedule-{status.Source}")">Check this source</label>
                     <select id="@($"schedule-{status.Source}")" value="@status.Settings.Schedule"
-                            @onchange="e => Update(status, s => s.Schedule = Parse(e.Value, s.Schedule))">
+                            @onchange="e => Update(status, s => s with { Schedule = Parse(e.Value, s.Schedule) })">
                         <option value="@SyncSchedule.Off">Only when I press Sync now</option>
                         <option value="@SyncSchedule.Hourly">Every hour</option>
                         <option value="@SyncSchedule.EverySixHours">Every six hours</option>
@@ -362,7 +362,7 @@
                     <label for="@($"unattended-{status.Source}")">
                         <input type="checkbox" id="@($"unattended-{status.Source}")"
                                checked="@status.Settings.ApplyUnattended"
-                               @onchange="e => Update(status, s => s.ApplyUnattended = (bool)(e.Value ?? false))" />
+                               @onchange="e => Update(status, s => s with { ApplyUnattended = (bool)(e.Value ?? false) })" />
                         Apply changes without asking
                     </label>
                     <p class="muted">
@@ -374,7 +374,7 @@
                 <div class="field">
                     <label for="@($"conflicts-{status.Source}")">Conflicts</label>
                     <select id="@($"conflicts-{status.Source}")" value="@status.Settings.ConflictPolicy"
-                            @onchange="e => Update(status, s => s.ConflictPolicy = Parse(e.Value, s.ConflictPolicy))">
+                            @onchange="e => Update(status, s => s with { ConflictPolicy = Parse(e.Value, s.ConflictPolicy) })">
                         <option value="@SyncConflictPolicy.HoldForReview">Hold for me to decide</option>
                         <option value="@SyncConflictPolicy.LinkToExisting">Link when the titles match exactly</option>
                     </select>
@@ -387,7 +387,7 @@
                 <div class="field">
                     <label for="@($"absence-{status.Source}")">Titles removed from the source</label>
                     <select id="@($"absence-{status.Source}")" value="@status.Settings.AbsencePolicy"
-                            @onchange="e => Update(status, s => s.AbsencePolicy = Parse(e.Value, s.AbsencePolicy))">
+                            @onchange="e => Update(status, s => s with { AbsencePolicy = Parse(e.Value, s.AbsencePolicy) })">
                         <option value="@SyncAbsencePolicy.Flag">Flag them for me</option>
                         <option value="@SyncAbsencePolicy.Ignore">Leave them alone</option>
                     </select>
@@ -751,10 +751,34 @@
     /// independent decision, and a save button on a page whose main action is a
     /// different button is an easy thing to leave unpressed.
     /// </remarks>
-    private async Task Update(SourceSyncStatus status, Action<SourceSyncSettings> change)
+    /// <summary>
+    /// Applies one change to a source's settings and writes them.
+    /// </summary>
+    /// <remarks>
+    /// Takes a function rather than an action because <c>SourceSyncSettings</c> stopped
+    /// being a mutable entity in Phase 10a — the settings are a value read from
+    /// <c>userconfig.json</c>, so a change produces a new one rather than editing the
+    /// instance the page happens to be holding.
+    /// </remarks>
+    private async Task Update(
+        SourceSyncStatus status,
+        Func<SourceSyncSettings, SourceSyncSettings> change)
     {
-        change(status.Settings);
-        await SyncService.SaveSettingsAsync(status.Settings);
+        _error = null;
+
+        var result = await SyncService.SaveSettingsAsync(change(status.Settings));
+
+        // Reported rather than swallowed, because since Phase 10a this writes a file
+        // and §9's non-root container writing to a root-owned bind mount cannot. A
+        // checkbox left showing a value nothing kept is the worst of the three
+        // outcomes available here.
+        if (!result.Saved)
+        {
+            _error = $"Could not save to {result.Path}: {result.Error}";
+            await LoadAsync();
+            return;
+        }
+
         await LoadAsync();
 
         // These are the controls that most needed saying so: they save the moment they
@@ -904,7 +928,15 @@
     /// </remarks>
     private async Task SetPrimaryAsync(SourceSyncStatus status)
     {
-        await SyncService.SetPrimarySourceAsync(Profile.DefaultProfileId, status.Source);
+        _error = null;
+
+        var result = await SyncService.SetPrimarySourceAsync(Profile.DefaultProfileId, status.Source);
+
+        if (!result.Saved)
+        {
+            _error = $"Could not save to {result.Path}: {result.Error}";
+        }
+
         await LoadAsync();
     }
 

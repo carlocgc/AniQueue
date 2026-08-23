@@ -16,7 +16,7 @@
       "environmentVariables": {
         "ASPNETCORE_ENVIRONMENT": "Development",
         "SeedSampleData": "true",
-        "Database__Path": "./data/sample.db"
+        "Database__Path": "./data/sample/sample.db"
       },
       "dotnetRunMessages": true,
       "applicationUrl": "http://localhost:5048"

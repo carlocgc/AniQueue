@@ -40,8 +40,29 @@ public sealed class UserSettingsStore(
         // rule becomes visible rather than implied.
         SyncEnabled = Bool(SyncKey(nameof(SyncOptions.Enabled)), UserSettings.Defaults.SyncEnabled),
 
-        AniListUserName = Text(
-            SyncKey($"{nameof(SyncOptions.AniList)}:{nameof(AniListAccountOptions.UserName)}")),
+        AniListUserName = Text(AniListKey(nameof(AniListSyncOptions.UserName))),
+
+        SyncPrimarySource = OptionalEnum<AnimeSource>(SyncKey(nameof(SyncOptions.PrimarySource))),
+
+        AniListEnabled = Bool(
+            AniListKey(nameof(AniListSyncOptions.Enabled)),
+            UserSettings.Defaults.AniListEnabled),
+
+        AniListSchedule = EnumValue(
+            AniListKey(nameof(AniListSyncOptions.Schedule)),
+            UserSettings.Defaults.AniListSchedule),
+
+        AniListApplyUnattended = Bool(
+            AniListKey(nameof(AniListSyncOptions.ApplyUnattended)),
+            UserSettings.Defaults.AniListApplyUnattended),
+
+        AniListConflictPolicy = EnumValue(
+            AniListKey(nameof(AniListSyncOptions.ConflictPolicy)),
+            UserSettings.Defaults.AniListConflictPolicy),
+
+        AniListAbsencePolicy = EnumValue(
+            AniListKey(nameof(AniListSyncOptions.AbsencePolicy)),
+            UserSettings.Defaults.AniListAbsencePolicy),
 
         ScoringHistorySize = Number(
             ScoringKey(nameof(ScoringOptions.HistorySize))) ?? UserSettings.Defaults.ScoringHistorySize,
@@ -70,10 +91,9 @@ public sealed class UserSettingsStore(
             ScoringKey(nameof(ScoringOptions.Enabled)),
             UserSettings.Defaults.ScoringEnabled),
 
-        ScoringSchedule = Enum.TryParse<SyncSchedule>(
-                configuration[ScoringKey(nameof(ScoringOptions.Schedule))], ignoreCase: true, out var schedule)
-            ? schedule
-            : UserSettings.Defaults.ScoringSchedule,
+        ScoringSchedule = EnumValue(
+            ScoringKey(nameof(ScoringOptions.Schedule)),
+            UserSettings.Defaults.ScoringSchedule),
 
         ScoringBatchSize = Number(
                 ScoringKey(nameof(ScoringOptions.BatchSize)))
@@ -85,6 +105,9 @@ public sealed class UserSettingsStore(
     };
 
     private static string SyncKey(string key) => $"{SyncOptions.SectionName}:{key}";
+
+    private static string AniListKey(string key) =>
+        SyncKey($"{nameof(SyncOptions.AniList)}:{key}");
 
     private static string ScoringKey(string key) => $"{ScoringOptions.SectionName}:{key}";
 
@@ -111,6 +134,20 @@ public sealed class UserSettingsStore(
 
     private bool Bool(string key, bool fallback) =>
         bool.TryParse(configuration[key], out var value) ? value : fallback;
+
+    /// <summary>A configured enum, by name and case-insensitively.</summary>
+    /// <remarks>
+    /// Names rather than the integers the database stored, because this file is read
+    /// and edited by a person: "HoldForReview" says what it does and "0" does not.
+    /// An unparseable value falls back to the default for the same reason a bad
+    /// number does — this is the file somebody edits when something is already wrong.
+    /// </remarks>
+    private TEnum EnumValue<TEnum>(string key, TEnum fallback) where TEnum : struct =>
+        Enum.TryParse<TEnum>(configuration[key], ignoreCase: true, out var value) ? value : fallback;
+
+    /// <summary>A configured enum where absent is a meaning of its own, not a default.</summary>
+    private TEnum? OptionalEnum<TEnum>(string key) where TEnum : struct =>
+        Enum.TryParse<TEnum>(configuration[key], ignoreCase: true, out var value) ? value : null;
 
     public async Task<UserSettingsSaveResult> SaveAsync(
         UserSettings settings,

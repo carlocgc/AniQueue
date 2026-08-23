@@ -55,6 +55,51 @@ internal static class UserSettingsDocument
             s => s.AniListUserName ?? string.Empty),
 
         new(
+            "Sync:PrimarySource",
+            [
+                "Which source wins when two of them disagree about a title you have on both.",
+                "AniList, MyAnimeList, or empty for neither — with neither, the last sync wins."
+            ],
+            s => s.SyncPrimarySource?.ToString() ?? string.Empty),
+
+        new(
+            "Sync:AniList:Enabled",
+            ["Sync AniList. false leaves the account configured but reads nothing."],
+            s => s.AniListEnabled),
+
+        new(
+            "Sync:AniList:Schedule",
+            [
+                "Read AniList unattended, on a schedule.",
+                "Off, Hourly, EverySixHours, Daily or Weekly. Off does nothing on its own."
+            ],
+            s => s.AniListSchedule.ToString()),
+
+        new(
+            "Sync:AniList:ApplyUnattended",
+            [
+                "Let an unattended run save the changes it is sure about.",
+                "false holds everything until you look at it."
+            ],
+            s => s.AniListApplyUnattended),
+
+        new(
+            "Sync:AniList:ConflictPolicy",
+            [
+                "An AniList entry that matches a local title but carries no shared id.",
+                "HoldForReview waits for you; LinkToExisting joins them on an exact title match."
+            ],
+            s => s.AniListConflictPolicy.ToString()),
+
+        new(
+            "Sync:AniList:AbsencePolicy",
+            [
+                "A title AniList used to list and no longer does.",
+                "Flag marks it for you to look at; Ignore says nothing. Nothing is ever deleted."
+            ],
+            s => s.AniListAbsencePolicy.ToString()),
+
+        new(
             "Scoring:HistorySize",
             ["Your scored titles sent with a ranking request, newest first. 0 sends none."],
             s => s.ScoringHistorySize),

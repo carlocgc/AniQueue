@@ -52,6 +52,39 @@ public sealed record UserSettings
     /// </remarks>
     public string? AniListUserName { get; init; }
 
+    /// <summary>
+    /// Which source outranks the others when two of them describe one title
+    /// (D18, D29, D30). Null until somebody chooses, which is honest: with no choice
+    /// made two sources tie and the last import wins.
+    /// </summary>
+    public AnimeSource? SyncPrimarySource { get; init; }
+
+    /// <summary>Whether AniList takes part in sync at all.</summary>
+    /// <remarks>
+    /// The ordinary "not right now", as distinct from <see cref="SyncEnabled"/>,
+    /// which stops every source at once.
+    /// </remarks>
+    public bool AniListEnabled { get; init; } = true;
+
+    /// <summary>How often an unattended run reads AniList. Off by default (D40).</summary>
+    public SyncSchedule AniListSchedule { get; init; } = SyncSchedule.Off;
+
+    /// <summary>
+    /// Whether an unattended AniList run commits its unambiguous changes, or holds
+    /// everything for review (D21).
+    /// </summary>
+    public bool AniListApplyUnattended { get; init; } = true;
+
+    /// <summary>What an unattended AniList run does with a conflict (D21).</summary>
+    public SyncConflictPolicy AniListConflictPolicy { get; init; } = SyncConflictPolicy.HoldForReview;
+
+    /// <summary>What happens when AniList stops listing a title it once listed (D19).</summary>
+    public SyncAbsencePolicy AniListAbsencePolicy { get; init; } = SyncAbsencePolicy.Flag;
+
+    // There is no MyAnimeList section. Every setting above describes something a run
+    // does, and nothing runs on a file source — the Sources page has always gated
+    // these controls on CanFetch, and this is the same rule expressed in the store.
+
     /// <summary>The most scored titles a scoring request carries as history.</summary>
     /// <remarks>
     /// Moved off <c>ProfileSettings</c> by D36: it describes somebody else's model

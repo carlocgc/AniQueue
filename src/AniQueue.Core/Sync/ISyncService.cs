@@ -1,5 +1,6 @@
 using AniQueue.Core.Domain;
 using AniQueue.Core.Import;
+using AniQueue.Core.Settings;
 using AniQueue.Core.Progress;
 
 namespace AniQueue.Core.Sync;
@@ -114,15 +115,15 @@ public sealed record SourceSyncStatus
 
     /// <summary>
     /// Whether this source outranks the others when two of them describe one title
-    /// (D18, D29).
+    /// (D18, D29, D30).
     /// </summary>
-    public bool IsPrimary => Settings.PrecedenceRank == PrimaryRank;
-
-    /// <summary>
-    /// The rank that means primary. Exactly one source holds it, which is what
-    /// stops two of them tying and falling back to last-write-wins (D30).
-    /// </summary>
-    public const int PrimaryRank = 0;
+    /// <remarks>
+    /// A flag rather than a rank compared against a constant. The seat is single, so
+    /// naming its occupant in one setting says that directly — where a rank per
+    /// source could represent two primaries or none, and needed a transaction across
+    /// every row to stop it (Phase 10a).
+    /// </remarks>
+    public required bool IsPrimary { get; init; }
 
     /// <summary>Whether an account has been configured for this source (D20).</summary>
     public required bool IsConfigured { get; init; }
@@ -257,7 +258,15 @@ public interface ISyncService
     /// Stores this profile's settings for one source, creating the row if this is
     /// the first time the user has said anything about it.
     /// </summary>
-    Task SaveSettingsAsync(SourceSyncSettings settings, CancellationToken cancellationToken = default);
+    /// <remarks>
+    /// Returns the file write's result rather than <c>Task</c>, because since Phase
+    /// 10a this writes <c>userconfig.json</c> and §9's non-root container writing to
+    /// a root-owned bind mount is a real deployment. A save that silently failed
+    /// would leave a toggle showing the value it did not keep.
+    /// </remarks>
+    Task<UserSettingsSaveResult> SaveSettingsAsync(
+        SourceSyncSettings settings,
+        CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Makes one source primary and demotes every other, in one transaction.
@@ -278,7 +287,7 @@ public interface ISyncService
     /// recorded to be worth anything — an absent row is a default, and defaults are
     /// what the promotion is overriding.
     /// </remarks>
-    Task SetPrimarySourceAsync(
+    Task<UserSettingsSaveResult> SetPrimarySourceAsync(
         int profileId,
         AnimeSource source,
         CancellationToken cancellationToken = default);

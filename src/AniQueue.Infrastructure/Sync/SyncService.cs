@@ -1,6 +1,7 @@
 using AniQueue.Core.Domain;
 using AniQueue.Core.Import;
 using AniQueue.Core.Progress;
+using AniQueue.Core.Settings;
 using AniQueue.Core.Sync;
 using AniQueue.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
@@ -27,6 +28,7 @@ public sealed class SyncService(
     [Microsoft.Extensions.DependencyInjection.FromKeyedServices(AnimeSource.AniList)] IAnimeListParser aniListParser,
     IImportService importService,
     IOptionsMonitor<SyncOptions> options,
+    IUserSettingsStore settingsStore,
     ILogger<SyncService> logger) : ISyncService
 {
     /// <summary>
@@ -68,7 +70,7 @@ public sealed class SyncService(
             return Failure(source, "Syncing is turned off in this deployment's configuration.");
         }
 
-        var settings = await LoadSettingsAsync(profileId, source, cancellationToken);
+        var settings = SettingsFor(source);
         if (!settings.IsEnabled)
         {
             return Failure(source, $"{source} syncing is switched off for this profile.");
@@ -231,7 +233,7 @@ public sealed class SyncService(
             };
         }
 
-        var settings = await LoadSettingsAsync(profileId, source, cancellationToken);
+        var settings = SettingsFor(source);
 
         if (settings.ConflictPolicy == SyncConflictPolicy.LinkToExisting)
         {
@@ -435,12 +437,8 @@ public sealed class SyncService(
     {
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
 
-        var settings = await context.SourceSyncSettings
-            .AsNoTracking()
-            .Where(s => s.ProfileId == profileId)
-            .ToDictionaryAsync(s => s.Source, cancellationToken);
-
-        var account = options.CurrentValue.AniList.UserName;
+        var current = options.CurrentValue;
+        var account = current.AniList.UserName;
         var statuses = new List<SourceSyncStatus>(PageSources.Length);
 
         foreach (var source in PageSources)
@@ -502,10 +500,14 @@ public sealed class SyncService(
             statuses.Add(new SourceSyncStatus
             {
                 Source = source,
-                Settings = settings.TryGetValue(source, out var stored)
-                    ? stored
-                    : DefaultSettings(profileId, source),
+                Settings = SettingsFor(source),
                 CanFetch = canFetch,
+
+                // Nothing is primary until somebody chooses, which is honest: with no
+                // choice made two sources tie and the last import wins, exactly as D29
+                // describes. The old rank defaulted to zero, so every unconfigured
+                // source claimed the seat and two of them claimed it at once.
+                IsPrimary = current.PrimarySource == source,
 
                 // A file source needs no account, so there is nothing to configure
                 // and nothing to warn about: the user brings the list themselves.
@@ -523,44 +525,38 @@ public sealed class SyncService(
         return statuses;
     }
 
-    public async Task SaveSettingsAsync(
+    public async Task<UserSettingsSaveResult> SaveSettingsAsync(
         SourceSyncSettings settings,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(settings);
-        RequireConfigurable(settings.Source);
 
-        await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
+        // Syncable rather than merely configurable, which is a tightening. Every
+        // value here describes something a run does, and nothing runs on a file
+        // source — so a save for MyAnimeList has nowhere to go and is a programming
+        // error rather than a no-op that looks like it worked.
+        RequireSyncable(settings.Source);
 
-        var stored = await context.SourceSyncSettings.FirstOrDefaultAsync(
-            s => s.ProfileId == settings.ProfileId && s.Source == settings.Source, cancellationToken);
+        // The whole file is rewritten on every save, so everything this call is not
+        // editing is read back and passed through. The alternative — writing only the
+        // changed keys — is the round-tripping D36 removed the need for.
+        var result = await settingsStore.SaveAsync(
+            settingsStore.Read() with
+            {
+                AniListEnabled = settings.IsEnabled,
+                AniListSchedule = settings.Schedule,
+                AniListApplyUnattended = settings.ApplyUnattended,
+                AniListConflictPolicy = settings.ConflictPolicy,
+                AniListAbsencePolicy = settings.AbsencePolicy
+            },
+            cancellationToken);
 
-        if (stored is null)
+        if (result.Saved)
         {
-            context.SourceSyncSettings.Add(settings);
-        }
-        else
-        {
-            // Copied field by field rather than attached, because the instance the
-            // page edited came back through a page render and carries no identity
-            // this context would recognise.
-            //
-            // Every settable property has to appear here, and a missing one fails in
-            // a nasty way: the first save creates the row from the whole entity, so
-            // the field works exactly once and silently stops afterwards. The test
-            // that covers this changes a saved row rather than creating one, because
-            // creation cannot catch it.
-            stored.IsEnabled = settings.IsEnabled;
-            stored.PrecedenceRank = settings.PrecedenceRank;
-            stored.ApplyUnattended = settings.ApplyUnattended;
-            stored.ConflictPolicy = settings.ConflictPolicy;
-            stored.AbsencePolicy = settings.AbsencePolicy;
-            stored.Schedule = settings.Schedule;
+            logger.LogInformation("Sync settings saved for {Source}", settings.Source);
         }
 
-        await context.SaveChangesAsync(cancellationToken);
-
-        logger.LogInformation("Sync settings saved for {Source}", settings.Source);
+        return result;
     }
 
     public async Task SavePreferredTitleLanguageAsync(
@@ -674,43 +670,37 @@ public sealed class SyncService(
         return preference ?? TitleLanguage.Romaji;
     }
 
-    private async Task<SourceSyncSettings> LoadSettingsAsync(
-        int profileId,
-        AnimeSource source,
-        CancellationToken cancellationToken)
-    {
-        await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
-
-        var stored = await context.SourceSyncSettings
-            .AsNoTracking()
-            .FirstOrDefaultAsync(s => s.ProfileId == profileId && s.Source == source, cancellationToken);
-
-        // Defaults in memory rather than a row written on first read. A settings row
-        // is the user's statement about a source; the sync creating one silently
-        // would make "configured" indistinguishable from "looked at once".
-        return stored ?? DefaultSettings(profileId, source);
-    }
-
     /// <summary>
-    /// What a source looks like before anybody has said anything about it.
+    /// How this source is configured, right now.
     /// </summary>
     /// <remarks>
-    /// <b>Not primary</b>, and that matters because the page reads this: the entity
-    /// defaults <c>PrecedenceRank</c> to zero, so every unconfigured source claimed
-    /// to be primary and two of them claimed it at once. It also disagreed with the
-    /// import, which already ranks an unconfigured source below a configured one
-    /// (D29) — so the page said one thing and the merge did another.
+    /// Synchronous and allocation-cheap, where this used to be a query per call.
+    /// Reading the options monitor rather than the store keeps a save reaching a run
+    /// in flight without a restart, and there is no longer an "unconfigured" state to
+    /// distinguish: an unset key means the default, so every source always has a
+    /// complete answer.
     ///
-    /// Nothing is primary until somebody chooses, which is honest: with no choice
-    /// made, two sources tie and the last import wins, exactly as D29 describes.
+    /// A file source gets the defaults and consults none of them (Phase 10a).
     /// </remarks>
-    private static SourceSyncSettings DefaultSettings(int profileId, AnimeSource source) =>
-        new()
+    private SourceSyncSettings SettingsFor(AnimeSource source)
+    {
+        if (source != AnimeSource.AniList)
         {
-            ProfileId = profileId,
+            return SourceSyncSettings.DefaultsFor(source);
+        }
+
+        var anilist = options.CurrentValue.AniList;
+
+        return new SourceSyncSettings
+        {
             Source = source,
-            PrecedenceRank = SourceSyncStatus.PrimaryRank + 1
+            IsEnabled = anilist.Enabled,
+            ApplyUnattended = anilist.ApplyUnattended,
+            ConflictPolicy = anilist.ConflictPolicy,
+            AbsencePolicy = anilist.AbsencePolicy,
+            Schedule = anilist.Schedule
         };
+    }
 
     private async Task RecordAsync(
         int profileId,
@@ -743,51 +733,28 @@ public sealed class SyncService(
     private static SyncFetchResult Failure(AnimeSource source, string reason) =>
         new() { Source = source, FailureReason = reason };
 
-    public async Task SetPrimarySourceAsync(
+    public async Task<UserSettingsSaveResult> SetPrimarySourceAsync(
         int profileId,
         AnimeSource source,
         CancellationToken cancellationToken = default)
     {
         RequireConfigurable(source);
 
-        await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
-        await using var transaction = await context.Database.BeginTransactionAsync(cancellationToken);
+        // One key naming the occupant, where this used to be a rank written to every
+        // row inside a transaction. The transaction existed because two rows could
+        // disagree — a failure between promoting one and demoting the other left two
+        // primaries. A single value cannot hold two names, so the invariant is now
+        // structural and the transaction has nothing left to protect (Phase 10a).
+        var result = await settingsStore.SaveAsync(
+            settingsStore.Read() with { SyncPrimarySource = source },
+            cancellationToken);
 
-        var stored = await context.SourceSyncSettings
-            .Where(s => s.ProfileId == profileId)
-            .ToListAsync(cancellationToken);
-
-        foreach (var configurable in PageSources)
+        if (result.Saved)
         {
-            var rank = configurable == source
-                ? SourceSyncStatus.PrimaryRank
-                : SourceSyncStatus.PrimaryRank + 1;
-
-            if (stored.FirstOrDefault(s => s.Source == configurable) is { } row)
-            {
-                row.PrecedenceRank = rank;
-                continue;
-            }
-
-            // Written rather than left absent, because a demotion has to be recorded
-            // to mean anything: an absent row is a default, and the default is what
-            // this is overriding (D29 ranks an unconfigured source below a configured
-            // one, so leaving the loser out would leave it *equal* to the winner).
-            context.SourceSyncSettings.Add(new SourceSyncSettings
-            {
-                ProfileId = profileId,
-                Source = configurable,
-                PrecedenceRank = rank
-            });
+            logger.LogInformation("{Source} is now the primary source", source);
         }
 
-        // One transaction, because the seat is single: a failure between promoting
-        // one and demoting the other would leave two primaries, which is the tie
-        // this exists to make unreachable.
-        await context.SaveChangesAsync(cancellationToken);
-        await transaction.CommitAsync(cancellationToken);
-
-        logger.LogInformation("{Source} is now the primary source for profile {ProfileId}", source, profileId);
+        return result;
     }
 
     private static void RequireSyncable(AnimeSource source)

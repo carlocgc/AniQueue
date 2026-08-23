@@ -28,7 +28,6 @@ public class AniQueueDbContext(DbContextOptions<AniQueueDbContext> options) : Db
 
     public DbSet<QueueItem> QueueItems => Set<QueueItem>();
 
-    public DbSet<SourceSyncSettings> SourceSyncSettings => Set<SourceSyncSettings>();
 
     public DbSet<SyncRun> SyncRuns => Set<SyncRun>();
 
