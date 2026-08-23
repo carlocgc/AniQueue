@@ -120,29 +120,8 @@ public class ScoringSweepJobTests
             Task.FromResult(ScoringEndpointResult.Success("{}", "test-model", TimeSpan.Zero));
     }
 
-    private sealed class FakeGate : IScoringGate
-    {
-        public bool IsInteractiveWaiting { get; set; }
 
-        public int Entries { get; private set; }
-
-        public Task<IDisposable> EnterInteractiveAsync(CancellationToken ct = default) =>
-            Task.FromResult<IDisposable>(new Nothing());
-
-        public Task<IDisposable> EnterSweepAsync(CancellationToken ct = default)
-        {
-            Entries++;
-
-            return Task.FromResult<IDisposable>(new Nothing());
-        }
-
-        private sealed class Nothing : IDisposable
-        {
-            public void Dispose() { }
-        }
-    }
-
-    private static (ScoringSweepJob Job, FakeRecommendations Library, FakeEndpoint Endpoint, FakeGate Gate, FixedTime Clock, FakeJobRunStore Runs) Create(
+    private static (ScoringSweepJob Job, FakeRecommendations Library, FakeEndpoint Endpoint, FixedTime Clock, FakeJobRunStore Runs) Create(
         int unranked = 100,
         Action<ScoringOptions>? configure = null,
         SyncSchedule cadence = SyncSchedule.Daily)
@@ -157,7 +136,7 @@ public class ScoringSweepJobTests
 
         var library = new FakeRecommendations(unranked);
         var endpoint = new FakeEndpoint();
-        var gate = new FakeGate();
+
         var clock = new FixedTime(new DateTimeOffset(2026, 8, 22, 3, 0, 0, TimeSpan.Zero));
         var runs = new FakeJobRunStore();
 
@@ -165,7 +144,6 @@ public class ScoringSweepJobTests
             new ScoringSweepJob(
                 library,
                 endpoint,
-                gate,
                 new NullNotifier(),
                 runs,
                 new StaticOptionsMonitor<ScoringOptions>(settings),
@@ -174,7 +152,6 @@ public class ScoringSweepJobTests
                 clock),
             library,
             endpoint,
-            gate,
             clock,
             runs);
     }
@@ -182,7 +159,7 @@ public class ScoringSweepJobTests
     [Fact]
     public async Task It_works_through_a_backlog_in_batches()
     {
-        var (job, library, endpoint, _, _, _) = Create(unranked: 100);
+        var (job, library, endpoint, _, _) = Create(unranked: 100);
 
         await job.RunAsync(new JobRunContext(JobTrigger.Timer), CancellationToken.None);
 
@@ -197,7 +174,7 @@ public class ScoringSweepJobTests
     {
         // So the runs list can tell an overnight sweep from a manual paste, and so
         // "when did this last run" has something to read.
-        var (job, library, _, _, _, _) = Create(unranked: 25);
+        var (job, library, _, _, _) = Create(unranked: 25);
 
         await job.RunAsync(new JobRunContext(JobTrigger.Timer), CancellationToken.None);
 
@@ -209,7 +186,7 @@ public class ScoringSweepJobTests
     {
         // D25's rule: a job woken with no work is a no-op, which is what lets a shared
         // signal be safe to broadcast and a schedule be safe to leave on.
-        var (job, _, endpoint, _, _, _) = Create(unranked: 0);
+        var (job, _, endpoint, _, _) = Create(unranked: 0);
 
         await job.RunAsync(new JobRunContext(JobTrigger.Timer), CancellationToken.None);
 
@@ -222,7 +199,7 @@ public class ScoringSweepJobTests
         // The return limit is a manual lever and must not apply here. Send fifty, take
         // the best twenty, and the other thirty stay unscored and are picked again for
         // ever — the tail of the backlog would never be reached.
-        var (job, _, endpoint, _, _, _) = Create(unranked: 25, o => o.ReturnTop = 5);
+        var (job, _, endpoint, _, _) = Create(unranked: 25, o => o.ReturnTop = 5);
 
         ScoringRequest? sent = null;
         endpoint.Respond = request =>
@@ -246,7 +223,7 @@ public class ScoringSweepJobTests
         // The kill switch, an endpoint that does not exist, and a schedule nobody
         // turned on. All three are answered from configuration alone — no query, no
         // request — because most ticks are one of them.
-        var (job, library, endpoint, _, _, _) = Create(unranked: 50, o =>
+        var (job, library, endpoint, _, _) = Create(unranked: 50, o =>
         {
             o.Enabled = enabled;
             o.Endpoint = configured ? "http://localhost:1234" : null;
@@ -264,7 +241,7 @@ public class ScoringSweepJobTests
     [Fact]
     public async Task A_run_inside_the_interval_does_nothing()
     {
-        var (job, _, endpoint, _, clock, runs) = Create(unranked: 100, null, SyncSchedule.Daily);
+        var (job, _, endpoint, clock, runs) = Create(unranked: 100, null, SyncSchedule.Daily);
 
         // From the run record rather than from the last applied ranking, since Phase
         // 15b: a sweep that ran and scored nothing is still a sweep that ran.
@@ -278,7 +255,7 @@ public class ScoringSweepJobTests
     [Fact]
     public async Task A_run_past_the_interval_goes_ahead()
     {
-        var (job, _, endpoint, _, clock, runs) = Create(unranked: 25, null, SyncSchedule.Daily);
+        var (job, _, endpoint, clock, runs) = Create(unranked: 25, null, SyncSchedule.Daily);
 
         runs.LastRunAt = clock.Now.AddDays(-2);
 
@@ -287,45 +264,22 @@ public class ScoringSweepJobTests
         Assert.Equal(1, endpoint.Calls);
     }
 
-    [Fact]
-    public async Task It_stands_down_when_somebody_is_waiting_for_the_model()
-    {
-        // The sweep is resumable and a person is not, so the person wins. Asked between
-        // batches, which is what keeps the wait to one batch rather than an hour.
-        var (job, library, endpoint, gate, _, _) = Create(unranked: 100);
-
-        endpoint.Respond = request =>
-        {
-            gate.IsInteractiveWaiting = true;
-
-            return ScoringEndpointResult.Success("{ \"results\": [] }", "m", TimeSpan.Zero);
-        };
-
-        await job.RunAsync(new JobRunContext(JobTrigger.Timer), CancellationToken.None);
-
-        // One batch finished, then it noticed and stopped rather than carrying on.
-        Assert.Equal(1, endpoint.Calls);
-        Assert.True(library.Unranked > 0);
-    }
-
-    [Fact]
-    public async Task It_takes_the_gate_for_every_batch()
-    {
-        // Held per batch rather than per sweep. A lock held for the whole hour would
-        // make "the sweep yields" mean "the sweep yields in an hour".
-        var (job, _, endpoint, gate, _, _) = Create(unranked: 50);
-
-        await job.RunAsync(new JobRunContext(JobTrigger.Timer), CancellationToken.None);
-
-        Assert.Equal(endpoint.Calls, gate.Entries);
-    }
+    // Two tests were here about the scoring gate: that a sweep stood down when
+    // somebody was waiting for the model, and that it took the gate once per batch
+    // rather than once per sweep. Both described how a sweep shared the model with a
+    // run started from the Recommendations page, and D42 deleted that run — so there
+    // is no second claimant left to yield to, and the gate went with it.
+    //
+    // What replaces standing down is cancelling: a person who wants the model stops
+    // the sweep from the tasks page, which needs no cooperation between batches and
+    // works while a request is in flight rather than only between them.
 
     [Fact]
     public async Task A_request_that_will_not_fit_halves_the_batch_rather_than_ending_the_sweep()
     {
         // The one failure the sweep can act on by itself, and 8b gave it its own value
         // so that it could. A batch that did not fit is a batch to halve.
-        var (job, library, endpoint, _, _, _) = Create(unranked: 100);
+        var (job, library, endpoint, _, _) = Create(unranked: 100);
 
         var refusals = 0;
 
@@ -347,7 +301,7 @@ public class ScoringSweepJobTests
         // One bad batch must not burn the budget and must not stop the sweep. Three is
         // a broken model or a broken endpoint, which is worth giving up on until the
         // runner's own backoff comes round again.
-        var (job, _, endpoint, _, _, _) = Create(unranked: 500);
+        var (job, _, endpoint, _, _) = Create(unranked: 500);
 
         endpoint.Respond = _ => ScoringEndpointResult.Failed(ScoringEndpointFailure.Rejected, "No.");
 
@@ -362,7 +316,7 @@ public class ScoringSweepJobTests
         // D31's invariant, enforced by the service and relied on here: a preview
         // carrying an error is never written, and the sweep moves on rather than
         // stalling on the titles behind it.
-        var (job, library, endpoint, _, _, _) = Create(unranked: 500);
+        var (job, library, endpoint, _, _) = Create(unranked: 500);
 
         library.PreviewApplicable = false;
 
@@ -378,7 +332,7 @@ public class ScoringSweepJobTests
         // Requests are ordered neediest-first, so a batch larger than the outstanding
         // work still fixes the right titles — and then spends the model re-ranking ones
         // that were already up to date, which on a small backlog is most of the run.
-        var (job, library, _, _, _, _) = Create(unranked: 6, o => o.BatchSize = 25);
+        var (job, library, _, _, _) = Create(unranked: 6, o => o.BatchSize = 25);
 
         await job.RunAsync(new JobRunContext(JobTrigger.Timer), CancellationToken.None);
 

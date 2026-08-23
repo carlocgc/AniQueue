@@ -39,24 +39,19 @@
                 </ul>
             }
 
-            @* Inside the dialog because the dialog is modal: nothing behind it can be
-               reached, so a way out that lived on the page would be a way out nobody
-               could take.
+            @* A cancel button was here, rendered only when an operation supplied a
+               callback. Its own comment said why it was rare: every operation with a
+               dialog could not usefully be interrupted — an import is committing rows,
+               a sync is reconciling them — and offering to stop one raises a question
+               about what half-done means. Waiting on somebody else's model was "the
+               first thing here where stopping is free and the wait can be long enough
+               to want to".
 
-               Only rendered when an operation supplies one. Every operation that had
-               a dialog before this could not usefully be interrupted — an import is
-               committing rows, a sync is reconciling them — and offering to stop them
-               would raise a question about what half-done means. Waiting on somebody
-               else's model is the first thing here where stopping is free and the
-               wait can be long enough to want to. *@
-            @if (OnCancel.HasDelegate)
-            {
-                <div class="toolbar busy-actions">
-                    <button @onclick="CancelAsync" disabled="@_cancelling">
-                        @(_cancelling ? "Stopping…" : CancelLabel)
-                    </button>
-                </div>
-            }
+               It was also the last. D42 deleted that wait, so every operation behind
+               this dialog is once again one that should not be interrupted, and the
+               dialog goes back to having no way out. Stopping background work is the
+               tasks page's job, where the thing being stopped is not something
+               somebody is standing in front of. *@
         </div>
     </div>
 }
@@ -66,38 +61,10 @@
     [Parameter, EditorRequired]
     public required BusyScope State { get; set; }
 
-    /// <summary>
-    /// What to do when the user gives up. Omit it and no way out is offered.
-    /// </summary>
-    [Parameter]
-    public EventCallback OnCancel { get; set; }
-
-    [Parameter]
-    public string CancelLabel { get; set; } = "Cancel";
-
-    private bool _cancelling;
-
-    /// <summary>
-    /// Latches once pressed, and unlatches when the dialog closes.
-    /// </summary>
-    /// <remarks>
-    /// Cancelling is not instant — an HTTP call in flight is abandoned rather than
-    /// undone — so without this the button stays live and invites a second press that
-    /// does nothing. The label saying "Stopping…" is the only feedback available,
-    /// because the work reports nothing more once it has been told to stop.
-    /// </remarks>
-    protected override void OnParametersSet()
-    {
-        if (!State.IsVisible)
-        {
-            _cancelling = false;
-        }
-    }
-
-    private async Task CancelAsync()
-    {
-        _cancelling = true;
-
-        await OnCancel.InvokeAsync();
-    }
+    // OnCancel, CancelLabel and the latch that stopped a second press were here. The
+    // latch is worth remembering rather than just deleting: cancelling was not instant
+    // — an HTTP call in flight is abandoned rather than undone — so the button had to
+    // go quiet and say "Stopping…" on its own, because the work reported nothing more
+    // once it had been told to stop. The tasks page repeats that shape for the same
+    // reason (D42).
 }

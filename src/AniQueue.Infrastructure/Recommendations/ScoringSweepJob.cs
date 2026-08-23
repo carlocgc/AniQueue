@@ -29,15 +29,24 @@ namespace AniQueue.Infrastructure.Recommendations;
 /// backlog is never reached. That is the blind spot "a cap is a page size, not a
 /// horizon" was written against, arriving by the other door.
 ///
-/// <b>It does not wake on library changes.</b> Every runner hears the broadcast and
-/// this one returns immediately unless it is due: relations backfill is cheap and
-/// should be prompt, while a sweep is minutes of somebody's GPU and was asked for
-/// once a day.
+/// <b>It wakes on a library change, and takes only what is new.</b> This said the
+/// opposite until D41, and the reasoning it gave was right about the cost: a sweep is
+/// minutes of somebody's GPU where a relations pass is cheap. It was wrong about which
+/// half is expensive. Scoring a handful of newly added titles is not; re-scoring
+/// everything D39 has just made stale is, and a MyAnimeList import makes hundreds
+/// stale at one timestamp. So a change-woken run takes the never-scored and leaves the
+/// stale for the cadence, when nobody is standing over it.
+///
+/// <b>Nothing arbitrates the model any more.</b> A gate used to decide between this
+/// and a run started from the Recommendations page, standing down between batches so
+/// the person waiting waited for one batch rather than an hour. D42 deleted that page's
+/// run, so there is no second claimant: two sweeps cannot overlap because the runner's
+/// loop is sequential, and somebody who wants the model stops this one from the tasks
+/// page — which works while a request is in flight rather than only between them.
 /// </remarks>
 public sealed class ScoringSweepJob(
     IRecommendationService recommendations,
     IScoringEndpoint endpoint,
-    IScoringGate gate,
     ILibraryChangeNotifier notifier,
     IJobRunStore runs,
     IOptionsMonitor<ScoringOptions> options,
@@ -151,14 +160,11 @@ public sealed class ScoringSweepJob(
             && _time.GetUtcNow() < deadline
             && failures < MaxConsecutiveFailures)
         {
-            // Asked before every batch rather than once at the top. A sweep runs for an
-            // hour; somebody pressing Rank now in minute two should not wait fifty-eight
-            // more, and the sweep resumes next tick from wherever it stopped.
-            if (gate.IsInteractiveWaiting)
-            {
-                logger.LogInformation("Scoring sweep standing down: somebody is waiting for the model");
-                break;
-            }
+            // A stand-down was here, asked before every batch: a sweep runs for an hour
+            // and somebody pressing Rank now in minute two should not wait fifty-eight
+            // more. D42 deleted Rank now, so there is nobody left to stand down for —
+            // and cancelling is now how a person stops a sweep, which does not need the
+            // sweep's cooperation between batches.
 
             var coverage = await recommendations.GetCoverageAsync(
                 Profile.DefaultProfileId, current.StaleAfterRatings, cancellationToken);
@@ -270,14 +276,11 @@ public sealed class ScoringSweepJob(
             return (0, false);
         }
 
-        ScoringEndpointResult answer;
-
-        // Held for the batch and released before the next one, which is what makes
-        // standing down between batches possible at all.
-        using (await gate.EnterSweepAsync(cancellationToken))
-        {
-            answer = await endpoint.AskAsync(request, cancellationToken);
-        }
+        // Sent directly. The claim that was here was held for a batch and released
+        // before the next one, so that a person waiting could get in between them —
+        // and two sweeps could never overlap anyway, because the runner's loop is
+        // sequential (D42).
+        var answer = await endpoint.AskAsync(request, cancellationToken);
 
         if (!answer.Succeeded)
         {
