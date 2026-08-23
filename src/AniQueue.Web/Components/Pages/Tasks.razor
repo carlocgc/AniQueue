@@ -59,13 +59,14 @@
     }
     else
     {
+        <div class="table-wrap">
         <table class="tasks">
             <thead>
                 <tr>
                     <th scope="col">Task</th>
                     <th scope="col">State</th>
                     <th scope="col">Last run</th>
-                    <th scope="col"><span class="visually-hidden">Actions</span></th>
+                    <th scope="col" class="actions-col"><span class="visually-hidden">Actions</span></th>
                 </tr>
             </thead>
             <tbody>
@@ -113,35 +114,42 @@
                             }
                         </td>
 
-                        <td class="toolbar">
-                            @if (row.State.IsRunning)
-                            {
-                                <button @onclick="() => Cancel(row.State)" disabled="@row.Cancelling">
-                                    @(row.Cancelling ? "Stopping…" : "Cancel")
-                                </button>
-                            }
-                            else
-                            {
-                                @* Disabled rather than allowed to do nothing. Every job
-                                   checks its switch before it checks anything else, so a
-                                   live button on a switched-off row would record no run,
-                                   change no row, and give no reason. *@
-                                <button class="primary" disabled="@(!IsEnabled(row.State))"
-                                        @onclick="() => RunNow(row.State)">
-                                    Run now
-                                </button>
-                            }
+                        @* The flex lives on a div inside the cell rather than on the
+                           cell, which is how every other table here does it. A td made
+                           into a flex container stops drawing its own bottom border,
+                           so the rule under each row broke where the buttons were. *@
+                        <td class="actions-col">
+                            <div class="row-actions">
+                                @if (row.State.IsRunning)
+                                {
+                                    <button @onclick="() => Cancel(row.State)" disabled="@row.Cancelling">
+                                        @(row.Cancelling ? "Stopping…" : "Cancel")
+                                    </button>
+                                }
+                                else
+                                {
+                                    @* Disabled rather than allowed to do nothing. Every job
+                                       checks its switch before it checks anything else, so a
+                                       live button on a switched-off row would record no run,
+                                       change no row, and give no reason. *@
+                                    <button class="primary" disabled="@(!IsEnabled(row.State))"
+                                            @onclick="() => RunNow(row.State)">
+                                        Run now
+                                    </button>
+                                }
 
-                            <label class="switch">
-                                <input type="checkbox" checked="@IsEnabled(row.State)"
-                                       @onchange="e => ToggleAsync(row.State, (bool)(e.Value ?? false))" />
-                                <span class="visually-hidden">Let @row.State.Name run on its own</span>
-                            </label>
+                                <label class="switch">
+                                    <input type="checkbox" checked="@IsEnabled(row.State)"
+                                           @onchange="e => ToggleAsync(row.State, (bool)(e.Value ?? false))" />
+                                    <span class="visually-hidden">Let @row.State.Name run on its own</span>
+                                </label>
+                            </div>
                         </td>
                     </tr>
                 }
             </tbody>
         </table>
+        </div>
 
         <p class="muted">
             <em>Run now</em> is the same work a scheduled run would do, brought forward — it
@@ -160,6 +168,7 @@
     }
     else
     {
+        <div class="table-wrap">
         <table class="runs">
             <thead>
                 <tr>
@@ -189,6 +198,7 @@
                 }
             </tbody>
         </table>
+        </div>
 
         <p class="muted">
             The most recent @HistorySize. Older runs are dropped as new ones arrive, so this
