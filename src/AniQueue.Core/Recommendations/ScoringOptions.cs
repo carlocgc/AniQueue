@@ -100,18 +100,12 @@ public class ScoringOptions
     /// </remarks>
     public bool Enabled { get; set; } = true;
 
-    /// <summary>How often a sweep runs on its own. <see cref="SyncSchedule.Off"/> is the default.</summary>
-    /// <remarks>
-    /// Off, for the reason sync is off: a scheduled run is a thing the user turns on
-    /// having read what it does, and this one spends their electricity rather than
-    /// somebody else's API budget.
-    ///
-    /// The type is <c>SyncSchedule</c> and the name now lies slightly. Its values are
-    /// the vocabulary wanted here — never, hourly, six-hourly, daily, weekly — and
-    /// renaming it would touch every Sources surface for no behavioural gain, so the
-    /// wart is accepted rather than paid for.
-    /// </remarks>
-    public SyncSchedule Schedule { get; set; } = SyncSchedule.Off;
+    // Schedule was here, and its own comment recorded the wart: the type was
+    // SyncSchedule and the name "now lies slightly", kept because renaming it would
+    // touch every Sources surface for no behavioural gain. Phase 15c removed the
+    // question instead of the wart — there is one cadence for every background task
+    // now (D40, TaskOptions), so nothing here decides when a sweep happens. What
+    // remains below is what a sweep may do once it does.
 
     /// <summary>
     /// How many titles one unattended batch carries.

@@ -1,3 +1,4 @@
+using AniQueue.Infrastructure.Jobs;
 using AniQueue.Core.Domain;
 using AniQueue.Core.Jobs;
 using AniQueue.Core.Import;
@@ -87,7 +88,6 @@ public class UnattendedSyncJobTests
     }
 
     private static SourceSyncStatus Status(
-        SyncSchedule schedule,
         TimeSpan? sinceLastRun = null,
         int consecutiveFailures = 0,
         bool isConfigured = true,
@@ -103,7 +103,6 @@ public class UnattendedSyncJobTests
             Settings = new SourceSyncSettings
             {
                 Source = AnimeSource.AniList,
-                Schedule = schedule,
                 IsEnabled = isEnabled
             },
             LastRun = sinceLastRun is { } elapsed
@@ -114,7 +113,8 @@ public class UnattendedSyncJobTests
     private static async Task<(StubSyncService Sync, RecordingNotifier Notifier)> RunAsync(
         SourceSyncStatus status,
         UnattendedSyncResult? result = null,
-        JobTrigger trigger = JobTrigger.Timer)
+        JobTrigger trigger = JobTrigger.Timer,
+        SyncSchedule schedule = SyncSchedule.Hourly)
     {
         var sync = new StubSyncService(status);
         var notifier = new RecordingNotifier();
@@ -134,6 +134,10 @@ public class UnattendedSyncJobTests
             {
                 LastRunAt = status.LastRun is { } last ? last.StartedAt : null
             },
+
+            // The cadence is one setting for every task since Phase 15c, so what used
+            // to be a per-source schedule on the status is passed here instead.
+            new StaticOptionsMonitor<TaskOptions>(new TaskOptions { Schedule = schedule }),
             NullLogger<UnattendedSyncJob>.Instance);
         await job.RunAsync(new JobRunContext(trigger, nameof(AnimeSource.AniList)), CancellationToken.None);
 
@@ -145,7 +149,7 @@ public class UnattendedSyncJobTests
     {
         // Off is the default, so this is what an installation that has configured an
         // account and nothing else does: exactly nothing, until asked.
-        var (sync, _) = await RunAsync(Status(SyncSchedule.Off, sinceLastRun: TimeSpan.FromDays(30)));
+        var (sync, _) = await RunAsync(Status(sinceLastRun: TimeSpan.FromDays(30)), schedule: SyncSchedule.Off);
 
         Assert.Empty(sync.Ran);
     }
@@ -153,7 +157,7 @@ public class UnattendedSyncJobTests
     [Fact]
     public async Task A_scheduled_source_that_has_never_run_is_due_immediately()
     {
-        var (sync, _) = await RunAsync(Status(SyncSchedule.Hourly));
+        var (sync, _) = await RunAsync(Status());
 
         Assert.Equal(AnimeSource.AniList, Assert.Single(sync.Ran));
     }
@@ -173,7 +177,8 @@ public class UnattendedSyncJobTests
         bool expectedToRun)
     {
         var (sync, _) = await RunAsync(
-            Status(schedule, TimeSpan.FromMinutes(minutesSinceLastRun)));
+            Status(TimeSpan.FromMinutes(minutesSinceLastRun)),
+            schedule: schedule);
 
         Assert.Equal(expectedToRun ? 1 : 0, sync.Ran.Count);
     }
@@ -182,7 +187,7 @@ public class UnattendedSyncJobTests
     public async Task A_source_switched_off_for_this_profile_is_not_run()
     {
         var (sync, _) = await RunAsync(
-            Status(SyncSchedule.Hourly, TimeSpan.FromDays(1), isEnabled: false));
+            Status(TimeSpan.FromDays(1), isEnabled: false));
 
         Assert.Empty(sync.Ran);
     }
@@ -193,7 +198,7 @@ public class UnattendedSyncJobTests
         // There is nothing to fetch, and a run would only record a failure the user
         // can already see stated on the page.
         var (sync, _) = await RunAsync(
-            Status(SyncSchedule.Hourly, TimeSpan.FromDays(1), isConfigured: false));
+            Status(TimeSpan.FromDays(1), isConfigured: false));
 
         Assert.Empty(sync.Ran);
     }
@@ -219,12 +224,12 @@ public class UnattendedSyncJobTests
     public async Task A_failing_source_is_retried_on_its_ordinary_schedule(int consecutiveFailures)
     {
         var justUnder = await RunAsync(Status(
-            SyncSchedule.Hourly, TimeSpan.FromMinutes(50), consecutiveFailures));
+            TimeSpan.FromMinutes(50), consecutiveFailures));
 
         Assert.Empty(justUnder.Sync.Ran);
 
         var justOver = await RunAsync(Status(
-            SyncSchedule.Hourly, TimeSpan.FromMinutes(70), consecutiveFailures));
+            TimeSpan.FromMinutes(70), consecutiveFailures));
 
         Assert.Single(justOver.Sync.Ran);
     }
@@ -245,7 +250,7 @@ public class UnattendedSyncJobTests
     public async Task Only_a_manual_run_ignores_the_schedule(JobTrigger trigger, bool expectedToRun)
     {
         var (sync, _) = await RunAsync(
-            Status(SyncSchedule.Hourly, TimeSpan.FromMinutes(10)),
+            Status(TimeSpan.FromMinutes(10)),
             trigger: trigger);
 
         Assert.Equal(expectedToRun ? 1 : 0, sync.Ran.Count);
@@ -255,7 +260,7 @@ public class UnattendedSyncJobTests
     public async Task A_run_that_changed_something_tells_open_pages()
     {
         var (_, notifier) = await RunAsync(
-            Status(SyncSchedule.Hourly),
+            Status(),
             new UnattendedSyncResult
             {
                 Source = AnimeSource.AniList,
@@ -277,7 +282,7 @@ public class UnattendedSyncJobTests
         // A page that offers to refresh itself hourly for no reason teaches its user
         // to ignore the offer.
         var (_, notifier) = await RunAsync(
-            Status(SyncSchedule.Hourly),
+            Status(),
             new UnattendedSyncResult
             {
                 Source = AnimeSource.AniList,
@@ -293,7 +298,7 @@ public class UnattendedSyncJobTests
         // Nothing was written, so nothing an open page shows has moved on. The count
         // is on the Sources page, which is where the user would go to act on it.
         var (_, notifier) = await RunAsync(
-            Status(SyncSchedule.Hourly),
+            Status(),
             new UnattendedSyncResult
             {
                 Source = AnimeSource.AniList,

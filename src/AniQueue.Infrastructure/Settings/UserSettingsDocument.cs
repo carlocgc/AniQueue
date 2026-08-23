@@ -68,12 +68,21 @@ internal static class UserSettingsDocument
             s => s.AniListEnabled),
 
         new(
-            "Sync:AniList:Schedule",
+            "Tasks:Schedule",
             [
-                "Read AniList unattended, on a schedule.",
-                "Off, Hourly, EverySixHours, Daily or Weekly. Off does nothing on its own."
+                "How often AniQueue checks whether its background work has anything to do.",
+                "Covers syncing, related titles and ranking alike.",
+                "Off, Hourly, EverySixHours, Daily or Weekly. Off means only when you ask."
             ],
-            s => s.AniListSchedule.ToString()),
+            s => s.TasksSchedule.ToString()),
+
+        new(
+            "Tasks:RelationsEnabled",
+            [
+                "Fetch which titles are sequels, prequels and side stories of each other.",
+                "Unauthenticated, and it only ever adds. false stops it entirely."
+            ],
+            s => s.RelationsEnabled),
 
         new(
             "Sync:AniList:ApplyUnattended",
@@ -159,13 +168,6 @@ internal static class UserSettingsDocument
             ["Ranking at all. false stops every run, scheduled or pressed."],
             s => s.ScoringEnabled),
 
-        new(
-            "Scoring:Schedule",
-            [
-                "Rank unranked and out-of-date titles on your own hardware, unattended.",
-                "Off, Hourly, EverySixHours, Daily or Weekly. Off does nothing on its own."
-            ],
-            s => s.ScoringSchedule.ToString()),
 
         new(
             "Scoring:BatchSize",

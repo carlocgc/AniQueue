@@ -1009,3 +1009,42 @@ tr.muted td { opacity: 0.6; }
 .card.status.settled > details > summary { color: var(--success); }
 
 .card.status .scoring-facts { margin-top: 0.75rem; }
+
+/* Tasks (Phase 15c). Rows are the page, so the only new shapes are the ones a
+   row needs: a state that reads as live, an outcome that reads as good or bad,
+   and a switch that is a checkbox with its label off-screen. */
+
+/* Fixed layout, and the reason is the "off" badge. With automatic layout the
+   columns are sized from their content, so switching a task off widened the task
+   column by the badge and shoved State and Last run to the right — every row
+   moving because one checkbox changed. Only the longest name did it, which made it
+   look like a bug in that row rather than in the table.
+
+   Same treatment as .ranking, and the same caveat: fixed layout divides the width
+   it is given, so below the min-width the wrap scrolls instead. */
+table.tasks { table-layout: fixed; min-width: 40rem; }
+
+table.tasks th:nth-child(1), table.tasks td:nth-child(1) { width: 14rem; }
+table.tasks th:nth-child(2), table.tasks td:nth-child(2) { width: 8rem; }
+table.tasks th:nth-child(4), table.tasks td:nth-child(4) { width: 11rem; }
+
+table.tasks th[scope="row"] { text-transform: none; font-size: 0.92rem; color: var(--text); }
+
+/* Middle-aligned, unlike the tables of text elsewhere: a row here is one line of
+   status against a control that is two lines tall, and top alignment left the
+   buttons floating above the words they act on. */
+table.tasks td { vertical-align: middle; }
+
+table.runs th:nth-child(2), table.runs td:nth-child(2),
+table.runs th:nth-child(3), table.runs td:nth-child(3) { white-space: nowrap; }
+
+.running { color: var(--warning); font-weight: 600; }
+
+.outcome.failed { color: var(--danger); font-weight: 600; }
+
+.outcome.stopped { color: var(--text-muted); }
+
+/* Wraps under the row it explains rather than widening the column. */
+p.failure { margin: 0.25rem 0 0; font-size: 0.85rem; }
+
+.switch { display: inline-flex; align-items: center; }

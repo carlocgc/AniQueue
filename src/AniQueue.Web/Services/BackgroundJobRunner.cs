@@ -55,6 +55,8 @@ namespace AniQueue.Web.Services;
 public sealed class BackgroundJobRunner<TJob>(
     IServiceScopeFactory scopeFactory,
     ILibraryChangeNotifier changes,
+    ITaskRegistry registry,
+    ITaskRunnerBridge bridge,
     ILogger<BackgroundJobRunner<TJob>> logger) : BackgroundService
     where TJob : notnull, IBackgroundJob
 {
@@ -62,12 +64,20 @@ public sealed class BackgroundJobRunner<TJob>(
     {
         TimeSpan period;
         string name;
+        string key;
 
         using (var scope = scopeFactory.CreateScope())
         {
             var job = scope.ServiceProvider.GetRequiredService<TJob>();
             period = job.TickPeriod;
             name = job.Name;
+            key = job.Key;
+
+            // Registered before the first tick, so every task has a row from startup
+            // rather than from whenever it first happens to run. A page that only
+            // listed tasks that had already done something would be least useful on a
+            // fresh install, which is where it is most needed (D27).
+            registry.Register(key, job.Units);
         }
 
         logger.LogInformation("{Job} will be checked every {Period}", name, period);
@@ -106,13 +116,18 @@ public sealed class BackgroundJobRunner<TJob>(
         var tick = timer.WaitForNextTickAsync(stoppingToken).AsTask();
         var wake = woken.WaitAsync(stoppingToken);
 
+        // The third wake source, and the one that makes Run now safe: a request is
+        // delivered into this loop rather than starting work beside it, so pressing
+        // the button while a tick is in flight queues behind it instead of racing it.
+        var asked = bridge.WaitForRequestAsync(key, stoppingToken);
+
         try
         {
             while (!stoppingToken.IsCancellationRequested)
             {
-                JobTrigger trigger;
+                var ready = await Task.WhenAny(tick, wake, asked);
 
-                if (await Task.WhenAny(tick, wake) == tick)
+                if (ready == tick)
                 {
                     if (!await tick)
                     {
@@ -120,18 +135,26 @@ public sealed class BackgroundJobRunner<TJob>(
                     }
 
                     tick = timer.WaitForNextTickAsync(stoppingToken).AsTask();
-                    trigger = JobTrigger.Timer;
+
+                    await RunUnitsAsync(key, name, JobTrigger.Timer, unit: null, stoppingToken);
                 }
-                else
+                else if (ready == wake)
                 {
                     // Awaited rather than discarded so a cancellation surfaces here
                     // instead of as an unobserved faulted task.
                     await wake;
                     wake = woken.WaitAsync(stoppingToken);
-                    trigger = JobTrigger.LibraryChange;
-                }
 
-                await RunUnitsAsync(name, trigger, stoppingToken);
+                    await RunUnitsAsync(key, name, JobTrigger.LibraryChange, unit: null, stoppingToken);
+                }
+                else
+                {
+                    var requested = await asked;
+                    asked = bridge.WaitForRequestAsync(key, stoppingToken);
+
+                    // One unit, not all of them. A row's button means that row.
+                    await RunUnitsAsync(key, name, JobTrigger.Manual, requested, stoppingToken);
+                }
             }
         }
         catch (OperationCanceledException)
@@ -162,31 +185,55 @@ public sealed class BackgroundJobRunner<TJob>(
     /// separate rows — and one source with a private list must not stop another from
     /// being read.
     /// </remarks>
-    private async Task RunUnitsAsync(string name, JobTrigger trigger, CancellationToken stoppingToken)
+    private async Task RunUnitsAsync(
+        string key,
+        string name,
+        JobTrigger trigger,
+        string? unit,
+        CancellationToken stoppingToken)
     {
         using var scope = scopeFactory.CreateScope();
         var job = scope.ServiceProvider.GetRequiredService<TJob>();
         var runs = scope.ServiceProvider.GetRequiredService<IJobRunStore>();
 
-        foreach (var unit in job.Units)
+        // A timer or a library change asks about everything; a button asks about the
+        // row it is on.
+        var due = unit is null
+            ? job.Units
+            : [.. job.Units.Where(u => u.Key == unit)];
+
+        foreach (var current in due)
         {
             if (stoppingToken.IsCancellationRequested)
             {
                 return;
             }
 
-            var context = new JobRunContext(trigger, unit.Key);
+            var context = new JobRunContext(trigger, current.Key);
             var startedAt = DateTimeOffset.UtcNow;
+
+            // Held for the run, which is what puts the unit on the page as running and
+            // gives Cancel something to trip.
+            using var run = bridge.BeginRun(key, current.Key, stoppingToken);
 
             JobRunOutcome outcome;
 
             try
             {
-                outcome = await job.RunAsync(context, stoppingToken);
+                outcome = await job.RunAsync(context, run.Token);
             }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
             {
                 throw;
+            }
+            catch (OperationCanceledException) when (run.WasCancelled)
+            {
+                // Somebody pressed stop. Not a failure, and recorded so that the
+                // cadence clock moves — which is what makes cancelling mean "skip this
+                // cycle" rather than "try again on the next tick" (D40).
+                logger.LogInformation("{Job} / {Unit} was cancelled", name, current.Name);
+
+                outcome = new JobRunOutcome(JobOutcome.Cancelled);
             }
             catch (Exception ex)
             {
@@ -198,12 +245,15 @@ public sealed class BackgroundJobRunner<TJob>(
                 // Caught at all because an escaping exception ends the hosted service
                 // and by default takes the host down with it. A background job failing
                 // must not stop the application serving the pages that still work.
-                logger.LogError(ex, "{Job} threw while running {Unit}", name, unit.Name);
+                logger.LogError(ex, "{Job} threw while running {Unit}", name, current.Name);
 
                 outcome = JobRunOutcome.Failed("Something went wrong. The log has the details.");
             }
 
-            await RecordAsync(runs, job.Key, name, unit, context, startedAt, outcome, stoppingToken);
+            // Deliberately on the stopping token rather than the run's: a cancelled run
+            // still has to be written down, and writing it with the token that was just
+            // tripped would throw the record away.
+            await RecordAsync(runs, key, name, current, context, startedAt, outcome, stoppingToken);
         }
     }
 

@@ -72,6 +72,43 @@ public sealed class JobRunStore(IDbContextFactory<AniQueueDbContext> contextFact
         return run?.StartedAt;
     }
 
+    public async Task<IReadOnlyDictionary<(string TaskKey, string UnitKey), JobRun>> LatestAsync(
+        CancellationToken cancellationToken = default)
+    {
+        await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
+
+        // Grouped and maxed in the database, then fetched by key. The alternative —
+        // pulling every row and picking in memory — is bounded by pruning and would
+        // still read two hundred rows per unit to answer a question about one.
+        var newest = await context.JobRuns
+            .AsNoTracking()
+            .GroupBy(r => new { r.TaskKey, r.UnitKey })
+            .Select(g => g.Max(r => r.Id))
+            .ToListAsync(cancellationToken);
+
+        var runs = await context.JobRuns
+            .AsNoTracking()
+            .Where(r => newest.Contains(r.Id))
+            .ToListAsync(cancellationToken);
+
+        return runs.ToDictionary(r => (r.TaskKey, r.UnitKey));
+    }
+
+    public async Task<IReadOnlyList<JobRun>> RecentAsync(
+        int limit,
+        CancellationToken cancellationToken = default)
+    {
+        await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
+
+        // By key, for the reason everything here is: SQLite cannot order a
+        // DateTimeOffset, and an append-only table's key is its chronology.
+        return await context.JobRuns
+            .AsNoTracking()
+            .OrderByDescending(r => r.Id)
+            .Take(limit)
+            .ToListAsync(cancellationToken);
+    }
+
     /// <summary>
     /// Drops everything older than the newest <see cref="Retained"/> for this unit.
     /// </summary>

@@ -544,7 +544,6 @@ public sealed class SyncService(
             settingsStore.Read() with
             {
                 AniListEnabled = settings.IsEnabled,
-                AniListSchedule = settings.Schedule,
                 AniListApplyUnattended = settings.ApplyUnattended,
                 AniListConflictPolicy = settings.ConflictPolicy,
                 AniListAbsencePolicy = settings.AbsencePolicy
@@ -697,8 +696,7 @@ public sealed class SyncService(
             IsEnabled = anilist.Enabled,
             ApplyUnattended = anilist.ApplyUnattended,
             ConflictPolicy = anilist.ConflictPolicy,
-            AbsencePolicy = anilist.AbsencePolicy,
-            Schedule = anilist.Schedule
+            AbsencePolicy = anilist.AbsencePolicy
         };
     }
 

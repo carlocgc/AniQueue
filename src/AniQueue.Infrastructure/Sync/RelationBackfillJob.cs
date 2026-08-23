@@ -1,6 +1,8 @@
 using AniQueue.Core.Jobs;
 using AniQueue.Core.Library;
 using AniQueue.Core.Sync;
+using AniQueue.Infrastructure.Jobs;
+using Microsoft.Extensions.Options;
 
 namespace AniQueue.Infrastructure.Sync;
 
@@ -13,7 +15,8 @@ namespace AniQueue.Infrastructure.Sync;
 /// </summary>
 public sealed class RelationBackfillJob(
     IRelationBackfill backfill,
-    ILibraryChangeNotifier notifier) : IBackgroundJob
+    ILibraryChangeNotifier notifier,
+    IOptionsMonitor<TaskOptions> tasks) : IBackgroundJob
 {
     /// <summary>
     /// How long one visit may keep going, rather than how many requests it may make.
@@ -77,6 +80,11 @@ public sealed class RelationBackfillJob(
         // genuine no-op when there is nothing to do needs no schedule to protect
         // anything from it (D25).
         _ = context;
+
+        if (!tasks.CurrentValue.RelationsEnabled)
+        {
+            return JobRunOutcome.NotDue;
+        }
 
         // The budget is the service's business rather than a token trip, so a pass
         // that runs out of time returns what it managed instead of throwing it away.

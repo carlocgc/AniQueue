@@ -1,4 +1,5 @@
 @inject ISyncService SyncService
+@inject Microsoft.Extensions.Options.IOptionsMonitor<AniQueue.Infrastructure.Jobs.TaskOptions> Tasks
 
 @* Up Next is where this belongs, and only here. The page's correctness silently
    depends on sync running: titles leave the queue when a sync shows they have
@@ -25,11 +26,19 @@
     {
         var statuses = await SyncService.GetStatusAsync(Profile.DefaultProfileId);
 
-        // Only sources actually set to run on their own. A source nobody has
-        // scheduled is not stalled when it does not run — that is it doing what it
-        // was told, and a red banner for it would be this page shouting about a
-        // setting the user chose.
-        _stalled = [.. statuses.Where(s => s.IsStalled && s.Settings.Schedule != SyncSchedule.Off)];
+        // Only sources actually set to run on their own. A source switched off is not
+        // stalled when it does not run — that is it doing what it was told, and a red
+        // banner for it would be this page shouting about a setting the user chose.
+        //
+        // The per-source schedule became one cadence in Phase 15c (D40), so the test
+        // is now "enabled, and the cadence is on" rather than "this source has a
+        // schedule". A source left enabled while the cadence is off still syncs when
+        // asked, and still is not stalled for not doing it unasked.
+        var scheduled = Tasks.CurrentValue.Schedule != SyncSchedule.Off;
+
+        _stalled = scheduled
+            ? [.. statuses.Where(s => s.IsStalled && s.Settings.IsEnabled)]
+            : [];
     }
 
     private static string LastGood(SourceSyncStatus status) => status.LastSuccess is { } success

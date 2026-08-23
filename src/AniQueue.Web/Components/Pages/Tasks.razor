@@ -1,0 +1,459 @@
+@page "/tasks"
+@rendermode InteractiveServer
+
+@using AniQueue.Core.Domain
+@using AniQueue.Core.Jobs
+@using AniQueue.Core.Settings
+@using AniQueue.Infrastructure.Jobs
+@using Microsoft.Extensions.Options
+
+@inject ITaskRegistry Registry
+@inject IJobRunStore Runs
+@inject IUserSettingsStore Settings
+@inject IOptionsMonitor<TaskOptions> TaskConfiguration
+
+@implements IDisposable
+
+<PageTitle>Tasks — AniQueue</PageTitle>
+
+<div class="page-header">
+    <h1>Tasks</h1>
+    <p class="muted">
+        Everything AniQueue does on its own. Each one decides for itself whether there is
+        anything to do, so a task that is switched on and idle is costing you nothing.
+    </p>
+</div>
+
+@if (_error is not null)
+{
+    <div class="notice error" role="alert">@_error</div>
+}
+
+<div class="card">
+    <h2>How often</h2>
+
+    <div class="field">
+        <label for="cadence">Check for work</label>
+        <select id="cadence" value="@_cadence" @onchange="OnCadenceChangedAsync">
+            <option value="@SyncSchedule.Off">Only when I ask</option>
+            <option value="@SyncSchedule.Hourly">Every hour</option>
+            <option value="@SyncSchedule.EverySixHours">Every six hours</option>
+            <option value="@SyncSchedule.Daily">Once a day</option>
+            <option value="@SyncSchedule.Weekly">Once a week</option>
+        </select>
+        <p class="muted">
+            One setting for every task below. Times are approximate — a task is asked
+            whether it is due rather than woken on the minute. <strong>Only when I ask</strong>
+            stops the clock and nothing else: a task still runs when the library changes
+            underneath it, and whenever you press <em>Run now</em>.
+        </p>
+    </div>
+</div>
+
+<div class="card">
+    <h2>Tasks</h2>
+
+    @if (_rows.Count == 0)
+    {
+        <p class="muted">Nothing is registered, which should not happen while AniQueue is running.</p>
+    }
+    else
+    {
+        <div class="table-wrap">
+        <table class="tasks">
+            <thead>
+                <tr>
+                    <th scope="col">Task</th>
+                    <th scope="col">State</th>
+                    <th scope="col">Last run</th>
+                    <th scope="col" class="actions-col"><span class="visually-hidden">Actions</span></th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var row in _rows)
+                {
+                    <tr>
+                        <th scope="row">
+                            @row.State.Name
+                            @if (!IsEnabled(row.State))
+                            {
+                                <span class="badge muted">off</span>
+                            }
+                        </th>
+
+                        <td>
+                            @if (row.State.IsRunning)
+                            {
+                                <span class="running" aria-live="polite">
+                                    Running &middot; @Elapsed(row.State.StartedAt!.Value)
+                                </span>
+                            }
+                            else
+                            {
+                                <span class="muted">Idle</span>
+                            }
+                        </td>
+
+                        <td>
+                            @if (row.LastRun is { } last)
+                            {
+                                <span class="@OutcomeClass(last.Outcome)">@OutcomeText(last)</span>
+                                <span class="muted"> &middot; @Ago(last.StartedAt)</span>
+
+                                @if (last.FailureReason is { } reason)
+                                {
+                                    @* In words, on the row. The log has the rest, and a
+                                       user should not have to open it to learn that an
+                                       account went private (D40). *@
+                                    <p class="muted failure">@reason</p>
+                                }
+                            }
+                            else
+                            {
+                                <span class="muted">Never</span>
+                            }
+                        </td>
+
+                        @* The flex lives on a div inside the cell rather than on the
+                           cell, which is how every other table here does it. A td made
+                           into a flex container stops drawing its own bottom border,
+                           so the rule under each row broke where the buttons were. *@
+                        <td class="actions-col">
+                            <div class="row-actions">
+                                @if (row.State.IsRunning)
+                                {
+                                    <button @onclick="() => Cancel(row.State)" disabled="@row.Cancelling">
+                                        @(row.Cancelling ? "Stopping…" : "Cancel")
+                                    </button>
+                                }
+                                else
+                                {
+                                    @* Disabled rather than allowed to do nothing. Every job
+                                       checks its switch before it checks anything else, so a
+                                       live button on a switched-off row would record no run,
+                                       change no row, and give no reason. *@
+                                    <button class="primary" disabled="@(!IsEnabled(row.State))"
+                                            @onclick="() => RunNow(row.State)">
+                                        Run now
+                                    </button>
+                                }
+
+                                <label class="switch">
+                                    <input type="checkbox" checked="@IsEnabled(row.State)"
+                                           @onchange="e => ToggleAsync(row.State, (bool)(e.Value ?? false))" />
+                                    <span class="visually-hidden">Let @row.State.Name run on its own</span>
+                                </label>
+                            </div>
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+        </div>
+
+        <p class="muted">
+            <em>Run now</em> is the same work a scheduled run would do, brought forward — it
+            starts as soon as that task is free, which is immediately unless it is already
+            running. Switching one off stops it altogether, by hand as well as on its own.
+        </p>
+    }
+</div>
+
+<div class="card">
+    <h2>History</h2>
+
+    @if (_history.Count == 0)
+    {
+        <p class="muted">Nothing has run yet.</p>
+    }
+    else
+    {
+        <div class="table-wrap">
+        <table class="runs">
+            <thead>
+                <tr>
+                    <th scope="col">Task</th>
+                    <th scope="col">Started</th>
+                    <th scope="col">Took</th>
+                    <th scope="col">Why</th>
+                    <th scope="col">Result</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var run in _history)
+                {
+                    <tr>
+                        <td>@NameOf(run)</td>
+                        <td>@Ago(run.StartedAt)</td>
+                        <td class="muted">@Took(run)</td>
+                        <td class="muted">@TriggerText(run.Trigger)</td>
+                        <td>
+                            <span class="@OutcomeClass(run.Outcome)">@OutcomeText(run)</span>
+                            @if (run.FailureReason is { } reason)
+                            {
+                                <p class="muted failure">@reason</p>
+                            }
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+        </div>
+
+        <p class="muted">
+            The most recent @HistorySize. Older runs are dropped as new ones arrive, so this
+            never grows without bound.
+        </p>
+    }
+</div>
+
+@code {
+    /// <summary>How many runs the history card shows.</summary>
+    /// <remarks>
+    /// Fewer than the store keeps. What this card answers is "what has been happening
+    /// lately", and a page that printed every retained run would bury that in the
+    /// hundreds of rows a busy task accumulates.
+    /// </remarks>
+    private const int HistorySize = 30;
+
+    private readonly List<Row> _rows = [];
+
+    private IReadOnlyList<JobRun> _history = [];
+
+    private SyncSchedule _cadence;
+
+    private string? _error;
+
+    private Timer? _ticker;
+
+    /// <summary>One task row: what the registry says, and what the record says.</summary>
+    private sealed class Row
+    {
+        public required TaskState State { get; set; }
+
+        public JobRun? LastRun { get; set; }
+
+        /// <summary>
+        /// Latches once Cancel is pressed, and clears when the run ends.
+        /// </summary>
+        /// <remarks>
+        /// Cancelling is cooperative — the job stops at its next safe point — so
+        /// without this the button stays live and invites a second press that does
+        /// nothing. The same reason <c>BusyDialog</c> latches.
+        /// </remarks>
+        public bool Cancelling { get; set; }
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        Registry.Changed += OnRegistryChanged;
+
+        _cadence = TaskConfiguration.CurrentValue.Schedule;
+
+        await LoadAsync();
+    }
+
+    /// <summary>
+    /// Redraws when a run starts or stops.
+    /// </summary>
+    /// <remarks>
+    /// Raised on whatever thread changed the state, which is never the render thread,
+    /// hence <c>InvokeAsync</c>. Reloading rather than patching in place because a run
+    /// that just finished has also written a record, and the row shows both.
+    /// </remarks>
+    private void OnRegistryChanged() => _ = InvokeAsync(async () =>
+    {
+        await LoadAsync();
+        StateHasChanged();
+    });
+
+    private async Task LoadAsync()
+    {
+        var latest = await Runs.LatestAsync();
+
+        _rows.Clear();
+
+        foreach (var state in Registry.Snapshot())
+        {
+            latest.TryGetValue((state.TaskKey, state.UnitKey ?? string.Empty), out var last);
+
+            _rows.Add(new Row { State = state, LastRun = last });
+        }
+
+        _history = await Runs.RecentAsync(HistorySize);
+
+        // A one-second timer only while something is running, because the only thing
+        // that changes without an event is the elapsed counter. An idle page left open
+        // costs nothing.
+        var running = _rows.Exists(r => r.State.IsRunning);
+
+        if (running && _ticker is null)
+        {
+            _ticker = new Timer(_ => InvokeAsync(StateHasChanged), null, 1000, 1000);
+        }
+        else if (!running && _ticker is not null)
+        {
+            await _ticker.DisposeAsync();
+            _ticker = null;
+        }
+    }
+
+    private void RunNow(TaskState state)
+    {
+        _error = null;
+
+        // Queued to the runner that owns the job rather than started here, so a manual
+        // run enters the same sequential loop a tick does and cannot race one (D40).
+        if (!Registry.RequestRun(state.TaskKey, state.UnitKey))
+        {
+            _error = $"{state.Name} is no longer registered.";
+        }
+    }
+
+    private void Cancel(TaskState state)
+    {
+        if (_rows.Find(r => r.State.TaskKey == state.TaskKey && r.State.UnitKey == state.UnitKey) is { } row)
+        {
+            row.Cancelling = true;
+        }
+
+        Registry.Cancel(state.TaskKey, state.UnitKey);
+    }
+
+    private async Task OnCadenceChangedAsync(ChangeEventArgs e)
+    {
+        if (!Enum.TryParse<SyncSchedule>(e.Value?.ToString(), out var chosen))
+        {
+            return;
+        }
+
+        _error = null;
+
+        // The whole file is rewritten on every save, so everything this page is not
+        // editing is read back and passed through.
+        var saved = await Settings.SaveAsync(Settings.Read() with { TasksSchedule = chosen });
+
+        if (!saved.Saved)
+        {
+            _error = $"Could not save to {saved.Path}: {saved.Error}";
+            return;
+        }
+
+        _cadence = chosen;
+    }
+
+    /// <summary>
+    /// Whether this task is allowed to run on its own.
+    /// </summary>
+    /// <remarks>
+    /// Read per task rather than from one place, because each switch is the one that
+    /// feature already had: sync's is per source, scoring's is its kill switch, and
+    /// relations gained one when it gained a row (D40).
+    /// </remarks>
+    private bool IsEnabled(TaskState state)
+    {
+        var settings = Settings.Read();
+
+        return state.TaskKey switch
+        {
+            "sync" => settings.AniListEnabled,
+            "scoring" => settings.ScoringEnabled,
+            "relations" => settings.RelationsEnabled,
+            _ => true
+        };
+    }
+
+    private async Task ToggleAsync(TaskState state, bool enabled)
+    {
+        _error = null;
+
+        var current = Settings.Read();
+
+        var updated = state.TaskKey switch
+        {
+            "sync" => current with { AniListEnabled = enabled },
+            "scoring" => current with { ScoringEnabled = enabled },
+            "relations" => current with { RelationsEnabled = enabled },
+            _ => current
+        };
+
+        var saved = await Settings.SaveAsync(updated);
+
+        if (!saved.Saved)
+        {
+            _error = $"Could not save to {saved.Path}: {saved.Error}";
+        }
+    }
+
+    private string NameOf(JobRun run) =>
+        _rows.Find(r => r.State.TaskKey == run.TaskKey
+            && (r.State.UnitKey ?? string.Empty) == run.UnitKey)?.State.Name
+        ?? run.TaskKey;
+
+    private static string OutcomeText(JobRun run) => run.Outcome switch
+    {
+        JobOutcome.Succeeded => run.ItemsChanged > 0
+            ? $"Changed {run.ItemsChanged} of {run.ItemsProcessed}"
+            : $"Looked at {run.ItemsProcessed}",
+        JobOutcome.NothingToDo => "Nothing to do",
+        JobOutcome.Cancelled => "Stopped",
+        JobOutcome.Failed => "Failed",
+        _ => run.Outcome.ToString()
+    };
+
+    private static string OutcomeClass(JobOutcome outcome) => outcome switch
+    {
+        JobOutcome.Failed => "outcome failed",
+        JobOutcome.Cancelled => "outcome stopped",
+        _ => "outcome"
+    };
+
+    private static string TriggerText(JobTrigger trigger) => trigger switch
+    {
+        JobTrigger.Manual => "you asked",
+        JobTrigger.LibraryChange => "the library changed",
+        _ => "scheduled"
+    };
+
+    private static string Took(JobRun run)
+    {
+        var elapsed = run.FinishedAt - run.StartedAt;
+
+        return elapsed < TimeSpan.FromSeconds(1)
+            ? "under a second"
+            : elapsed < TimeSpan.FromMinutes(1)
+                ? $"{(int)elapsed.TotalSeconds}s"
+                : $"{(int)elapsed.TotalMinutes}m {elapsed.Seconds}s";
+    }
+
+    private static string Elapsed(DateTimeOffset since)
+    {
+        var elapsed = DateTimeOffset.UtcNow - since;
+
+        return elapsed < TimeSpan.FromMinutes(1)
+            ? $"{(int)elapsed.TotalSeconds}s"
+            : $"{(int)elapsed.TotalMinutes}m {elapsed.Seconds}s";
+    }
+
+    private static string Ago(DateTimeOffset moment)
+    {
+        var elapsed = DateTimeOffset.UtcNow - moment;
+
+        return elapsed switch
+        {
+            { TotalMinutes: < 1 } => "just now",
+            { TotalMinutes: < 60 } => $"{(int)elapsed.TotalMinutes} minutes ago",
+            { TotalHours: < 24 } => $"{(int)elapsed.TotalHours} hours ago",
+            _ => $"{(int)elapsed.TotalDays} days ago"
+        };
+    }
+
+    public void Dispose()
+    {
+        // The registry is a singleton and outlives every circuit, so a handler left
+        // subscribed here would hold this component for the life of the process.
+        Registry.Changed -= OnRegistryChanged;
+
+        _ticker?.Dispose();
+    }
+}

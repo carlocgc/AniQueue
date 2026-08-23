@@ -1,3 +1,4 @@
+using AniQueue.Infrastructure.Jobs;
 using AniQueue.Core.Domain;
 using AniQueue.Core.Recommendations;
 using AniQueue.Core.Settings;
@@ -302,20 +303,43 @@ public class UserSettingsStoreTests : IDisposable
         var options = new ScoringOptions();
         configuration.GetSection(ScoringOptions.SectionName).Bind(options);
 
-        Assert.Equal(SyncSchedule.Hourly, options.Schedule);
         Assert.Equal(40, options.BatchSize);
         Assert.Equal(30, options.SweepMinutes);
         Assert.False(options.Enabled);
     }
 
+    /// <summary>
+    /// The one cadence is off until somebody turns it on.
+    /// </summary>
+    /// <remarks>
+    /// This used to assert the same of a scoring-specific schedule. Phase 15c replaced
+    /// both that and the per-source one with a single key (D40); what has not changed
+    /// is that it is off by default, so an installation upgrading with an account
+    /// already configured does not silently start fetching.
+    /// </remarks>
     [Fact]
-    public void An_unset_schedule_stays_off()
+    public void An_unset_cadence_stays_off()
     {
-        var options = new ScoringOptions();
+        var options = new TaskOptions();
 
-        new ConfigurationBuilder().Build().GetSection(ScoringOptions.SectionName).Bind(options);
+        new ConfigurationBuilder().Build().GetSection(TaskOptions.SectionName).Bind(options);
 
         Assert.Equal(SyncSchedule.Off, options.Schedule);
-        Assert.True(options.Enabled);
+    }
+
+    [Fact]
+    public void A_configured_cadence_is_read()
+    {
+        var configuration = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["Tasks:Schedule"] = "EverySixHours"
+            })
+            .Build();
+
+        var options = new TaskOptions();
+        configuration.GetSection(TaskOptions.SectionName).Bind(options);
+
+        Assert.Equal(SyncSchedule.EverySixHours, options.Schedule);
     }
 }

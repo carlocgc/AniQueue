@@ -47,8 +47,9 @@ public sealed record SourceSyncSettings
     /// <summary>What happens when this source stops listing a title it once listed (D19).</summary>
     public SyncAbsencePolicy AbsencePolicy { get; init; } = SyncAbsencePolicy.Flag;
 
-    /// <summary>How often an unattended run reads this source (D40 replaces this).</summary>
-    public SyncSchedule Schedule { get; init; } = SyncSchedule.Off;
+    // Schedule was here until Phase 15c. One cadence covers every background task
+    // now (D40), so what a source carries is what a run may do rather than when one
+    // happens.
 
     /// <summary>What a source nobody has configured behaves like.</summary>
     public static SourceSyncSettings DefaultsFor(AnimeSource source) => new() { Source = source };

@@ -104,19 +104,7 @@ public class AniListSyncOptions
     /// <summary>What happens when this source stops listing a title it once listed (D19).</summary>
     public SyncAbsencePolicy AbsencePolicy { get; set; } = SyncAbsencePolicy.Flag;
 
-    /// <summary>
-    /// How often an unattended run reads this source. Defaults to
-    /// <see cref="SyncSchedule.Off"/>.
-    /// </summary>
-    /// <remarks>
-    /// Off by default rather than on, and that is a deliberate cost: an installation
-    /// upgrading with an account already configured does not silently start fetching.
-    /// Turning it on is the act that carries the intent.
-    ///
-    /// D40 replaces this with a single cadence covering every background task, and
-    /// Phase 15b is where that lands. It is moved here rather than skipped because
-    /// deleting it now would leave unattended sync with no schedule at all until the
-    /// tasks page exists to supply one.
-    /// </remarks>
-    public SyncSchedule Schedule { get; set; } = SyncSchedule.Off;
+    // Schedule was here, per source, until Phase 15c replaced it with one cadence for
+    // every background task (D40, TaskOptions). What is left on a source is what it
+    // may do when a run happens; when a run happens is no longer its business.
 }

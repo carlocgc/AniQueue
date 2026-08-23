@@ -250,7 +250,7 @@ internal sealed class FakeUserSettingsStore(SyncOptions options) : IUserSettings
         SyncPrimarySource = options.PrimarySource,
         AniListUserName = options.AniList.UserName,
         AniListEnabled = options.AniList.Enabled,
-        AniListSchedule = options.AniList.Schedule,
+
         AniListApplyUnattended = options.AniList.ApplyUnattended,
         AniListConflictPolicy = options.AniList.ConflictPolicy,
         AniListAbsencePolicy = options.AniList.AbsencePolicy
@@ -271,7 +271,7 @@ internal sealed class FakeUserSettingsStore(SyncOptions options) : IUserSettings
         options.PrimarySource = settings.SyncPrimarySource;
         options.AniList.UserName = settings.AniListUserName;
         options.AniList.Enabled = settings.AniListEnabled;
-        options.AniList.Schedule = settings.AniListSchedule;
+
         options.AniList.ApplyUnattended = settings.AniListApplyUnattended;
         options.AniList.ConflictPolicy = settings.AniListConflictPolicy;
         options.AniList.AbsencePolicy = settings.AniListAbsencePolicy;

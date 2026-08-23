@@ -66,8 +66,23 @@ public sealed record UserSettings
     /// </remarks>
     public bool AniListEnabled { get; init; } = true;
 
-    /// <summary>How often an unattended run reads AniList. Off by default (D40).</summary>
-    public SyncSchedule AniListSchedule { get; init; } = SyncSchedule.Off;
+    /// <summary>
+    /// How often every background task is asked whether it has anything to do.
+    /// </summary>
+    /// <remarks>
+    /// One cadence for all of them (D40), replacing a schedule per source and another
+    /// for scoring. Each task still decides for itself whether it is due and what it
+    /// has to do — that is D25's gate and it is untouched — but <i>when it is asked</i>
+    /// is one setting in one place.
+    ///
+    /// Off by default, and that is the same deliberate cost the per-source schedule
+    /// carried: an installation upgrading with an account already configured does not
+    /// silently start fetching. Turning it on is the act that carries the intent.
+    /// </remarks>
+    public SyncSchedule TasksSchedule { get; init; } = SyncSchedule.Off;
+
+    /// <summary>Whether the related-titles pass takes part at all (D40).</summary>
+    public bool RelationsEnabled { get; init; } = true;
 
     /// <summary>
     /// Whether an unattended AniList run commits its unambiguous changes, or holds
@@ -127,8 +142,6 @@ public sealed record UserSettings
     /// <summary>The kill switch for scoring, mirroring SyncEnabled.</summary>
     public bool ScoringEnabled { get; init; } = true;
 
-    /// <summary>How often an unattended sweep runs. Off by default.</summary>
-    public SyncSchedule ScoringSchedule { get; init; } = SyncSchedule.Off;
 
     /// <summary>How many titles one unattended batch carries.</summary>
     public int ScoringBatchSize { get; init; } = 25;

@@ -63,6 +63,14 @@ public static class SyncServiceCollectionExtensions
         // because the publisher is the half that could not otherwise be wired.
         services.AddSingleton<ILibraryChangeNotifier, Library.LibraryChangeNotifier>();
 
+        // A singleton for the same reason, and one object behind two interfaces: the
+        // page reads rows and asks for runs, the runner waits for those requests and
+        // says what it is doing. Neither should be able to do the other's half, and
+        // both are looking at one piece of state (D40).
+        services.AddSingleton<Jobs.TaskRegistry>();
+        services.AddSingleton<ITaskRegistry>(s => s.GetRequiredService<Jobs.TaskRegistry>());
+        services.AddSingleton<ITaskRunnerBridge>(s => s.GetRequiredService<Jobs.TaskRegistry>());
+
         return services;
     }
 

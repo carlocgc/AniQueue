@@ -3310,8 +3310,28 @@ the subscription is disposed with the same discipline `BackgroundJobRunner` alre
 
 Rows come from what is registered, so Phase 9's jobs appear as rows the day they are registered.
 
-*Exit:* every task can be seen, started, cancelled and switched off from one page, and a failing
-task says why on its own row.
+**The registry is two interfaces over one object.** `ITaskRegistry` is what a page gets — read the
+rows, ask for a run, stop one. `ITaskRunnerBridge` is what a runner gets — wait for a request, and
+say what is happening. A page must not be able to declare a run started, and a runner has no
+business enumerating rows; splitting the surface is what makes that structural rather than a
+convention.
+
+**Three things this part got wrong first, all found by running it:**
+
+- **Row order cannot come from registration.** Each job has its own hosted service and they start
+  concurrently, so the rows came out in a different order on almost every boot. Sorting by key
+  fixes it; sorting by name would have moved a row whenever somebody renamed a task, which is the
+  same problem arriving more slowly.
+- **A switched-off task must not offer a live button.** Every job checks its own switch before
+  anything else, so *Run now* on a disabled row recorded nothing, changed nothing and explained
+  nothing. Off means off, by hand as well as on its own, and the button says so by being disabled.
+- **Relations needed a switch after all.** D40 predicted this and the reason held: a row carrying
+  a button and no way to stop it invites the question. It lives in `Tasks:RelationsEnabled` rather
+  than a `Relations` section of its own, because a section holding one boolean is a home built for
+  a single tenant.
+
+*Exit:* every task can be seen, started, cancelled and switched off from one page; a failing task
+says why on its own row; one cadence drives them all.
 
 #### Phase 15d — Scoring demolition
 D42. The *Rank now* button, `RankRemotelyAsync`, the cancel, the soft guard, the waiting count,
