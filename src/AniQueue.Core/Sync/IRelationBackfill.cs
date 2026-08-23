@@ -94,23 +94,27 @@ public interface IRelationBackfill
         CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Re-reads everything now, rather than waiting for it to go stale.
+    /// Deletes every relation and forgets that anything was ever asked.
     /// </summary>
+    /// <returns>How many edges were deleted.</returns>
     /// <remarks>
-    /// The one user-triggered path into any of this, and it exists because the
-    /// automatic answer is deliberately slow: a relation added between two titles
-    /// the user already owns is invisible until its answer expires, and somebody who
-    /// knows a sequel was just announced should not have to wait a month to see it.
+    /// <b>This replaced a "refresh" that re-read in place</b> (Phase 15e). The old one
+    /// nulled the markers and immediately ran a pass, which was the right shape while
+    /// a page was the only way to make anything happen; the tasks page runs the pass
+    /// now, so what is left here is the destructive half — and saying that plainly is
+    /// better than a button called <i>Refresh</i> that quietly empties a table.
     ///
-    /// It forgets every marker and asks again, so what it costs is a full pass — the
-    /// same fifteen-odd requests the first run made. A library larger than one visit
-    /// finishes in the background, which is why this returns what it managed rather
-    /// than promising completeness.
+    /// <b>Nulling the markers is not optional.</b> Deleting the edges alone would
+    /// leave every title reading as already fetched, so nothing would rebuild them
+    /// until <see cref="RelationBackfillService.StaleAfter"/> expired thirty days
+    /// later — a button that silently emptied the relation graph for a month. The two
+    /// halves are one operation for that reason.
+    ///
+    /// It does not fetch. Emptying is immediate and refilling is the ordinary pass,
+    /// which the relation task picks up on its next run or when somebody presses
+    /// <i>Run now</i>.
     /// </remarks>
-    Task<RelationBackfillResult> RefreshAsync(
-        TimeSpan budget,
-        IProgress<OperationProgress>? progress = null,
-        CancellationToken cancellationToken = default);
+    Task<int> ForgetAsync(CancellationToken cancellationToken = default);
 
     /// <summary>How much is known, for display. Two counts, both from the database.</summary>
     Task<RelationCoverage> GetCoverageAsync(CancellationToken cancellationToken = default);

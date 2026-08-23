@@ -601,26 +601,57 @@ public class RelationBackfillTests
         Assert.Single(await fixture.RelationsAsync());
     }
 
+    /// <summary>
+    /// Deleting the graph deletes the edges and forgets that anything was asked.
+    /// </summary>
+    /// <remarks>
+    /// Both halves, and the second is the one worth a test. Deleting the edges alone
+    /// would leave every title marked as already fetched, so nothing would rebuild
+    /// them until the thirty-day staleness expired — a button that silently emptied
+    /// the relation graph for a month. They are one transaction for that reason.
+    ///
+    /// This replaced a test about refreshing, which forgot the markers and immediately
+    /// re-read. The re-reading half moved to the tasks page in Phase 15e; what is left
+    /// here is the throwing away.
+    /// </remarks>
     [Fact]
-    public async Task Refreshing_forgets_every_answer_and_asks_again_now()
+    public async Task Deleting_the_graph_removes_the_edges_and_the_markers()
     {
-        // The one user-triggered path. Somebody who has just seen a sequel announced
-        // should not have to wait a month for the application to notice.
         var client = new StubRelationClient(Response(("100", Edge("SEQUEL", "200"))));
         await using var fixture = await Fixture.CreateAsync(client);
 
         await fixture.SeedAsync("100");
         await fixture.Backfill.RunAsync(Budget);
 
-        Assert.Single(client.Requests);
-
-        // No clock movement at all: the point is that it does not wait for staleness.
-        var refreshed = await fixture.Backfill.RefreshAsync(Budget);
-
-        Assert.Equal(2, client.Requests.Count);
-        Assert.Equal(1, refreshed.Requested);
-        Assert.False(refreshed.ChangedAnything);
+        Assert.Single(await fixture.RelationsAsync());
         Assert.Empty(await fixture.UnfetchedAsync());
+
+        var deleted = await fixture.Backfill.ForgetAsync();
+
+        Assert.Equal(1, deleted);
+        Assert.Empty(await fixture.RelationsAsync());
+
+        // The half that would otherwise be missed: unfetched again, so the next pass
+        // has something to do.
+        Assert.Equal(["100"], await fixture.UnfetchedAsync());
+    }
+
+    [Fact]
+    public async Task The_next_pass_rebuilds_what_deleting_threw_away()
+    {
+        var client = new StubRelationClient(Response(("100", Edge("SEQUEL", "200"))));
+        await using var fixture = await Fixture.CreateAsync(client);
+
+        await fixture.SeedAsync("100");
+        await fixture.Backfill.RunAsync(Budget);
+        await fixture.Backfill.ForgetAsync();
+
+        // No clock movement at all: the marker is gone, so this is new work rather
+        // than stale work and nothing waits for the thirty days.
+        var rebuilt = await fixture.Backfill.RunAsync(Budget);
+
+        Assert.Equal(1, rebuilt.Requested);
+        Assert.Single(await fixture.RelationsAsync());
     }
 
     [Fact]
