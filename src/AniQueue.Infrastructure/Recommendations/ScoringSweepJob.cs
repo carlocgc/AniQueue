@@ -38,6 +38,7 @@ public sealed class ScoringSweepJob(
     IScoringEndpoint endpoint,
     IScoringGate gate,
     ILibraryChangeNotifier notifier,
+    IJobRunStore runs,
     IOptionsMonitor<ScoringOptions> options,
     ILogger<ScoringSweepJob> logger,
     TimeProvider? timeProvider = null) : IBackgroundJob
@@ -59,6 +60,9 @@ public sealed class ScoringSweepJob(
     private const int MinimumBatchSize = 5;
 
     private readonly TimeProvider _time = timeProvider ?? TimeProvider.System;
+
+    /// <summary>What this task's runs are filed under. Never shown.</summary>
+    public string Key => "scoring";
 
     public string Name => "Scoring sweep";
 
@@ -108,8 +112,14 @@ public sealed class ScoringSweepJob(
                 return JobRunOutcome.NotDue;
             }
 
-            var lastRun = await recommendations.GetLastRunAtAsync(
-                Profile.DefaultProfileId, ProviderName, cancellationToken);
+            // From JobRun rather than from the last scheduled RecommendationRun, since
+            // Phase 15b. The old read answered "when did a sweep last *apply*
+            // something", so a sweep that ran and scored nothing — or failed, or was
+            // cancelled — looked like one that had never happened, and the next tick
+            // started it again. A sweep is minutes of somebody's GPU; asking again
+            // five minutes later because the last attempt produced nothing is the
+            // worst case to get wrong.
+            var lastRun = await runs.LastRunAtAsync(Key, context.Unit, cancellationToken);
 
             if (lastRun is { } previous && _time.GetUtcNow() - previous < interval)
             {

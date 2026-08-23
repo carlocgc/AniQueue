@@ -29,7 +29,18 @@ public sealed record JobUnit(string? Key, string Name);
 /// </remarks>
 public interface IBackgroundJob
 {
-    /// <summary>Names the job in the log.</summary>
+    /// <summary>
+    /// Identifies the job in the database, stably and forever.
+    /// </summary>
+    /// <remarks>
+    /// Deliberately separate from <see cref="Name"/>. What a task is called is a
+    /// label somebody reads and is allowed to change; this is what its history is
+    /// filed under, and a rename must not orphan it. Not the type name either, for
+    /// the same reason a class rename should not be a data migration.
+    /// </remarks>
+    string Key { get; }
+
+    /// <summary>Names the job in the log, and on its row.</summary>
     string Name { get; }
 
     /// <summary>

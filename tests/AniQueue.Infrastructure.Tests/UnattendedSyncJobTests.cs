@@ -124,7 +124,17 @@ public class UnattendedSyncJobTests
             sync.Result = result;
         }
 
-        var job = new UnattendedSyncJob(sync, notifier, NullLogger<UnattendedSyncJob>.Instance);
+        var job = new UnattendedSyncJob(
+            sync,
+            notifier,
+
+            // Due-ness comes from the run record since Phase 15b, so the elapsed time
+            // a test wants to express is set here rather than on the status.
+            new FakeJobRunStore
+            {
+                LastRunAt = status.LastRun is { } last ? last.StartedAt : null
+            },
+            NullLogger<UnattendedSyncJob>.Instance);
         await job.RunAsync(new JobRunContext(trigger, nameof(AnimeSource.AniList)), CancellationToken.None);
 
         return (sync, notifier);

@@ -1,6 +1,7 @@
 using System.Net;
 using AniQueue.Core.Domain;
 using AniQueue.Core.Import;
+using AniQueue.Core.Jobs;
 using AniQueue.Core.Library;
 using AniQueue.Core.Sync;
 using AniQueue.Infrastructure.Sync;
@@ -39,6 +40,11 @@ public static class SyncServiceCollectionExtensions
         // The settings file this section's options are read from is no longer written
         // here: D36 made one component read and write it for every feature that has a
         // setting, and AddAniQueueSettings registers it.
+
+        // What every task's runs are written to and its cadence measured from (D40).
+        // Scoped like everything else that opens a context, and registered here
+        // because the jobs beside it are its only writers.
+        services.AddScoped<IJobRunStore, Jobs.JobRunStore>();
 
         // Scoped, and resolved once per tick by whatever runs it. The job holds no
         // state between runs deliberately: what it needs to know about the last one
