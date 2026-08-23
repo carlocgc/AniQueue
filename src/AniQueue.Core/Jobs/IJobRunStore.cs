@@ -40,4 +40,16 @@ public interface IJobRunStore
         string taskKey,
         string? unitKey,
         CancellationToken cancellationToken = default);
+
+    /// <summary>The most recent run of each unit, keyed by task and unit.</summary>
+    /// <remarks>
+    /// One query for the whole page rather than one per row. There are a handful of
+    /// units and the index covers it either way, but a page that issues a query per
+    /// row is a page that gets slower every time a job is added.
+    /// </remarks>
+    Task<IReadOnlyDictionary<(string TaskKey, string UnitKey), JobRun>> LatestAsync(
+        CancellationToken cancellationToken = default);
+
+    /// <summary>The newest runs across every task, for the history card.</summary>
+    Task<IReadOnlyList<JobRun>> RecentAsync(int limit, CancellationToken cancellationToken = default);
 }

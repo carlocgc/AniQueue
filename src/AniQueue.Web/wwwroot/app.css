@@ -1009,3 +1009,22 @@ tr.muted td { opacity: 0.6; }
 .card.status.settled > details > summary { color: var(--success); }
 
 .card.status .scoring-facts { margin-top: 0.75rem; }
+
+/* Tasks (Phase 15c). Rows are the page, so the only new shapes are the ones a
+   row needs: a state that reads as live, an outcome that reads as good or bad,
+   and a switch that is a checkbox with its label off-screen. */
+
+table.tasks th[scope="row"] { text-transform: none; font-size: 0.92rem; color: var(--text); }
+
+table.tasks td.toolbar { margin-bottom: 0; justify-content: flex-end; }
+
+.running { color: var(--warning); font-weight: 600; }
+
+.outcome.failed { color: var(--danger); font-weight: 600; }
+
+.outcome.stopped { color: var(--text-muted); }
+
+/* Wraps under the row it explains rather than widening the column. */
+p.failure { margin: 0.25rem 0 0; font-size: 0.85rem; }
+
+.switch { display: inline-flex; align-items: center; }

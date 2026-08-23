@@ -3,6 +3,7 @@ using AniQueue.Core.Jobs;
 using AniQueue.Core.Library;
 using AniQueue.Core.Progress;
 using AniQueue.Core.Recommendations;
+using AniQueue.Infrastructure.Jobs;
 using AniQueue.Infrastructure.Recommendations;
 using Microsoft.Extensions.Logging.Abstractions;
 
@@ -143,12 +144,12 @@ public class ScoringSweepJobTests
 
     private static (ScoringSweepJob Job, FakeRecommendations Library, FakeEndpoint Endpoint, FakeGate Gate, FixedTime Clock, FakeJobRunStore Runs) Create(
         int unranked = 100,
-        Action<ScoringOptions>? configure = null)
+        Action<ScoringOptions>? configure = null,
+        SyncSchedule cadence = SyncSchedule.Daily)
     {
         var settings = new ScoringOptions
         {
             Endpoint = "http://localhost:1234",
-            Schedule = SyncSchedule.Daily,
             BatchSize = 25
         };
 
@@ -168,6 +169,7 @@ public class ScoringSweepJobTests
                 new NullNotifier(),
                 runs,
                 new StaticOptionsMonitor<ScoringOptions>(settings),
+                new StaticOptionsMonitor<TaskOptions>(new TaskOptions { Schedule = cadence }),
                 NullLogger<ScoringSweepJob>.Instance,
                 clock),
             library,
@@ -248,8 +250,8 @@ public class ScoringSweepJobTests
         {
             o.Enabled = enabled;
             o.Endpoint = configured ? "http://localhost:1234" : null;
-            o.Schedule = schedule;
-        });
+        },
+        schedule);
 
         endpoint.IsConfigured = configured;
 
@@ -262,7 +264,7 @@ public class ScoringSweepJobTests
     [Fact]
     public async Task A_run_inside_the_interval_does_nothing()
     {
-        var (job, _, endpoint, _, clock, runs) = Create(unranked: 100, o => o.Schedule = SyncSchedule.Daily);
+        var (job, _, endpoint, _, clock, runs) = Create(unranked: 100, null, SyncSchedule.Daily);
 
         // From the run record rather than from the last applied ranking, since Phase
         // 15b: a sweep that ran and scored nothing is still a sweep that ran.
@@ -276,7 +278,7 @@ public class ScoringSweepJobTests
     [Fact]
     public async Task A_run_past_the_interval_goes_ahead()
     {
-        var (job, _, endpoint, _, clock, runs) = Create(unranked: 25, o => o.Schedule = SyncSchedule.Daily);
+        var (job, _, endpoint, _, clock, runs) = Create(unranked: 25, null, SyncSchedule.Daily);
 
         runs.LastRunAt = clock.Now.AddDays(-2);
 

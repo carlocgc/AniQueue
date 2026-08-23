@@ -2,6 +2,7 @@ using System.Globalization;
 using AniQueue.Core.Domain;
 using AniQueue.Core.Recommendations;
 using AniQueue.Core.Settings;
+using AniQueue.Infrastructure.Jobs;
 using AniQueue.Infrastructure.Sync;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
@@ -48,9 +49,13 @@ public sealed class UserSettingsStore(
             AniListKey(nameof(AniListSyncOptions.Enabled)),
             UserSettings.Defaults.AniListEnabled),
 
-        AniListSchedule = EnumValue(
-            AniListKey(nameof(AniListSyncOptions.Schedule)),
-            UserSettings.Defaults.AniListSchedule),
+        TasksSchedule = EnumValue(
+            $"{TaskOptions.SectionName}:{nameof(TaskOptions.Schedule)}",
+            UserSettings.Defaults.TasksSchedule),
+
+        RelationsEnabled = Bool(
+            $"{TaskOptions.SectionName}:{nameof(TaskOptions.RelationsEnabled)}",
+            UserSettings.Defaults.RelationsEnabled),
 
         AniListApplyUnattended = Bool(
             AniListKey(nameof(AniListSyncOptions.ApplyUnattended)),
@@ -91,9 +96,6 @@ public sealed class UserSettingsStore(
             ScoringKey(nameof(ScoringOptions.Enabled)),
             UserSettings.Defaults.ScoringEnabled),
 
-        ScoringSchedule = EnumValue(
-            ScoringKey(nameof(ScoringOptions.Schedule)),
-            UserSettings.Defaults.ScoringSchedule),
 
         ScoringBatchSize = Number(
                 ScoringKey(nameof(ScoringOptions.BatchSize)))

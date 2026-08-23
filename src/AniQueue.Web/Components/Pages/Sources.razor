@@ -133,7 +133,7 @@
         {
             <p class="muted">
                 Reading the public list of <strong>@status.Account</strong> &middot;
-                @LastRunText(status.LastSuccess) &middot; @ScheduleText(status.Settings.Schedule)
+                @LastRunText(status.LastSuccess)
             </p>
 
             <div class="toolbar">
@@ -337,26 +337,14 @@
             <fieldset>
                 <legend>When syncing runs on its own</legend>
                 <p class="muted">
-                    AniQueue can read this source on a schedule, with nobody watching.
-                    It is off until you turn it on, and these decide what a run may do.
+                    AniQueue can read this source with nobody watching. How often is set
+                    on the <a href="tasks">Tasks</a> page; these decide what such a run
+                    may do.
                 </p>
 
-                <div class="field">
-                    <label for="@($"schedule-{status.Source}")">Check this source</label>
-                    <select id="@($"schedule-{status.Source}")" value="@status.Settings.Schedule"
-                            @onchange="e => Update(status, s => s with { Schedule = Parse(e.Value, s.Schedule) })">
-                        <option value="@SyncSchedule.Off">Only when I press Sync now</option>
-                        <option value="@SyncSchedule.Hourly">Every hour</option>
-                        <option value="@SyncSchedule.EverySixHours">Every six hours</option>
-                        <option value="@SyncSchedule.Daily">Once a day</option>
-                        <option value="@SyncSchedule.Weekly">Once a week</option>
-                    </select>
-                    <p class="muted">
-                        A scheduled run is the same read as Sync now — nothing is ever written
-                        back to your account. Times are approximate, and a run that keeps failing
-                        is retried progressively less often rather than every hour forever.
-                    </p>
-                </div>
+                @* How often this runs is set on the Tasks page now, once for every
+                   background task (D40). What stays here is what a run may *do*,
+                   which is the part that differs per source. *@
 
                 <div class="field">
                     <label for="@($"unattended-{status.Source}")">
@@ -822,15 +810,6 @@
         { Outcome: SyncOutcome.NothingToDo } => $"checked {Ago(run.StartedAt)}, nothing to change",
         { Outcome: SyncOutcome.HeldForReview } => $"checked {Ago(run.StartedAt)}, changes waiting",
         _ => $"synced {Ago(run.StartedAt)}"
-    };
-
-    private static string ScheduleText(SyncSchedule schedule) => schedule switch
-    {
-        SyncSchedule.Hourly => "checking every hour",
-        SyncSchedule.EverySixHours => "checking every six hours",
-        SyncSchedule.Daily => "checking once a day",
-        SyncSchedule.Weekly => "checking once a week",
-        _ => "only when you ask"
     };
 
     private static string Ago(DateTimeOffset moment)

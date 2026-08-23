@@ -299,21 +299,14 @@
                     ratings have overtaken.
                 </p>
 
-                <div class="field">
-                    <label for="scoring-schedule">Rank unattended</label>
-                    <select id="scoring-schedule" value="@_schedule"
-                            @onchange="e => _schedule = Enum.Parse<SyncSchedule>(e.Value?.ToString() ?? nameof(SyncSchedule.Off))">
-                        <option value="@SyncSchedule.Off">Never — only when I ask</option>
-                        <option value="@SyncSchedule.Hourly">Every hour</option>
-                        <option value="@SyncSchedule.EverySixHours">Every six hours</option>
-                        <option value="@SyncSchedule.Daily">Once a day</option>
-                        <option value="@SyncSchedule.Weekly">Once a week</option>
-                    </select>
-                    <p class="muted">
-                        A run stops as soon as there is nothing out of date, so leaving this
-                        on costs nothing on a backlog that is already ranked.
-                    </p>
-                </div>
+                @* How often is set on the Tasks page now, once for every background
+                   task (D40). What stays here is what a run may do when it happens. *@
+                <p class="muted">
+                    How often it looks is set on the <a href="tasks">Tasks</a> page, along
+                    with every other kind of background work. A run stops as soon as there
+                    is nothing out of date, so leaving it on costs nothing on a backlog
+                    that is already ranked.
+                </p>
 
                 <div class="field">
                     <label for="scoring-batch">Titles per unattended request</label>
@@ -837,7 +830,7 @@ else
 
     private int _staleAfterRatings = 5;
 
-    private SyncSchedule _schedule = SyncSchedule.Off;
+
     private int _batchSize = 25;
     private int _sweepMinutes = 60;
 
@@ -849,7 +842,7 @@ else
 
         var saved = await Settings.SaveAsync(Settings.Read() with
         {
-            ScoringSchedule = _schedule,
+
             ScoringBatchSize = _batchSize,
             ScoringSweepMinutes = _sweepMinutes,
             ScoringStaleAfterRatings = _staleAfterRatings
@@ -1034,7 +1027,7 @@ else
         _timeoutSeconds = current.TimeoutSeconds;
         _structuredOutput = current.UseStructuredOutput;
 
-        _schedule = current.Schedule;
+
         _batchSize = current.BatchSize;
         _sweepMinutes = current.SweepMinutes;
 

@@ -1,6 +1,7 @@
 using AniQueue.Core.Recommendations;
 using AniQueue.Core.Settings;
 using AniQueue.Infrastructure;
+using AniQueue.Infrastructure.Jobs;
 using AniQueue.Infrastructure.Persistence;
 using AniQueue.Infrastructure.Persistence.Seeding;
 using AniQueue.Infrastructure.Recommendations;
@@ -103,6 +104,11 @@ builder.Services.Configure<SyncOptions>(
 // line between the file and the database.
 builder.Services.Configure<ScoringOptions>(
     builder.Configuration.GetSection(ScoringOptions.SectionName));
+
+// One cadence for every background task (D40). Bound to the live section like the
+// others, so changing it on the Tasks page reaches a runner without a restart.
+builder.Services.Configure<TaskOptions>(
+    builder.Configuration.GetSection(TaskOptions.SectionName));
 
 builder.Services.AddAniQueueSync();
 

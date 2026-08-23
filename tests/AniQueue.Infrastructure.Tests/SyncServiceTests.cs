@@ -408,8 +408,7 @@ public class SyncServiceTests
             IsEnabled = false,
             ApplyUnattended = false,
             ConflictPolicy = SyncConflictPolicy.LinkToExisting,
-            AbsencePolicy = SyncAbsencePolicy.Ignore,
-            Schedule = SyncSchedule.Daily
+            AbsencePolicy = SyncAbsencePolicy.Ignore
         });
 
         var stored = (await AniListStatusAsync(fixture)).Settings;
@@ -418,7 +417,6 @@ public class SyncServiceTests
         Assert.False(stored.ApplyUnattended);
         Assert.Equal(SyncConflictPolicy.LinkToExisting, stored.ConflictPolicy);
         Assert.Equal(SyncAbsencePolicy.Ignore, stored.AbsencePolicy);
-        Assert.Equal(SyncSchedule.Daily, stored.Schedule);
     }
 
     /// <summary>
@@ -438,11 +436,13 @@ public class SyncServiceTests
 
         var status = await AniListStatusAsync(fixture);
         var result = await fixture.Service.SaveSettingsAsync(
-            status.Settings with { Schedule = SyncSchedule.Daily });
+            status.Settings with { AbsencePolicy = SyncAbsencePolicy.Ignore });
 
         Assert.False(result.Saved);
         Assert.Equal("Permission denied", result.Error);
-        Assert.Equal(SyncSchedule.Off, (await AniListStatusAsync(fixture)).Settings.Schedule);
+        Assert.Equal(
+            SyncAbsencePolicy.Flag,
+            (await AniListStatusAsync(fixture)).Settings.AbsencePolicy);
     }
 
     /// <summary>
@@ -595,7 +595,7 @@ public class SyncServiceTests
         await fixture.Service.SaveSettingsAsync(new SourceSyncSettings
         {
             Source = AnimeSource.AniList,
-            Schedule = SyncSchedule.Daily,
+            AbsencePolicy = SyncAbsencePolicy.Ignore,
             IsEnabled = false
         });
 
@@ -604,7 +604,7 @@ public class SyncServiceTests
         var status = await AniListStatusAsync(fixture);
 
         Assert.True(status.IsPrimary);
-        Assert.Equal(SyncSchedule.Daily, status.Settings.Schedule);
+        Assert.Equal(SyncAbsencePolicy.Ignore, status.Settings.AbsencePolicy);
         Assert.False(status.Settings.IsEnabled);
     }
 

@@ -31,4 +31,16 @@ internal sealed class FakeJobRunStore : IJobRunStore
         string? unitKey,
         CancellationToken cancellationToken = default) =>
         Task.FromResult(LastRunAt);
+
+    public Task<IReadOnlyDictionary<(string TaskKey, string UnitKey), JobRun>> LatestAsync(
+        CancellationToken cancellationToken = default) =>
+        Task.FromResult<IReadOnlyDictionary<(string, string), JobRun>>(
+            Recorded
+                .GroupBy(r => (r.TaskKey, r.UnitKey))
+                .ToDictionary(g => g.Key, g => g.Last()));
+
+    public Task<IReadOnlyList<JobRun>> RecentAsync(
+        int limit,
+        CancellationToken cancellationToken = default) =>
+        Task.FromResult<IReadOnlyList<JobRun>>([.. Recorded.AsEnumerable().Reverse().Take(limit)]);
 }

@@ -2,7 +2,9 @@ using AniQueue.Core.Domain;
 using AniQueue.Core.Jobs;
 using AniQueue.Core.Library;
 using AniQueue.Core.Sync;
+using AniQueue.Infrastructure.Jobs;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 
 namespace AniQueue.Infrastructure.Sync;
 
@@ -25,6 +27,7 @@ public sealed class UnattendedSyncJob(
     ISyncService syncService,
     ILibraryChangeNotifier notifier,
     IJobRunStore runs,
+    IOptionsMonitor<TaskOptions> tasks,
     ILogger<UnattendedSyncJob> logger) : IBackgroundJob
 {
     /// <summary>
@@ -178,7 +181,10 @@ public sealed class UnattendedSyncJob(
             return true;
         }
 
-        if (status.Settings.Schedule.ToInterval() is not { } interval)
+        // One cadence for every background task since Phase 15c (D40). Read on each
+        // tick rather than captured, so a change on the tasks page takes effect
+        // without a restart.
+        if (tasks.CurrentValue.Schedule.ToInterval() is not { } interval)
         {
             return false;
         }

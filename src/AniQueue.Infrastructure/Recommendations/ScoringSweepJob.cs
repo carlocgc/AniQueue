@@ -2,6 +2,7 @@ using AniQueue.Core.Domain;
 using AniQueue.Core.Jobs;
 using AniQueue.Core.Library;
 using AniQueue.Core.Recommendations;
+using AniQueue.Infrastructure.Jobs;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
@@ -40,6 +41,7 @@ public sealed class ScoringSweepJob(
     ILibraryChangeNotifier notifier,
     IJobRunStore runs,
     IOptionsMonitor<ScoringOptions> options,
+    IOptionsMonitor<TaskOptions> tasks,
     ILogger<ScoringSweepJob> logger,
     TimeProvider? timeProvider = null) : IBackgroundJob
 {
@@ -107,7 +109,10 @@ public sealed class ScoringSweepJob(
         // stale population, and a handful of newly added titles is not.
         if (!context.NewWorkOnly && !context.IgnoresSchedule)
         {
-            if (current.Schedule.ToInterval() is not { } interval)
+            // The shared cadence, not a scoring one (D40). What stays scoring's own is
+            // what a sweep may do once it runs — the batch size, the time budget, and
+            // D39's rule about which titles have gone stale.
+            if (tasks.CurrentValue.Schedule.ToInterval() is not { } interval)
             {
                 return JobRunOutcome.NotDue;
             }
