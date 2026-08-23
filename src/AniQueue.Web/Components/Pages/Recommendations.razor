@@ -1,6 +1,7 @@
 @page "/recommendations"
 @using System.Globalization
 @using AniQueue.Core.Domain
+@using AniQueue.Core.Jobs
 @using AniQueue.Core.Recommendations
 @using AniQueue.Core.Settings
 @using Microsoft.Extensions.Options
@@ -15,9 +16,10 @@
 @* The second courier (D31). Injected even when nothing is configured, because
    whether an endpoint exists is a question the card asks it. *@
 @inject IScoringEndpoint Endpoint
-@* One model, one request at a time. Injected here so that pressing Rank now while a
-   sweep is running takes priority instead of queueing behind an hour of batches. *@
-@inject IScoringGate Gate
+@* One model, one request at a time, and Test connection is the only thing here that
+   still talks to it. Asked of the registry so the button can stand aside while the
+   scoring task is running rather than queueing behind it (D42). *@
+@inject ITaskRegistry Tasks
 @inject IJSRuntime JS
 @inject ILogger<Recommendations> Logger
 
@@ -34,12 +36,7 @@
     </p>
 </div>
 
-@* Cancel is offered only while a remote run is in flight. Everything else with a
-   dialog here is writing rows, where stopping raises a question about what half
-   done means; waiting on somebody else's model is the one place where giving up
-   costs nothing. *@
-<BusyDialog State="_busy" OnCancel="@(_running is null ? default : EventCallback.Factory.Create(this, CancelRun))"
-            CancelLabel="Stop waiting" />
+<BusyDialog State="_busy" />
 
 @* Confirmations only. A save that failed says so in a notice that stays until it is
    dealt with; a save that worked has nothing to leave behind but the fact that it
@@ -146,26 +143,12 @@
         {
             <p class="muted">
                 Ranking with <strong>@(Endpoint.Model ?? "the configured model")</strong>
-                at <strong>@Endpoint.Endpoint</strong>.
-                @if (LastRemoteDuration is { } previous)
-                {
-                    <text> Your last run took @Elapsed(previous).</text>
-                }
+                at <strong>@Endpoint.Endpoint</strong>. Ranking happens on the
+                <a href="tasks">Tasks</a> page, with nobody waiting.
             </p>
 
             @if (_waitingCount > 0)
             {
-                @* "Waiting to be ranked" until it was read next to a card reporting all
-                   of them already ranked. It was never the unranked count — it is the
-                   backlog, which is what a run covers whether those titles carry a
-                   score or not, since re-ranking is the normal case rather than the
-                   exception. So it says which it is. *@
-                <p class="muted">
-                    A run covers your backlog — @_waitingCount
-                    @Plural(_waitingCount, "title", "titles"). Local models usually take
-                    several minutes to answer.
-                </p>
-
                 @* The size of the question, beside the size of the answer. Only the
                    output was ever bounded, which is why a request of twenty-five titles
                    could still be refused for being too long to read — the history
@@ -198,39 +181,29 @@
             </div>
         }
 
-        @if (_softGuard is { } guard)
-        {
-            @* Warns and offers the two real routes rather than silently changing what
-               was asked. A request for four hundred rankings in one reply is the
-               first experience of exactly the library that most needs this feature,
-               and "your model ran out of room" after ten minutes is a worse way to
-               learn it. *@
-            <div class="notice warning" role="alert">
-                <strong>That is a lot to ask for in one reply.</strong>
-                <p>
-                    You are asking for @guard rankings at once. Most self-hosted models
-                    cannot generate that much before running out of room.
-                </p>
-                <div class="toolbar">
-                    <button class="primary" @onclick="() => RankRemotelyAsync(RemoteBatchSize)">
-                        Rank @RemoteBatchSize of them
-                    </button>
-                    <button @onclick="() => RankRemotelyAsync(null, force: true)">
-                        Ask for all @guard anyway
-                    </button>
-                    <button @onclick="() => _softGuard = null">Cancel</button>
-                </div>
-            </div>
-        }
+        @* The soft guard went with the run it guarded. It warned that a request for
+           four hundred rankings at once would not fit, and offered to send twenty-five
+           instead — a choice that only existed because somebody was about to wait for
+           the answer. The sweep asks in batches by construction and halves one that
+           will not fit, so the hazard is handled where the request is made rather than
+           in front of the person making it (D42). *@
 
         <div class="toolbar">
-            <button class="primary" disabled="@(_busy.IsRunning || !Endpoint.IsConfigured)"
-                    @onclick="() => RankRemotelyAsync(null)">
-                Rank now
-            </button>
-            <button disabled="@(_busy.IsRunning || !Endpoint.IsConfigured)" @onclick="TestAsync">
+            @* The one outbound call left outside the runner, so it is the one thing
+               that can collide with a sweep. A self-hosted model answers one request at
+               a time, and a test fired into a batch queues behind it and looks like a
+               timeout — which is what IScoringGate used to arbitrate. Asking the
+               registry is smaller than a lock and more honest: the user learns the
+               model is busy instead of watching a test hang (D42). *@
+            <button disabled="@(_busy.IsRunning || !Endpoint.IsConfigured || IsRanking)"
+                    @onclick="TestAsync">
                 Test connection
             </button>
+
+            @if (IsRanking)
+            {
+                <span class="muted">Ranking is running — test when it has finished.</span>
+            }
         </div>
 
         @* Settings behind a disclosure, like every per-source setting on Sources. The
@@ -560,7 +533,7 @@ else
        new shape. What is left is the one thing the preview cannot say for itself:
        which route produced it. *@
     <div class="card collapsed">
-        <h2>@(_source == ScoringRoute.Remote ? "Remote model" : "By hand")</h2>
+        <h2>By hand</h2>
     </div>
 
     <div class="card">
@@ -591,11 +564,11 @@ else
             }
         </div>
 
-        @if (_source == ScoringRoute.Manual)
-        {
-            @* Manual only. A remote run knows what answered — the server says so in
-               its own reply — and asking somebody to type what AniQueue was just told
-               would be inviting a worse answer than the one it has.
+        @{
+            @* Always asked now. This was skipped for a remote run, which knew what had
+               answered because the server said so in its own reply; there is no such
+               run any more, so anything previewed here came out of somebody else's
+               chat window and only they can say which model it was (D42).
 
                <b>Deliberately left empty, and deliberately not asked of the model.</b>
                Both shortcuts fill this in by themselves and both fill it in wrongly.
@@ -771,44 +744,33 @@ else
     /// produced the preview, so asking the model name of a manual run costs nothing
     /// extra.
     /// </remarks>
-    private enum ScoringRoute
-    {
-        Manual,
-        Remote
-    }
-
-    private ScoringRoute _source = ScoringRoute.Manual;
+    // ScoringRoute was here, distinguishing a preview that came from the endpoint from
+    // one that was pasted in. There is one route left (D42), so the question no longer
+    // has two answers and every surface that asked it has stopped.
 
     /// <summary>What a run records about how it was carried.</summary>
     /// <remarks>
-    /// Free text on <c>RecommendationRun</c>, and now shown to users in its own column
-    /// rather than as a fallback for a missing model name — so the values are the
-    /// vocabulary rather than an implementation detail. Phase 8d adds "Scheduled".
+    /// Free text on <c>RecommendationRun</c>, shown to users in its own column. The
+    /// vocabulary was Manual, Remote and Scheduled; D42 deleted the route that wrote
+    /// "Remote", so anything this page produces arrived by hand. Old runs keep the
+    /// value they were written with, which is why <c>Past rankings</c> can still show
+    /// it and nothing rewrites history.
     /// </remarks>
-    private string ProviderName => _source == ScoringRoute.Remote ? "Remote" : "Manual";
-
-    /// <summary>
-    /// What the soft guard offers instead of one enormous reply.
-    /// </summary>
-    /// <remarks>
-    /// The same twenty-five the scheduled sweep will use, and for the same reason:
-    /// about three thousand output tokens, which is inside any local server's budget
-    /// including a stingy default.
-    /// </remarks>
-    private const int RemoteBatchSize = 25;
+    private const string ProviderName = "Manual";
 
     /// <summary>
     /// Above this, asking for every ranking in one reply is a bad bet.
     /// </summary>
     /// <remarks>
-    /// Not a cap. A user who knows their model can produce two hundred rankings may
-    /// say so and be believed — what this prevents is finding out the hard way after
-    /// ten minutes of waiting, on precisely the large library the feature is for.
+    /// <summary>Whether the scoring task is running right now.</summary>
+    /// <remarks>
+    /// Asked of the registry rather than held here, because what is running is the
+    /// runner's business and this page is one of several that could be open. It
+    /// replaces IScoringGate, which arbitrated between a sweep and a run started from
+    /// this page — and there is no such run any more (D42).
     /// </remarks>
-    private const int SoftGuardThreshold = 60;
-
-    /// <summary>How many rankings the guard is asking about, or null when it is quiet.</summary>
-    private int? _softGuard;
+    private bool IsRanking =>
+        Tasks.Snapshot().Any(task => task.TaskKey == "scoring" && task.IsRunning);
 
     private ScoringEndpointResult? _testResult;
 
@@ -817,8 +779,6 @@ else
     private int _timeoutSeconds;
     private bool _structuredOutput;
 
-    /// <summary>Cancels a run in flight. Null when nothing is running.</summary>
-    private CancellationTokenSource? _running;
 
     /// <summary>Titles in the visible backlog, which is what a run covers.</summary>
     private int _waitingCount;
@@ -1083,13 +1043,6 @@ else
             _returnTop,
             ScoringOptions.CurrentValue.IncludePersonalNotes);
 
-        // The sizes are saved by their own button now, not as a side effect of
-        // building. They used to belong to this card alone, so saving them when it was
-        // used was the whole of it; they now govern a run down either route, and a
-        // remote run that quietly rewrote them because somebody had opened the manual
-        // card would be a setting changing itself.
-        _source = ScoringRoute.Manual;
-
         _request = await _busy.RunAsync(
             "Building the request",
             _ => Scoring.BuildRequestAsync(Profile.DefaultProfileId, options));
@@ -1116,137 +1069,21 @@ else
     /// one answer they look at. The guard below is what keeps that from being a bad
     /// bet on a large library.
     /// </remarks>
-    private async Task RankRemotelyAsync(int? limit, bool force = false)
-    {
-        Reset();
-        _testResult = null;
-        _softGuard = null;
+    // RankRemotelyAsync, its soft guard, its elapsed-time reporting and its cancel
+    // were here — about a hundred and twenty lines of making a ten-minute wait
+    // bearable. D42 deleted the wait instead. A ranking now arrives from the sweep
+    // with nobody present, or by hand through the paste route below; nothing on this
+    // page opens an outbound scoring request that somebody is waiting on.
+    //
+    // LastRemoteDuration went with it. It read the newest recorded duration so a
+    // second run could say "your last one took six minutes" while somebody watched a
+    // dialog with nothing else to report. RecommendationRun still records the
+    // duration and Past rankings still shows it — what has gone is the audience.
 
-        var configured = ScoringOptions.CurrentValue;
-
-        var options = ScoringRequestOptions.From(
-            _historySize,
-            limit ?? _candidateLimit,
-            limit ?? _returnTop,
-            configured.IncludePersonalNotes);
-
-        var request = await _busy.RunAsync(
-            "Building the request",
-            _ => Scoring.BuildRequestAsync(Profile.DefaultProfileId, options));
-
-        if (request.Candidates.Count == 0)
-        {
-            _error = "Nothing is waiting to be watched, so there is nothing to rank.";
-            return;
-        }
-
-        if (!force && request.ExpectedResults > SoftGuardThreshold)
-        {
-            // Warned before sending rather than after failing. The alternative is a
-            // ten-minute wait ending in "your model ran out of room", which teaches the
-            // same lesson at the worst possible moment.
-            _softGuard = request.ExpectedResults;
-            return;
-        }
-
-        // Held locally and never assigned to _request, which belongs to the Manual
-        // card. Sharing it crashed the circuit: _request is what that card uses to
-        // decide it has something to show, so a remote run filled it and the card
-        // rendered a payload only the manual path ever writes. The two routes build
-        // separate requests for separate reasons — one to be read by a person, one to
-        // be sent — and the field that says "a request is on screen" is not the field
-        // that says "a request exists".
-        _source = ScoringRoute.Remote;
-
-        using var cancellation = new CancellationTokenSource();
-        _running = cancellation;
-
-        try
-        {
-            var answer = await _busy.RunAsync(
-                "Ranking your backlog",
-                async progress =>
-                {
-                    // Nothing streams, so there is no fraction to report and no partial
-                    // ranking to show. What can honestly be said is how long it has been
-                    // waiting, and — after a first run — how long that took, which is the
-                    // difference between "this is hung" and "this is normal".
-                    progress.Report(new OperationProgress(WaitingMessage(), Continues: true));
-
-                    using var ticker = new PeriodicTimer(TimeSpan.FromSeconds(1));
-
-                    // Takes the model, waiting for a scheduled batch already in flight
-                    // if there is one. Claimed before sending rather than around the
-                    // whole run, because holding it is what tells the sweep to stand
-                    // down — and what the person waits for is one batch rather than the
-                    // rest of an hour.
-                    using var claim = await Gate.EnterInteractiveAsync(cancellation.Token);
-
-                    var sending = Endpoint.AskAsync(request, cancellation.Token);
-
-                    while (await ticker.WaitForNextTickAsync(CancellationToken.None))
-                    {
-                        if (sending.IsCompleted)
-                        {
-                            break;
-                        }
-
-                        _elapsed += TimeSpan.FromSeconds(1);
-                        progress.Report(new OperationProgress(WaitingMessage(), Continues: true));
-                    }
-
-                    return await sending;
-                });
-
-            if (!answer.Succeeded)
-            {
-                _error = answer.Message;
-                return;
-            }
-
-            _remoteModel = answer.ModelIdentifier;
-            _remoteDuration = answer.Duration;
-
-            // The request goes with the reply rather than being read from a field, so
-            // the preview is checked against what this run actually asked — which is
-            // what makes "short" and "complete" mean anything when a limit is set.
-            await PreviewAsync(answer.Reply!, request);
-        }
-        finally
-        {
-            _running = null;
-            _elapsed = TimeSpan.Zero;
-        }
-    }
-
-    private TimeSpan _elapsed;
-    private string? _remoteModel;
-    private TimeSpan? _remoteDuration;
-
-    private string WaitingMessage()
-    {
-        var model = Endpoint.Model ?? "your model";
-
-        return LastRemoteDuration is { } previous
-            ? $"Waiting for {model} — {Elapsed(_elapsed)}. Your last run took {Elapsed(previous)}."
-            : $"Waiting for {model} — {Elapsed(_elapsed)}.";
-    }
-
-    /// <summary>How long the last endpoint run took, when one has been recorded.</summary>
-    /// <remarks>
-    /// From the run history rather than remembered in the page, so it survives a
-    /// reload and a restart. Without it every wait is open-ended forever; with it the
-    /// application learns the hardware after exactly one run.
-    /// </remarks>
-    private TimeSpan? LastRemoteDuration =>
-        _runs.Select(run => run.Duration).FirstOrDefault(duration => duration is not null);
-
-    private void CancelRun() => _running?.Cancel();
 
     private async Task TestAsync()
     {
         Reset();
-        _softGuard = null;
 
         _testResult = await _busy.RunAsync(
             "Testing the connection",
@@ -1436,13 +1273,10 @@ else
 
     private async Task ApplyAsync()
     {
-        // A remote run knows what answered because the server said so in its own
-        // reply, which is a better source than anything a person could be asked to
-        // type — and better than asking the model, which would be the model's opinion
-        // of itself rather than the server's account of what it loaded.
-        var model = _source == ScoringRoute.Remote
-            ? _remoteModel
-            : string.IsNullOrWhiteSpace(_modelIdentifier) ? null : _modelIdentifier.Trim();
+        // Whatever the user typed, or nothing. A run carried by hand has no server to
+        // ask what answered it — that was the remote route's advantage and it went
+        // with the route (D42).
+        var model = string.IsNullOrWhiteSpace(_modelIdentifier) ? null : _modelIdentifier.Trim();
 
         var result = await _busy.RunAsync(
             "Applying the ranking",
@@ -1452,7 +1286,10 @@ else
                 ProviderName,
                 model,
                 progress,
-                _source == ScoringRoute.Remote ? _remoteDuration : null));
+
+                // Null, always: nothing here measures how long somebody else's chat
+                // window took. The sweep still records its own duration.
+                duration: null));
 
         _applied = result.Skipped == 0
             ? $"Scored {result.Applied} {Plural(result.Applied, "title", "titles")}."

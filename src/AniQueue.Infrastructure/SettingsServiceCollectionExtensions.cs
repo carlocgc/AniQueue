@@ -48,10 +48,11 @@ public static class SettingsServiceCollectionExtensions
     /// </remarks>
     public static IServiceCollection AddAniQueueScoringEndpoint(this IServiceCollection services)
     {
-        // A rendezvous between a background sweep and whichever circuit pressed Rank
-        // now, so a singleton for the same reason ILibraryChangeNotifier is one:
-        // neither half has any other way to reach the other.
-        services.AddSingleton<IScoringGate, ScoringGate>();
+        // IScoringGate was registered here, a rendezvous between a background sweep and
+        // whichever circuit had pressed Rank now. D42 deleted that button, so there is
+        // no second claimant to arbitrate: a sweep and a Run now both enter the same
+        // sequential runner loop, and a person who wants the model stops the sweep from
+        // the tasks page rather than queueing behind it.
 
         // Scoped, and resolved once per tick by whatever runs it, like every other
         // background job here. It holds nothing between runs: what it needs to know

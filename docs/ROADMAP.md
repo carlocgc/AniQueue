@@ -3334,10 +3334,23 @@ convention.
 says why on its own row; one cadence drives them all.
 
 #### Phase 15d — Scoring demolition
-D42. The *Rank now* button, `RankRemotelyAsync`, the cancel, the soft guard, the waiting count,
-the previous-run duration display, the remote branch of the preview, `IScoringGate`, `ScoringGate`
-and their tests are deleted. `BusyDialog` loses `OnCancel`. *Test connection* is disabled while
-the scoring task runs and says so.
+D42. The *Rank now* button, `RankRemotelyAsync`, the cancel, the soft guard, the previous-run
+duration display, the remote branch of the preview, `IScoringGate`, `ScoringGate` and their tests
+are deleted. `BusyDialog` loses `OnCancel`. *Test connection* is disabled while the scoring task
+runs and says so, which is the whole of what replaced the gate.
+
+**Roughly four hundred and fifty lines net, almost all of it deletion.** The `ScoringRoute` enum
+goes with the route: with one way for a ranking to arrive at this page, every surface that asked
+which had produced a preview stopped asking, and `ProviderName` becomes a constant. Old runs keep
+whatever value they were written with, so *Past rankings* still distinguishes them and nothing
+rewrites history.
+
+**Two things this turned up that were not on the list.** The sweep's class documentation still
+said *"it does not wake on library changes"* — true when 8d wrote it and false since D41 changed it
+in 15a, where the code was updated and the paragraph above it was not. And `BusyDialog`'s cancel
+had left a shape worth keeping the reasoning for: it latched to *Stopping…* on the first press
+because cancelling is not instant, which is exactly what the tasks page now does for the same
+reason.
 
 *Exit:* no outbound scoring request exists that anybody is waiting on; the paste route and the
 sweep both still produce and apply a ranking.
