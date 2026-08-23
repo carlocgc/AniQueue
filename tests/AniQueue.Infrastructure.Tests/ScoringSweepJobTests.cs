@@ -30,7 +30,7 @@ public class ScoringSweepJobTests
     /// <summary>A backlog that shrinks as it is scored, and counts what it was asked.</summary>
     private sealed class FakeRecommendations(int unranked) : IRecommendationService
     {
-        public int Unranked { get; private set; } = unranked;
+        public int Unranked { get; set; } = unranked;
 
         public List<int> BatchSizes { get; } = [];
 
@@ -93,6 +93,115 @@ public class ScoringSweepJobTests
 
         public Task<IReadOnlyList<RecommendationRunSummary>> GetRunsAsync(int profileId, int take = 20, CancellationToken ct = default) =>
             Task.FromResult<IReadOnlyList<RecommendationRunSummary>>([]);
+    }
+
+    /// <summary>
+    /// A sweep that scored nothing and failed says so, however few times it failed.
+    /// </summary>
+    /// <remarks>
+    /// Found in a real log, not in a test: two batches timed out against a local model,
+    /// the sweep gave up having applied nothing, and the row said <i>Succeeded</i>. The
+    /// old condition asked whether the error budget was spent — three consecutive
+    /// failures — which is the question for whether to keep going, not the question for
+    /// what to report. One failure with nothing to show for it is a failed run.
+    /// </remarks>
+    [Fact]
+    public async Task A_sweep_that_scored_nothing_and_failed_once_reports_a_failure()
+    {
+        var (job, library, endpoint, _, _) = Create(unranked: 25);
+
+        // One failed batch, and then nothing left to attempt — so the sweep ends well
+        // inside its error budget. That is the case the old condition got wrong: it
+        // asked whether the budget was spent, which is the question for whether to keep
+        // going rather than for what to report.
+        endpoint.Respond = _ =>
+        {
+            library.Unranked = 0;
+
+            return ScoringEndpointResult.Failed(
+                ScoringEndpointFailure.TimedOut,
+                "somewhere did not answer within 1200 seconds.");
+        };
+
+        var outcome = await job.RunAsync(new JobRunContext(JobTrigger.Manual), CancellationToken.None);
+
+        Assert.Equal(JobOutcome.Failed, outcome.Outcome);
+    }
+
+    /// <summary>
+    /// The row carries the endpoint's own words rather than a guess at them.
+    /// </summary>
+    /// <remarks>
+    /// "did not answer within 1200 seconds" names the setting to change. The sentence
+    /// it replaced — "the model rejected or could not answer every request" — was
+    /// reconstructed here after the real reason had been discarded, and sent the reader
+    /// to the log to learn what the endpoint had already said (D40).
+    /// </remarks>
+    [Fact]
+    public async Task A_failed_sweep_reports_what_the_endpoint_said()
+    {
+        var (job, _, endpoint, _, _) = Create(unranked: 5);
+
+        endpoint.Respond = _ => ScoringEndpointResult.Failed(
+            ScoringEndpointFailure.TimedOut,
+            "somewhere did not answer within 1200 seconds.");
+
+        var outcome = await job.RunAsync(new JobRunContext(JobTrigger.Manual), CancellationToken.None);
+
+        Assert.Equal("somewhere did not answer within 1200 seconds.", outcome.FailureReason);
+    }
+
+    /// <summary>
+    /// A cancelled sweep is recorded as cancelled, not as a success that did nothing.
+    /// </summary>
+    /// <remarks>
+    /// <b>The one that hid the others.</b> Cancellation cannot reach the runner by
+    /// throwing, because the endpoint catches the token trip and hands back a failed
+    /// batch — so the loop ended normally and the runner's own handler never fired. The
+    /// page then showed the same thing whether or not anybody had pressed Cancel, which
+    /// is exactly how a user came to be unable to say which had happened.
+    ///
+    /// It also matters beyond the label: 15b made a cancelled run advance the cadence
+    /// clock so that cancelling means "skip this cycle", and that rests on the run being
+    /// recorded as one.
+    /// </remarks>
+    [Fact]
+    public async Task A_cancelled_sweep_says_it_was_cancelled()
+    {
+        var (job, _, endpoint, _, _) = Create(unranked: 100);
+
+        using var cancellation = new CancellationTokenSource();
+
+        // Cancelled while a batch is in flight, which is when it really happens — and
+        // answered the way the endpoint answers, by reporting rather than throwing.
+        endpoint.Respond = _ =>
+        {
+            cancellation.Cancel();
+
+            return ScoringEndpointResult.Failed(
+                ScoringEndpointFailure.Cancelled,
+                "The run was cancelled.");
+        };
+
+        var outcome = await job.RunAsync(
+            new JobRunContext(JobTrigger.Manual), cancellation.Token);
+
+        Assert.Equal(JobOutcome.Cancelled, outcome.Outcome);
+    }
+
+    [Fact]
+    public async Task A_sweep_cancelled_before_its_first_batch_is_still_cancelled()
+    {
+        var (job, _, _, _, _) = Create(unranked: 100);
+
+        using var cancellation = new CancellationTokenSource();
+        await cancellation.CancelAsync();
+
+        var outcome = await job.RunAsync(
+            new JobRunContext(JobTrigger.Manual), cancellation.Token);
+
+        // Stopped rather than idle. It had work and was told not to do it.
+        Assert.Equal(JobOutcome.Cancelled, outcome.Outcome);
     }
 
     private sealed class FakeEndpoint : IScoringEndpoint
