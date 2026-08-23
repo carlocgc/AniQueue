@@ -76,14 +76,16 @@ public class UnattendedSyncJobTests
 
     private sealed class RecordingNotifier : ILibraryChangeNotifier
     {
-        public List<LibraryChange?> Published { get; } = [];
+        public List<LibraryChangeNotification> Published { get; } = [];
 
-        public event Action<LibraryChange?>? Changed;
+        public event Action<LibraryChangeNotification>? Changed;
 
-        public void Publish(LibraryChange? change = null)
+        public void Publish(LibraryChange? change = null, string? origin = null)
         {
-            Published.Add(change);
-            Changed?.Invoke(change);
+            var notification = new LibraryChangeNotification(change, origin);
+
+            Published.Add(notification);
+            Changed?.Invoke(notification);
         }
     }
 
@@ -269,11 +271,16 @@ public class UnattendedSyncJobTests
                 SlotsReleased = 1
             });
 
+        var published = Assert.Single(notifier.Published);
+
         // Not null: a sync is the one job with something a page can render, so it
         // always publishes a payload (D41).
-        var change = Assert.IsType<LibraryChange>(Assert.Single(notifier.Published));
+        var change = Assert.IsType<LibraryChange>(published.Change);
         Assert.Equal(2, change.Created);
         Assert.Equal(1, change.SlotsReleased);
+
+        // Named, so that its own runner can discard it and every other runner cannot.
+        Assert.Equal("sync", published.Origin);
     }
 
     [Fact]

@@ -44,12 +44,15 @@
         }
     }
 
-    private void OnChanged(LibraryChange? change)
+    private void OnChanged(LibraryChangeNotification notification)
     {
         // Null means a job changed data without anything a page could usefully say
         // about it — relations, or a ranking (D41). The banner offers a refresh in
         // words; with no words to offer there is nothing to interrupt anybody for.
-        if (change is null)
+        //
+        // Origin is not consulted: a page is nobody's runner, so every announcement is
+        // somebody else's news as far as this is concerned.
+        if (notification.Change is not { } change)
         {
             return;
         }

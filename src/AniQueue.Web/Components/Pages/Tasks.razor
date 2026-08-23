@@ -390,10 +390,20 @@
             && (r.State.UnitKey ?? string.Empty) == run.UnitKey)?.State.Name
         ?? run.TaskKey;
 
+    /// <summary>
+    /// What a run did, in one phrase.
+    /// </summary>
+    /// <remarks>
+    /// <b>Deliberately not "changed X of Y".</b> That claimed the changed things were
+    /// some of the considered things, and they are not always the same kind of thing:
+    /// a relation pass considers titles and changes edges, so a real run read
+    /// "Changed 826 of 540". The two counts are each true and the sentence joining
+    /// them was not.
+    /// </remarks>
     private static string OutcomeText(JobRun run) => run.Outcome switch
     {
         JobOutcome.Succeeded => run.ItemsChanged > 0
-            ? $"Changed {run.ItemsChanged} of {run.ItemsProcessed}"
+            ? $"Changed {run.ItemsChanged}"
             : $"Looked at {run.ItemsProcessed}",
         JobOutcome.NothingToDo => "Nothing to do",
         JobOutcome.Cancelled => "Stopped",

@@ -99,14 +99,16 @@ public sealed class UnattendedSyncJob(
         // user to ignore the offer.
         if (result.ChangedLibrary)
         {
-            notifier.Publish(new LibraryChange
-            {
-                Source = result.Source,
-                Created = result.Created,
-                Updated = result.Updated,
-                SlotsReleased = result.SlotsReleased,
-                AbsentFlagged = result.AbsentFlagged
-            });
+            notifier.Publish(
+                new LibraryChange
+                {
+                    Source = result.Source,
+                    Created = result.Created,
+                    Updated = result.Updated,
+                    SlotsReleased = result.SlotsReleased,
+                    AbsentFlagged = result.AbsentFlagged
+                },
+                Key);
         }
 
         var changed = result.Created + result.Updated + result.SlotsReleased + result.AbsentFlagged;
@@ -168,11 +170,13 @@ public sealed class UnattendedSyncJob(
         }
 
         // Manual only, and deliberately not JobRunContext.IgnoresSchedule, which also
-        // covers a library change. Sync *publishes* library changes, and every runner
-        // including this one hears them — so treating the signal as a reason to fetch
-        // would make each sync schedule the next one, forever. This job is the
-        // producer; the jobs that bypass their cadence on that signal are the ones
-        // consuming it (D41).
+        // covers a library change. A sync is not something to start because data moved:
+        // relations writing edges, or a file being imported, is no reason to go and
+        // re-read somebody's list. This job is a producer of library changes; the jobs
+        // that bypass their cadence on that signal are the ones consuming it (D41).
+        //
+        // It no longer needs to guard against its *own* announcements — the runner
+        // discards those now — but the rule stands on its own without that.
         //
         // Pressing the button is a different thing entirely, and ignoring the schedule
         // is what Sync Now has always meant.
