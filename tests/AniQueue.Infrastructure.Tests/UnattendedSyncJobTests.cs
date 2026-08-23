@@ -2,6 +2,7 @@ using AniQueue.Core.Domain;
 using AniQueue.Core.Import;
 using AniQueue.Core.Library;
 using AniQueue.Core.Progress;
+using AniQueue.Core.Settings;
 using AniQueue.Core.Sync;
 using AniQueue.Infrastructure.Sync;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -51,13 +52,16 @@ public class UnattendedSyncJobTests
             CancellationToken cancellationToken = default) =>
             throw new NotSupportedException();
 
-        public Task SaveSettingsAsync(
+        public Task<UserSettingsSaveResult> SaveSettingsAsync(
             SourceSyncSettings settings, CancellationToken cancellationToken = default) =>
-            Task.CompletedTask;
+            Task.FromResult(UserSettingsSaveResult.Success(SettingsPath));
 
-        public Task SetPrimarySourceAsync(
+        public Task<UserSettingsSaveResult> SetPrimarySourceAsync(
             int profileId, AnimeSource source, CancellationToken cancellationToken = default) =>
-            Task.CompletedTask;
+            Task.FromResult(UserSettingsSaveResult.Success(SettingsPath));
+
+        /// <summary>Somewhere for a save result to point at. Never written to.</summary>
+        private const string SettingsPath = "userconfig.json";
 
         public Task SavePreferredTitleLanguageAsync(
             int profileId, TitleLanguage language, CancellationToken cancellationToken = default) =>
@@ -94,9 +98,9 @@ public class UnattendedSyncJobTests
             IsConfigured = isConfigured,
             Account = isConfigured ? "someone" : null,
             ConsecutiveFailures = consecutiveFailures,
+            IsPrimary = false,
             Settings = new SourceSyncSettings
             {
-                ProfileId = Profile.DefaultProfileId,
                 Source = AnimeSource.AniList,
                 Schedule = schedule,
                 IsEnabled = isEnabled

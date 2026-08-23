@@ -1,6 +1,7 @@
 using System.Text;
 using AniQueue.Core.Domain;
 using AniQueue.Core.Import;
+using AniQueue.Core.Settings;
 using AniQueue.Core.Sync;
 using AniQueue.Infrastructure.Import;
 using AniQueue.Infrastructure.Persistence;
@@ -30,6 +31,20 @@ internal sealed class SyncFixture : IAsyncDisposable
 
     public required ISyncService Service { get; init; }
 
+    /// <summary>
+    /// The configuration both services read, live.
+    /// </summary>
+    /// <remarks>
+    /// Mutable because the settings sync reads stopped being database rows in Phase
+    /// 10a. A test that used to arrange a scenario by inserting a row now changes
+    /// this, and a test that exercises <c>SaveSettingsAsync</c> sees the write arrive
+    /// here through <see cref="Settings"/> — which means the round trip through the
+    /// settings document is covered rather than mocked past.
+    /// </remarks>
+    public required SyncOptions Options { get; init; }
+
+    public required FakeUserSettingsStore Settings { get; init; }
+
     public static async Task<SyncFixture> CreateAsync(
         StubAniListClient client,
         SyncOptions? options = null)
@@ -50,27 +65,35 @@ internal sealed class SyncFixture : IAsyncDisposable
             await context.SaveChangesAsync();
         }
 
+        var current = options ?? Configured();
+        var monitor = new StubOptionsMonitor(current);
+        var settings = new FakeUserSettingsStore(current);
+
         var importService = new ImportService(
             database.ContextFactory,
             new QueueService(database.ContextFactory, NullLogger<QueueService>.Instance),
+            monitor,
             NullLogger<ImportService>.Instance);
 
         return new SyncFixture
         {
             Database = database,
             Client = client,
+            Options = current,
+            Settings = settings,
             Service = new SyncService(
                 database.ContextFactory,
                 client,
                 new AniListJsonParser(),
                 importService,
-                new StubOptionsMonitor(options ?? Configured()),
+                monitor,
+                settings,
                 NullLogger<SyncService>.Instance)
         };
     }
 
     public static SyncOptions Configured(bool enabled = true) =>
-        new() { Enabled = enabled, AniList = new AniListAccountOptions { UserName = "someone" } };
+        new() { Enabled = enabled, AniList = new AniListSyncOptions { UserName = "someone" } };
 
     /// <summary>One AniList entry, in the shape the real response has.</summary>
     public static string Response(
@@ -180,7 +203,14 @@ internal sealed class StubAniListClient(params string[] payloads) : IAniListClie
         throw new NotSupportedException("This stub answers list fetches only.");
 }
 
-/// <summary>An options monitor that never changes, which is all these tests need.</summary>
+/// <summary>
+/// An options monitor over one instance, which the fake settings store mutates.
+/// </summary>
+/// <remarks>
+/// Deliberately handing out the same object rather than a snapshot: in production a
+/// save reloads the configuration and the monitor's next read sees it, and a test
+/// whose save never became visible would pass while the real thing was broken.
+/// </remarks>
 internal sealed class StubOptionsMonitor(SyncOptions value) : IOptionsMonitor<SyncOptions>
 {
     public SyncOptions CurrentValue => value;
@@ -188,4 +218,67 @@ internal sealed class StubOptionsMonitor(SyncOptions value) : IOptionsMonitor<Sy
     public SyncOptions Get(string? name) => value;
 
     public IDisposable? OnChange(Action<SyncOptions, string?> listener) => null;
+}
+
+/// <summary>
+/// <c>userconfig.json</c> without a disk: reads and writes the same
+/// <see cref="SyncOptions"/> the services are bound to.
+/// </summary>
+/// <remarks>
+/// A fake rather than a mock, per the suite's convention, and a two-way one on
+/// purpose. Projecting a save back onto the options is what the real store achieves
+/// by rewriting the file and reloading configuration, so a test that saves a setting
+/// and then reads a status is exercising the same round trip a user gets — including
+/// the mapping in <c>SaveSettingsAsync</c>, where a forgotten property would
+/// otherwise be invisible.
+///
+/// Only the <c>Sync</c> section is mirrored. Nothing here reads a scoring key, and a
+/// fake that carried them would be claiming coverage it does not have.
+/// </remarks>
+internal sealed class FakeUserSettingsStore(SyncOptions options) : IUserSettingsStore
+{
+    /// <summary>Set to make every save fail, as an unwritable bind mount does (§9).</summary>
+    public string? FailWith { get; set; }
+
+    public int Saves { get; private set; }
+
+    public string Path => "userconfig.json";
+
+    public UserSettings Read() => new()
+    {
+        SyncEnabled = options.Enabled,
+        SyncPrimarySource = options.PrimarySource,
+        AniListUserName = options.AniList.UserName,
+        AniListEnabled = options.AniList.Enabled,
+        AniListSchedule = options.AniList.Schedule,
+        AniListApplyUnattended = options.AniList.ApplyUnattended,
+        AniListConflictPolicy = options.AniList.ConflictPolicy,
+        AniListAbsencePolicy = options.AniList.AbsencePolicy
+    };
+
+    public Task<UserSettingsSaveResult> SaveAsync(
+        UserSettings settings,
+        CancellationToken cancellationToken = default)
+    {
+        if (FailWith is { } error)
+        {
+            return Task.FromResult(UserSettingsSaveResult.Failure(Path, error));
+        }
+
+        Saves++;
+
+        options.Enabled = settings.SyncEnabled;
+        options.PrimarySource = settings.SyncPrimarySource;
+        options.AniList.UserName = settings.AniListUserName;
+        options.AniList.Enabled = settings.AniListEnabled;
+        options.AniList.Schedule = settings.AniListSchedule;
+        options.AniList.ApplyUnattended = settings.AniListApplyUnattended;
+        options.AniList.ConflictPolicy = settings.AniListConflictPolicy;
+        options.AniList.AbsencePolicy = settings.AniListAbsencePolicy;
+
+        return Task.FromResult(UserSettingsSaveResult.Success(Path));
+    }
+
+    public Task<bool> EnsureExistsAsync(CancellationToken cancellationToken = default) =>
+        Task.FromResult(false);
 }

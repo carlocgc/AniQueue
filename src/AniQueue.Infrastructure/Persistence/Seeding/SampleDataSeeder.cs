@@ -132,18 +132,22 @@ public sealed class SampleDataSeeder(
             Edge("900001", RelationType.SideStory, "900004"),
             Edge("900005", RelationType.Parent, "900001"));
 
-        // Sample data and a real account are alternatives, not complements: a library
-        // holding both reports the sample titles as absent the first time a real list
-        // comes back without them, and that report is correct (D19). So a seeded
-        // database says up front that this source is not to be read, and nothing
-        // unattended goes looking. Pressing Sync now afterwards is the user choosing
-        // to mix the two, which is a decision rather than an accident.
-        context.SourceSyncSettings.Add(new SourceSyncSettings
-        {
-            ProfileId = profileId,
-            Source = AnimeSource.AniList,
-            IsEnabled = false
-        });
+        // Sample data and a real account are still alternatives rather than
+        // complements (D27): a library holding both reports the sample titles as
+        // absent the first time a real list comes back without them, and that report
+        // is correct (D19).
+        //
+        // This used to seed a settings row saying "do not read AniList", which Phase
+        // 10a made impossible — the setting lives in userconfig.json now, and the
+        // seeder writes a database. Disabling it there would have been worse than
+        // useless: the sample profile shared one settings file with the real one, so
+        // seeding would have switched off the user's actual sync.
+        //
+        // What replaces it is stronger and simpler. The sample launch profile points
+        // at ./data/sample/, so it gets its own database *and* its own settings file
+        // — with no AniList account in it, and therefore nothing for any sync to read
+        // whether it is scheduled, pressed, or woken. The two worlds no longer share
+        // anything at all, which is what the row was reaching for by hand.
 
         // A hand-ordered queue with an unrelated title deliberately sitting between
         // two seasons of the same series. That arrangement is the point of D15: a

@@ -15,11 +15,22 @@ namespace AniQueue.Infrastructure.Tests;
 /// </summary>
 public class UnattendedSyncTests
 {
-    private static async Task ConfigureAsync(SyncFixture fixture, Action<SourceSyncSettings> configure)
+    /// <summary>
+    /// Changes one setting the way the Sources page does — through a real save.
+    /// </summary>
+    /// <remarks>
+    /// Deliberately still going through <c>SaveSettingsAsync</c> rather than poking
+    /// the options directly, even though Phase 10a made the latter possible. These
+    /// tests are about what an unattended run does with a setting the user changed,
+    /// and a helper that skipped the save would stop covering the path the user takes
+    /// to get there.
+    /// </remarks>
+    private static async Task ConfigureAsync(
+        SyncFixture fixture,
+        Func<SourceSyncSettings, SourceSyncSettings> configure)
     {
         var status = await AniListStatusAsync(fixture);
-        configure(status.Settings);
-        await fixture.Service.SaveSettingsAsync(status.Settings);
+        await fixture.Service.SaveSettingsAsync(configure(status.Settings));
     }
 
     private static string TwoTitles() => ListResponse(
@@ -59,7 +70,7 @@ public class UnattendedSyncTests
         await using var fixture = await SyncFixture.CreateAsync(
             new StubAniListClient(Response(900101, "Sora no Kakera")));
 
-        await ConfigureAsync(fixture, s => s.ApplyUnattended = false);
+        await ConfigureAsync(fixture, s => s with { ApplyUnattended = false });
 
         var result = await fixture.Service.RunUnattendedAsync(
             Profile.DefaultProfileId, AnimeSource.AniList);
@@ -120,7 +131,7 @@ public class UnattendedSyncTests
             await setup.SaveChangesAsync();
         }
 
-        await ConfigureAsync(fixture, s => s.ConflictPolicy = SyncConflictPolicy.LinkToExisting);
+        await ConfigureAsync(fixture, s => s with { ConflictPolicy = SyncConflictPolicy.LinkToExisting });
 
         var result = await fixture.Service.RunUnattendedAsync(
             Profile.DefaultProfileId, AnimeSource.AniList);
@@ -163,7 +174,7 @@ public class UnattendedSyncTests
             await setup.SaveChangesAsync();
         }
 
-        await ConfigureAsync(fixture, s => s.ConflictPolicy = SyncConflictPolicy.LinkToExisting);
+        await ConfigureAsync(fixture, s => s with { ConflictPolicy = SyncConflictPolicy.LinkToExisting });
 
         var result = await fixture.Service.RunUnattendedAsync(
             Profile.DefaultProfileId, AnimeSource.AniList);
@@ -284,7 +295,7 @@ public class UnattendedSyncTests
         await using var fixture = await SyncFixture.CreateAsync(new StubAniListClient(TwoTitles()));
 
         await fixture.Service.RunUnattendedAsync(Profile.DefaultProfileId, AnimeSource.AniList);
-        await ConfigureAsync(fixture, s => s.AbsencePolicy = SyncAbsencePolicy.Ignore);
+        await ConfigureAsync(fixture, s => s with { AbsencePolicy = SyncAbsencePolicy.Ignore });
 
         fixture.Client.Returns(OneTitle());
 

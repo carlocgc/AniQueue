@@ -3,8 +3,10 @@ using AniQueue.Core.Import;
 using AniQueue.Core.Progress;
 using AniQueue.Core.Queue;
 using AniQueue.Infrastructure.Persistence;
+using AniQueue.Infrastructure.Sync;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 
 namespace AniQueue.Infrastructure.Import;
 
@@ -27,6 +29,7 @@ namespace AniQueue.Infrastructure.Import;
 public sealed class ImportService(
     IDbContextFactory<AniQueueDbContext> contextFactory,
     IQueueService queueService,
+    IOptionsMonitor<SyncOptions> syncOptions,
     ILogger<ImportService> logger) : IImportService
 {
     public async Task<ImportPreview> PreviewAsync(
@@ -149,14 +152,27 @@ public sealed class ImportService(
         // import at the final save.
         var written = new HashSet<ExternalIdentifier>();
 
-        // Who outranks whom, for titles two sources both describe (D18). Usually
-        // empty — nothing configures a source until Phase 5b — and an empty map
-        // means precedence never fires, so the single-tracker case behaves exactly
-        // as it did before this existed.
-        var precedence = await context.SourceSyncSettings
-            .AsNoTracking()
-            .Where(s => s.ProfileId == profileId)
-            .ToDictionaryAsync(s => s.Source, s => s.PrecedenceRank, cancellationToken);
+        // Who outranks whom, for titles two sources both describe (D18). Empty until
+        // somebody names a primary source, and an empty map means precedence never
+        // fires — so the single-tracker case behaves exactly as it did before any of
+        // this existed.
+        //
+        // <b>The demotion is built, not implied.</b> Phase 10a replaced a rank per
+        // row with one key naming the winner, and the obvious reading of that — put
+        // the winner in the map and let everything else fall back — is wrong here.
+        // MayWriteTracking short-circuits when *either* source is missing a rank, on
+        // the deliberate grounds that an unranked source is not outranked by
+        // anything; so a map holding only the primary makes every contest permissive
+        // and precedence silently stops working. The old SetPrimarySourceAsync wrote
+        // the loser's row for exactly this reason.
+        //
+        // Manual is left out, as it always was. A hand-added row is the user's own
+        // work, and ranking it would let a sync outrank them.
+        var precedence = syncOptions.CurrentValue.PrimarySource is { } primary
+            ? Enum.GetValues<AnimeSource>()
+                .Where(source => source != AnimeSource.Manual)
+                .ToDictionary(source => source, source => source == primary ? PrimaryRank : DemotedRank)
+            : [];
 
         var preferredTitle = await LoadPreferredTitleAsync(context, profileId, cancellationToken);
 
@@ -890,11 +906,22 @@ public sealed class ImportService(
     private static int RankOf(AnimeSource source, IReadOnlyDictionary<AnimeSource, int> precedence) =>
         precedence.TryGetValue(source, out var rank) ? rank : UnconfiguredRank;
 
+    /// <summary>The rank that means primary. Exactly one source can hold it (D30).</summary>
+    private const int PrimaryRank = 0;
+
     /// <summary>
-    /// Where a source with no settings row sits. Below an explicitly named primary,
-    /// above nothing else, and equal to every other unconfigured source.
+    /// Where every source that is not the primary sits. One value rather than an
+    /// ordering, because the seat is single: the losers tie with each other, which is
+    /// last-writer-wins between them and is what D29 already describes.
     /// </summary>
-    private const int UnconfiguredRank = 1;
+    private const int DemotedRank = 1;
+
+    /// <summary>
+    /// Where a source that is not in the map at all sits, for the one caller that
+    /// tolerates absence. Equal to <see cref="DemotedRank"/> on purpose — a demoted
+    /// source and an unranked one are the same thing once a primary exists.
+    /// </summary>
+    private const int UnconfiguredRank = DemotedRank;
 
     /// <summary>
     /// Writes watch progress, leaving every locally curated field alone. The list

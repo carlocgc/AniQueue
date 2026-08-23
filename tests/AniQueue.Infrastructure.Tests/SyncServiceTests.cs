@@ -181,17 +181,7 @@ public class SyncServiceTests
         var client = new StubAniListClient(Response(900101, "Sora no Kakera"));
         await using var fixture = await SyncFixture.CreateAsync(client);
 
-        await using (var setup = fixture.Database.CreateContext())
-        {
-            setup.SourceSyncSettings.Add(new SourceSyncSettings
-            {
-                ProfileId = Profile.DefaultProfileId,
-                Source = AnimeSource.AniList,
-                IsEnabled = false
-            });
-
-            await setup.SaveChangesAsync();
-        }
+        fixture.Options.AniList.Enabled = false;
 
         var fetch = await fixture.Service.FetchAsync(Profile.DefaultProfileId, AnimeSource.AniList);
 
@@ -385,40 +375,25 @@ public class SyncServiceTests
         Assert.Equal(SyncOutcome.Succeeded, after.LastRun!.Outcome);
     }
 
+    /// <summary>
+    /// Every setting a save carries comes back on the next read.
+    /// </summary>
+    /// <remarks>
+    /// The hazard this guards moved in Phase 10a but did not go away. It used to be
+    /// an update that copied the entity field by field, where a property missing from
+    /// the copy worked exactly once — the first save wrote the whole row — and then
+    /// silently stopped. It is now a mapping from <c>SourceSyncSettings</c> into
+    /// <c>UserSettings</c>, where a property missing from the mapping never saves at
+    /// all. Both fail the same way from the user's chair: a control that moves, says
+    /// "Saved", and does nothing.
+    ///
+    /// Saved twice on purpose. The first save is what a fresh install does; the second
+    /// is what every subsequent click does, and only the second could catch the old
+    /// bug. Keeping both costs a line and keeps the test honest about which it means.
+    /// </remarks>
     [Fact]
-    public async Task Settings_are_created_on_first_save_and_updated_after()
+    public async Task Every_setting_comes_back_from_a_save()
     {
-        // The Sources page writes each control as it is changed, so this runs on
-        // every click. The first one has no row to update.
-        await using var fixture = await SyncFixture.CreateAsync(
-            new StubAniListClient(Response(900101, "Sora no Kakera")));
-
-        var status = await AniListStatusAsync(fixture);
-
-        status.Settings.PrecedenceRank = 1;
-        status.Settings.AbsencePolicy = SyncAbsencePolicy.Ignore;
-        await fixture.Service.SaveSettingsAsync(status.Settings);
-
-        var afterCreate = await AniListStatusAsync(fixture);
-        Assert.Equal(1, afterCreate.Settings.PrecedenceRank);
-
-        afterCreate.Settings.PrecedenceRank = 0;
-        await fixture.Service.SaveSettingsAsync(afterCreate.Settings);
-
-        await using var context = fixture.Database.CreateContext();
-        var stored = await context.SourceSyncSettings.SingleAsync();
-
-        Assert.Equal(0, stored.PrecedenceRank);
-        Assert.Equal(SyncAbsencePolicy.Ignore, stored.AbsencePolicy);
-    }
-
-    [Fact]
-    public async Task Every_setting_survives_a_change_to_a_row_that_already_exists()
-    {
-        // The update path copies field by field, so a property missing from it works
-        // exactly once — the first save writes the whole entity — and then silently
-        // stops. A test that only creates a row cannot see that, which is why this
-        // one saves twice and asserts on the second.
         await using var fixture = await SyncFixture.CreateAsync(
             new StubAniListClient(Response(900101, "Sora no Kakera")));
 
@@ -427,25 +402,65 @@ public class SyncServiceTests
 
         var second = await AniListStatusAsync(fixture);
 
-        // Every settable field moved off its default, in one save, on an existing row.
-        second.Settings.IsEnabled = false;
-        second.Settings.PrecedenceRank = 1;
-        second.Settings.ApplyUnattended = false;
-        second.Settings.ConflictPolicy = SyncConflictPolicy.LinkToExisting;
-        second.Settings.AbsencePolicy = SyncAbsencePolicy.Ignore;
-        second.Settings.Schedule = SyncSchedule.Daily;
+        // Every field moved off its default, in one save.
+        await fixture.Service.SaveSettingsAsync(second.Settings with
+        {
+            IsEnabled = false,
+            ApplyUnattended = false,
+            ConflictPolicy = SyncConflictPolicy.LinkToExisting,
+            AbsencePolicy = SyncAbsencePolicy.Ignore,
+            Schedule = SyncSchedule.Daily
+        });
 
-        await fixture.Service.SaveSettingsAsync(second.Settings);
-
-        await using var context = fixture.Database.CreateContext();
-        var stored = await context.SourceSyncSettings.SingleAsync();
+        var stored = (await AniListStatusAsync(fixture)).Settings;
 
         Assert.False(stored.IsEnabled);
-        Assert.Equal(1, stored.PrecedenceRank);
         Assert.False(stored.ApplyUnattended);
         Assert.Equal(SyncConflictPolicy.LinkToExisting, stored.ConflictPolicy);
         Assert.Equal(SyncAbsencePolicy.Ignore, stored.AbsencePolicy);
         Assert.Equal(SyncSchedule.Daily, stored.Schedule);
+    }
+
+    /// <summary>
+    /// A save that cannot reach the file says so rather than reporting success.
+    /// </summary>
+    /// <remarks>
+    /// §9's non-root container writing to a root-owned bind mount is a real
+    /// deployment, and since Phase 10a these settings live in a file. A toggle that
+    /// reported "Saved" over a failed write would show a value nothing kept.
+    /// </remarks>
+    [Fact]
+    public async Task A_settings_save_that_cannot_write_reports_the_failure()
+    {
+        await using var fixture = await SyncFixture.CreateAsync(new StubAniListClient());
+
+        fixture.Settings.FailWith = "Permission denied";
+
+        var status = await AniListStatusAsync(fixture);
+        var result = await fixture.Service.SaveSettingsAsync(
+            status.Settings with { Schedule = SyncSchedule.Daily });
+
+        Assert.False(result.Saved);
+        Assert.Equal("Permission denied", result.Error);
+        Assert.Equal(SyncSchedule.Off, (await AniListStatusAsync(fixture)).Settings.Schedule);
+    }
+
+    /// <summary>
+    /// MyAnimeList has no settings to save, because nothing runs on its behalf.
+    /// </summary>
+    /// <remarks>
+    /// A tightening from Phase 10a. Every value here describes something a run does,
+    /// and the file has no MyAnimeList section to write them to — so a save is a
+    /// programming error rather than a no-op that looks like it worked.
+    /// </remarks>
+    [Fact]
+    public async Task A_file_source_has_no_run_settings_to_save()
+    {
+        await using var fixture = await SyncFixture.CreateAsync(new StubAniListClient());
+
+        await Assert.ThrowsAsync<ArgumentOutOfRangeException>(() =>
+            fixture.Service.SaveSettingsAsync(
+                SourceSyncSettings.DefaultsFor(AnimeSource.MyAnimeList)));
     }
 
     [Fact]
@@ -542,23 +557,30 @@ public class SyncServiceTests
     }
 
     /// <summary>
-    /// The demoted source gets a row of its own rather than being left absent,
-    /// because an absent row is a default and the default is what a promotion
-    /// overrides (D29 ranks an unconfigured source below a configured one).
+    /// Promoting one source demotes the other, and cannot fail to.
     /// </summary>
+    /// <remarks>
+    /// This used to assert that a demotion row was written, because an absent row was
+    /// a default and a default is what a promotion overrides. Phase 10a made the seat
+    /// one key naming its occupant, so the demotion is not a write that could be
+    /// missed — it is the same value read the other way round. What is left worth
+    /// asserting is that exactly one source claims it.
+    /// </remarks>
     [Fact]
-    public async Task Promoting_one_source_records_the_demotion_of_the_other()
+    public async Task Promoting_one_source_demotes_the_other()
     {
         await using var fixture = await SyncFixture.CreateAsync(new StubAniListClient());
 
+        var before = await fixture.Service.GetStatusAsync(Profile.DefaultProfileId);
+        Assert.DoesNotContain(before, s => s.IsPrimary);
+
         await fixture.Service.SetPrimarySourceAsync(Profile.DefaultProfileId, AnimeSource.AniList);
 
-        await using var context = fixture.Database.CreateContext();
-        var rows = await context.SourceSyncSettings.OrderBy(s => s.Source).ToListAsync();
+        var after = await fixture.Service.GetStatusAsync(Profile.DefaultProfileId);
 
-        Assert.Equal(2, rows.Count);
-        Assert.Equal(SourceSyncStatus.PrimaryRank, rows.Single(s => s.Source == AnimeSource.AniList).PrecedenceRank);
-        Assert.True(rows.Single(s => s.Source == AnimeSource.MyAnimeList).PrecedenceRank > SourceSyncStatus.PrimaryRank);
+        Assert.Single(after, s => s.IsPrimary);
+        Assert.True(after.Single(s => s.Source == AnimeSource.AniList).IsPrimary);
+        Assert.False(after.Single(s => s.Source == AnimeSource.MyAnimeList).IsPrimary);
     }
 
     /// <summary>
@@ -572,7 +594,6 @@ public class SyncServiceTests
 
         await fixture.Service.SaveSettingsAsync(new SourceSyncSettings
         {
-            ProfileId = Profile.DefaultProfileId,
             Source = AnimeSource.AniList,
             Schedule = SyncSchedule.Daily,
             IsEnabled = false

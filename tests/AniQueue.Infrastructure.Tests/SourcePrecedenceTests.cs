@@ -96,20 +96,17 @@ public class SourcePrecedenceTests
             mediaType,
             episodes);
 
-    private static async Task RankAsync(SqliteTestDatabase database, AnimeSource source, int rank)
-    {
-        await using var context = database.CreateContext();
-
-        context.SourceSyncSettings.Add(new SourceSyncSettings
-        {
-            ProfileId = Profile.DefaultProfileId,
-            Source = source,
-            PrecedenceRank = rank,
-            IsEnabled = true
-        });
-
-        await context.SaveChangesAsync();
-    }
+    /// <summary>
+    /// Names the source that outranks the other.
+    /// </summary>
+    /// <remarks>
+    /// A rank per source until Phase 10a, which is why the callers still read as two
+    /// statements. One key replaced them, and the arithmetic is unchanged: the named
+    /// source sits at rank 0 and everything else falls back to 1, exactly where the
+    /// old explicit demotion row put it.
+    /// </remarks>
+    private static void Primary(ImportFixture fixture, AnimeSource source) =>
+        fixture.Options.PrimarySource = source;
 
     private static async Task ApplyAsync(ImportFixture fixture, ParseResult parsed)
     {
@@ -122,8 +119,7 @@ public class SourcePrecedenceTests
     {
         await using var fixture = await ImportFixture.CreateAsync();
 
-        await RankAsync(fixture.Database, AnimeSource.MyAnimeList, rank: 0);
-        await RankAsync(fixture.Database, AnimeSource.AniList, rank: 1);
+        Primary(fixture, AnimeSource.MyAnimeList);
 
         // The authoritative list says finished and scored.
         await ApplyAsync(fixture, FromMal("268", "Golden Boy", LibraryStatus.Completed, score: 9, watched: 12));
@@ -147,8 +143,7 @@ public class SourcePrecedenceTests
     {
         await using var fixture = await ImportFixture.CreateAsync();
 
-        await RankAsync(fixture.Database, AnimeSource.MyAnimeList, rank: 1);
-        await RankAsync(fixture.Database, AnimeSource.AniList, rank: 0);
+        Primary(fixture, AnimeSource.AniList);
 
         await ApplyAsync(fixture, FromMal("268", "Golden Boy", LibraryStatus.Planning));
 
@@ -189,7 +184,9 @@ public class SourcePrecedenceTests
         // keep applying however it is ranked.
         await using var fixture = await ImportFixture.CreateAsync();
 
-        await RankAsync(fixture.Database, AnimeSource.AniList, rank: 5);
+        // Demoted rather than merely unranked, which is the stronger version of the same
+        // claim: even the source that loses every tie still writes to a title only it knows.
+        Primary(fixture, AnimeSource.MyAnimeList);
 
         await ApplyAsync(fixture, FromAniList("16498", "16498", "Attack on Titan", LibraryStatus.Planning));
 
@@ -220,8 +217,7 @@ public class SourcePrecedenceTests
     {
         await using var fixture = await ImportFixture.CreateAsync();
 
-        await RankAsync(fixture.Database, AnimeSource.MyAnimeList, rank: 0);
-        await RankAsync(fixture.Database, AnimeSource.AniList, rank: 1);
+        Primary(fixture, AnimeSource.MyAnimeList);
 
         // No episode count in the export, and Tv where AniList will say Ova.
         await ApplyAsync(fixture, FromMal(
@@ -261,8 +257,7 @@ public class SourcePrecedenceTests
     {
         await using var fixture = await ImportFixture.CreateAsync();
 
-        await RankAsync(fixture.Database, AnimeSource.AniList, rank: 0);
-        await RankAsync(fixture.Database, AnimeSource.MyAnimeList, rank: 1);
+        Primary(fixture, AnimeSource.AniList);
 
         await ApplyAsync(fixture, FromMal("268", "Golden Boy", LibraryStatus.Completed));
 
@@ -290,8 +285,7 @@ public class SourcePrecedenceTests
     {
         await using var fixture = await ImportFixture.CreateAsync();
 
-        await RankAsync(fixture.Database, AnimeSource.AniList, rank: 0);
-        await RankAsync(fixture.Database, AnimeSource.MyAnimeList, rank: 1);
+        Primary(fixture, AnimeSource.AniList);
 
         await ApplyAsync(fixture, FromMal("268", "Golden Boy", LibraryStatus.Completed, mediaType: MediaType.Tv));
         await ApplyAsync(fixture, FromMal("268", "Golden Boy", LibraryStatus.Completed, mediaType: MediaType.Ova));
