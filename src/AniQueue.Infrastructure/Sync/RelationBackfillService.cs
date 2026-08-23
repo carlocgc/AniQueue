@@ -86,7 +86,7 @@ public sealed class RelationBackfillService(
     }
 
     public async Task<RelationBackfillResult> RefreshAsync(
-        int maxRequests,
+        TimeSpan budget,
         IProgress<OperationProgress>? progress = null,
         CancellationToken cancellationToken = default)
     {
@@ -102,15 +102,15 @@ public sealed class RelationBackfillService(
                     cancellationToken);
         }
 
-        return await RunAsync(maxRequests, progress, cancellationToken);
+        return await RunAsync(budget, progress, cancellationToken);
     }
 
     public async Task<RelationBackfillResult> RunAsync(
-        int maxRequests,
+        TimeSpan budget,
         IProgress<OperationProgress>? progress = null,
         CancellationToken cancellationToken = default)
     {
-        if (maxRequests <= 0)
+        if (budget <= TimeSpan.Zero)
         {
             return RelationBackfillResult.Idle;
         }
@@ -145,9 +145,22 @@ public sealed class RelationBackfillService(
         int? remaining = null;
         TimeSpan? retryAfter = null;
 
-        for (var request = 0; request < maxRequests; request++)
+        // Bounded by time rather than by count, so the pass finishes the work instead
+        // of a fixed slice of it (Phase 15a). The budget is checked between requests,
+        // never inside one: abandoning a request in flight would waste the two seconds
+        // already spent waiting for its slot.
+        var startedAt = _time.GetTimestamp();
+        var ranOutOfTime = false;
+
+        for (var request = 0; ; request++)
         {
             cancellationToken.ThrowIfCancellationRequested();
+
+            if (request > 0 && _time.GetElapsedTime(startedAt) >= budget)
+            {
+                ranOutOfTime = true;
+                break;
+            }
 
             var batch = await NextBatchAsync(cancellationToken);
 
@@ -215,7 +228,7 @@ public sealed class RelationBackfillService(
                 removed);
         }
 
-        return new RelationBackfillResult(requested, answered, edges, removed);
+        return new RelationBackfillResult(requested, answered, edges, removed, RanOutOfTime: ranOutOfTime);
     }
 
     /// <summary>

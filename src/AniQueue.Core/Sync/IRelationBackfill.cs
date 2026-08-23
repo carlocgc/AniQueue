@@ -12,12 +12,18 @@ namespace AniQueue.Core.Sync;
 /// Only ever non-zero on a re-read, which is the reason re-reading is worth doing.
 /// </param>
 /// <param name="FailureReason">Null when every request completed.</param>
+/// <param name="RanOutOfTime">
+/// True when the pass stopped because its budget was spent rather than because there
+/// was nothing left. Not a failure — the marker makes the rest free to pick up — but
+/// the difference between "finished" and "got this far" is worth being able to say.
+/// </param>
 public sealed record RelationBackfillResult(
     int Requested,
     int Answered,
     int EdgesWritten,
     int EdgesRemoved = 0,
-    string? FailureReason = null)
+    string? FailureReason = null,
+    bool RanOutOfTime = false)
 {
     public static RelationBackfillResult Idle { get; } = new(0, 0, 0);
 
@@ -61,12 +67,29 @@ public interface IRelationBackfill
     /// <summary>
     /// Asks about the next titles that have never been asked about.
     /// </summary>
-    /// <param name="maxRequests">
-    /// A ceiling on requests in one visit, so a first run against a large library
-    /// spreads over several rather than holding one open for minutes.
+    /// <param name="budget">
+    /// How long the pass may keep going. It runs until nothing is outstanding, the
+    /// budget is spent, or it is cancelled, and returns what it managed either way.
     /// </param>
+    /// <remarks>
+    /// <b>A budget rather than a request ceiling</b>, since Phase 15a. The ceiling was
+    /// sixteen requests — an 800-title library in one visit, with anything larger
+    /// finishing on the next one. That was tolerable while a visit came round every
+    /// fifteen minutes and is not now: a manual run that does "some of it" is the
+    /// behaviour the tasks page exists to remove, and a relaxed cadence turns "the
+    /// next visit" into tomorrow.
+    ///
+    /// It was never what kept AniQueue inside AniList's rate limit either;
+    /// <c>RelationPacing</c> is, and it remains the only thing deciding how fast this
+    /// goes. What the ceiling protected was one tick not running long, and each job
+    /// has its own runner, so a long pass here delays nothing but itself.
+    ///
+    /// The budget exists for the pathological case rather than the ordinary one. At
+    /// two seconds a request, ten thousand titles is about seven minutes; resumption
+    /// is free because the marker is per title, so stopping early costs nothing.
+    /// </remarks>
     Task<RelationBackfillResult> RunAsync(
-        int maxRequests,
+        TimeSpan budget,
         IProgress<OperationProgress>? progress = null,
         CancellationToken cancellationToken = default);
 
@@ -85,7 +108,7 @@ public interface IRelationBackfill
     /// than promising completeness.
     /// </remarks>
     Task<RelationBackfillResult> RefreshAsync(
-        int maxRequests,
+        TimeSpan budget,
         IProgress<OperationProgress>? progress = null,
         CancellationToken cancellationToken = default);
 

@@ -1,5 +1,6 @@
 using AniQueue.Core.Domain;
 using AniQueue.Core.Jobs;
+using AniQueue.Core.Library;
 using AniQueue.Core.Recommendations;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -36,6 +37,7 @@ public sealed class ScoringSweepJob(
     IRecommendationService recommendations,
     IScoringEndpoint endpoint,
     IScoringGate gate,
+    ILibraryChangeNotifier notifier,
     IOptionsMonitor<ScoringOptions> options,
     ILogger<ScoringSweepJob> logger,
     TimeProvider? timeProvider = null) : IBackgroundJob
@@ -71,37 +73,57 @@ public sealed class ScoringSweepJob(
     /// </remarks>
     public TimeSpan TickPeriod => TimeSpan.FromMinutes(5);
 
-    public async Task RunAsync(CancellationToken cancellationToken)
+    /// <summary>
+    /// One, and unnamed. There is one model and one backlog to work through.
+    /// </summary>
+    public IReadOnlyList<JobUnit> Units { get; } = [new JobUnit(null, "Ranking")];
+
+    public async Task<JobRunOutcome> RunAsync(
+        JobRunContext context,
+        CancellationToken cancellationToken)
     {
         var current = options.CurrentValue;
 
-        // Cheapest questions first, and all three are answered without a query: the
-        // kill switch, whether anywhere exists to send to, and whether the user asked
-        // for this at all.
+        // Cheapest questions first, and both are answered without a query: the kill
+        // switch, and whether anywhere exists to send to.
         if (!current.Enabled || !endpoint.IsConfigured)
         {
-            return;
+            return JobRunOutcome.NotDue;
         }
 
-        if (current.Schedule.ToInterval() is not { } interval)
+        // A library change is a reason to score what is new, and never a reason to
+        // re-score what has merely gone stale (D41). D39 records why: a MyAnimeList
+        // import lands hundreds of ratings at one timestamp, so everything scored
+        // before it goes stale at once — and without this rule that ten-second import
+        // starts an unattended re-score of the whole back catalogue.
+        //
+        // Until D41 this job ignored the broadcast entirely, on the grounds that a
+        // sweep is minutes of somebody's GPU and was asked for once a day. That was
+        // right about the cost and wrong about the remedy: what is expensive is the
+        // stale population, and a handful of newly added titles is not.
+        if (!context.NewWorkOnly && !context.IgnoresSchedule)
         {
-            return;
+            if (current.Schedule.ToInterval() is not { } interval)
+            {
+                return JobRunOutcome.NotDue;
+            }
+
+            var lastRun = await recommendations.GetLastRunAtAsync(
+                Profile.DefaultProfileId, ProviderName, cancellationToken);
+
+            if (lastRun is { } previous && _time.GetUtcNow() - previous < interval)
+            {
+                return JobRunOutcome.NotDue;
+            }
         }
 
-        var lastRun = await recommendations.GetLastRunAtAsync(
-            Profile.DefaultProfileId, ProviderName, cancellationToken);
-
-        var now = _time.GetUtcNow();
-
-        if (lastRun is { } previous && now - previous < interval)
-        {
-            return;
-        }
-
-        await SweepAsync(current, cancellationToken);
+        return await SweepAsync(current, context, cancellationToken);
     }
 
-    private async Task SweepAsync(ScoringOptions current, CancellationToken cancellationToken)
+    private async Task<JobRunOutcome> SweepAsync(
+        ScoringOptions current,
+        JobRunContext context,
+        CancellationToken cancellationToken)
     {
         var deadline = _time.GetUtcNow() + TimeSpan.FromMinutes(Math.Clamp(current.SweepMinutes, 1, 24 * 60));
         var batchSize = Math.Clamp(current.BatchSize, MinimumBatchSize, 500);
@@ -126,9 +148,16 @@ public sealed class ScoringSweepJob(
             var coverage = await recommendations.GetCoverageAsync(
                 Profile.DefaultProfileId, current.StaleAfterRatings, cancellationToken);
 
+            // A change-woken run takes the never-scored and leaves the stale (D41).
+            // GetCoverageAsync already reports the two apart, so nothing new has to be
+            // computed to tell them apart.
+            var outstanding = context.NewWorkOnly
+                ? coverage.Unranked
+                : coverage.Unranked + coverage.Stale;
+
             // The gate D25 requires: what is left to do is a count, and a job with
             // nothing to do does nothing rather than being told not to run.
-            if (coverage.Unranked + coverage.Stale == 0)
+            if (outstanding == 0)
             {
                 break;
             }
@@ -140,7 +169,7 @@ public sealed class ScoringSweepJob(
             // exactly what is left also makes the log agree with the card above it.
             var outcome = await RunBatchAsync(
                 current,
-                Math.Min(batchSize, coverage.Unranked + coverage.Stale),
+                Math.Min(batchSize, outstanding),
                 cancellationToken);
 
             batches++;
@@ -170,16 +199,35 @@ public sealed class ScoringSweepJob(
             }
         }
 
-        if (batches > 0)
+        if (batches == 0)
         {
-            logger.LogInformation(
-                "Scoring sweep scored {Applied} {Titles} across {Batches} {Batches_} ({Failures} failed)",
-                applied,
-                applied == 1 ? "title" : "titles",
-                batches,
-                batches == 1 ? "batch" : "batches",
-                failures);
+            return JobRunOutcome.NothingToDo;
         }
+
+        logger.LogInformation(
+            "Scoring sweep scored {Applied} {Titles} across {Batches} {Batches_} ({Failures} failed)",
+            applied,
+            applied == 1 ? "title" : "titles",
+            batches,
+            batches == 1 ? "batch" : "batches",
+            failures);
+
+        // A score is library data, so the signal goes out like any other job's (D41).
+        // Nothing downstream consumes it today, and saying so here would be the
+        // coupling this decision forbids — a job announces what it changed and never
+        // who should care.
+        if (applied > 0)
+        {
+            notifier.Publish();
+        }
+
+        // Every batch failing is a broken model or a broken endpoint, which is worth
+        // reporting as a failure rather than as a quiet run that scored nothing.
+        return applied == 0 && failures >= MaxConsecutiveFailures
+            ? JobRunOutcome.Failed(
+                "The model rejected or could not answer every request. The log has the details.",
+                batches)
+            : JobRunOutcome.Succeeded(batches, applied);
     }
 
     /// <summary>Asks for one batch, and applies it if the whole of it is sound.</summary>

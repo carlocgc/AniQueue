@@ -42,7 +42,27 @@ public interface ILibraryChangeNotifier
     /// unsubscribe when it is disposed. A singleton holding a reference to a
     /// disposed component is a leak that survives every navigation.
     /// </summary>
-    event Action<LibraryChange>? Changed;
+    event Action<LibraryChange?>? Changed;
 
-    void Publish(LibraryChange change);
+    /// <summary>
+    /// Says something changed, with as much detail as the publisher has.
+    /// </summary>
+    /// <remarks>
+    /// <b>Null is a real argument, not a missing one.</b> D41 makes every job announce
+    /// what it changed, and the two audiences want different things from that: a page
+    /// wants a sentence it can show, while a runner wants only "go and check your
+    /// precondition" — which is why <c>BackgroundJobRunner</c> has always discarded
+    /// the payload outright.
+    ///
+    /// Generalising <see cref="LibraryChange"/> to describe relations and scoring was
+    /// the obvious alternative and it is the wrong shape: it would make every job
+    /// invent counts for the benefit of a listener that ignores them, and force
+    /// <c>StaleLibraryNotice</c> to grow a sentence for each new kind of work. So a
+    /// job with nothing a page could usefully render says so by passing nothing, the
+    /// notice stays quiet, and every runner still wakes.
+    ///
+    /// This does not weaken D41's rule. The signal is still "data changed" and never
+    /// "run X next"; what varies is how much the publisher can say about it.
+    /// </remarks>
+    void Publish(LibraryChange? change = null);
 }

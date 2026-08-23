@@ -971,21 +971,24 @@
 
         _refreshed = await _busy.RunAsync(
             "Reading related titles",
-            progress => RelationBackfill.RefreshAsync(RefreshRequestCeiling, progress));
+            progress => RelationBackfill.RefreshAsync(RefreshBudget, progress));
 
         _relations = await RelationBackfill.GetCoverageAsync();
     }
 
     /// <summary>
-    /// Enough requests for a library several times the size of a realistic one, so
-    /// the button normally finishes what it started.
+    /// Long enough for a library several times the size of a realistic one, so the
+    /// button normally finishes what it started.
     /// </summary>
     /// <remarks>
-    /// Higher than the background job's ceiling on purpose: that one is spending a
-    /// tick it shares with nothing, while this one has somebody watching a dialog
-    /// and expecting it to be over when the dialog closes.
+    /// Shorter than the background job's budget on purpose, and the reason inverted
+    /// in Phase 15a. It used to be the <em>higher</em> of the two, because the job
+    /// was spending a tick and this had somebody watching a dialog. The job now runs
+    /// to completion, so what makes this different is the opposite: somebody is
+    /// waiting, and a dialog that will not close for ten minutes is worse than one
+    /// that stops and says it got part way.
     /// </remarks>
-    private const int RefreshRequestCeiling = 60;
+    private static readonly TimeSpan RefreshBudget = TimeSpan.FromMinutes(3);
 
     private static string RefreshText(RelationBackfillResult result) => result switch
     {

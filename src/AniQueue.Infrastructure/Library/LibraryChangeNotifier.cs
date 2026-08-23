@@ -19,9 +19,9 @@ public sealed class LibraryChangeNotifier(ILogger<LibraryChangeNotifier> logger)
 {
     private readonly Lock _gate = new();
 
-    private Action<LibraryChange>? _changed;
+    private Action<LibraryChange?>? _changed;
 
-    public event Action<LibraryChange>? Changed
+    public event Action<LibraryChange?>? Changed
     {
         // Explicit accessors rather than a field-like event: subscription happens on
         // circuit threads and publication on a background one, and the default
@@ -44,10 +44,8 @@ public sealed class LibraryChangeNotifier(ILogger<LibraryChangeNotifier> logger)
         }
     }
 
-    public void Publish(LibraryChange change)
+    public void Publish(LibraryChange? change = null)
     {
-        ArgumentNullException.ThrowIfNull(change);
-
         Delegate[] handlers;
 
         lock (_gate)
@@ -55,7 +53,7 @@ public sealed class LibraryChangeNotifier(ILogger<LibraryChangeNotifier> logger)
             handlers = _changed?.GetInvocationList() ?? [];
         }
 
-        foreach (var handler in handlers.Cast<Action<LibraryChange>>())
+        foreach (var handler in handlers.Cast<Action<LibraryChange?>>())
         {
             try
             {

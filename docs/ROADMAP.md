@@ -1900,10 +1900,21 @@ anyway, only sooner.
 changes nothing and therefore says nothing. Publish unconditionally and the jobs wake each other in
 a ring, each finding nothing; that is the one discipline this decision depends on.
 
-**What it costs:** `LibraryChange` is sync-shaped — `Source`, `Created`, `Updated`,
-`SlotsReleased`, `AbsentFlagged` — and has to generalise to carry "relations changed" or degrade to
-a bare signal. Nothing reads those fields to decide whether to run, so degrading is available if
-generalising turns ugly.
+**The payload is optional, and Phase 15a settled which way.** `LibraryChange` is sync-shaped —
+`Source`, `Created`, `Updated`, `SlotsReleased`, `AbsentFlagged` — and this decision left open
+whether it should generalise to describe relations and scoring, or degrade to a bare signal. It
+degrades, on evidence that was already in the code: `BackgroundJobRunner` has *always* discarded
+the payload, and `StaleLibraryNotice` is the only thing that reads it. Generalising would have
+made every job invent counts for a listener that ignores them, and grown the notice a sentence per
+kind of work. So a job with nothing a page could usefully say publishes nothing, the notice stays
+quiet, and every runner still wakes.
+
+**A producer must not treat the signal as a reason to run**, which 15a found by building it. Sync
+publishes when it commits, and every runner including its own hears that — so a sync that bypassed
+its cadence on a library change would schedule its own next run, forever. The rule is for jobs
+*consuming* the signal; sync honours its cadence for everything except a manual run. It is a real
+limit on how far "no job knows what any other does" can be pushed: a job has to know whether it is
+upstream or downstream of the thing it is hearing about.
 
 ### D42 — The model is only ever asked with nobody waiting
 
@@ -3237,9 +3248,8 @@ migration drops the table, and the suite is green.
 
 #### Phase 15a — The job contract
 `IBackgroundJob` takes a `JobRunContext` — trigger and unit — and returns a `JobRunOutcome`. Jobs
-expose the units they own, so `BackgroundJobRunner` iterates units and calls the job once per
-unit rather than the job looping sources inside itself. The runner gains a trigger channel and a
-per-run `CancellationTokenSource` linked to its stopping token, and loses both backoffs.
+expose the units they own, so `BackgroundJobRunner` iterates units and calls the job once per unit
+rather than the job looping sources inside itself, and both backoffs are deleted.
 `RelationBackfillJob` loses `MaxRequestsPerVisit` in favour of a time budget, because the ceiling
 was never the rate-limit guard — `RelationPacing` is — and a manual run that stops half-way is
 the behaviour this phase exists to remove. Every job publishes what it changed (D41).
@@ -3247,8 +3257,15 @@ the behaviour this phase exists to remove. Every job publishes what it changed (
 Deliberately behaviour-neutral: the same schedules drive the same work, outcomes go to the log,
 and nothing new is stored. That is what makes the next part's failures attributable.
 
-*Exit:* jobs run as before on the new contract; a cancelled run is distinguishable from a
-shutdown and from a failure; suite green.
+*Two adjustments made while building it.* **The trigger channel and the per-run
+`CancellationTokenSource` move to 15c**, where the registry that writes to them lives — plumbing
+with no writer is dead code, and the phase is more honest without it. And **deleting the runner's
+own backoff required recording a run that threw**, or a job that fails before it reports anything
+leaves the cadence clock unmoved and throws again on the next tick forever; 15a logs that and 15b
+gives it the row that actually moves the clock.
+
+*Exit:* jobs run as before on the new contract; a run that found nothing is distinguishable from
+one that was not due; suite green.
 
 #### Phase 15b — Job runs and the cadence
 `JobRun` lands with pruning at two hundred rows per task. Due-ness moves off `SyncRun` onto
@@ -3261,7 +3278,8 @@ every task; a cancelled run advances the clock and the task next runs when it wa
 
 #### Phase 15c — The tasks page
 `/tasks`: a singleton registry each runner registers with, holding per-unit state, the started-at,
-the trigger channel and the token source. One row per schedulable unit with run now, cancel, an
+the trigger channel and the token source — the last two moved here from 15a, because this is
+where the thing that writes to them arrives. One row per schedulable unit with run now, cancel, an
 on/off toggle writing to `userconfig.json`, the last run, its outcome and its failure reason in
 plain words. One cadence control above them. A history card below, reading `JobRun`.
 
