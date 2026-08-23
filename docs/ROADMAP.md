@@ -3359,16 +3359,34 @@ sweep both still produce and apply a ranking.
 The sync fetch modal goes. Sources keeps AniList configuration, the MyAnimeList file import and
 its dialog, and gains one *Review held changes* button — shown only when a background run held
 something, fetching inline with a spinner in the card rather than an overlay. D21's review is
-otherwise untouched, including that it persists nothing.
+otherwise untouched, including that it persists nothing, which is exactly why there is a button
+here at all rather than a stored list.
 
-*Refresh related titles* is replaced by *Delete all title relationships*, a destructive action
-that deletes the edges **and** nulls `AnimeExternalId.RelationsFetchedAt`. Nulling the markers is
-not optional: without it every title reads as already fetched and nothing rebuilds the graph until
-`StaleAfter` expires thirty days later. `IRelationBackfill.RefreshAsync` is deleted, since
-delete-and-forget plus the next relation run is what it did.
+*Refresh related titles* is replaced by *Delete all title relationships*, and the rename is the
+point: that button forgot every marker and immediately ran a pass, which made sense while this
+page was the only way to make anything happen. The tasks page runs passes now, so what is left is
+the destructive half — and a button called *Refresh* that quietly empties a table is worse than
+one that says so and asks. It confirms in place rather than behind a dialog, so the sentence
+explaining what is about to happen and the button that does it can be read at once.
+
+**Nulling the markers is not optional**, and it is one transaction with the delete for that
+reason: without it every title reads as already fetched and nothing rebuilds the graph until
+`StaleAfter` expires thirty days later — a button that silently emptied the relation graph for a
+month. `IRelationBackfill.RefreshAsync` is deleted; `ForgetAsync` replaces it and does not fetch,
+because refilling is the ordinary pass and belongs to a task.
+
+*Confirmed by running it:* deleting removed four edges and took relation coverage from "all 5
+titles" to "0 of 5", which is the marker half being visible rather than assumed.
 
 *Exit:* Sources is configuration, one review button and a file import; the relation graph can be
 emptied and rebuilt from the tasks page.
+
+---
+
+**Phase 15 is complete here.** What it cost, gathered in one place: `IScoringGate`, both backoffs,
+two per-feature schedules, `ScoringRoute`, `RefreshAsync`, `GetLastRunAtAsync`, `BusyDialog`'s
+cancel and the whole interactive scoring run. What it added: one page, one cadence, one record of
+what background work has done, and a contract that makes the next job additive.
 
 ---
 

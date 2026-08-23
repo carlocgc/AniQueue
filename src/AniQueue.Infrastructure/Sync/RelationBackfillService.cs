@@ -85,24 +85,30 @@ public sealed class RelationBackfillService(
         return new RelationCoverage(known, total);
     }
 
-    public async Task<RelationBackfillResult> RefreshAsync(
-        TimeSpan budget,
-        IProgress<OperationProgress>? progress = null,
-        CancellationToken cancellationToken = default)
+    public async Task<int> ForgetAsync(CancellationToken cancellationToken = default)
     {
-        // Forgetting the markers is the whole of it: everything downstream already
-        // knows how to ask about a title with no answer, so a refresh is the
-        // ordinary pass over a library that has just become entirely unanswered.
-        await using (var context = await contextFactory.CreateDbContextAsync(cancellationToken))
-        {
-            await context.AnimeExternalIds
-                .Where(x => x.Source == Source)
-                .ExecuteUpdateAsync(
-                    s => s.SetProperty(x => x.RelationsFetchedAt, (DateTime?)null),
-                    cancellationToken);
-        }
+        await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
+        await using var transaction = await context.Database.BeginTransactionAsync(cancellationToken);
 
-        return await RunAsync(budget, progress, cancellationToken);
+        var deleted = await context.AnimeRelations
+            .Where(r => r.Source == Source)
+            .ExecuteDeleteAsync(cancellationToken);
+
+        // In the same transaction as the delete, because half of this is a graph with
+        // no edges and the other half is a library that thinks it has already asked.
+        // Either alone is worse than neither: the first rebuilds on the next run, the
+        // second stays empty for thirty days.
+        await context.AnimeExternalIds
+            .Where(x => x.Source == Source)
+            .ExecuteUpdateAsync(
+                s => s.SetProperty(x => x.RelationsFetchedAt, (DateTime?)null),
+                cancellationToken);
+
+        await transaction.CommitAsync(cancellationToken);
+
+        logger.LogInformation("Deleted {Edges} relation edges and forgot every marker", deleted);
+
+        return deleted;
     }
 
     public async Task<RelationBackfillResult> RunAsync(

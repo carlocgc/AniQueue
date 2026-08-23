@@ -133,15 +133,37 @@
         {
             <p class="muted">
                 Reading the public list of <strong>@status.Account</strong> &middot;
-                @LastRunText(status.LastSuccess)
+                @LastRunText(status.LastSuccess) &middot; run from the
+                <a href="tasks">Tasks</a> page
             </p>
 
-            <div class="toolbar">
-                <button class="primary" disabled="@(_busy.IsRunning || !CanSync(status))"
-                        @onclick="() => SyncAsync(status)">
-                    Sync now
-                </button>
-            </div>
+            @* Only when a run held something. Sync now used to live here and start a
+               fetch anybody could press at any time; running a sync is the tasks
+               page's job now, and what is left on this card is the one thing that
+               needs a person — the review D21 requires (D40, D42).
+
+               It still fetches, because review persists nothing: a held preview is
+               stale within the hour, so the visit re-fetches and recomputes and
+               everything an earlier run applied comes back as Unchanged. That is why
+               there is a button here at all rather than a stored list. *@
+            @if (HeldCount(status) is > 0 and var held)
+            {
+                <div class="toolbar">
+                    <button class="primary" disabled="@(_reviewing || !CanSync(status))"
+                            @onclick="() => ReviewAsync(status)">
+                        @(_reviewing ? "Reading…" : $"Review {held} held {(held == 1 ? "change" : "changes")}")
+                    </button>
+
+                    @if (_reviewing)
+                    {
+                        @* Inline rather than the modal Sync now used. Nothing behind it
+                           needs blocking — the rest of the page is still true while this
+                           reads — and a review is something you chose to look at rather
+                           than something happening to you. *@
+                        <span class="spinner inline" aria-hidden="true"></span>
+                    }
+                </div>
+            }
         }
 
         @* Everything below describes the source's standing state rather than the
@@ -179,7 +201,7 @@
                     A scheduled run found @waiting.ChangesHeld
                     @(waiting.ChangesHeld == 1 ? "change" : "changes") and did not apply
                     @(waiting.ChangesHeld == 1 ? "it" : "them"), because this source is set to
-                    ask first. Sync now to look at @(waiting.ChangesHeld == 1 ? "it" : "them").
+                    ask first. Review @(waiting.ChangesHeld == 1 ? "it" : "them") above.
                 </div>
             }
 
@@ -187,7 +209,7 @@
             {
                 <div class="notice info" role="status">
                     @held.ConflictsHeld @(held.ConflictsHeld == 1 ? "conflict was" : "conflicts were")
-                    left undecided. Syncing again brings them back — nothing about them has changed.
+                    left undecided. Reviewing brings them back — nothing about them has changed.
                 </div>
             }
 
@@ -212,15 +234,12 @@
             @if (status.Source == AnimeSource.AniList && _relations is { Total: > 0 } coverage)
             {
                 <div class="toolbar">
-                    @* Stated before it is pressed, because "refresh" is otherwise a
-                       button with no visible effect: relations rarely change, so the
-                       honest outcome of most presses is that nothing happens. *@
                     <span class="muted">
                         @if (coverage.IsComplete)
                         {
                             <text>
                                 Related titles known for all @coverage.Total titles, and re-read
-                                every 30 days. Refresh if you know something has changed.
+                                every 30 days.
                             </text>
                         }
                         else
@@ -232,15 +251,40 @@
                         }
                     </span>
 
-                    <button disabled="@(_busy.IsRunning || !CanSync(status))"
-                            @onclick="RefreshRelationsAsync">
-                        Refresh related titles
-                    </button>
+                    @* Refresh related titles was here and did two things under one
+                       innocuous name: it forgot every marker and then ran a pass. The
+                       pass belongs to the tasks page now, which leaves this as what it
+                       always was underneath — throwing the graph away — so it says so
+                       and asks (D40).
+
+                       It is the only destructive action on this page, which is why it
+                       confirms in place rather than behind a dialog: the sentence
+                       explaining what is about to happen and the button that does it
+                       should be readable at the same time. *@
+                    @if (_forgetting)
+                    {
+                        <span class="muted">
+                            This deletes all @coverage.Total titles' relations. They rebuild
+                            when the related-titles task next runs.
+                        </span>
+                        <button class="danger" @onclick="ForgetRelationsAsync">Delete them</button>
+                        <button @onclick="() => _forgetting = false">Keep them</button>
+                    }
+                    else
+                    {
+                        <button @onclick="() => _forgetting = true">
+                            Delete all title relationships
+                        </button>
+                    }
                 </div>
 
-                @if (_refreshed is { } refreshed)
+                @if (_forgot is { } forgot)
                 {
-                    <div class="notice success" role="status">@RefreshText(refreshed)</div>
+                    <div class="notice success" role="status">
+                        Deleted @forgot @(forgot == 1 ? "relation" : "relations"). They will be
+                        fetched again when the related-titles task next runs — start it now from
+                        the <a href="tasks">Tasks</a> page.
+                    </div>
                 }
             }
         }
@@ -520,7 +564,23 @@
     private SyncApplyResult? _applied;
     private TitleLanguage _titleLanguage;
     private RelationCoverage? _relations;
-    private RelationBackfillResult? _refreshed;
+
+    /// <summary>How many relations the last delete removed, until the page moves on.</summary>
+    private int? _forgot;
+
+    /// <summary>Whether the destructive relation delete is asking for confirmation.</summary>
+    private bool _forgetting;
+
+    /// <summary>
+    /// Whether a review fetch is in flight.
+    /// </summary>
+    /// <remarks>
+    /// A flag rather than <c>BusyScope</c>, because this one is not modal. Sync now
+    /// blocked the page behind a dialog; a review is something the user chose to look
+    /// at, everything else on the card stays true while it reads, and the fetch is
+    /// seconds (D42).
+    /// </remarks>
+    private bool _reviewing;
     private bool _nothingToDo;
     private string? _error;
 
@@ -640,28 +700,61 @@
     private bool CanSync(SourceSyncStatus status) =>
         SyncConfiguration.CurrentValue.Enabled && status.IsConfigured && status.Settings.IsEnabled;
 
-    private async Task SyncAsync(SourceSyncStatus status)
+    /// <summary>
+    /// How many things a background run left for somebody to look at.
+    /// </summary>
+    /// <remarks>
+    /// Changes and conflicts together, because the button offers one look at both and
+    /// a card that said "review 3 changes" while quietly also holding two conflicts
+    /// would be describing half of what the fetch is about to show.
+    /// </remarks>
+    private static int HeldCount(SourceSyncStatus status) => status.LastRun is { } run
+        ? (run.Outcome == SyncOutcome.HeldForReview ? run.ChangesHeld : 0) + run.ConflictsHeld
+        : 0;
+
+    /// <summary>
+    /// Fetches so that what a background run held can be looked at.
+    /// </summary>
+    /// <remarks>
+    /// The same fetch <c>Sync now</c> made, for a different reason and with a
+    /// different name. What changed is who starts a sync: the tasks page does, and
+    /// this exists only because D21's review persists nothing — a held preview is
+    /// stale within the hour, so the visit re-fetches and everything an earlier run
+    /// applied returns as <c>Unchanged</c>.
+    ///
+    /// No progress and no dialog. <c>BusyScope</c> would put a modal over a page whose
+    /// every other statement is still true, and there is nothing to report on the way
+    /// through: a fetch either arrives or it does not.
+    /// </remarks>
+    private async Task ReviewAsync(SourceSyncStatus status)
     {
         Reset();
 
-        var fetch = await _busy.RunAsync(
-            $"Syncing with {status.Source}",
-            progress => SyncService.FetchAsync(Profile.DefaultProfileId, status.Source, progress));
+        _reviewing = true;
 
-        if (!fetch.Succeeded)
+        try
         {
-            _error = fetch.FailureReason;
+            var fetch = await SyncService.FetchAsync(Profile.DefaultProfileId, status.Source);
+
+            if (!fetch.Succeeded)
+            {
+                _error = fetch.FailureReason;
+            }
+            else if (fetch.IsComplete)
+            {
+                // Whatever was held has since been applied or has gone away — the list
+                // matches the library now. Showing empty tables would suggest otherwise.
+                _nothingToDo = true;
+            }
+            else
+            {
+                _fetch = fetch;
+                _pendingSource = fetch.Source;
+            }
         }
-        else if (fetch.IsComplete)
+        finally
         {
-            // Already over: the list matched what is here, and the run has been
-            // recorded as such. Showing empty tables would suggest otherwise.
-            _nothingToDo = true;
-        }
-        else
-        {
-            _fetch = fetch;
-            _pendingSource = fetch.Source;
+            _reviewing = false;
         }
 
         await LoadAsync();
@@ -927,65 +1020,37 @@
         _applied = null;
         _nothingToDo = false;
         _error = null;
-        _refreshed = null;
+        _forgot = null;
+        _forgetting = false;
     }
 
     /// <summary>
-    /// Forgets every answer and asks again, now.
+    /// Throws the relation graph away, so that it is fetched again from nothing.
     /// </summary>
     /// <remarks>
-    /// The only user-triggered path into any of the relation machinery. It exists
-    /// because the automatic answer is deliberately slow — thirty days — and
-    /// somebody who has just seen a sequel announced should not have to wait that
-    /// long for the application to notice.
+    /// What <c>Refresh related titles</c> did underneath, said out loud. That button
+    /// forgot every marker and immediately ran a pass, which made sense while this
+    /// page was the only way to make anything happen; the tasks page runs passes now,
+    /// so the honest description of what is left is a delete (Phase 15e).
     ///
-    /// A full pass is roughly fifteen requests spread two seconds apart, so this is
-    /// half a minute of waiting. Run behind the busy dialog with a count rather than
-    /// in the background, because a button whose effect is invisible for half a
-    /// minute reads as a button that did not work.
+    /// No dialog and no waiting: two statements against the database, and the
+    /// refilling belongs to a task the user can start or leave alone.
     /// </remarks>
-    private async Task RefreshRelationsAsync()
+    private async Task ForgetRelationsAsync()
     {
         Reset();
 
-        _refreshed = await _busy.RunAsync(
-            "Reading related titles",
-            progress => RelationBackfill.RefreshAsync(RefreshBudget, progress));
-
+        _forgot = await RelationBackfill.ForgetAsync();
         _relations = await RelationBackfill.GetCoverageAsync();
     }
 
-    /// <summary>
-    /// Long enough for a library several times the size of a realistic one, so the
-    /// button normally finishes what it started.
-    /// </summary>
-    /// <remarks>
-    /// Shorter than the background job's budget on purpose, and the reason inverted
-    /// in Phase 15a. It used to be the <em>higher</em> of the two, because the job
-    /// was spending a tick and this had somebody watching a dialog. The job now runs
-    /// to completion, so what makes this different is the opposite: somebody is
-    /// waiting, and a dialog that will not close for ten minutes is worse than one
-    /// that stops and says it got part way.
-    /// </remarks>
-    private static readonly TimeSpan RefreshBudget = TimeSpan.FromMinutes(3);
-
-    private static string RefreshText(RelationBackfillResult result) => result switch
-    {
-        { FailureReason: { } reason } => $"Stopped after {result.Requested} titles: {reason}",
-
-        // The common outcome, and worth saying plainly rather than leaving the page
-        // looking as though nothing happened. Relations change rarely; that is the
-        // feature working, not the button failing.
-        { ChangedAnything: false } => $"Re-read {result.Requested} titles. Nothing had changed.",
-
-        { EdgesRemoved: 0 } => $"Re-read {result.Requested} titles and found {result.EdgesWritten} new "
-            + $"{(result.EdgesWritten == 1 ? "relation" : "relations")}.",
-
-        { EdgesWritten: 0 } => $"Re-read {result.Requested} titles. {result.EdgesRemoved} "
-            + $"{(result.EdgesRemoved == 1 ? "relation is" : "relations are")} no longer published and "
-            + $"{(result.EdgesRemoved == 1 ? "was" : "were")} removed.",
-
-        _ => $"Re-read {result.Requested} titles: {result.EdgesWritten} new, "
-            + $"{result.EdgesRemoved} no longer published."
-    };
+    // RefreshBudget and RefreshText were here, and both belonged to a button that
+    // read the source. The budget was three minutes, deliberately shorter than the
+    // job's ten, because somebody was watching a dialog; and RefreshText had five
+    // arms to describe what a pass had found, of which the interesting one said
+    // "Nothing had changed" plainly — relations change rarely, and that is the
+    // feature working rather than the button failing.
+    //
+    // Nothing on this page reads a source any more (Phase 15e), so both go. What
+    // replaced them says how many relations were deleted, which needs one sentence.
 }
