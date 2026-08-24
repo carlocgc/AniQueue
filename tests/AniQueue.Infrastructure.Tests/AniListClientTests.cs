@@ -142,6 +142,89 @@ public class AniListClientTests
         Assert.Equal("AniList returned 500.", fetch.FailureReason);
     }
 
+    /// <summary>
+    /// When AniList explains itself, the explanation is what the user is told.
+    /// </summary>
+    /// <remarks>
+    /// This body is verbatim what AniList answered on 23 August 2026, when their API
+    /// was switched off and every sync began failing. The page said "AniList returned
+    /// 403." — a number nobody can act on — while the sentence that explains the whole
+    /// situation was sitting in the response being discarded (D40).
+    ///
+    /// A status code cannot describe a state nobody anticipated. A GraphQL server
+    /// answers with an <c>errors</c> array whatever the status, so that is where to
+    /// look before falling back to the number.
+    /// </remarks>
+    [Fact]
+    public async Task An_explained_failure_says_what_AniList_said()
+    {
+        var (client, _) = Build(_ => Json(
+            """
+            {"errors":[{"message":"The AniList API has been temporarily disabled due to severe stability issues.","status":403}]}
+            """,
+            HttpStatusCode.Forbidden));
+
+        var fetch = await client.FetchListAsync("someone");
+
+        Assert.Equal(
+            "AniList says: The AniList API has been temporarily disabled due to severe stability issues.",
+            fetch.FailureReason);
+    }
+
+    [Fact]
+    public async Task A_failure_that_explains_nothing_falls_back_to_the_status()
+    {
+        var (client, _) = Build(_ => Json("not json at all", HttpStatusCode.Forbidden));
+
+        var fetch = await client.FetchListAsync("someone");
+
+        Assert.Equal("AniList returned 403.", fetch.FailureReason);
+    }
+
+    /// <summary>
+    /// What a remote host says is bounded before it is shown.
+    /// </summary>
+    /// <remarks>
+    /// §6's rule for the scoring endpoint, applied here for the same reason: a message
+    /// from somewhere else is untrusted input, and a page is not the place to find out
+    /// how long it was.
+    /// </remarks>
+    [Fact]
+    public async Task An_enormous_explanation_is_cut_short()
+    {
+        var shouting = new string('x', 5_000);
+
+        var (client, _) = Build(_ => Json(
+            $$"""{"errors":[{"message":"{{shouting}}"}]}""",
+            HttpStatusCode.Forbidden));
+
+        var fetch = await client.FetchListAsync("someone");
+
+        Assert.NotNull(fetch.FailureReason);
+        Assert.True(fetch.FailureReason!.Length < 250, fetch.FailureReason);
+    }
+
+    /// <summary>
+    /// A named failure keeps its own words rather than the server's.
+    /// </summary>
+    /// <remarks>
+    /// 404 and 429 are the two AniQueue can say something more useful about than the
+    /// body can: one names the thing an operator can fix, the other carries the wait
+    /// from a header. Neither should be overwritten by whatever the server chose to
+    /// put in its message.
+    /// </remarks>
+    [Fact]
+    public async Task A_missing_list_keeps_its_own_explanation()
+    {
+        var (client, _) = Build(_ => Json(
+            """{"errors":[{"message":"Not Found."}]}""",
+            HttpStatusCode.NotFound));
+
+        var fetch = await client.FetchListAsync("someone");
+
+        Assert.Contains("private", fetch.FailureReason!, StringComparison.Ordinal);
+    }
+
     [Fact]
     public async Task An_unreachable_endpoint_is_a_failure_not_an_exception()
     {

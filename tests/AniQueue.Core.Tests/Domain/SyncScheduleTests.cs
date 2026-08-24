@@ -13,6 +13,10 @@ namespace AniQueue.Core.Tests.Domain;
 /// </summary>
 public class SyncScheduleTests
 {
+    [Fact]
+    public void Ten_minutes_is_ten_minutes() =>
+        Assert.Equal(TimeSpan.FromMinutes(10), SyncSchedule.TenMinutes.ToInterval());
+
     [Theory]
     [InlineData(SyncSchedule.Hourly, 1)]
     [InlineData(SyncSchedule.EverySixHours, 6)]
@@ -36,5 +40,11 @@ public class SyncScheduleTests
         Assert.Equal(2, (int)SyncSchedule.EverySixHours);
         Assert.Equal(3, (int)SyncSchedule.Daily);
         Assert.Equal(4, (int)SyncSchedule.Weekly);
+
+        // Five rather than the one its position suggests. TenMinutes reads between Off
+        // and Hourly because that is the order somebody chooses from, and is numbered
+        // last because that is the order the values were written in. Asserting it here
+        // is what stops a later tidy-up from making the two agree.
+        Assert.Equal(5, (int)SyncSchedule.TenMinutes);
     }
 }

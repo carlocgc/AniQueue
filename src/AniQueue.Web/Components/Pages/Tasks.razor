@@ -11,6 +11,7 @@
 @inject IJobRunStore Runs
 @inject IUserSettingsStore Settings
 @inject IOptionsMonitor<TaskOptions> TaskConfiguration
+@inject IWebHostEnvironment Environment
 
 @implements IDisposable
 
@@ -36,6 +37,12 @@
         <label for="cadence">Check for work</label>
         <select id="cadence" value="@_cadence" @onchange="OnCadenceChangedAsync">
             <option value="@SyncSchedule.Off">Only when I ask</option>
+
+            @if (ShowsTenMinutes)
+            {
+                <option value="@SyncSchedule.TenMinutes">Every ten minutes (development)</option>
+            }
+
             <option value="@SyncSchedule.Hourly">Every hour</option>
             <option value="@SyncSchedule.EverySixHours">Every six hours</option>
             <option value="@SyncSchedule.Daily">Once a day</option>
@@ -221,6 +228,25 @@
     private IReadOnlyList<JobRun> _history = [];
 
     private SyncSchedule _cadence;
+
+    /// <summary>
+    /// Whether the ten-minute cadence is offered.
+    /// </summary>
+    /// <remarks>
+    /// It exists so a change to a background task can be watched happening rather
+    /// than waited an hour for, which is a developer's need. The shortest interval a
+    /// shipped installation is offered is an hour, and that number is a promise about
+    /// load — on somebody else's API, and since D40 on the same cadence, somebody's
+    /// GPU.
+    ///
+    /// <b>Also shown when it is already in effect</b>, whatever the environment. A
+    /// select whose current value is not among its options renders as though
+    /// something else were selected, so hiding it would misreport the setting to the
+    /// one person who had deliberately written it into <c>userconfig.json</c> — and
+    /// silently change it the next time they touched the control.
+    /// </remarks>
+    private bool ShowsTenMinutes =>
+        Environment.IsDevelopment() || _cadence == SyncSchedule.TenMinutes;
 
     private string? _error;
 

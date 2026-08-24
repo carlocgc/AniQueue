@@ -170,9 +170,13 @@ public sealed class AniListClient(HttpClient httpClient, ILogger<AniListClient> 
 
             if (!response.IsSuccessStatusCode)
             {
+                // Read for the same reason the list fetch reads it: a GraphQL server
+                // explains itself in the body, not in the status.
+                var failure = await response.Content.ReadAsStringAsync(cancellationToken);
+
                 return new AniListRelationsFetch
                 {
-                    FailureReason = DescribeFailure(response),
+                    FailureReason = DescribeFailure(response, failure),
                     RateLimitRemaining = remaining,
 
                     // Only meaningful alongside a 429, and only then does the server
@@ -269,7 +273,14 @@ public sealed class AniListClient(HttpClient httpClient, ILogger<AniListClient> 
 
             if (!response.IsSuccessStatusCode)
             {
-                return (null, DescribeFailure(response));
+                // Read before describing, because AniList says why in the body rather
+                // than in the status. It answered a 403 with "The AniList API has been
+                // temporarily disabled due to severe stability issues", and the page
+                // said "AniList returned 403." — a number the user can do nothing with
+                // in place of a sentence that explains itself (D40, §6).
+                var failure = await response.Content.ReadAsStringAsync(cancellationToken);
+
+                return (null, DescribeFailure(response, failure));
             }
 
             // Read as bytes rather than a stream: HttpClient's
@@ -307,8 +318,14 @@ public sealed class AniListClient(HttpClient httpClient, ILogger<AniListClient> 
     /// Retrying inside a user-initiated action turns a fast failure into a stall
     /// they cannot cancel; backoff belongs to the unattended runner in Phase 5c,
     /// which has somewhere to wait.
+    ///
+    /// <b>Anything else asks AniList what it meant.</b> A GraphQL server answers a
+    /// failure with an <c>errors</c> array whatever the status, and that message is
+    /// the only one that can describe a state nobody anticipated — an API switched
+    /// off for maintenance being the case that prompted this. Falling back to the
+    /// status code is what happens when it says nothing useful.
     /// </remarks>
-    private static string DescribeFailure(HttpResponseMessage response) => response.StatusCode switch
+    private static string DescribeFailure(HttpResponseMessage response, string body) => response.StatusCode switch
     {
         HttpStatusCode.NotFound =>
             "AniList has no such user, or the list is private.",
@@ -318,8 +335,56 @@ public sealed class AniListClient(HttpClient httpClient, ILogger<AniListClient> 
                 ? $"AniList is rate limiting requests. Try again in {(int)wait.TotalSeconds} seconds."
                 : "AniList is rate limiting requests. Try again shortly.",
 
-        _ => $"AniList returned {(int)response.StatusCode}."
+        _ => Explanation(body) is { } said
+            ? $"AniList says: {said}"
+            : $"AniList returned {(int)response.StatusCode}."
     };
+
+    /// <summary>
+    /// The first message out of a GraphQL <c>errors</c> array, if there is one.
+    /// </summary>
+    /// <remarks>
+    /// <b>Bounded and parsed rather than pasted.</b> §6 treats what a remote host
+    /// sends back as untrusted and caps what an endpoint may say — the same rule the
+    /// scoring client follows — so this reads one string out of a known shape and
+    /// truncates it, rather than surfacing whatever arrived. A body that is not JSON,
+    /// or is JSON of some other shape, produces nothing and the caller falls back to
+    /// the status code.
+    /// </remarks>
+    private static string? Explanation(string body)
+    {
+        if (string.IsNullOrWhiteSpace(body))
+        {
+            return null;
+        }
+
+        try
+        {
+            using var document = JsonDocument.Parse(body);
+
+            if (!document.RootElement.TryGetProperty("errors", out var errors)
+                || errors.ValueKind != JsonValueKind.Array)
+            {
+                return null;
+            }
+
+            foreach (var error in errors.EnumerateArray())
+            {
+                if (error.TryGetProperty("message", out var message)
+                    && message.GetString() is { Length: > 0 } text)
+                {
+                    return text.Length > 200 ? text[..200] : text;
+                }
+            }
+        }
+        catch (JsonException)
+        {
+            // Not JSON, or not the shape this expects. The status code still says
+            // something true, which is better than saying something wrong.
+        }
+
+        return null;
+    }
 
     /// <summary>
     /// Reads the paging flag, and nothing else, out of the response.

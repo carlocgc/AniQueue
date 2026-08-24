@@ -156,6 +156,12 @@ public sealed class ScoringSweepJob(
         var applied = 0;
         var batches = 0;
 
+        // Kept so the row can say what actually went wrong rather than that something
+        // did. "192.168.0.240 did not answer within 1200 seconds" names the setting to
+        // change; "could not answer every request" sends somebody to the log to find
+        // out the same thing (D40).
+        string? lastFailure = null;
+
         while (!cancellationToken.IsCancellationRequested
             && _time.GetUtcNow() < deadline
             && failures < MaxConsecutiveFailures)
@@ -195,6 +201,11 @@ public sealed class ScoringSweepJob(
 
             batches++;
 
+            if (outcome.Failure is { } failure)
+            {
+                lastFailure = failure;
+            }
+
             if (outcome.TooLarge && batchSize > MinimumBatchSize)
             {
                 // The one failure this can act on by itself. A batch that did not fit
@@ -220,6 +231,19 @@ public sealed class ScoringSweepJob(
             }
         }
 
+        // <b>Cancellation cannot reach the runner by throwing.</b> The endpoint catches
+        // the token trip and hands back a failed batch, so this loop ends normally and
+        // the runner's own OperationCanceledException handler never fires — which is
+        // how a cancelled sweep came to be recorded as one that succeeded at nothing,
+        // and why a user could not tell from the page whether they had pressed Cancel.
+        //
+        // Checked before the empty-batch case, because a sweep stopped before its first
+        // batch was still stopped rather than idle.
+        if (cancellationToken.IsCancellationRequested)
+        {
+            return new JobRunOutcome(JobOutcome.Cancelled, applied, applied);
+        }
+
         if (batches == 0)
         {
             return JobRunOutcome.NothingToDo;
@@ -242,12 +266,14 @@ public sealed class ScoringSweepJob(
             notifier.Publish(origin: Key);
         }
 
-        // Every batch failing is a broken model or a broken endpoint, which is worth
-        // reporting as a failure rather than as a quiet run that scored nothing.
-        return applied == 0 && failures >= MaxConsecutiveFailures
-            ? JobRunOutcome.Failed(
-                "The model rejected or could not answer every request. The log has the details.",
-                batches)
+        // <b>Any failure with nothing to show for it is a failed run.</b> This asked for
+        // MaxConsecutiveFailures, which is the threshold for giving up on a sweep and
+        // is the wrong question for how to report one: two batches that both timed out
+        // ended the sweep having achieved nothing and were recorded as a success. A run
+        // that scored nothing and failed at least once has failed, whatever the error
+        // budget thought about carrying on.
+        return applied == 0 && lastFailure is { } reason
+            ? JobRunOutcome.Failed(reason, batches)
             // Titles for both, rather than batches considered against titles applied.
             // A batch is this job's own bookkeeping and means nothing on a row beside
             // a sync counting titles; how many were scored is the answer to what a
@@ -256,7 +282,13 @@ public sealed class ScoringSweepJob(
     }
 
     /// <summary>Asks for one batch, and applies it if the whole of it is sound.</summary>
-    private async Task<(int Applied, bool TooLarge)> RunBatchAsync(
+    /// <returns>
+    /// What it applied, whether the request was refused for size, and why it failed if
+    /// it did — in the endpoint's own words, because that is what the row has to show
+    /// (D40). The reason used to be discarded here and reconstructed as "the model
+    /// rejected or could not answer", which is a guess where an answer was available.
+    /// </returns>
+    private async Task<(int Applied, bool TooLarge, string? Failure)> RunBatchAsync(
         ScoringOptions current,
         int batchSize,
         CancellationToken cancellationToken)
@@ -277,7 +309,7 @@ public sealed class ScoringSweepJob(
 
         if (request.Candidates.Count == 0)
         {
-            return (0, false);
+            return (0, false, null);
         }
 
         // Sent directly. The claim that was here was held for a batch and released
@@ -290,7 +322,7 @@ public sealed class ScoringSweepJob(
         {
             logger.LogWarning("Scoring sweep batch failed: {Reason}", answer.Message);
 
-            return (0, answer.Failure == ScoringEndpointFailure.TooLarge);
+            return (0, answer.Failure == ScoringEndpointFailure.TooLarge, answer.Message);
         }
 
         var preview = await recommendations.PreviewAsync(
@@ -306,7 +338,7 @@ public sealed class ScoringSweepJob(
                 "Scoring sweep batch produced nothing applicable: {Problems}",
                 string.Join("; ", preview.Problems.Select(p => p.Message)));
 
-            return (0, false);
+            return (0, false, "The model answered, but not with a ranking AniQueue could apply.");
         }
 
         var result = await recommendations.ApplyAsync(
@@ -318,6 +350,6 @@ public sealed class ScoringSweepJob(
             answer.Duration,
             cancellationToken);
 
-        return (result.Applied, false);
+        return (result.Applied, false, null);
     }
 }
