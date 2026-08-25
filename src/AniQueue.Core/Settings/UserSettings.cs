@@ -144,7 +144,22 @@ public sealed record UserSettings
 
 
     /// <summary>How many titles one unattended batch carries.</summary>
-    public int ScoringBatchSize { get; init; } = 25;
+    /// <remarks>
+    /// Ten rather than the twenty-five it started at, because a batch is a generation
+    /// length and small models degrade over long ones. Measured against gpt-oss-20b at
+    /// twenty-five: twenty-one replies of twenty-five ended early of their own accord —
+    /// nine scores, ten, twelve — and four more ran out of output budget entirely. The
+    /// prompt permits stopping early on purpose, so a short reply is a valid ranking
+    /// rather than a rejected one; the cost is that the titles left out stay unscored
+    /// and are picked again next batch.
+    ///
+    /// Smaller batches only became affordable once the request stopped breaking the
+    /// prompt cache (see <c>ScoringRequestWriter</c>). Before that every batch
+    /// reprocessed the whole history, so halving the batch size doubled the wasted
+    /// work; now the history is processed once and a batch costs little more than its
+    /// own candidates.
+    /// </remarks>
+    public int ScoringBatchSize { get; init; } = 10;
 
     /// <summary>How long one sweep may keep going, in minutes.</summary>
     public int ScoringSweepMinutes { get; init; } = 60;

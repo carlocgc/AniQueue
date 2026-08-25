@@ -19,6 +19,22 @@ namespace AniQueue.Core.Recommendations;
 /// Absent means absent: a property with no value is not written at all rather than
 /// written as null. There is no difference between the two for a reader, and one
 /// of them is shorter.
+///
+/// <b>Field order is load-bearing, and only for one reason: the prompt cache.</b>
+/// A sweep sends the same history — around twenty thousand tokens of it — with every
+/// batch, and a local server will reuse the state it computed for an identical
+/// prefix rather than processing those tokens again. That reuse ends at the first
+/// byte that differs, so everything invariant is written before <c>history</c> and
+/// everything that changes between batches is written after it. A varying field near
+/// the top costs the whole history on every batch: measured at roughly seven seconds
+/// of prompt processing per batch against gpt-oss-20b, for a document whose only
+/// difference was a timestamp.
+///
+/// Which is what was happening. <c>generatedAt</c> sat inside the opening envelope
+/// and <c>candidatesAvailable</c> — which shrinks as a sweep scores its way through
+/// the backlog — sat immediately before the history array. Both are now below it.
+/// **Nothing here is a hint to the model**; a reader cannot tell the difference, and
+/// that is the point.
 /// </remarks>
 public static class ScoringRequestWriter
 {
@@ -47,10 +63,11 @@ public static class ScoringRequestWriter
     {
         writer.WriteStartObject();
 
+        // ---- Invariant across a sweep's batches. Everything above "history" is part
+        // ---- of the prefix a server can reuse; see the note on this class.
         writer.WriteStartObject("aniqueue");
         writer.WriteString("format", ScoringRequest.RequestFormat);
         writer.WriteNumber("version", ScoringRequest.CurrentVersion);
-        writer.WriteString("generatedAt", request.GeneratedAt);
         writer.WriteEndObject();
 
         writer.WriteStartObject("scale");
@@ -59,17 +76,10 @@ public static class ScoringRequestWriter
         writer.WriteEndObject();
 
         // Stated even when nothing was capped, so a reader never has to infer whether
-        // a short list means a small library or a truncated one.
+        // a short list means a small library or a truncated one. This one belongs
+        // above the history it describes and is safe there: it counts rated titles,
+        // which a sweep does not change.
         writer.WriteNumber("historyAvailable", request.HistoryAvailable);
-        writer.WriteNumber("candidatesAvailable", request.CandidatesAvailable);
-
-        // Written only when it narrows something. A model reading "return the top
-        // 182 of 182" has been given an instruction that is really a no-op, and a
-        // no-op instruction is one more thing for a small model to misread.
-        if (request.IsRankingLimited)
-        {
-            writer.WriteNumber("returnTop", request.ExpectedResults);
-        }
 
         writer.WriteStartArray("history");
         foreach (var entry in request.History)
@@ -84,6 +94,21 @@ public static class ScoringRequestWriter
 
         writer.WriteEndArray();
 
+        // ---- Varies between batches. Nothing below here may move above "history".
+
+        // Shrinks as a sweep scores its way through the backlog, which is exactly why
+        // it sits below the history rather than beside historyAvailable where it
+        // reads more naturally.
+        writer.WriteNumber("candidatesAvailable", request.CandidatesAvailable);
+
+        // Written only when it narrows something. A model reading "return the top
+        // 182 of 182" has been given an instruction that is really a no-op, and a
+        // no-op instruction is one more thing for a small model to misread.
+        if (request.IsRankingLimited)
+        {
+            writer.WriteNumber("returnTop", request.ExpectedResults);
+        }
+
         writer.WriteStartArray("candidates");
         foreach (var candidate in request.Candidates)
         {
@@ -91,6 +116,12 @@ public static class ScoringRequestWriter
         }
 
         writer.WriteEndArray();
+
+        // Last, because it changes on every single request and would otherwise be the
+        // one field guaranteed to break the prefix. It is informational — a person
+        // reading a pasted request wants to know when it was built — so the bottom of
+        // the document costs it nothing.
+        writer.WriteString("generatedAt", request.GeneratedAt);
 
         writer.WriteEndObject();
     }
