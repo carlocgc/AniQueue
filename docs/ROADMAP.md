@@ -2206,6 +2206,11 @@ spends the user's electricity is a thing to opt into.
 the route works and not enough to characterise which models do. The badge comes off when a wider
 sample says something more useful than "it depends".
 
+**Phase 17 holds what was found while establishing this**, including several things that are wrong
+today and are not urgent only because this decision made the route opt-in. It is written rather
+than built for the same reason the badge is on: the right answer to most of it depends on what a
+wider sample of models turns out to look like.
+
 ---
 
 ## 3. Solution structure
@@ -2522,6 +2527,12 @@ then the remainder of 10, then 11 onwards.
 application is doing wrong right now, every time the sweep runs, and every day it waits is another
 day of scores that cannot be compared with each other (D43).
 
+**Phase 17 does not jump the queue, and that is the point of writing it down.** It collects what
+was found while establishing D45 — that two of three models tried could not answer at all — and
+most of it cannot be settled without a wider sample of models to settle it against. It waits, and
+it waits *written*, because the alternative is finding the same things twice. The remote route is
+opt-in as of D45, so nothing in it is costing a user anything today.
+
 | # | Phase | Exit criteria |
 |---|---|---|
 | 0 | Foundation | Solution + 5 projects build; F5 serves the app; repo hygiene in place |
@@ -2555,6 +2566,7 @@ day of scores that cannot be compared with each other (D43).
 | 15d | Scoring demolition | No outbound scoring request has anybody waiting on it |
 | 15e | Sources reshape | Sources is configuration, one review button and a file import |
 | 16 | Scoring without a rank | The model returns scores and no ordering; nothing asks for, stores or shows a rank |
+| 17 | Improve remote model scoring | A sweep gets past a batch it cannot score, reports itself as one run, and cannot be defeated by a history that outgrew the context |
 
 ### Phase 0 — Foundation
 Repo hygiene (`.gitignore`, `.gitattributes`, `.editorconfig`), solution and five projects,
@@ -3714,6 +3726,124 @@ two at 5.0 in one batch, which no position-derived scoring can produce.
 
 *Exit:* no request asks for a rank, no reply needs one, no row stores one and no page shows one;
 the backlog sorts by the only number the model is now asked to produce.
+
+---
+
+### Phase 17 — Improve remote model scoring
+
+**A collection point rather than a plan, and deliberately so.** D45 made the remote route
+experimental and opt-in because three models were tried and two could not answer at all. Everything
+below was found while establishing that, and none of it is worth building until there is a wider
+sample of models to build against — several of these have a right answer that depends on what
+"typical" turns out to mean. The phase exists so the findings are not re-derived.
+
+**Ordered by whether the application is currently telling the truth**, which is a different order
+from how much each one hurts.
+
+#### 17a — A failed batch is skipped, which it currently is not
+
+`ScoringSweepJob` says *"a failed batch is recorded and skipped rather than ending the sweep — one
+odd title must not block everything behind it"*. **Nothing skips.** A failed batch applies nothing,
+so its titles keep a null `RecommendationUpdatedAt`, and `ChooseAsync` orders never-scored first
+with `AnimeId` as a tiebreak — chosen deliberately *"so two runs over an unscored backlog take the
+same titles rather than an arbitrary overlap"*. That stability is right everywhere else and a trap
+here: the next batch re-selects **exactly the same titles**, so three consecutive failures are
+three attempts at one request.
+
+The consequence is the failure the comment promises cannot happen. One title that breaks a reply
+sits at the front of the never-scored ordering permanently, is in every batch of every sweep, and
+the backlog behind it is never reached.
+
+**Rotate on failure.** A failed batch advances an offset into the neediest-first ordering, so the
+next batch takes the *next* N rather than the same N. No persistent state — the offset lives for
+the sweep. It needs no new column and no attempt counter, and it makes the error budget mean
+something it does not mean today: three failures become three different questions, which
+distinguishes one poisonous title from a model that cannot do this at all. A model that genuinely
+cannot still fails three times and stops, exactly as now.
+
+#### 17b — One sweep is one run
+
+A sweep produces one `RecommendationRun` per batch. Pressing *Run now* once and getting ten rows
+in *Past rankings* does not match anybody's idea of a run; a measured evening produced 27 rows from
+about four sweeps.
+
+**Group the record, and do not buffer the apply.** Deferring every batch's scores to the end of the
+sweep was considered and is wrong: batches are independent questions over disjoint candidates, so
+there is no consistency between them to protect, and holding them would put an hour of model work
+at the mercy of one late failure — which is exactly what the resume-from-where-you-stopped design
+and the error budget exist to avoid. What is wrong is the *reporting*, not the writing. A run
+should own its batches rather than a sweep minting peers.
+
+#### 17c — A history that outgrew the context is unrecoverable
+
+`TooLarge` halves the batch. The batch is the **candidates**, which are 5.4% of a request; the
+history is 94.6%. Halving ten to five saves roughly 720 tokens of 26,500, so a history-driven
+overflow cannot be rescued: the batch reaches `MinimumBatchSize`, still does not fit, and every
+retry meets the same wall for as long as the setting stands.
+
+Measured, so the arithmetic is not guesswork: **~44.5 tokens per rated title** and ~144 per
+candidate. Against a 49,152-token context with 3,248 reserved for output, the wall is near **990
+rated titles** — reachable by anybody who keeps raising `Scoring:HistorySize` in step with their
+library, which is the natural thing to do and currently reads as a free improvement.
+
+The fix acts on the term with the leverage, and the tension to resolve is that `RunBatchAsync`
+deliberately uses the user's own `HistorySize` *"because a sweep predicting against different
+evidence from a manual run would give two answers to one question"*. Whatever reduces the history
+must do it **between sweeps rather than within one**, or it undoes the snapshot that makes a
+sweep's batches comparable with each other.
+
+#### 17d — A cap on the scored set for unattended runs
+
+The idea this phase was collected around: an unattended sweep that fails is worse than one that
+scores slightly less well, because nobody is there to notice, and AniQueue cannot know what model
+is behind the endpoint. A cap trades accuracy for a failure rate — bounded, reversible, and aimed
+at the thing 17c makes unreachable.
+
+Two things to settle with it rather than assume:
+
+**The accuracy cost is measurable.** Score the same candidates at 200 and at 564 and compare the
+numbers. Diminishing returns are likely — the most recent 200 rated titles plausibly capture taste
+about as well as 564 — and if that holds the trade is far cheaper than it sounds.
+
+**A cap may not be the mechanism at all.** `Scoring:HistorySize` already defaults to 200; the
+measured library had been raised to 564 by hand. So what is missing may be that nothing tells
+somebody a larger history is a reliability risk rather than a free improvement, which is a smaller
+change than a second setting.
+
+**What a cap does not fix**, recorded so it is not expected to: gemma-4-12b failed at a history of
+**fifty**. Where a model's failure is that it recites the history before answering, less history
+means a shorter recital and not a different outcome.
+
+#### 17e — Notes that need no work yet
+
+**"Answered with an empty message" is true and useless.** A model can return an empty `content`
+with a full `reasoning_content` — gemma did, repeatedly — having spent its whole allowance
+thinking. That is a distinct and actionable failure ("your model never began the answer") and it
+currently reads as though the server misbehaved. The truncated message was fixed for exactly this
+reason; this one was not.
+
+**A short reply is usually a choice, not a limit.** Replies of five results out of ten came back
+with `finish_reason: "stop"` having used ~550 of 1,712 tokens. The prompt permits stopping early
+on purpose, so this is the permission being taken rather than a budget problem, and it is the
+largest remaining source of unscored titles on a model that otherwise works. Whether completeness
+can be improved without removing an escape hatch that keeps small models usable is open.
+
+**The prompt cache is not AniQueue's to win, and this is the evidence.** Two consecutive requests
+were measured byte-identical for 94,758 of ~96,500 bytes — 98.2%, diverging only at `generatedAt`
+where the writer puts it. llama.cpp recognises the prefix, routes deliberately to the warm slot at
+`f_sim_best` up to 0.999, and reprocesses all ~26,000 tokens anyway. Neither slot count nor
+`kv_unified` changed it; single-slot and a smaller context cut prompt processing from 9.3s to 3.3s
+by freeing the GPU, not by reusing anything. **Recorded so nobody investigates the payload again**
+— if the tokens are still being reprocessed, it is the server.
+
+**Which models work is the open question D45 turns on.** Three is enough to stop promising the
+route works and not enough to say which models do. The Experimental badge comes off when a wider
+sample says something more useful than "it depends", and D44's citation field wants measuring
+against the same sample.
+
+*Exit:* a sweep gets past a batch it cannot score rather than re-asking it; one sweep is one row
+in *Past rankings*; and no setting a user can reach makes the sweep fail in a way it cannot
+recover from.
 
 ---
 
