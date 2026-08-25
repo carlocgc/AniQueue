@@ -18,9 +18,20 @@ public sealed class RecommendationService(
     // to say what "now" is.
     private readonly TimeProvider _time = timeProvider ?? TimeProvider.System;
 
+    public async Task<ScoringHistorySnapshot> BuildHistoryAsync(
+        int profileId,
+        int maxHistory,
+        CancellationToken cancellationToken = default)
+    {
+        await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
+
+        return await ReadHistoryAsync(context, profileId, maxHistory, cancellationToken);
+    }
+
     public async Task<ScoringRequest> BuildRequestAsync(
         int profileId,
         ScoringRequestOptions? options = null,
+        ScoringHistorySnapshot? history = null,
         CancellationToken cancellationToken = default)
     {
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
@@ -48,6 +59,36 @@ public sealed class RecommendationService(
             options.MaxCandidates,
             cancellationToken);
 
+        // Read now, or reused from a snapshot the caller took earlier. A sweep passes
+        // one so that every batch predicts against the same evidence; everything else
+        // passes nothing and reads it here, which is the same behaviour as before.
+        var snapshot = history ?? await ReadHistoryAsync(
+            context, profileId, options.MaxHistory, cancellationToken);
+
+        logger.LogInformation(
+            "Built a scoring request for profile {ProfileId}: {Candidates} candidates, {History} of {Available} scored titles.",
+            profileId,
+            candidates.Count,
+            snapshot.Entries.Count,
+            snapshot.Available);
+
+        return new ScoringRequest
+        {
+            GeneratedAt = _time.GetUtcNow(),
+            Candidates = candidates,
+            History = snapshot.Entries,
+            HistoryAvailable = snapshot.Available,
+            CandidatesAvailable = candidatesAvailable,
+            ReturnTop = options.ReturnTop
+        };
+    }
+
+    private static async Task<ScoringHistorySnapshot> ReadHistoryAsync(
+        AniQueueDbContext context,
+        int profileId,
+        int maxHistory,
+        CancellationToken cancellationToken)
+    {
         var scored = context.LibraryEntries
             .AsNoTracking()
             .Where(e => e.ProfileId == profileId
@@ -68,7 +109,7 @@ public sealed class RecommendationService(
             .OrderByDescending(e => e.DateCompleted != null)
             .ThenByDescending(e => e.DateCompleted)
             .ThenByDescending(e => e.Id)
-            .Take(options.MaxHistory)
+            .Take(maxHistory)
             .Select(e => new ScoringHistoryEntry
             {
                 Title = e.Anime!.Title,
@@ -78,22 +119,7 @@ public sealed class RecommendationService(
             })
             .ToListAsync(cancellationToken);
 
-        logger.LogInformation(
-            "Built a scoring request for profile {ProfileId}: {Candidates} candidates, {History} of {Available} scored titles.",
-            profileId,
-            candidates.Count,
-            history.Count,
-            available);
-
-        return new ScoringRequest
-        {
-            GeneratedAt = _time.GetUtcNow(),
-            Candidates = candidates,
-            History = history,
-            HistoryAvailable = available,
-            CandidatesAvailable = candidatesAvailable,
-            ReturnTop = options.ReturnTop
-        };
+        return new ScoringHistorySnapshot { Entries = history, Available = available };
     }
 
     public async Task<ScoringPreview> PreviewAsync(
