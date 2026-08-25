@@ -1957,6 +1957,109 @@ the model took — is worth knowing after the fact as well as during.
 
 ---
 
+### D43 — The model is asked for a score, not for an order
+
+*Withdraws `rank` from the scoring interchange, and falsifies 8d's argument that chunking is
+harmless.*
+
+7a's schema asks for four numbers per candidate: an `id`, a `rank`, a `predictedScore` and a
+`confidence`, with a `reason` beside them. Two of those turned out to be requests a model could
+not honestly satisfy, and in both cases it satisfied them anyway. They were found within an hour
+of each other while watching real replies from a local model, which is the only way either could
+have been found: both produce well-formed JSON that the parser accepts.
+
+**The reasons were invented, and the prompt asked for it.** The instruction read *"Say why in one short sentence, referring to their history where you can"*,
+which offers no way to decline. Told to cite the history and finding nothing close, two different
+models manufactured a citation — and the nearest number to hand was the score they had just
+produced:
+
+| model | reason returned | its own `predictedScore` |
+|---|---|---|
+| `qwen3-vl-8b` | "You rated 'Haite Kudasai, Takamine-san' 6.0." — an **unwatched** candidate | 6.0 |
+| `gpt-oss-20b` | "Sci-fi thriller like Psycho-Pass you rated 7." — about *Psycho-Pass* itself | 7 |
+
+**The payload was never wrong**, which is what made this worth chasing rather than dismissing.
+`history` is completed titles carrying the user's own score; `ScoringCandidate` has no score field
+at all. There was nothing to misread and no leak to plug. What was wrong was what the prompt asked
+for.
+
+**The worked example was the stronger instruction.** It read `"predictedScore": 9.5` beside
+`"reason": "Same director as one you rated 9."` — a rating inside a sentence, one decimal from the
+score, attached to no title anybody could check. A small model reproduces an example far more
+faithfully than it obeys prose, so the example taught precisely what the prose was later asked to
+forbid. Both are fixed together: three rules where there was one, an escape hatch for when nothing
+in the history is close, and example reasons carrying no number at all.
+
+*Fixed ahead of this decision as a change of its own, because a prompt correction carrying tests is
+not a design change and did not need one.* What it does not do is make the scores trustworthy, which is
+the other half.
+
+**The scores were positional, and that is the serious half.** Three consecutive batches from the **same model**, `gpt-oss-20b`, at one setting, `predictedScore`
+in reply order:
+
+| batch | scores |
+|---|---|
+| A | `10 8 8 8 8 8 8 7 7 7 7 7 6 6 6 6 6 6 6 6 6 5 5 5 5` |
+| B | `9 9 9 9 8.5 8 8 7.5 7.5 7.5 7 7 6.5 6 6 5.5 5 4.5 4` |
+| C | `9.2 8.5 8.0 6.5 7.0 6.8 7.5 6.9 7.2 6.7 5.8 6.2 7.8 5.5 6.4 8.3 7.6 6.9 5.9 7.4 …` |
+
+A is a staircase: coarse integer buckets descending monotonically with rank, which is a model
+ordering the batch and then back-filling a score to match its position. C is independent scoring —
+one decimal, non-monotonic, position 4 scoring below position 5. B is A for nineteen results and
+then stops. **One model, one setting, three different methods**, so this is not a capability
+ceiling that a better model fixes.
+
+**This falsifies 8d.** That section argued:
+
+> `rank` is placement within a batch and never leaves it; `predictedScore` is a prediction against
+> the user's history, which every batch carries identically … so the batch-relative number is never
+> what is compared across the library.
+
+The first clause still holds. `Rank` is stored on `RecommendationRunItem` and never reaches
+`LibraryEntry`; the backlog orders by `RecommendationScore`. What fails is the second. When a batch
+ladders, the top title scores 10 and the bottom scores 5 **because of where they sat in that
+batch** — so batch A's `8` and batch C's `8.0` are measuring different things, and the backlog
+sorts them against each other as though they were not. A strong title in a strong batch lands below
+a weak title in a weak batch, and nothing downstream can tell the two scales apart afterwards.
+
+The corruption is indirect, which is why 8d missed it: rank does not leave the batch, but the score
+derived from it does. 8d's remaining claim — that what is left is calibration drift, a difference
+of degree — is only true of batch C. Of batch A it is a difference of kind.
+
+**Decision: stop asking for a rank.** The request asks for a score and a confidence; the reply carries no
+ordering. Where an order is needed — the preview, a run's stored items — it is taken from
+`predictedScore` descending, which is what the backlog already sorts by. The one number the whole
+feature rests on becomes the only number anything reads.
+
+**A ranking is not needed to produce a score, and batch C is the proof.** The same model, asked the
+same question, scored each title on its own merits with no relationship to the order it happened to
+return them in. What asking for a rank adds is an invitation to derive one number from the other,
+which roughly half of the observed batches accepted.
+
+**This is not a token argument.** Dropping `rank` saves on the order of a hundred output tokens a
+batch, which is real and would never have justified the change. It is dropped because it corrupts
+the score.
+
+**What is knowingly lost.** The parser's duplicate-rank and gap checks go with the field, and they
+were doing real work — they rejected batches for a repeated rank and for ranks running 1–17 across
+16 results. Every check that matters to a *score* survives: an unknown id, a duplicate id, a score
+off the scale, a confidence outside 0–1. What is given up is the detection of a malformed
+*ordering*, which stops being worth detecting once nothing asks for one.
+
+**Stored ranks go too, rather than being left unread.** The alternative — keep the column, stop
+populating it — leaves a number in the database that no code writes and no surface shows, which is
+a question every future contributor has to answer before they can rule it out. 6a took the same
+view of the franchise columns and dropped them in the same migration that removed their last
+reader, rather than leaving them behind as data nobody could account for. Historical runs lose
+their placement and keep their scores, which is the half anything ever read.
+
+**What this does not claim to fix.** Removing the invitation is not the same as guaranteeing
+independent scoring: a model may still anchor a batch to itself, and calibration drift between
+batches remains real. This is a mechanism removed, not a property proved, and the check is to run a
+sweep against a real model afterwards and look at whether the staircase is gone.
+
+---
+
 ## 3. Solution structure
 
 Follows the brief's §36. It is a sensible shape; no argument.
@@ -2264,8 +2367,12 @@ were not in the original plan and are the next thing built, ahead of Phase 9 —
 D36's per-source move, runs before even that because D40 depends on it. Renumbering to put them
 in execution order would mean rewriting 49 phase citations in this file and the phase numbers
 carried in source comments, making every existing citation point at the wrong work. **The number
-is identity; the table is not a running order.** The order of work is: 10a, 15a–15e, then 9, then
-the remainder of 10, then 11 onwards.
+is identity; the table is not a running order.** The order of work is: 10a, 15a–15e, 16, then 9,
+then the remainder of 10, then 11 onwards.
+
+**Phase 16 is small and jumps the queue for the same reason 15 did**: it corrects something the
+application is doing wrong right now, every time the sweep runs, and every day it waits is another
+day of scores that cannot be compared with each other (D43).
 
 | # | Phase | Exit criteria |
 |---|---|---|
@@ -2299,6 +2406,7 @@ the remainder of 10, then 11 onwards.
 | 15c | Tasks page + cadence | Every task seen, started, cancelled and switched off from one page; one cadence drives them all |
 | 15d | Scoring demolition | No outbound scoring request has anybody waiting on it |
 | 15e | Sources reshape | Sources is configuration, one review button and a file import |
+| 16 | Scoring without a rank | The model returns scores and no ordering; nothing asks for, stores or shows a rank |
 
 ### Phase 0 — Foundation
 Repo hygiene (`.gitignore`, `.gitattributes`, `.editorconfig`), solution and five projects,
@@ -2989,10 +3097,11 @@ would otherwise surface only after a ten-minute run.
 
 #### Phase 8d — Scheduled sweep
 
-> **Amended by D40, D41 and D42.** Its `Schedule` becomes the single task cadence; the gate and
-> the interactive stand-down are deleted with the run they yielded to; a library change now wakes
-> it for never-scored titles only. The batching, the error budget, the halving on `TooLarge` and
-> the reasoning about calibration drift are untouched.
+> **Amended by D40, D41, D42 and D43.** Its `Schedule` becomes the single task cadence; the gate
+> and the interactive stand-down are deleted with the run they yielded to; a library change now
+> wakes it for never-scored titles only. The batching, the error budget and the halving on
+> `TooLarge` are untouched. **"Chunking does not distort the result" is wrong**, and D43 has the
+> replies that show it.
 
 `ScoringSweepJob`, the third `IBackgroundJob` and the one that interface named in advance. Its
 `TickPeriod` is polling resolution, not schedule; the job decides whether it is due from a
@@ -3016,6 +3125,13 @@ every batch carries identically. `LibraryEntry` stores only the score, and the b
 it — so the batch-relative number is never what is compared across the library. The remaining
 effect is calibration drift between batches, which is a difference of degree from re-running one
 batch twice rather than a difference of kind.
+
+*That paragraph is left standing because the argument it makes is the one that failed, and the way
+it failed is worth reading.* Every clause in it is true and the conclusion does not follow. Rank
+does stay inside its batch — but a model asked for both a rank and a score will sometimes produce
+the score **from** the rank, and the score is what leaves. Observed batches from one model at one
+setting ranged from a clean integer staircase locked to position to genuinely independent scoring.
+D43 drops `rank` from the interchange for that reason, and Phase 16 carries it out.
 
 *Which is why the history is sent in full with every batch, and why `generatedAt` moves to the
 end of the payload:* local servers reuse the cached state of an identical prompt prefix, so an
@@ -3387,6 +3503,48 @@ emptied and rebuilt from the tasks page.
 two per-feature schedules, `ScoringRoute`, `RefreshAsync`, `GetLastRunAtAsync`, `BusyDialog`'s
 cancel and the whole interactive scoring run. What it added: one page, one cadence, one record of
 what background work has done, and a contract that makes the next job additive.
+
+---
+
+### Phase 16 — Scoring without a rank
+
+Carries out D43. One field leaves the interchange, and four places stop referring to it.
+
+**The prompt stops asking.** `ScoringPromptBuilder` drops `rank` from the worked example and drops
+the reply rule that governs it — *"\"rank\" starts at 1 and each is used once"* — while
+`predictedScore` and `confidence` keep theirs. The limited form keeps *"return exactly N"* and
+loses *"ranked 1 to N"*. The word "rank" survives in the prose that describes the **task**
+("Rank these", "Rank every candidate"), because judging candidates against each other is still
+what is being asked for; what goes is the request to number the result.
+
+**The parser stops requiring it.** `ScoringResult.Rank` goes, and with it the duplicate-rank check
+and the gap detection, which exist only to police a numbering. `parsed.OrderBy(r => r.Rank)`
+becomes an order by `predictedScore` descending, so a preview reads in the order the backlog will.
+`RecommendationService`'s unknown-id message stops naming a rank and names the position in the
+reply instead — the reply is what the user would have to look at.
+
+**A `rank` that arrives anyway is ignored, not rejected.** A model repeating a shape it has seen
+in training is not returning a malformed answer, and failing a batch over a field nothing reads
+would be a self-inflicted spend of the sweep's error budget.
+
+**The column goes, in a migration.** `RecommendationRunItem.Rank`, the `(RunId, Rank)` index and
+the `CK_RecommendationRunItems_RankPositive` check constraint. SQLite cannot drop a column from a
+table carrying a check constraint, so EF rebuilds the table — ordinary here, and the reason to run
+the migration against a copy of the development database rather than only against a fresh one.
+Existing rows keep their scores, confidences and reasons.
+
+**Two displays go.** The backlog's *Ranked N of M* fact, which was showing a number meaningful only
+inside a batch the user cannot see, and the rank column in the Recommendations preview table.
+`ScoringDetail.CandidateCount` loses its only reader and goes with them; the run-level *"R of C"*
+in *Past rankings* is a different field and stays, because how many candidates came back is a fact
+about the run rather than about a title.
+
+**Verified by running it, not by compiling it.** A sweep against a real local model after the
+change, with the returned scores read out of the log: the check is whether the staircase D43
+records is gone. A green suite proves the field is gone, which is the easy half.
+
+*Exit:* no request asks for a rank, no reply needs one, no row stores one and no page shows one;
+the backlog sorts by the only number the model is now asked to produce.
 
 ---
 
