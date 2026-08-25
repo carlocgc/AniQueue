@@ -65,7 +65,7 @@ public class ScoringSweepJobTests
                 Items = PreviewApplicable
                     ? [.. (request?.Candidates ?? []).Select(c => new ScoringPreviewItem
                         {
-                            Result = new ScoringResult { Id = c.Id, Rank = 1, PredictedScore = 8, Confidence = 0.7 },
+                            Result = new ScoringResult { Id = c.Id, PredictedScore = 8, Confidence = 0.7 },
                             Title = c.Title,
                             Status = LibraryStatus.Planning
                         })]

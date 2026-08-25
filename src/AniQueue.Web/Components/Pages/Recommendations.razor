@@ -614,7 +614,10 @@ else
                 <table class="ranking">
                     <thead>
                         <tr>
-                            <th scope="col" class="numeric">Rank</th>
+                            @* No Rank column since D43. The rows arrive ordered by
+                               predicted score, which is the order the backlog will
+                               show them in, so the position is readable off the table
+                               without a number claiming to be the model's own. *@
                             <th scope="col">Title</th>
                             <th scope="col" class="numeric">Score</th>
                             <th scope="col" class="numeric">Confidence</th>
@@ -625,7 +628,6 @@ else
                         @foreach (var item in VisibleItems)
                         {
                             <tr class="@(item.WillApply ? null : "muted")">
-                                <td class="numeric">@item.Result.Rank</td>
                                 @* The flex wrapper goes inside the cell, never on it.
                                    A td set to display:flex stops being a table cell —
                                    it leaves the column sizing entirely, so a fixed

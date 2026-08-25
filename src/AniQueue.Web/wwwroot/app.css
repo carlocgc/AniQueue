@@ -877,21 +877,24 @@ details > summary {
    so it is dimmed rather than removed. */
 tr.muted td { opacity: 0.6; }
 
-/* The ranking preview is five columns of very unequal need: three are a couple of
+/* The ranking preview is four columns of very unequal need: two are a couple of
    characters, one is a title, and the last is a sentence. Left to itself the
    browser gives the title column whatever it wants and squeezes the reasoning into
    a ribbon, which is the column a person is actually reading. So the narrow ones
    are pinned and the remaining width is split between the two that vary. */
 /* min-width matters as much as the layout mode. Fixed layout divides the width it
-   is given, so on a narrow screen the three pinned columns take their rem widths
+   is given, so on a narrow screen the two pinned columns take their rem widths
    and the last column — the reasoning — is handed whatever is left, which is
    nothing. Below this the wrap scrolls instead, which is what .table-wrap is for. */
-.ranking { table-layout: fixed; min-width: 44rem; }
+/* Every index here moved down one when D43 deleted the Rank column. These are
+   positional selectors against a fixed layout, so they do not fail visibly when
+   they go stale — they silently pin the wrong column, which is why the widths are
+   listed in column order rather than in the order they were written. */
+.ranking { table-layout: fixed; min-width: 40rem; }
 
-.ranking th:nth-child(1), .ranking td:nth-child(1) { width: 3.5rem; }
-.ranking th:nth-child(3), .ranking td:nth-child(3) { width: 5rem; }
-.ranking th:nth-child(4), .ranking td:nth-child(4) { width: 6rem; }
-.ranking th:nth-child(2), .ranking td:nth-child(2) { width: 30%; }
+.ranking th:nth-child(1), .ranking td:nth-child(1) { width: 30%; }
+.ranking th:nth-child(2), .ranking td:nth-child(2) { width: 5rem; }
+.ranking th:nth-child(3), .ranking td:nth-child(3) { width: 6rem; }
 
 /* break-word rather than anywhere. "anywhere" also lets a word be broken when it
    would merely be tidier to, which is how "Mugenjou-hen" ends up split across two

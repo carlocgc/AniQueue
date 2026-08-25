@@ -1,13 +1,19 @@
 namespace AniQueue.Core.Recommendations;
 
-/// <summary>One title's place in the ranking a model returned.</summary>
+/// <summary>One title's score, as a model returned it.</summary>
+/// <remarks>
+/// There is deliberately no placement here. A rank was asked for and stored until
+/// D43, on the argument that placement stays inside its batch and only the score
+/// leaves — every clause of which was true, and the conclusion of which was not: a
+/// model asked for both will sometimes derive the score <i>from</i> the rank, and
+/// the score is what leaves. A <c>rank</c> that arrives anyway is read past rather
+/// than refused, because a model repeating a shape it has seen is not returning a
+/// malformed answer.
+/// </remarks>
 public sealed record ScoringResult
 {
     /// <summary>The AniQueue anime id, echoed back from the candidate.</summary>
     public required int Id { get; init; }
-
-    /// <summary>1-based placement.</summary>
-    public required int Rank { get; init; }
 
     /// <summary>What the model expects the user to rate it, on the request's scale.</summary>
     public required double PredictedScore { get; init; }
@@ -19,7 +25,7 @@ public sealed record ScoringResult
     /// The model's stated justification, shown verbatim beside the score.
     /// </summary>
     /// <remarks>
-    /// Optional, because a reason is an explanation rather than a rank and a model
+    /// Optional, because a reason is an explanation rather than a score and a model
     /// that omits it has still answered the question. Truncated rather than
     /// rejected when it runs long: an over-talkative model is a formatting problem,
     /// not a contract violation, and refusing an otherwise valid ranking over it
@@ -35,8 +41,8 @@ public sealed record ScoringResult
 /// <remarks>
 /// The structural half of validation lives here and needs no database: whether it
 /// is JSON at all, whether the envelope says what it must, whether every result
-/// carries the four fields, whether ids or ranks repeat, and whether the numbers
-/// are in range. What is left — whether these ids name titles this profile is
+/// carries the three fields, whether ids repeat, and whether the numbers are in
+/// range. What is left — whether these ids name titles this profile is
 /// actually planning to watch — is a question about the library, and is answered
 /// by <c>IRecommendationService</c>.
 /// </remarks>

@@ -144,16 +144,25 @@ public sealed class RecommendationService(
         var expectedCount = request?.ExpectedResults ?? candidateCount;
 
         var items = new List<ScoringPreviewItem>(ranked.Count);
+        var position = 0;
 
         foreach (var result in ranked)
         {
+            position++;
+
             if (!known.TryGetValue(result.Id, out var entry))
             {
                 // An id naming nothing means the reply is not about this library —
                 // a ranking of somebody else's backlog, or a model that invented an
                 // id rather than echoing one. Neither is safe to apply the rest of.
+                //
+                // Named by position in the reply rather than by rank (D43). The reply
+                // is what the user would have to open to find the offending entry;
+                // the rank never was, and no longer exists. The same wording the
+                // parser uses for its own per-result problems, so two halves of one
+                // validation pass do not count differently.
                 problems.Add(ScoringProblem.Error(
-                    $"Rank {result.Rank}: there is no title {result.Id} in your library."));
+                    $"Result {position}: there is no title {result.Id} in your library."));
                 continue;
             }
 
@@ -302,7 +311,6 @@ public sealed class RecommendationService(
             run.Items.Add(new RecommendationRunItem
             {
                 AnimeId = item.Result.Id,
-                Rank = item.Result.Rank,
                 PredictedScore = item.Result.PredictedScore,
                 Confidence = item.Result.Confidence,
                 Reason = item.Result.Reason
@@ -360,14 +368,12 @@ public sealed class RecommendationService(
             .OrderByDescending(i => i.RunId)
             .Select(i => new RecommendationDetail
             {
-                Rank = i.Rank,
                 PredictedScore = i.PredictedScore,
                 Confidence = i.Confidence,
                 Reason = i.Reason,
                 DeterminedAt = i.Run!.CreatedAt,
                 ProviderName = i.Run.ProviderName,
-                ModelIdentifier = i.Run.ModelIdentifier,
-                CandidateCount = i.Run.CandidateCount
+                ModelIdentifier = i.Run.ModelIdentifier
             })
             .FirstOrDefaultAsync(cancellationToken);
     }
