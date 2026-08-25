@@ -2533,40 +2533,47 @@ most of it cannot be settled without a wider sample of models to settle it again
 it waits *written*, because the alternative is finding the same things twice. The remote route is
 opt-in as of D45, so nothing in it is costing a user anything today.
 
-| # | Phase | Exit criteria |
-|---|---|---|
-| 0 | Foundation | Solution + 5 projects build; F5 serves the app; repo hygiene in place |
-| 1 | Domain + persistence | Migration applies to a fresh DB; indexes exist; a fresh install starts empty |
-| 2 | **Vertical slice** | MAL XML → preview → confirm → SQLite → backlog list, end to end |
-| 3 | Backlog page | Search, filter, sort, page, bulk actions |
-| 4 | Up Next | Reorder correct and persistent; queue advances when status changes |
-| 5a | Reconciliation groundwork | External identity is a set; precedence honoured; MAL import unchanged and green |
-| 5b | AniList read sync, on demand | Sync Now lands the user's list; runtime and decade filters work for the first time |
-| 5c | Unattended sync | Queue advances with nobody present; stalled sync is visible |
-| 6a | Retire franchises | Entity, columns and surfaces deleted; migration applies; suite green |
-| 6b | Relations + backfill | Edges land from a paced pass that is idle in the steady state |
-| 6c | Related titles | Every row expands to its relations, tagged; standalone filter returns |
-| 6d | Queue what follows | One click queues a title and its unwatched sequels, in release order |
-| 7a | Scoring contract | Request built, response validated, ranking applied — all of it without a page |
-| 7b | Scoring surface | Export, prompt, paste or upload, preview, apply |
-| 8a | Settings store | Every setting has one home; the application writes `userconfig.json` and both existing pages read through it |
-| 8b | Scoring courier | A stubbed endpoint returns a ranking that becomes a preview — client, guards and extraction, with no page involved |
-| 8c | Scoring surface | Remote and Manual cards; a run started, waited on, cancelled and applied without anything being copied by hand |
-| 8d | Scheduled sweep | A backlog scores itself in batches with nobody present, and idles when nothing has been rated |
-| 9 | Metadata + artwork | Ids mapped and art cached under `/data` by jobs that idle when there is nothing to fetch |
-| 10 | Settings page | One page for preferences; operator configuration shown and not editable |
-| 10a | Per-source settings to the file | `SourceSyncSettings` deleted; every sync setting read from `userconfig.json` |
-| 11 | Docker + README | Migrations squashed to one baseline; compose up, health check, container recreated without data loss |
-| 12 | Optional auth | A single-user login can be turned on; off by default, and off is still a supported deployment |
-| 13 | CI | Build and tests on every push; image built on a tag, published only once Phase 14 has run |
-| 14 | Security pass | §6's high-risk surfaces reviewed against the finished application; release gate opens |
-| 15a | Job contract | Jobs take a trigger and return an outcome; the runner drives units and reschedules nothing |
-| 15b | Job runs | Every executed run is recorded, including one that threw; every task reads its cadence from it |
-| 15c | Tasks page + cadence | Every task seen, started, cancelled and switched off from one page; one cadence drives them all |
-| 15d | Scoring demolition | No outbound scoring request has anybody waiting on it |
-| 15e | Sources reshape | Sources is configuration, one review button and a file import |
-| 16 | Scoring without a rank | The model returns scores and no ordering; nothing asks for, stores or shows a rank |
-| 17 | Improve remote model scoring | A sweep gets past a batch it cannot score, reports itself as one run, and cannot be defeated by a history that outgrew the context |
+**So the table is in number order and the `Done` column carries the running order**, because those
+are two different questions and one table answering both by sorting would have to give up the
+numbering. What is finished is a column; what happens next is the first row without a tick.
+
+| # | Phase | Done | Exit criteria |
+|---|---|---|---|
+| 0 | Foundation | ✅ | Solution + 5 projects build; F5 serves the app; repo hygiene in place |
+| 1 | Domain + persistence | ✅ | Migration applies to a fresh DB; indexes exist; a fresh install starts empty |
+| 2 | **Vertical slice** | ✅ | MAL XML → preview → confirm → SQLite → backlog list, end to end |
+| 3 | Backlog page | ✅ | Search, filter, sort, page, bulk actions |
+| 4 | Up Next | ✅ | Reorder correct and persistent; queue advances when status changes |
+| 5a | Reconciliation groundwork | ✅ | External identity is a set; precedence honoured; MAL import unchanged and green |
+| 5b | AniList read sync, on demand | ✅ | Sync Now lands the user's list; runtime and decade filters work for the first time |
+| 5c | Unattended sync | ✅ | Queue advances with nobody present; stalled sync is visible |
+| 6a | Retire franchises | ✅ | Entity, columns and surfaces deleted; migration applies; suite green |
+| 6b | Relations + backfill | ✅ | Edges land from a paced pass that is idle in the steady state |
+| 6c | Related titles | ✅ | Every row expands to its relations, tagged; standalone filter returns |
+| 6d | Queue what follows | ✅ | One click queues a title and its unwatched sequels, in release order |
+| 7a | Scoring contract | ✅ | Request built, response validated, ranking applied — all of it without a page |
+| 7b | Scoring surface | ✅ | Export, prompt, paste or upload, preview, apply |
+| 8a | Settings store | ✅ | Every setting has one home; the application writes `userconfig.json` and both existing pages read through it |
+| 8b | Scoring courier | ✅ | A stubbed endpoint returns a ranking that becomes a preview — client, guards and extraction, with no page involved |
+| 8c | Scoring surface | ✅ | Remote and Manual cards; a run started, waited on, cancelled and applied without anything being copied by hand |
+| 8d | Scheduled sweep | ✅ | A backlog scores itself in batches with nobody present, and idles when nothing has been rated |
+| 9 | Metadata + artwork | ▢ **next** | Ids mapped and art cached under `/data` by jobs that idle when there is nothing to fetch |
+| 10 | Settings page | ▢ | One page for preferences; operator configuration shown and not editable |
+| 10a | Per-source settings to the file | ✅ | `SourceSyncSettings` deleted; every sync setting read from `userconfig.json` |
+| 11 | Docker + README | ▢ | Migrations squashed to one baseline; compose up, health check, container recreated without data loss |
+| 12 | Optional auth | ▢ | A single-user login can be turned on; off by default, and off is still a supported deployment |
+| 13 | CI | ▢ | Build and tests on every push; image built on a tag, published only once Phase 14 has run |
+| 14 | Security pass | ▢ | §6's high-risk surfaces reviewed against the finished application; release gate opens |
+| 15a | Job contract | ✅ | Jobs take a trigger and return an outcome; the runner drives units and reschedules nothing |
+| 15b | Job runs | ✅ | Every executed run is recorded, including one that threw; every task reads its cadence from it |
+| 15c | Tasks page + cadence | ✅ | Every task seen, started, cancelled and switched off from one page; one cadence drives them all |
+| 15d | Scoring demolition | ✅ | No outbound scoring request has anybody waiting on it |
+| 15e | Sources reshape | ✅ | Sources is configuration, one review button and a file import |
+| 16 | Scoring without a rank | ✅ | The model returns scores and no ordering; nothing asks for, stores or shows a rank |
+| 17 | Improve remote model scoring | ▢ *held* | A sweep gets past a batch it cannot score, reports itself as one run, and cannot be defeated by a history that outgrew the context |
+
+**✅ done · ▢ not started.** *next* is what the running order reaches first; *held* waits on
+something outside the repository — for 17, a wider sample of models to characterise (D45).
 
 ### Phase 0 — Foundation
 Repo hygiene (`.gitignore`, `.gitattributes`, `.editorconfig`), solution and five projects,
