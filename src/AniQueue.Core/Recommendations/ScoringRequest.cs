@@ -63,6 +63,43 @@ public sealed record ScoringCandidateTitles
     public bool Any => Romaji is not null || English is not null || Native is not null;
 }
 
+/// <summary>
+/// A history read once, so that several requests can be built from the same evidence.
+/// </summary>
+/// <remarks>
+/// <b>A sweep is many requests and should be one opinion.</b> Every batch used to read
+/// the history afresh, which meant a sync landing mid-sweep changed the evidence
+/// underneath it: observed for real, with one sweep's batches reporting 559 rated
+/// titles and then 563 within the same minute. The scores from either side of that
+/// land in one column and are sorted against each other, which is D43's failure in a
+/// different costume — two numbers compared as though they measured the same thing.
+///
+/// It also settles the prompt cache, from the other end to
+/// <see cref="ScoringRequestWriter"/>. That class keeps the varying fields out of the
+/// prefix; this keeps the prefix's own contents from varying. The history is around
+/// 95% of a batch's payload, so a single new rating would otherwise cost the whole
+/// remainder of a sweep its cache.
+///
+/// <b>What it knowingly costs:</b> a long sweep's last batch predicts against evidence
+/// as old as the sweep. A rating added at minute two does not influence the run it is
+/// added during. That is the trade — internal consistency over freshness — and it is
+/// the right way round, because the alternative is not fresher scores but incomparable
+/// ones.
+/// </remarks>
+public sealed record ScoringHistorySnapshot
+{
+    /// <summary>The sample sent, already capped and ordered.</summary>
+    public required IReadOnlyList<ScoringHistoryEntry> Entries { get; init; }
+
+    /// <summary>How many rated titles existed when this was read.</summary>
+    /// <remarks>
+    /// Frozen with the entries rather than counted per batch, because the prompt states
+    /// it — "a sample of their N rated titles" — and a figure that moved while the
+    /// sample did not would describe a request that was never sent.
+    /// </remarks>
+    public required int Available { get; init; }
+}
+
 /// <summary>One title waiting to be watched, offered to be ranked.</summary>
 public sealed record ScoringCandidate
 {

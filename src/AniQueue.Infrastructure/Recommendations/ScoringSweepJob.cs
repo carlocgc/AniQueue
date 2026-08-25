@@ -156,6 +156,23 @@ public sealed class ScoringSweepJob(
         var applied = 0;
         var batches = 0;
 
+        // Read once for the whole sweep, and reused by every batch below. A sweep is
+        // many requests and should be one opinion: the history used to be re-read per
+        // batch, so a sync landing mid-sweep moved the evidence underneath it — seen
+        // for real, with one sweep reporting 559 rated titles and then 563 inside the
+        // same minute. Scores from either side of that land in one column and are
+        // sorted against each other, which is what D43 spent a phase removing.
+        //
+        // It is also what makes the prefix ScoringRequestWriter arranges actually hold
+        // still: the history is around 95% of a batch's payload, so one new rating
+        // would otherwise cost every remaining batch its cache.
+        //
+        // **Deliberately not read here.** Taking it before the loop would read several
+        // hundred rows on every tick that turns out to have nothing to do, and D25's
+        // whole shape is that an idle task costs nothing. It is read on first use
+        // instead, below the gate that decides there is work.
+        ScoringHistorySnapshot? history = null;
+
         // Kept so the row can say what actually went wrong rather than that something
         // did. "192.168.0.240 did not answer within 1200 seconds" names the setting to
         // change; "could not answer every request" sends somebody to the log to find
@@ -194,9 +211,14 @@ public sealed class ScoringSweepJob(
             // still fixes the right five — and then spends the model on twenty that
             // did not need it, which on a small backlog is most of the run. Asking for
             // exactly what is left also makes the log agree with the card above it.
+            // First batch of this sweep pays for the history; the rest reuse it.
+            history ??= await recommendations.BuildHistoryAsync(
+                Profile.DefaultProfileId, current.HistorySize, cancellationToken);
+
             var outcome = await RunBatchAsync(
                 current,
                 Math.Min(batchSize, outstanding),
+                history,
                 cancellationToken);
 
             batches++;
@@ -291,21 +313,29 @@ public sealed class ScoringSweepJob(
     private async Task<(int Applied, bool TooLarge, string? Failure)> RunBatchAsync(
         ScoringOptions current,
         int batchSize,
+        ScoringHistorySnapshot history,
         CancellationToken cancellationToken)
     {
         // The candidate limit is the batch, and the return limit is deliberately not
         // set: everything offered has to come back, or the tail of the backlog is never
         // reached. The history is the user's own setting, because a sweep predicting
         // against different evidence from a manual run would give two answers to one
-        // question.
+        // question — and the snapshot is that argument carried one step further, since
+        // a sweep predicting against different evidence from *itself* is worse again.
+        //
+        // MaxHistory is still passed and is still the user's setting; it no longer
+        // reaches a query, because the snapshot was taken with it.
         var options = ScoringRequestOptions.From(
             current.HistorySize,
             batchSize,
             returnTop: null,
             current.IncludePersonalNotes);
 
+        // Candidates are read fresh every batch and must be: they shrink as the sweep
+        // scores them, and a title that left the backlog mid-sweep should not be sent
+        // again. Only the history is held still.
         var request = await recommendations.BuildRequestAsync(
-            Profile.DefaultProfileId, options, cancellationToken);
+            Profile.DefaultProfileId, options, history, cancellationToken);
 
         if (request.Candidates.Count == 0)
         {

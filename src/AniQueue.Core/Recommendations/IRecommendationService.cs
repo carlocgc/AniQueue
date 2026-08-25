@@ -300,9 +300,23 @@ public interface IRecommendationService
     /// Personal notes travel only when
     /// <see cref="ProfileSettings.IncludePersonalNotesInAiExport"/> is set (§6).
     /// </remarks>
+    /// <param name="history">
+    /// A history read earlier and reused, or null to read it now. A sweep passes one
+    /// so that every batch predicts against identical evidence; see
+    /// <see cref="ScoringHistorySnapshot"/>.
+    /// </param>
     Task<ScoringRequest> BuildRequestAsync(
         int profileId,
         ScoringRequestOptions? options = null,
+        ScoringHistorySnapshot? history = null,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Reads the history once, for a caller that will build several requests from it.
+    /// </summary>
+    Task<ScoringHistorySnapshot> BuildHistoryAsync(
+        int profileId,
+        int maxHistory,
         CancellationToken cancellationToken = default);
 
     /// <summary>
