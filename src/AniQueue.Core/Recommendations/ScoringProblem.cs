@@ -8,7 +8,7 @@ namespace AniQueue.Core.Recommendations;
 /// self-host, and it is a narrower rule than "reject anything imperfect".
 ///
 /// An <see cref="Error"/> means the response cannot be trusted as a statement
-/// about this library: a rank that repeats, a score off the scale, an id naming
+/// about this library: a title that repeats, a score off the scale, an id naming
 /// nothing. There is no honest way to apply part of that, so nothing is applied —
 /// which is what "never applied in part" (D31) protects, because a half-applied
 /// ranking is indistinguishable from a complete one an hour later.

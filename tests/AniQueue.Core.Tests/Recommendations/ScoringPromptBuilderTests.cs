@@ -170,7 +170,28 @@ public class ScoringPromptBuilderTests
         // in the reply, so nothing downstream could catch it.
         Assert.Contains("Weigh ALL 100 candidates, then return only the best 20", prompt);
         Assert.Contains("Do not rank the first 20 you see", prompt);
-        Assert.Contains("Return exactly 20 results, ranked 1 to 20", prompt);
+        Assert.Contains("Return exactly 20 results.", prompt);
+    }
+
+    [Fact]
+    public void Never_asks_for_a_rank_in_the_reply()
+    {
+        // D43. The prose still says "rank" because judging candidates against each
+        // other is the task; what went is the request to number the result, and the
+        // difference is only visible in the reply rules and the worked example. Both
+        // limited and unlimited forms, because the limited one carried its own
+        // "ranked 1 to N" that the shared rule would not have caught.
+        string[] prompts =
+        [
+            ScoringPromptBuilder.Build(Request()),
+            ScoringPromptBuilder.Build(Request(candidates: 100) with { ReturnTop = 20 })
+        ];
+
+        foreach (var prompt in prompts)
+        {
+            Assert.DoesNotContain("\"rank\"", prompt);
+            Assert.DoesNotContain("ranked 1 to", prompt);
+        }
     }
 
     [Fact]
