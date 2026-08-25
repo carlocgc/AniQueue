@@ -35,6 +35,18 @@ namespace AniQueue.Core.Recommendations;
 /// the backlog — sat immediately before the history array. Both are now below it.
 /// **Nothing here is a hint to the model**; a reader cannot tell the difference, and
 /// that is the point.
+///
+/// <b>This half works and is not sufficient on its own.</b> Measured against
+/// llama.cpp through LM Studio, before and after: every request used to be handed to
+/// a slot by <c>LRU</c> — round-robin across four cold caches, because no slot held a
+/// prefix worth matching. Afterwards every batch but the first is routed by
+/// <c>LCP similarity</c> at 0.93–0.999 and lands back on the same warm slot, which is
+/// the server saying it can see the shared prefix. It then reprocesses the whole
+/// prompt anyway, at an unchanged ~9 seconds a batch, because that server was running
+/// four slots against a unified KV cache. **So a change here is necessary, verifiable
+/// from the slot-selection line, and cannot be confirmed by wall-clock time alone** —
+/// if the tokens are still being reprocessed after this, look at the server's slot
+/// count before looking at the payload again.
 /// </remarks>
 public static class ScoringRequestWriter
 {
