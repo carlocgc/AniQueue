@@ -33,18 +33,47 @@ public sealed partial class ChatCompletionsEndpoint(
     private readonly TimeProvider _time = timeProvider ?? TimeProvider.System;
 
     /// <summary>
-    /// Roughly what one ranked title costs to generate, in tokens.
+    /// Roughly what one scored title costs to generate, in tokens.
     /// </summary>
     /// <remarks>
-    /// An id, a rank, two decimals, the JSON around them and a sentence of reasoning.
+    /// An id, two decimals, the JSON around them and a sentence of reasoning.
     /// Measured generously rather than tightly: the cost of overestimating is a ceiling
     /// no model reaches, and the cost of underestimating is a reply that stops
     /// mid-object — which is the single most common way this fails.
+    ///
+    /// <b>This half was never the problem.</b> Twenty-eight measured replies at ten
+    /// results each spent 276–620 tokens on the JSON — about 62 a result at worst,
+    /// against the 120 allowed here.
     /// </remarks>
     private const int TokensPerResult = 120;
 
-    /// <summary>Headroom for the envelope, and for a model that pads.</summary>
-    private const int TokenFloor = 512;
+    /// <summary>
+    /// Room for the envelope, for a model that pads — and for one that thinks first.
+    /// </summary>
+    /// <remarks>
+    /// <b>Was 512, described as "headroom", and that was the whole bug.</b> It budgeted
+    /// for the answer and not for what a reasoning model spends before starting one.
+    /// gpt-oss-20b emits its analysis into the same completion, and measured across
+    /// twenty-eight replies that analysis ran <b>211 to 1,436 tokens</b> — a sevenfold
+    /// swing, unpredictable per request, against a floor of 512. Every truncation
+    /// observed was the same story: reasoning of 1,220–1,436 left too little of the
+    /// 1,712-token ceiling for ten results that needed ~600.
+    ///
+    /// Two thousand and forty-eight clears the worst measured case with room to spare,
+    /// and it is nearly free. <b><c>max_tokens</c> is a ceiling, not a reservation</b> —
+    /// a model that finishes early pays nothing for a limit it never approaches, and a
+    /// non-reasoning model is unaffected. What it costs is the ceiling no longer
+    /// doubling as an accidental guard against a runaway reply, which is a job it was
+    /// doing by accident and doing badly: it fired on healthy requests far more often
+    /// than on sick ones.
+    ///
+    /// The remaining constraint is the server's context, not this number: the prompt
+    /// plus this must fit. A 26,000-token request plus 3,248 is comfortable in the
+    /// 49,152 the reference setup runs, and a request that genuinely will not fit is
+    /// already handled — <see cref="ScoringEndpointFailure.TooLarge"/> halves the batch
+    /// rather than failing the sweep.
+    /// </remarks>
+    private const int TokenFloor = 2048;
 
     /// <summary>How much of a failing response is shown back (D38).</summary>
     private const int MaxDiagnosticLength = 2048;
@@ -175,7 +204,7 @@ public sealed partial class ChatCompletionsEndpoint(
                     Trim(body));
             }
 
-            return ReadCompletion(body, Elapsed(started), target);
+            return ReadCompletion(body, Elapsed(started), target, maxTokens);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
@@ -211,7 +240,7 @@ public sealed partial class ChatCompletionsEndpoint(
     /// question. What is read here is the API's own envelope: which model answered, and
     /// whether it was allowed to finish.
     /// </remarks>
-    private ScoringEndpointResult ReadCompletion(string body, TimeSpan duration, Uri target)
+    private ScoringEndpointResult ReadCompletion(string body, TimeSpan duration, Uri target, int maxTokens)
     {
         JsonDocument document;
 
@@ -255,8 +284,7 @@ public sealed partial class ChatCompletionsEndpoint(
 
             // Read off the response rather than inferred from the shape of the broken
             // JSON. Every server in scope reports it, and it is the difference between
-            // "your model misbehaved" and "your model ran out of room", which is a
-            // failure with a fix the user already has a setting for.
+            // "your model misbehaved" and "your model ran out of room".
             var finish = choice.TryGetProperty("finish_reason", out var reason)
                 && reason.ValueKind == JsonValueKind.String
                     ? reason.GetString()
@@ -277,10 +305,18 @@ public sealed partial class ChatCompletionsEndpoint(
 
             if (string.Equals(finish, "length", StringComparison.OrdinalIgnoreCase))
             {
+                // It used to say "raise your server's output limit", which was advice
+                // that could not work: AniQueue sends max_tokens on every request, so
+                // the limit that bit was always this one and never the server's. A
+                // reasoning model is the usual cause — its analysis is spent from the
+                // same allowance as the answer — so the message names that instead of
+                // sending somebody to a setting that would be overridden anyway.
                 return ScoringEndpointResult.Failed(
                     ScoringEndpointFailure.Truncated,
-                    "Your model ran out of room part-way through the reply. "
-                        + "Ask for fewer rankings, or raise your server's output limit.",
+                    "Your model ran out of room part-way through the reply, after using "
+                        + $"the {maxTokens} tokens AniQueue allows it. "
+                        + "A model that reasons before answering spends part of that on thinking. "
+                        + "Ask for fewer titles per request, or use a model that reasons less.",
                     duration,
                     Trim(reply));
             }

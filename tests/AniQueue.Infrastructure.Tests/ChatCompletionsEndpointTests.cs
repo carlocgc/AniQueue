@@ -148,6 +148,34 @@ public class ChatCompletionsEndpointTests
             sent.RootElement.GetProperty("max_tokens").GetInt32());
     }
 
+    /// <summary>
+    /// The ceiling leaves room for a model that thinks before it answers.
+    /// </summary>
+    /// <remarks>
+    /// Against measurements rather than against the formula, because the test above
+    /// compares <c>MaxTokensFor</c> to itself and would stay green at any floor at all
+    /// — including the 512 that caused this. These numbers are from twenty-eight
+    /// replies from gpt-oss-20b at ten titles a batch: the analysis it emits into the
+    /// same completion ran 211–1,436 tokens, and the JSON answer needed up to 620.
+    /// A ceiling that does not clear both is one that truncates on an unlucky request
+    /// while looking generous on an average one, which is exactly how the old floor
+    /// survived review.
+    /// </remarks>
+    [Fact]
+    public void The_output_ceiling_clears_the_worst_measured_reasoning_and_a_full_answer()
+    {
+        const int WorstObservedReasoning = 1436;
+        const int LargestObservedAnswer = 620;
+
+        var ceiling = ChatCompletionsEndpoint.MaxTokensFor(10);
+
+        Assert.True(
+            ceiling >= WorstObservedReasoning + LargestObservedAnswer,
+            $"a batch of ten allows {ceiling} tokens, which does not clear the "
+            + $"{WorstObservedReasoning} a reasoning model was measured spending on analysis "
+            + $"plus the {LargestObservedAnswer} its answer needed.");
+    }
+
     [Fact]
     public async Task Structured_output_is_asked_for_by_default_and_can_be_turned_off()
     {
@@ -205,9 +233,8 @@ public class ChatCompletionsEndpointTests
     [Fact]
     public async Task A_model_that_ran_out_of_room_says_so_rather_than_looking_malformed()
     {
-        // The failure people hit most, and the only one whose fix is a setting they
-        // already have. Reported as "not valid JSON" it looks like the model
-        // misbehaved, when the model did as well as it was allowed to.
+        // The failure people hit most. Reported as "not valid JSON" it looks like the
+        // model misbehaved, when the model did as well as it was allowed to.
         var (endpoint, _) = Create(_ => Json(Completion(
             """{ "results": [{ "id": 1, "predictedScore": 8.0, "confi""",
             finish: "length")));
@@ -216,7 +243,17 @@ public class ChatCompletionsEndpointTests
 
         Assert.Equal(ScoringEndpointFailure.Truncated, result.Failure);
         Assert.Contains("ran out of room", result.Message!, StringComparison.OrdinalIgnoreCase);
-        Assert.Contains("fewer rankings", result.Message!, StringComparison.OrdinalIgnoreCase);
+
+        // It names AniQueue's own ceiling, and says so. The message used to end "raise
+        // your server's output limit", which was advice that could not work: max_tokens
+        // travels with every request, so the server's own setting is overridden before
+        // it can apply. Somebody following that instruction would change a setting,
+        // see no difference, and have no way to find out why.
+        Assert.Contains("AniQueue allows", result.Message!, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains(
+            ChatCompletionsEndpoint.MaxTokensFor(2).ToString(System.Globalization.CultureInfo.InvariantCulture),
+            result.Message!);
+        Assert.DoesNotContain("server's output limit", result.Message!, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
