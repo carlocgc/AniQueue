@@ -193,4 +193,60 @@ public class ScoringRequestWriterTests
         Assert.Equal("\"Bakemonogatari\" — 化物語", candidate.GetProperty("title").GetString());
         Assert.Equal("化物語", candidate.GetProperty("titles").GetProperty("native").GetString());
     }
+
+    /// <summary>
+    /// Two batches of one sweep are byte-identical up to the end of the history.
+    /// </summary>
+    /// <remarks>
+    /// The property the prompt cache actually depends on, asserted on the bytes
+    /// rather than on the field order, because what a server compares is the text. A
+    /// varying field placed above the history breaks this and breaks nothing else —
+    /// the document stays valid, the model still answers, and the only symptom is a
+    /// sweep that spends seven seconds a batch reprocessing tokens it already sent.
+    /// Nothing but this test would notice.
+    /// </remarks>
+    [Fact]
+    public void Two_batches_of_one_sweep_share_every_byte_up_to_the_end_of_the_history()
+    {
+        var history = new[]
+        {
+            new ScoringHistoryEntry { Title = "Nichijou", Score = 9, Year = 2011 },
+            new ScoringHistoryEntry { Title = "Gunbuster", Score = 10, Year = 1988 }
+        };
+
+        // What a second batch differs by: a later timestamp, a smaller remaining pool,
+        // and an entirely different set of candidates.
+        var first = new ScoringRequest
+        {
+            GeneratedAt = When,
+            History = history,
+            HistoryAvailable = 2,
+            CandidatesAvailable = 40,
+            Candidates = [new ScoringCandidate { Id = 1, Title = "Hinamatsuri" }]
+        };
+
+        var second = new ScoringRequest
+        {
+            GeneratedAt = When.AddMinutes(3),
+            History = history,
+            HistoryAvailable = 2,
+            CandidatesAvailable = 15,
+            Candidates = [new ScoringCandidate { Id = 2, Title = "Serial Experiments Lain" }]
+        };
+
+        var a = ScoringRequestWriter.Write(first);
+        var b = ScoringRequestWriter.Write(second);
+
+        var sharedPrefix = a.Zip(b).TakeWhile(pair => pair.First == pair.Second).Count();
+
+        // The whole history, and the marker closing it, are inside the shared prefix.
+        var endOfHistory = a.IndexOf("Gunbuster", StringComparison.Ordinal);
+
+        Assert.True(endOfHistory > 0, "the history should be in the document at all");
+        Assert.True(
+            sharedPrefix > endOfHistory,
+            $"the two batches diverge at byte {sharedPrefix}, which is inside the history "
+            + $"(it ends around byte {endOfHistory}). Something that varies per batch has "
+            + "been written above it, and the server will reprocess the history every time.");
+    }
 }

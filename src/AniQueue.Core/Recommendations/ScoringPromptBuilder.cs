@@ -122,13 +122,17 @@ public static class ScoringPromptBuilder
         prompt.AppendLine("- \"id\" must be copied exactly from the candidate. Never invent one.");
         prompt.AppendLine(
             CultureInfo.InvariantCulture,
-            $"- \"rank\" starts at 1 and each is used once. \"predictedScore\" is {scale.Min}–{scale.Max}. \"confidence\" is 0–1.");
+            $"- \"predictedScore\" is {scale.Min}–{scale.Max}. \"confidence\" is 0–1.");
 
+        // No rule about "rank", because nothing asks for one any more (D43). Asking
+        // for a placement alongside a score got the score derived from the placement
+        // — observed output ranged from an integer staircase locked to position to
+        // genuinely independent scoring — and the score is the half that is stored.
         if (request.IsRankingLimited)
         {
             prompt.AppendLine(
                 CultureInfo.InvariantCulture,
-                $"- Return exactly {request.ExpectedResults} results, ranked 1 to {request.ExpectedResults}.");
+                $"- Return exactly {request.ExpectedResults} results.");
         }
         else
         {
@@ -155,8 +159,8 @@ public static class ScoringPromptBuilder
         {
           "aniqueue": { "format": "{{ScoringResponse.ResponseFormat}}", "version": {{ScoringRequest.CurrentVersion}} },
           "results": [
-            { "id": 412, "rank": 1, "predictedScore": {{scale.Max - 1}}.5, "confidence": 0.8, "reason": "Same studio as several of your highest-rated titles." },
-            { "id": 98, "rank": 2, "predictedScore": 7.0, "confidence": 0.6, "reason": "Nothing close in your history; ranked on genre alone." }
+            { "id": 412, "predictedScore": {{scale.Max - 1}}.5, "confidence": 0.8, "reason": "Same studio as several of your highest-rated titles." },
+            { "id": 98, "predictedScore": 7.0, "confidence": 0.6, "reason": "Nothing close in your history; ranked on genre alone." }
           ]
         }
         """;

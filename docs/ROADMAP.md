@@ -3633,6 +3633,27 @@ about the run rather than about a title.
 change, with the returned scores read out of the log: the check is whether the staircase D43
 records is gone. A green suite proves the field is gone, which is the easy half.
 
+*Three things this section did not anticipate, all found by building it:*
+
+**The `(RunId, Rank)` index is replaced rather than simply dropped.** It was the foreign key's
+index with a sort key appended, so removing the sort key leaves EF creating a plain
+`IX_RecommendationRunItems_RunId` of its own. Nothing declares it and nothing should: declaring
+one in `RecommendationRunItemConfiguration` would duplicate what the FK already gets.
+
+**The scaffolded `Down` could not run.** EF re-adds a dropped non-nullable column with
+`defaultValue: 0`, then re-adds `CK_RecommendationRunItems_RankPositive`, which requires `>= 1` —
+so on any database holding run items the generated revert fails against its own constraint. It is
+corrected to 1 by hand. Worth knowing generally: **when a dropped column carried a check
+constraint, read the scaffolded default against that constraint before trusting `Down`**, because
+nothing in a forward-only test will ever exercise it.
+
+**A staircase is not what the evidence looks like; ties are.** "Read the scores out of the log"
+under-specifies the check, because the parser now orders results by score, so the stored order is
+descending whatever the model did — the sequence being descending proves nothing. What does
+prove something is **repeated scores**: a score derived from a unique rank cannot produce two
+titles with the same number. The verifying sweep returned three titles at 8.5, three at 6.5 and
+two at 5.0 in one batch, which no position-derived scoring can produce.
+
 *Exit:* no request asks for a rank, no reply needs one, no row stores one and no page shows one;
 the backlog sorts by the only number the model is now asked to produce.
 

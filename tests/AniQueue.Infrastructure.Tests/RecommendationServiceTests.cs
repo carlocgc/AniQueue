@@ -145,13 +145,13 @@ public class RecommendationServiceTests
         Candidates = animeIds.Select(id => new ScoringCandidate { Id = id, Title = $"#{id}" }).ToList()
     };
 
-    private static string Ranking(params (int Id, int Rank, double Score)[] results) =>
+    private static string Ranking(params (int Id, double Score)[] results) =>
         $$"""
           {
             "aniqueue": { "format": "aniqueue-scoring-response", "version": 1 },
             "results": [
               {{string.Join(",\n    ", results.Select(r =>
-                  $$"""{ "id": {{r.Id}}, "rank": {{r.Rank}}, "predictedScore": {{r.Score}}, "confidence": 0.8, "reason": "Because." }"""))}}
+                  $$"""{ "id": {{r.Id}}, "predictedScore": {{r.Score}}, "confidence": 0.8, "reason": "Because." }"""))}}
             ]
           }
           """;
@@ -320,7 +320,7 @@ public class RecommendationServiceTests
 
             seen.AddRange(ids);
 
-            var ranking = Ranking(ids.Select((id, index) => (id, index + 1, 7.0)).ToArray());
+            var ranking = Ranking([.. ids.Select(id => (id, 7.0))]);
             var preview = await fixture.Recommendations.PreviewAsync(fixture.ProfileId, ranking, request);
 
             await fixture.Recommendations.ApplyAsync(fixture.ProfileId, preview, "Manual");
@@ -355,7 +355,7 @@ public class RecommendationServiceTests
 
         var preview = await fixture.Recommendations.PreviewAsync(
             fixture.ProfileId,
-            Ranking((offered.Id, 1, 8.0), (notOffered.Id, 2, 7.0)),
+            Ranking((offered.Id, 8.0), (notOffered.Id, 7.0)),
             Asked(offered.Id));
 
         // Waiting, and real, but not part of the question — so its score was not
@@ -386,7 +386,7 @@ public class RecommendationServiceTests
 
         var preview = await fixture.Recommendations.PreviewAsync(
             fixture.ProfileId,
-            Ranking((offered.Id, 1, 8.0)),
+            Ranking((offered.Id, 8.0)),
             Asked(offered.Id));
 
         // Without the offered set this would say four of five were not ranked, which
@@ -436,7 +436,7 @@ public class RecommendationServiceTests
 
         var preview = await fixture.Recommendations.PreviewAsync(
             fixture.ProfileId,
-            Ranking((first.Id, 1, 8.0)),
+            Ranking((first.Id, 8.0)),
             request);
 
         // One of three ranked, and nothing missing — because one is what was asked
@@ -468,7 +468,7 @@ public class RecommendationServiceTests
         // never worked.
         var preview = await fixture.Recommendations.PreviewAsync(
             fixture.ProfileId,
-            Ranking((first.Id, 1, 9.0), (second.Id, 2, 8.0), (third.Id, 3, 7.0)),
+            Ranking((first.Id, 9.0), (second.Id, 8.0), (third.Id, 7.0)),
             request);
 
         Assert.False(preview.HasErrors);
@@ -495,7 +495,7 @@ public class RecommendationServiceTests
 
         var preview = await fixture.Recommendations.PreviewAsync(
             fixture.ProfileId,
-            Ranking((first.Id, 1, 8.0)),
+            Ranking((first.Id, 8.0)),
             request);
 
         Assert.Equal(2, preview.MissingCount);
@@ -602,7 +602,7 @@ public class RecommendationServiceTests
 
         var preview = await fixture.Recommendations.PreviewAsync(
             fixture.ProfileId,
-            Ranking((known.Id, 1, 8.0), (9999, 2, 7.0)));
+            Ranking((known.Id, 8.0), (9999, 7.0)));
 
         Assert.True(preview.HasErrors);
         Assert.False(preview.CanApply);
@@ -622,7 +622,7 @@ public class RecommendationServiceTests
 
         var preview = await fixture.Recommendations.PreviewAsync(
             fixture.ProfileId,
-            Ranking((waiting.Id, 1, 8.0), (started.Id, 2, 7.0)));
+            Ranking((waiting.Id, 8.0), (started.Id, 7.0)));
 
         Assert.False(preview.HasErrors);
         Assert.Equal(1, preview.ApplicableCount);
@@ -647,7 +647,7 @@ public class RecommendationServiceTests
 
         var preview = await fixture.Recommendations.PreviewAsync(
             fixture.ProfileId,
-            Ranking((ranked.Id, 1, 8.0)));
+            Ranking((ranked.Id, 8.0)));
 
         // The case a small model produces constantly. Discarding a valid ranking of
         // 170 titles because twelve were omitted protects nothing.
@@ -673,7 +673,7 @@ public class RecommendationServiceTests
 
         var preview = await fixture.Recommendations.PreviewAsync(
             fixture.ProfileId,
-            Ranking((anime.Id, 1, 8.0)));
+            Ranking((anime.Id, 8.0)));
 
         await fixture.Recommendations.ApplyAsync(
             fixture.ProfileId,
@@ -701,7 +701,7 @@ public class RecommendationServiceTests
 
         var preview = await fixture.Recommendations.PreviewAsync(
             fixture.ProfileId,
-            Ranking((anime.Id, 1, 8.0)));
+            Ranking((anime.Id, 8.0)));
 
         await fixture.Recommendations.ApplyAsync(fixture.ProfileId, preview, "Manual");
 
@@ -722,7 +722,7 @@ public class RecommendationServiceTests
 
         var preview = await fixture.Recommendations.PreviewAsync(
             fixture.ProfileId,
-            Ranking((first.Id, 1, 8.6), (second.Id, 2, 7.1)));
+            Ranking((first.Id, 8.6), (second.Id, 7.1)));
 
         var applied = await fixture.Recommendations.ApplyAsync(
             fixture.ProfileId,
@@ -751,7 +751,7 @@ public class RecommendationServiceTests
         // comparable when the library has grown between them.
         Assert.Equal(1, run.CompletedCount);
         Assert.Equal(2, run.Items.Count);
-        Assert.Equal(1, run.Items.Single(i => i.AnimeId == first.Id).Rank);
+        Assert.Equal(8.6, run.Items.Single(i => i.AnimeId == first.Id).PredictedScore);
     }
 
     [Fact]
@@ -781,7 +781,7 @@ public class RecommendationServiceTests
 
         var preview = await fixture.Recommendations.PreviewAsync(
             fixture.ProfileId,
-            Ranking((first.Id, 1, 9.0), (second.Id, 2, 5.0)));
+            Ranking((first.Id, 9.0), (second.Id, 5.0)));
 
         await fixture.Recommendations.ApplyAsync(fixture.ProfileId, preview, "Manual");
 
@@ -812,10 +812,10 @@ public class RecommendationServiceTests
 
         var anime = await AddAsync(context, fixture.ProfileId, "Reconsidered");
 
-        var first = await fixture.Recommendations.PreviewAsync(fixture.ProfileId, Ranking((anime.Id, 1, 4.0)));
+        var first = await fixture.Recommendations.PreviewAsync(fixture.ProfileId, Ranking((anime.Id, 4.0)));
         await fixture.Recommendations.ApplyAsync(fixture.ProfileId, first, "Manual");
 
-        var second = await fixture.Recommendations.PreviewAsync(fixture.ProfileId, Ranking((anime.Id, 1, 9.0)));
+        var second = await fixture.Recommendations.PreviewAsync(fixture.ProfileId, Ranking((anime.Id, 9.0)));
 
         // The preview shows what would be replaced, so the change is visible before
         // it happens rather than after.
@@ -840,13 +840,12 @@ public class RecommendationServiceTests
         var anime = await AddAsync(context, fixture.ProfileId, "Explained");
         await AddAsync(context, fixture.ProfileId, "Also waiting");
 
-        var preview = await fixture.Recommendations.PreviewAsync(fixture.ProfileId, Ranking((anime.Id, 1, 8.6)));
+        var preview = await fixture.Recommendations.PreviewAsync(fixture.ProfileId, Ranking((anime.Id, 8.6)));
         await fixture.Recommendations.ApplyAsync(fixture.ProfileId, preview, "Manual", "some-local-model");
 
         var detail = await fixture.Recommendations.GetDetailAsync(fixture.ProfileId, anime.Id);
 
         Assert.NotNull(detail);
-        Assert.Equal(1, detail.Rank);
         Assert.Equal(8.6, detail.PredictedScore);
         Assert.Equal(0.8, detail.Confidence);
         Assert.Equal("Because.", detail.Reason);
@@ -854,9 +853,10 @@ public class RecommendationServiceTests
         Assert.Equal("some-local-model", detail.ModelIdentifier);
         Assert.Equal(Now, detail.DeterminedAt);
 
-        // How many titles were weighed to place it, which is what makes "ranked 1 of
-        // 2" mean something.
-        Assert.Equal(2, detail.CandidateCount);
+        // Rank and CandidateCount were asserted here too, together rendering
+        // "Ranked 1 of 2" on the title. D43 removed both: the placement it reported
+        // was relative to a batch the user never sees, and a score derived from a
+        // placement is what the whole phase exists to stop.
     }
 
     [Fact]
@@ -869,7 +869,7 @@ public class RecommendationServiceTests
 
         foreach (var score in new[] { 4.0, 9.0 })
         {
-            var preview = await fixture.Recommendations.PreviewAsync(fixture.ProfileId, Ranking((anime.Id, 1, score)));
+            var preview = await fixture.Recommendations.PreviewAsync(fixture.ProfileId, Ranking((anime.Id, score)));
             await fixture.Recommendations.ApplyAsync(fixture.ProfileId, preview, "Manual");
         }
 
@@ -914,7 +914,7 @@ public class RecommendationServiceTests
 
         foreach (var score in new[] { 4.0, 9.0 })
         {
-            var preview = await fixture.Recommendations.PreviewAsync(fixture.ProfileId, Ranking((anime.Id, 1, score)));
+            var preview = await fixture.Recommendations.PreviewAsync(fixture.ProfileId, Ranking((anime.Id, score)));
             await fixture.Recommendations.ApplyAsync(fixture.ProfileId, preview, "Manual");
         }
 
@@ -936,7 +936,7 @@ public class RecommendationServiceTests
         var other = await SeedData.CreateProfileAsync(context, "Someone else");
         var theirs = await AddAsync(context, other.Id, "Their backlog");
 
-        var preview = await fixture.Recommendations.PreviewAsync(fixture.ProfileId, Ranking((theirs.Id, 1, 8.0)));
+        var preview = await fixture.Recommendations.PreviewAsync(fixture.ProfileId, Ranking((theirs.Id, 8.0)));
 
         Assert.True(preview.HasErrors);
     }

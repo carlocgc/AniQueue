@@ -16,6 +16,12 @@ namespace AniQueue.Core.Recommendations;
 /// The wire schema stops a model returning prose; the parser decides whether the
 /// numbers mean anything (D31).
 ///
+/// <b>No <c>additionalProperties: false</c>, and since D43 that carries weight.</b>
+/// <c>rank</c> left the interchange, but a model that has seen the old shape will
+/// still send one; a closed schema would make the server refuse a reply whose
+/// scores are perfectly good over a field nothing reads any more. Open here and
+/// read past in the parser is the same decision stated twice.
+///
 /// <b>The envelope is not required here</b> even though the prompt asks for it.
 /// <see cref="ScoringResponseParser"/> tolerates its absence on purpose — models
 /// return the array reliably and the wrapper unreliably — so requiring it on the wire
@@ -38,12 +44,11 @@ public static class ScoringResponseSchema
                 "type": "object",
                 "properties": {
                   "id": { "type": "integer" },
-                  "rank": { "type": "integer" },
                   "predictedScore": { "type": "number" },
                   "confidence": { "type": "number" },
                   "reason": { "type": "string" }
                 },
-                "required": ["id", "rank", "predictedScore", "confidence"]
+                "required": ["id", "predictedScore", "confidence"]
               }
             }
           },

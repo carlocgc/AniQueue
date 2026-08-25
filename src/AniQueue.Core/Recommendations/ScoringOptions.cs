@@ -111,12 +111,23 @@ public class ScoringOptions
     /// How many titles one unattended batch carries.
     /// </summary>
     /// <remarks>
-    /// Twenty-five is about three thousand output tokens, which is inside any local
-    /// server's budget including a stingy default. Small enough that a failure costs
-    /// little and a stand-down is quick; large enough that a backlog of several
-    /// hundred is worked through in an evening rather than a fortnight.
+    /// <b>Was twenty-five, on the reasoning that it is about three thousand output
+    /// tokens and so inside any local server's budget.</b> The arithmetic was right
+    /// and the assumption under it was not: it counted the tokens of the answer and
+    /// not the tokens a reasoning model spends before starting one, and it treated
+    /// "fits in the budget" as the only thing that could go wrong with a long reply.
+    ///
+    /// Measured against gpt-oss-20b at twenty-five, most replies came back short by
+    /// choice rather than by truncation — the model simply stopped, which the prompt
+    /// permits — so the batch size was setting an answer length the model would not
+    /// see through. Ten is inside what it finishes reliably.
+    ///
+    /// The old note's other half still holds and now cuts the other way: a backlog of
+    /// several hundred should still be worked through in an evening. That survives
+    /// halving the batch only because the request no longer breaks the prompt cache,
+    /// so the history costs one processing per sweep rather than one per batch.
     /// </remarks>
-    public int BatchSize { get; set; } = 25;
+    public int BatchSize { get; set; } = 10;
 
     /// <summary>How long one sweep may keep going, in minutes.</summary>
     /// <remarks>

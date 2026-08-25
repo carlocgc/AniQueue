@@ -171,7 +171,9 @@ internal static class UserSettingsDocument
 
         new(
             "Scoring:BatchSize",
-            ["Titles per unattended request. Smaller fits a smaller model."],
+            ["Titles per unattended request. Smaller fits a smaller model.",
+             "A model that stops before the end of a long reply leaves the rest unscored,",
+             "so fewer titles asked for well is better than more asked for badly."],
             s => s.ScoringBatchSize),
 
         new(
