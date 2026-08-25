@@ -2060,6 +2060,96 @@ sweep against a real model afterwards and look at whether the staircase is gone.
 
 ---
 
+### D44 — The model chooses the comparison; AniQueue states the fact
+
+*Makes the reason's factual content checkable, after three attempts to make it trustworthy by
+asking nicely.*
+
+**The reason is the last field accepted on trust.** Every number in a reply is validated — against
+a schema, a scale, a range — because D31 holds that an instruction is a request rather than a
+guarantee. The sentence explaining those numbers gets none of that. `ScoringResponseParser` trims
+it, truncates it past 500 characters, and passes it through; the backlog then prints it to the user
+under *"Why this score"* as a statement about their own viewing history.
+
+**D43's prompt fix reduced the problem and did not close it.** Three rules replaced one, an escape
+hatch was added for when nothing in the history is close, and the worked example was rewritten to
+carry no number. All three were verified as being sent. `gpt-oss-20b` then returned, against a
+library where every one of these titles is `Planning` and unrated:
+
+| reason returned | the truth |
+|---|---|
+| "Similar to IS: Infinite Stratos which you rated 10" | never watched, never rated |
+| "You enjoyed the first season of The 100 Girlfriends… (8), so the second season should be similar" | S1 was an **unwatched candidate in the same batch** |
+
+The second one violates a rule that was in the prompt at the time, verbatim: *"Everything in
+`candidates` is unwatched: never say they rated one."*
+
+**So stop trying to make the sentence trustworthy and make the claim unnecessary.** The model is
+asked for a comparison it may make freely, and forbidden from asserting the facts about it.
+AniQueue holds those facts — it sent the history — and writes them itself:
+
+```json
+{ "id": 412, "predictedScore": 8.5, "confidence": 0.8,
+  "basedOn": ["Nichijou", "KonoSuba"],
+  "reason": "Comedy with a strong ensemble." }
+```
+
+rendered as *"Comedy with a strong ensemble. Compared against **Nichijou** (9) and **KonoSuba**
+(8)."* — where the two scores come from the database rather than from the model. A fabricated
+rating stops being something to detect, because there is no field in which to write one.
+
+**`basedOn` is a list, and that is the whole of the design rather than a detail.** The obvious
+version of this — one cited title per result — was rejected on an objection raised while reviewing
+it: *does a single citation invite comparison against one arbitrary show, rather than against the
+whole scored backlog?* It does, and the concern is D43's own failure wearing different clothes.
+Asking for a field changes how the other fields are produced, so requiring exactly one comparable
+invites a model to find one plausible title and score by analogy to it — which is a worse
+prediction than weighing five hundred and fifty rated titles, and one that looks identical in the
+reply. The existing prompt already refuses this trap in prose, offering *"name a title from it, **or
+describe a pattern across it**"*, and a single-valued field would quietly delete the second half.
+
+The list is therefore genuinely 0..n, and each arity means something:
+
+- **empty** — nothing in the history is close, which the prompt already invites a model to say and
+  which is a legitimate and useful answer;
+- **one** — a direct comparable;
+- **several** — a pattern, which is the honest shape when taste is diffuse and is the case a
+  single-valued field would have lost.
+
+**Score first, citation after.** In the emitted shape `predictedScore` precedes `basedOn`, so the
+score is committed before the comparison is named and the citation cannot have driven it. This is
+D43's lesson applied in advance rather than after a sweep goes wrong. It buys less than it appears
+to — a citation written after a score is a post-hoc rationalisation, which is arguably what every
+model explanation is — but it costs nothing and it removes the mechanism D43 was bitten by.
+
+**Validation, and it is ordinary.** Every `basedOn` entry must match, exactly, a history title sent
+in *this* request. AniQueue sent those strings, so the comparison is a set lookup and needs no
+fuzzy matching and no new payload: history entries deliberately carry no identifier (D-none; see
+`ScoringHistoryEntry`, where ids were left out to keep the largest part of the payload small), and
+the title is sufficient because it is the same string travelling back. An unmatched entry, or a
+digit appearing anywhere in `reason`, drops the reason and keeps the score — a bad sentence must
+never cost a good number, which is the same proportionality D31 applies to a long reason.
+
+**What this does not claim to fix.** Verification proves a cited title was rated and that the score
+shown against it is real. It cannot prove the comparison is *apt*: a model may cite *Gunbuster*
+against a slice-of-life comedy, and every fact rendered will be correct. This closes false
+statements about the user's own history, which is the class that has actually occurred and the
+class a user cannot check without opening their own list. It does not make the reasoning good.
+
+**Keeping the prose is a requirement, not an assumption.** A cheaper route exists — drop `reason`
+entirely, score with numbers alone, and fit far more per batch — and it is rejected: the
+explanation is a large part of why this feature is worth having, and a score with no account of
+itself is the black box the whole workflow was built to avoid. `basedOn` is chosen partly because
+it is the option that makes the reason *more* useful rather than less.
+
+**Open, and to be settled by measurement.** Whether requiring a citation shifts the scores is the
+same question D43 had to answer about rank, and it takes the same answer: run a sweep with and
+without against a real model and compare the score distributions. If citation turns out to distort
+prediction the way placement did, the field becomes optional rather than required, and a result
+carrying no `basedOn` keeps a numberless reason.
+
+---
+
 ## 3. Solution structure
 
 Follows the brief's §36. It is a sensible shape; no argument.
