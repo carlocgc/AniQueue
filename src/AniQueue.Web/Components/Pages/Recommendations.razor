@@ -126,7 +126,142 @@
     }
 
     <div class="card">
-        <h2>Remote model</h2>
+        <h2>Manual</h2>
+
+        @if (_request is null)
+        {
+            <p class="muted">
+                Build a file describing what you are planning to watch, paste it into any
+                model you like, and bring the answer back. The same request the remote
+                option sends, carried by you — and the route that works with any model,
+                because you can see what came back before it is applied.
+            </p>
+
+            <div class="toolbar">
+                <button class="primary" disabled="@_busy.IsRunning" @onclick="BuildAsync">
+                    Build the request
+                </button>
+            </div>
+        }
+        else if (_request.Candidates.Count == 0)
+        {
+            <div class="empty-state">
+                <p>Nothing is waiting to be watched, so there is nothing to rank.</p>
+                <a class="button primary" href="backlog">Open the backlog</a>
+            </div>
+        }
+        else
+        {
+            <p class="muted">
+                @_request.Candidates.Count @Plural(_request.Candidates.Count, "title", "titles") to rank,
+                with @_request.History.Count of your @_request.HistoryAvailable scored
+                @Plural(_request.HistoryAvailable, "title", "titles") as history.
+                @* The size is the number that decides whether a model can read this at
+                   all, and nothing else on the page implies it — a count of titles says
+                   nothing about how much context they occupy. *@
+                About @Size(_payload!.Length) of text.
+            </p>
+
+            @if (_capped is { } capped)
+            {
+                <p class="muted">
+                    This request covers @capped of your @_waiting waiting
+                    @Plural(_waiting, "title", "titles") — the ones longest without a score.
+                    Build it again after applying to work through the rest.
+                </p>
+            }
+
+            @if (_request.IsRankingLimited)
+            {
+                <p class="muted">
+                    It asks for the best @_request.ExpectedResults back, not all
+                    @_request.Candidates.Count. Every title is still weighed; only the top of
+                    the result is returned.
+                </p>
+            }
+
+            @if (_request.IsHistoryCapped)
+            {
+                <p class="muted">
+                    The history is a sample, most recently finished first — enough for a model
+                    to read your taste without crowding out the backlog it is ranking.
+                </p>
+            }
+
+            <div class="toolbar">
+                <button class="primary" @onclick="DownloadRequestAsync">Download the file</button>
+                <button @onclick="CopyRequestAsync">Copy the request</button>
+                <button @onclick="CopyPromptAsync">Copy the instructions</button>
+                <button @onclick="BuildAsync" disabled="@_busy.IsRunning">Rebuild</button>
+            </div>
+
+            @if (_copied is not null)
+            {
+                <p class="muted" role="status">@_copied</p>
+            }
+
+            <p class="muted">
+                Paste the instructions into your model, then the request below them. The
+                instructions tell it exactly what to send back.
+            </p>
+
+            @* Both are shown rather than only offered, because on a self-hosted install
+               over plain http the clipboard API does not exist and the fallback can be
+               refused too. Text on the page can always be selected by hand, so the copy
+               buttons are a convenience over a route that already works. *@
+            <details>
+                <summary>Read the instructions</summary>
+                <pre class="payload">@_prompt</pre>
+            </details>
+
+            <details>
+                <summary>Read the request</summary>
+                <pre class="payload">@_payload</pre>
+            </details>
+        }
+
+        <div class="field">
+            <label for="response">Paste the reply</label>
+            @* The placeholder comes from a C# string rather than being written inline
+               with entities. Razor encodes a literal attribute value, so a &quot; in the
+               markup reaches the browser as &amp;quot; and the field advertises the
+               wrong shape — quotation marks are exactly what a person is checking their
+               reply against here. *@
+            <textarea id="response" rows="8" spellcheck="false"
+                      placeholder="@ResponseExample"
+                      disabled="@_busy.IsRunning"
+                      @bind="_response" @bind:event="oninput"></textarea>
+        </div>
+
+        <div class="toolbar">
+            <button class="primary" disabled="@(_busy.IsRunning || string.IsNullOrWhiteSpace(_response))"
+                    @onclick="PreviewPastedAsync">
+                Check the reply
+            </button>
+
+            <InputFile id="response-file" class="file-input" OnChange="OnFileSelectedAsync"
+                       accept=".json,.txt" disabled="@_busy.IsRunning"
+                       aria-label="Upload the model's reply" />
+        </div>
+    </div>
+
+    <div class="card">
+        @* Experimental, and the badge is the honest half of a two-part statement: the
+           other half is that scheduled runs are off until somebody turns them on.
+           Three models were tried against one real library and only one of them could
+           answer — gpt-oss-20b managed it at 564 rated titles, while gemma-4-12b
+           failed even at 50 and qwen3.5 returned nothing at 564. The two that failed
+           did so by spending their whole output budget reasoning and never starting
+           the JSON, which is a disposition rather than a bug and not one AniQueue can
+           settle from this side. *@
+        <h2>Remote model <span class="badge experimental">Experimental</span></h2>
+
+        <p class="muted">
+            Whether this works depends on the model. Some spend their whole reply
+            thinking and never answer, and there is no setting here that fixes that —
+            so scheduled ranking is off until you turn it on, and the
+            <strong>Manual</strong> route above works with anything.
+        </p>
 
         @if (!Endpoint.IsConfigured)
         {
@@ -330,125 +465,6 @@
         </details>
     </div>
 
-    <div class="card">
-        <h2>By hand</h2>
-
-        @if (_request is null)
-        {
-            <p class="muted">
-                Build a file describing what you are planning to watch, paste it into any
-                model you like, and bring the answer back. The same request the remote
-                option sends, carried by you.
-            </p>
-
-            <div class="toolbar">
-                <button class="primary" disabled="@_busy.IsRunning" @onclick="BuildAsync">
-                    Build the request
-                </button>
-            </div>
-        }
-        else if (_request.Candidates.Count == 0)
-        {
-            <div class="empty-state">
-                <p>Nothing is waiting to be watched, so there is nothing to rank.</p>
-                <a class="button primary" href="backlog">Open the backlog</a>
-            </div>
-        }
-        else
-        {
-            <p class="muted">
-                @_request.Candidates.Count @Plural(_request.Candidates.Count, "title", "titles") to rank,
-                with @_request.History.Count of your @_request.HistoryAvailable scored
-                @Plural(_request.HistoryAvailable, "title", "titles") as history.
-                @* The size is the number that decides whether a model can read this at
-                   all, and nothing else on the page implies it — a count of titles says
-                   nothing about how much context they occupy. *@
-                About @Size(_payload!.Length) of text.
-            </p>
-
-            @if (_capped is { } capped)
-            {
-                <p class="muted">
-                    This request covers @capped of your @_waiting waiting
-                    @Plural(_waiting, "title", "titles") — the ones longest without a score.
-                    Build it again after applying to work through the rest.
-                </p>
-            }
-
-            @if (_request.IsRankingLimited)
-            {
-                <p class="muted">
-                    It asks for the best @_request.ExpectedResults back, not all
-                    @_request.Candidates.Count. Every title is still weighed; only the top of
-                    the result is returned.
-                </p>
-            }
-
-            @if (_request.IsHistoryCapped)
-            {
-                <p class="muted">
-                    The history is a sample, most recently finished first — enough for a model
-                    to read your taste without crowding out the backlog it is ranking.
-                </p>
-            }
-
-            <div class="toolbar">
-                <button class="primary" @onclick="DownloadRequestAsync">Download the file</button>
-                <button @onclick="CopyRequestAsync">Copy the request</button>
-                <button @onclick="CopyPromptAsync">Copy the instructions</button>
-                <button @onclick="BuildAsync" disabled="@_busy.IsRunning">Rebuild</button>
-            </div>
-
-            @if (_copied is not null)
-            {
-                <p class="muted" role="status">@_copied</p>
-            }
-
-            <p class="muted">
-                Paste the instructions into your model, then the request below them. The
-                instructions tell it exactly what to send back.
-            </p>
-
-            @* Both are shown rather than only offered, because on a self-hosted install
-               over plain http the clipboard API does not exist and the fallback can be
-               refused too. Text on the page can always be selected by hand, so the copy
-               buttons are a convenience over a route that already works. *@
-            <details>
-                <summary>Read the instructions</summary>
-                <pre class="payload">@_prompt</pre>
-            </details>
-
-            <details>
-                <summary>Read the request</summary>
-                <pre class="payload">@_payload</pre>
-            </details>
-        }
-
-        <div class="field">
-            <label for="response">Paste the reply</label>
-            @* The placeholder comes from a C# string rather than being written inline
-               with entities. Razor encodes a literal attribute value, so a &quot; in the
-               markup reaches the browser as &amp;quot; and the field advertises the
-               wrong shape — quotation marks are exactly what a person is checking their
-               reply against here. *@
-            <textarea id="response" rows="8" spellcheck="false"
-                      placeholder="@ResponseExample"
-                      disabled="@_busy.IsRunning"
-                      @bind="_response" @bind:event="oninput"></textarea>
-        </div>
-
-        <div class="toolbar">
-            <button class="primary" disabled="@(_busy.IsRunning || string.IsNullOrWhiteSpace(_response))"
-                    @onclick="PreviewPastedAsync">
-                Check the reply
-            </button>
-
-            <InputFile id="response-file" class="file-input" OnChange="OnFileSelectedAsync"
-                       accept=".json,.txt" disabled="@_busy.IsRunning"
-                       aria-label="Upload the model's reply" />
-        </div>
-    </div>
-
     @* Lifted out of both cards, because it governs a run down either route. Drawn in
        one card it would otherwise be drawn in two, which is D30's two-controls-over-
        one-setting exactly. Same lift, same reason, as the title language control on
@@ -533,7 +549,7 @@ else
        new shape. What is left is the one thing the preview cannot say for itself:
        which route produced it. *@
     <div class="card collapsed">
-        <h2>By hand</h2>
+        <h2>Manual</h2>
     </div>
 
     <div class="card">

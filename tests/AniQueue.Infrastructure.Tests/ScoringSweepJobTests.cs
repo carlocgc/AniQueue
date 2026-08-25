@@ -3,6 +3,7 @@ using AniQueue.Core.Jobs;
 using AniQueue.Core.Library;
 using AniQueue.Core.Progress;
 using AniQueue.Core.Recommendations;
+using AniQueue.Core.Settings;
 using AniQueue.Infrastructure.Jobs;
 using AniQueue.Infrastructure.Recommendations;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -235,10 +236,14 @@ public class ScoringSweepJobTests
         Action<ScoringOptions>? configure = null,
         SyncSchedule cadence = SyncSchedule.Daily)
     {
+        // Enabled explicitly, because the default is now off: the remote route is
+        // opt-in, and every test below is about what a sweep does once somebody has
+        // opted in. The default itself is asserted separately.
         var settings = new ScoringOptions
         {
             Endpoint = "http://localhost:1234",
-            BatchSize = 25
+            BatchSize = 25,
+            Enabled = true
         };
 
         configure?.Invoke(settings);
@@ -263,6 +268,30 @@ public class ScoringSweepJobTests
             endpoint,
             clock,
             runs);
+    }
+
+    [Fact]
+    public async Task A_fresh_installation_does_not_ask_a_remote_model_anything()
+    {
+        // The remote route is opt-in, and this is the whole of the mechanism: one
+        // setting, defaulted off, gating the only job that sends anything. Whether it
+        // works at all depends on the model — of three tried against a real library
+        // only one could answer, the other two spending their entire output budget
+        // reasoning — so an installation that has not asked for it must not spend
+        // somebody's electricity finding that out.
+        //
+        // Asserted through the job rather than by reading the property back, because
+        // what matters is that nothing leaves the machine, not what the default is
+        // called. Taken from UserSettings.Defaults so that flipping the file's default
+        // without meaning to fails here.
+        var (job, _, endpoint, _, _) = Create(
+            unranked: 100,
+            o => o.Enabled = UserSettings.Defaults.ScoringEnabled);
+
+        var outcome = await job.RunAsync(new JobRunContext(JobTrigger.Timer), CancellationToken.None);
+
+        Assert.Equal(JobRunOutcome.NotDue, outcome);
+        Assert.Equal(0, endpoint.Calls);
     }
 
     [Fact]

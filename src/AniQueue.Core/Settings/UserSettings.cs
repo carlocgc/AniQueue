@@ -139,8 +139,23 @@ public sealed record UserSettings
     /// <summary>How many further titles must be rated before a score is stale (D39).</summary>
     public int ScoringStaleAfterRatings { get; init; } = 5;
 
-    /// <summary>The kill switch for scoring, mirroring SyncEnabled.</summary>
-    public bool ScoringEnabled { get; init; } = true;
+    /// <summary>Whether a scheduled sweep may ask a remote model. Off until asked for.</summary>
+    /// <remarks>
+    /// <b>Was true, and is the only switch the remote route has.</b> It gates
+    /// <c>ScoringSweepJob</c> and nothing else — the manual paste route never consults
+    /// it — so it already meant "scheduled remote ranking", whatever its name suggests.
+    /// Turning the default off is therefore the whole of "remote runs are opt-in", and
+    /// a second setting beside it would be two controls over one behaviour (D30).
+    ///
+    /// Off because whether the route works at all depends on the model, and AniQueue
+    /// cannot tell in advance: of three tried against a real library, one answered and
+    /// two spent their entire output budget reasoning and never produced JSON. A
+    /// feature that fails for reasons the application cannot detect or fix should not
+    /// be spending somebody's electricity before they have asked for it — the same
+    /// argument that keeps <c>Tasks:Schedule</c> off, and D20's reason for the kill
+    /// switch existing at all.
+    /// </remarks>
+    public bool ScoringEnabled { get; init; }
 
 
     /// <summary>How many titles one unattended batch carries.</summary>

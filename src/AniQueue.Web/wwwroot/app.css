@@ -269,6 +269,14 @@ td.numeric, th.numeric { text-align: right; font-variant-numeric: tabular-nums; 
 .badge.update, .badge.watching { background: var(--warning-bg); color: var(--warning); border-color: transparent; }
 .badge.conflict, .badge.dropped { background: var(--danger-bg); color: var(--danger); border-color: transparent; }
 
+/* Amber rather than red: the feature works, it just does not work with every model.
+   Red would read as broken and send somebody looking for the fault on this side. */
+.badge.experimental { background: var(--warning-bg); color: var(--warning); border-color: transparent; }
+
+/* Beside a heading rather than inside a row of them, so it needs to stop inheriting
+   the h2's size and sit on the text's baseline instead of the box's. */
+h2 > .badge { font-size: 0.7rem; vertical-align: middle; margin-left: 0.5rem; font-weight: 500; }
+
 /* Sections that need a decision ------------------------------------------- */
 
 /* Everything else on the import page reports what happened; this one asks a

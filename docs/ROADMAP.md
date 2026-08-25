@@ -1516,6 +1516,10 @@ instant. Both clocks start on the first published tag, and neither can be wound 
 reads as Sources does; what leaves it is the run started from it. Connection settings, the shared
 sizes and the test remain on the card, and the schedule leaves for the single cadence of D40.*
 
+*Amended again by D45, which reorders the two cards and marks this one experimental. The shape is
+untouched; what changes is which route the page leads with, and that a scheduled remote run is now
+something to switch on rather than something to switch off.*
+
 *Withdraws the `/settings` page Phase 8 was to create. Phase 10 creates it instead.*
 
 Phase 8 said it would build a dedicated `/settings` page holding only the model section, and
@@ -2147,6 +2151,60 @@ same question D43 had to answer about rank, and it takes the same answer: run a 
 without against a real model and compare the score distributions. If citation turns out to distort
 prediction the way placement did, the field becomes optional rather than required, and a result
 carrying no `basedOn` keeps a numberless reason.
+
+---
+
+### D45 — The manual route leads; the remote one is experimental and opt-in
+
+*Amends D35's ordering and reverses the default of `Scoring:Enabled`. Nothing about the contract
+changes — this is an admission about how well it works.*
+
+**Three models, one library, one result each.** Tried against the same real backlog of 564 rated
+titles, through the same request and the same schema:
+
+| model | outcome |
+|---|---|
+| `openai/gpt-oss-20b` | answers, at 564 rated titles |
+| `google/gemma-4-12b` | no answer, even with the history cut to **50** |
+| `qwen3.5` | no answer at 564 |
+
+The two failures share a shape and it is not a bug in the request. Both spend their entire output
+allowance reasoning and never begin the JSON — gemma enumerating the rating history back to itself
+in prose, run after run, until the budget is gone. That is a disposition, not a defect, and no
+setting on this side reaches it. Raising the ceiling gives such a model more room to ramble;
+cutting the history gives it less to recite and did not save gemma at a fiftieth of the original.
+
+**So the honest thing is to say so on the page rather than to keep tuning.** The alternative —
+chasing a fix per model — is unbounded work against a population AniQueue cannot enumerate, for a
+route that is already optional.
+
+**Three changes, and the third is the one that matters.**
+
+*Manual comes first.* It works with every model, because a person reads the reply before it is
+applied, and the failure mode is a wasted paste rather than a silent no-op. A page should lead
+with the route that works.
+
+*The remote card is badged experimental*, in amber rather than red: the feature is not broken, it
+merely does not work with everything, and red would send somebody hunting for a fault on this side.
+
+*A scheduled remote run is opt-in.* `Scoring:Enabled` defaults to false.
+
+**No new setting, and that is deliberate.** `Scoring:Enabled` already gated `ScoringSweepJob` and
+nothing else — the manual paste route never read it — so it already meant "scheduled remote
+ranking" whatever its documentation claimed. Its own comment, *"refuses every run, scheduled or
+pressed"*, stopped being true when D42 deleted the pressed run. Adding a second switch beside it
+would have been two controls over one behaviour, which is exactly what D30 forbids; flipping the
+default of the one that already existed is the whole of the mechanism.
+
+**What this costs.** An existing installation with the key written to `true` is untouched, because
+a value in the file beats a default — so this reaches new installations and anybody who has never
+set it. Somebody with a model that works has to turn it on once, having read why it is off. That
+is the same bargain `Tasks:Schedule` already makes, and for the same reason: unattended work that
+spends the user's electricity is a thing to opt into.
+
+**Revisited when there is evidence to revisit it with.** Three models is enough to stop promising
+the route works and not enough to characterise which models do. The badge comes off when a wider
+sample says something more useful than "it depends".
 
 ---
 
