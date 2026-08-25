@@ -85,6 +85,27 @@ public class ScoringPromptBuilderTests
         Assert.Contains("never say they rated one", prompt, StringComparison.OrdinalIgnoreCase);
     }
 
+    /// <summary>
+    /// The rule describes the grounding the example demonstrates.
+    /// </summary>
+    /// <remarks>
+    /// The first fix asked for a title named from "history" while both example
+    /// reasons named none. In a prompt built on the premise that a small model
+    /// copies the example harder than it reads the prose, a rule the example
+    /// contradicts is a rule that does not apply — and the rule was the half
+    /// worth keeping.
+    /// </remarks>
+    [Fact]
+    public void The_grounding_rule_admits_a_pattern_as_well_as_a_named_title()
+    {
+        var prompt = ScoringPromptBuilder.Build(Request());
+
+        Assert.Contains(
+            "name a title from it, or describe a pattern across it",
+            prompt,
+            StringComparison.Ordinal);
+    }
+
     [Fact]
     public void Forbids_quoting_its_own_score_back_as_a_rating()
     {

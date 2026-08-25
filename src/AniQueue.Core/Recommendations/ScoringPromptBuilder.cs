@@ -23,6 +23,17 @@ namespace AniQueue.Core.Recommendations;
 /// number at all, and one of them shows what to say when there is no comparison to
 /// make.
 ///
+/// <b>No real title appears in the example, and that is why the rule asks for a
+/// pattern as well as for a name.</b> A first attempt asked for a title named from
+/// the history while both example reasons named none, which is a contradiction in
+/// the one direction that matters here: the example is the stronger instruction, so
+/// prose it disagrees with is prose that loses. Resolving it the other way —
+/// putting a concrete title into the example — would place one title string in
+/// front of a model whose observed failure is copying example content into a claim
+/// about the person, and a copied title inside a reason is a plausible lie that
+/// nothing downstream can catch. A pattern is grounded without being specific
+/// enough to invent.
+///
 /// <b>Written for a small model.</b> The target is something self-hosted, so the
 /// instructions are short, ordered with the output format last — which is the part
 /// most likely to survive a truncated context — and state the failure explicitly
@@ -73,8 +84,9 @@ public static class ScoringPromptBuilder
         // 7." about Psycho-Pass itself. Both named the candidate as something the user
         // had rated, and both used their own score as the rating.
         prompt.AppendLine(
-            "- Say why in one short sentence, naming a title from \"history\". Everything in "
-                + "\"candidates\" is unwatched: never say they rated one.");
+            "- Say why in one short sentence, grounded in \"history\" — name a title from it, "
+                + "or describe a pattern across it. Everything in \"candidates\" is unwatched: "
+                + "never say they rated one.");
         prompt.AppendLine(
             "- Never put your own predictedScore in the reason. A number there is one of "
                 + "THEIR ratings, copied from \"history\", or there is no number.");
