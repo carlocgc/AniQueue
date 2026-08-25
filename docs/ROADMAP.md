@@ -2446,8 +2446,9 @@ instead of conflicting with it.
 
 ### AnimeImage
 
-`Id, AnimeId, Kind, Source, RemoteUrl, ContentHash?, FileExtension?, ByteCount?, FetchedAt?,
-FailedAt?, FailureIsPermanent, AttemptCount`. See D47. Unique on `(AnimeId, Kind, Source)`.
+`Id, AnimeId, Kind, Source, RemoteUrl, ContentHash?, FetchedUrl?, FileExtension?, ByteCount?,
+FetchedAt?, FailedAt?, FailureIsPermanent, AttemptCount`. See D47. Unique on
+`(AnimeId, Kind, Source)`.
 
 - `Kind`: `Poster, Banner, ClearLogo, Backdrop` — 9a writes only `Poster`, 9b adds the rest.
   Stored as an integer, so the values are a data contract and append-only.
@@ -2457,7 +2458,11 @@ FailedAt?, FailureIsPermanent, AttemptCount`. See D47. Unique on `(AnimeId, Kind
   it as. `ContentHash` is null until it has, and is what makes the served URL immutable.
 - **`RemoteUrl` is the invalidation key.** AniList's URLs carry a content hash, so replaced art
   changes the URL — which clears both failure states and re-fetches, with nothing scheduled and
-  nothing compared.
+  no timestamp compared.
+- **`FetchedUrl` is what makes that free of a gap.** One column is the picture that should be
+  shown and the other is the picture being shown; outstanding work is the two disagreeing, which
+  covers "never fetched" and "replaced since" with one comparison, and the old art keeps
+  rendering until the new art has actually arrived.
 
 ### LibraryEntry
 
@@ -2567,7 +2572,7 @@ carries `ProfileId` so multi-user — post-MVP per §10 — stays possible. Sett
 | `ITaskRegistry` | Web | **Phase 15** — per-unit task state, the trigger channel and the cancellation source. The only thing the tasks page talks to; it never reaches a job (D40) |
 | `IIdMappingJob` | Infrastructure | **Phase 9b** — maps a title to TVDB and IMDb ids from D46's dataset, carrying the season with them; gated on titles with no mapping (D25) |
 | `IArtworkService` | Infrastructure | **Phase 9a** — fetches and caches one image per title per kind under `/data`; gated on what is missing and healed by what is on disk (D47) |
-| `ICoverImageResolver` | **Core** | **Phase 9a**, promoted from post-MVP by D25 and again by D34. Turns an image row into what a page should render — a served URL, a colour block, or nothing — which is why it is pure and lives here. The reason it was drawn at all, that art must be served by AniQueue rather than hotlinked, is measured in §10 |
+| `CoverImageResolver` | **Core** | **Phase 9a**, promoted from post-MVP by D25 and again by D34, and cited as `ICoverImageResolver` before it was built. Turns an image row into what a page should render — a served URL, a colour block, or nothing — which is why it is pure and lives here. Static rather than an interface, for `SourceLinkBuilder`'s reason: one implementation, no seam, nothing to inject. The reason it was drawn at all, that art must be served by AniQueue rather than hotlinked, is measured in §10 |
 
 Import splits at the point where a database is first needed:
 

@@ -40,7 +40,7 @@
                   "english": "Fragments of Sky",
                   "native": "空の欠片"
                 },
-                "coverImage": { "extraLarge": "https://cdn.example.invalid/cover/bx900101.jpg" }
+                "coverImage": { "medium": "https://cdn.example.invalid/cover/bx900101.jpg" }
               }
             },
             {
@@ -64,7 +64,7 @@
                   "english": null,
                   "native": "夜明けカフェ"
                 },
-                "coverImage": { "extraLarge": "https://cdn.example.invalid/cover/bx900102.jpg" }
+                "coverImage": { "medium": "https://cdn.example.invalid/cover/bx900102.jpg" }
               }
             },
             {
@@ -88,7 +88,7 @@
                   "english": "Sea of Memory",
                   "native": "記憶の海"
                 },
-                "coverImage": { "extraLarge": "https://cdn.example.invalid/cover/bx900103.jpg" }
+                "coverImage": { "medium": "https://cdn.example.invalid/cover/bx900103.jpg" }
               }
             },
             {
@@ -112,7 +112,7 @@
                   "english": "Steel Wings",
                   "native": "鋼の翼"
                 },
-                "coverImage": { "extraLarge": "https://cdn.example.invalid/cover/bx900104.jpg" }
+                "coverImage": { "medium": "https://cdn.example.invalid/cover/bx900104.jpg" }
               }
             }
           ]
@@ -143,7 +143,7 @@
                   "english": "Work of the Moon",
                   "native": "月の仕事"
                 },
-                "coverImage": { "extraLarge": "https://cdn.example.invalid/cover/bx900105.jpg" }
+                "coverImage": { "medium": "https://cdn.example.invalid/cover/bx900105.jpg" }
               }
             },
             {
@@ -167,7 +167,7 @@
                   "english": "Counting Stars",
                   "native": "星を数える"
                 },
-                "coverImage": { "extraLarge": "https://cdn.example.invalid/cover/bx900106.jpg" }
+                "coverImage": { "medium": "https://cdn.example.invalid/cover/bx900106.jpg" }
               }
             }
           ]
@@ -198,7 +198,7 @@
                   "english": "After the Long Winter",
                   "native": "長い冬の後で"
                 },
-                "coverImage": { "extraLarge": "https://cdn.example.invalid/cover/bx900107.jpg" }
+                "coverImage": { "medium": "https://cdn.example.invalid/cover/bx900107.jpg" }
               }
             }
           ]
@@ -229,7 +229,7 @@
                   "english": "The Number You Have Dialled",
                   "native": "電話番号"
                 },
-                "coverImage": { "extraLarge": "https://cdn.example.invalid/cover/bx900108.jpg" }
+                "coverImage": { "medium": "https://cdn.example.invalid/cover/bx900108.jpg" }
               }
             }
           ]
@@ -260,7 +260,7 @@
                   "english": "Letters on the Wind",
                   "native": "風の手紙"
                 },
-                "coverImage": { "extraLarge": "javascript:alert(1)" }
+                "coverImage": { "medium": "javascript:alert(1)" }
               }
             },
             {
@@ -284,7 +284,7 @@
                   "english": null,
                   "native": "終わりの始まり"
                 },
-                "coverImage": { "extraLarge": "https://cdn.example.invalid/cover/bx900110.jpg" }
+                "coverImage": { "medium": "https://cdn.example.invalid/cover/bx900110.jpg" }
               }
             }
           ]
@@ -315,7 +315,7 @@
                   "english": "Fragments of Sky",
                   "native": "空の欠片"
                 },
-                "coverImage": { "extraLarge": "https://cdn.example.invalid/cover/bx900101.jpg" }
+                "coverImage": { "medium": "https://cdn.example.invalid/cover/bx900101.jpg" }
               }
             }
           ]

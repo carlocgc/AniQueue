@@ -400,11 +400,20 @@ public sealed class AniListJsonParser(ImportLimits? limits = null) : IAnimeListP
     /// Takes the cover image URL, and only if it is one AniQueue could safely render.
     /// </summary>
     /// <remarks>
-    /// The value is a remote string that ends up in an <c>img src</c>, so the scheme
+    /// The value is a remote string that AniQueue will itself request, so the scheme
     /// is checked rather than assumed: anything that is not absolute http or https
-    /// is dropped. Only <c>extraLarge</c> is read — the other sizes exist, nothing
-    /// renders an image yet, and a column per size would be storing data ahead of a
-    /// feature (§10).
+    /// is dropped. The host is checked too, but not here — that is a decision about
+    /// what the application may reach and belongs with the code that reaches it
+    /// (D47, §6).
+    ///
+    /// <b>Only <c>medium</c> is read, and it used to be <c>extraLarge</c>.</b> The
+    /// old choice reasoned that the sizes cost the same to ask for and nothing
+    /// rendered them, so the largest lost nothing — true until something rendered
+    /// them. The two differ by 9.7 KB against 83.3 KB for the same picture, which is
+    /// 486 KB or 4.2 MB of a fifty-row backlog page, to fill a column forty pixels
+    /// wide. A size per column is still refused (§10); this is one size, chosen for
+    /// the slot it goes in, and stored on a row that can simply be re-fetched if a
+    /// later layout wants another.
     /// </remarks>
     private static string? MapCoverImage(JsonElement media)
     {
@@ -413,7 +422,7 @@ public sealed class AniListJsonParser(ImportLimits? limits = null) : IAnimeListP
             return null;
         }
 
-        var url = Text(cover, "extraLarge");
+        var url = Text(cover, "medium");
         if (url is null)
         {
             return null;

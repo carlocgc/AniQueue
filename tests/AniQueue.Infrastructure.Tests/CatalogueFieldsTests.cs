@@ -86,7 +86,7 @@ public class CatalogueFieldsTests
 
         Assert.Equal(24, anime.EpisodeDurationMinutes);
         Assert.Equal(2013, anime.ReleaseYear);
-        Assert.Equal("https://example.invalid/cover.jpg", anime.CoverImageUrl);
+        Assert.Equal("https://example.invalid/cover.jpg", (await context.AnimeImages.SingleAsync()).RemoteUrl);
         Assert.Equal("Attack on Titan", anime.TitleEnglish);
         Assert.Equal("進撃の巨人", anime.TitleNative);
     }
@@ -128,7 +128,7 @@ public class CatalogueFieldsTests
 
         Assert.Equal(24, updated.EpisodeDurationMinutes);
         Assert.Equal(2013, updated.ReleaseYear);
-        Assert.Equal("https://example.invalid/cover.jpg", updated.CoverImageUrl);
+        Assert.Equal("https://example.invalid/cover.jpg", (await context.AnimeImages.SingleAsync()).RemoteUrl);
 
         // The tracking data did land, so this is a real import rather than one that
         // was ignored wholesale.
