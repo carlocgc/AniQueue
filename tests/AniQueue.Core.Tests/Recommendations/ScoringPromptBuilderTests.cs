@@ -66,6 +66,99 @@ public class ScoringPromptBuilderTests
         Assert.Contains("Never invent one", prompt);
     }
 
+    /// <summary>
+    /// The reply may not claim the person rated a candidate.
+    /// </summary>
+    /// <remarks>
+    /// Every candidate is unwatched by definition, so a rating of one cannot exist.
+    /// Two different models invented one anyway: qwen3-vl-8b answered "You rated
+    /// 'Haite Kudasai, Takamine-san' 6.0." about an unwatched title, and gpt-oss-20b
+    /// answered "Sci-fi thriller like Psycho-Pass you rated 7." about Psycho-Pass
+    /// itself. In both the number was the model's own predictedScore, which is what
+    /// makes the ranking untrustworthy rather than merely the sentence wrong.
+    /// </remarks>
+    [Fact]
+    public void Says_that_candidates_are_unwatched_and_cannot_have_been_rated()
+    {
+        var prompt = ScoringPromptBuilder.Build(Request());
+
+        Assert.Contains("never say they rated one", prompt, StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// The rule describes the grounding the example demonstrates.
+    /// </summary>
+    /// <remarks>
+    /// The first fix asked for a title named from "history" while both example
+    /// reasons named none. In a prompt built on the premise that a small model
+    /// copies the example harder than it reads the prose, a rule the example
+    /// contradicts is a rule that does not apply — and the rule was the half
+    /// worth keeping.
+    /// </remarks>
+    [Fact]
+    public void The_grounding_rule_admits_a_pattern_as_well_as_a_named_title()
+    {
+        var prompt = ScoringPromptBuilder.Build(Request());
+
+        Assert.Contains(
+            "name a title from it, or describe a pattern across it",
+            prompt,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Forbids_quoting_its_own_score_back_as_a_rating()
+    {
+        var prompt = ScoringPromptBuilder.Build(Request());
+
+        Assert.Contains("Never put your own predictedScore in the reason", prompt, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// There is something to say when the history has no answer.
+    /// </summary>
+    /// <remarks>
+    /// The instruction this replaced — "referring to their history where you can" —
+    /// gave a model no way to decline, so one that found nothing close invented
+    /// something rather than saying so. An escape hatch is what stops a request for
+    /// grounding from becoming a request for fiction.
+    /// </remarks>
+    [Fact]
+    public void Offers_a_way_to_say_there_is_no_comparison()
+    {
+        var prompt = ScoringPromptBuilder.Build(Request());
+
+        Assert.Contains("If nothing in their history is close", prompt, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// The worked example does not demonstrate the thing the rules forbid.
+    /// </summary>
+    /// <remarks>
+    /// It used to: a reason of "Same director as one you rated 9." sat beside a
+    /// predictedScore of 9.5 — a rating in the reason, adjacent to the score, attached
+    /// to no title anybody could check. A model reproduces the example far more
+    /// faithfully than it obeys the prose, so the example was teaching the failure the
+    /// prose now forbids.
+    /// </remarks>
+    [Fact]
+    public void The_example_reasons_quote_no_rating()
+    {
+        var example = ScoringPromptBuilder.Schema(ScoringScale.Default);
+
+        // Every number in the example belongs to a field. None belongs to a sentence
+        // about what the person scored something.
+        Assert.DoesNotContain("you rated", example, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void The_example_shows_what_to_say_when_nothing_matches()
+    {
+        var example = ScoringPromptBuilder.Schema(ScoringScale.Default);
+
+        Assert.Contains("Nothing close in your history", example, StringComparison.Ordinal);
+    }
+
     [Fact]
     public void Asks_for_all_to_be_weighed_before_asking_for_only_some_back()
     {
