@@ -36,26 +36,56 @@ public class ScoringSweepJobTests
 
         public List<string> Applied { get; } = [];
 
+        /// <summary>How many times the history was actually read from storage.</summary>
+        public int HistoryReads { get; private set; }
 
+        /// <summary>What each batch was handed, in order. Null means it read its own.</summary>
+        public List<ScoringHistorySnapshot?> HistoryPerBatch { get; } = [];
+
+        /// <summary>Grows between batches, standing in for a sync landing mid-sweep.</summary>
+        public int RatedTitles { get; set; } = 100;
+
+        /// <summary>Runs before every request is built, so a test can move the library under a sweep.</summary>
+        public Action? BeforeEachRequest { get; set; }
 
         public bool PreviewApplicable { get; set; } = true;
 
         public Task<ScoringCoverage> GetCoverageAsync(int profileId, int staleAfterRatings, CancellationToken ct = default) =>
             Task.FromResult(new ScoringCoverage { Waiting = 100, Ranked = 100 - Unranked, Stale = 0 });
 
-
-        public Task<ScoringRequest> BuildRequestAsync(int profileId, ScoringRequestOptions? options = null, CancellationToken ct = default)
+        public Task<ScoringHistorySnapshot> BuildHistoryAsync(int profileId, int maxHistory, CancellationToken ct = default)
         {
+            HistoryReads++;
+
+            return Task.FromResult(new ScoringHistorySnapshot
+            {
+                Entries = [.. Enumerable.Range(1, RatedTitles)
+                    .Select(i => new ScoringHistoryEntry { Title = $"Rated {i}", Score = 8 })],
+                Available = RatedTitles
+            });
+        }
+
+        public Task<ScoringRequest> BuildRequestAsync(
+            int profileId,
+            ScoringRequestOptions? options = null,
+            ScoringHistorySnapshot? history = null,
+            CancellationToken ct = default)
+        {
+            BeforeEachRequest?.Invoke();
+
             var size = Math.Min(options?.MaxCandidates ?? Unranked, Unranked);
 
             BatchSizes.Add(size);
+            HistoryPerBatch.Add(history);
 
             return Task.FromResult(new ScoringRequest
             {
                 GeneratedAt = DateTimeOffset.UnixEpoch,
                 Candidates = [.. Enumerable.Range(1, size)
                     .Select(i => new ScoringCandidate { Id = i, Title = $"#{i}" })],
-                CandidatesAvailable = Unranked
+                CandidatesAvailable = Unranked,
+                History = history?.Entries ?? [],
+                HistoryAvailable = history?.Available ?? 0
             });
         }
 
@@ -276,6 +306,68 @@ public class ScoringSweepJobTests
         Assert.Equal([25, 25, 25, 25], library.BatchSizes);
         Assert.Equal(4, endpoint.Calls);
         Assert.Equal(0, library.Unranked);
+    }
+
+    [Fact]
+    public async Task A_sweep_with_nothing_to_do_does_not_read_the_history()
+    {
+        // D25's shape: a task that is switched on and idle costs nothing. The history
+        // is several hundred rows, and reading it before the gate that decides there is
+        // work would spend that on every tick of an up-to-date library — which is most
+        // ticks. This nearly happened while adding the snapshot, which is why it is
+        // pinned rather than assumed.
+        var (job, library, endpoint, _, _) = Create(unranked: 0);
+
+        await job.RunAsync(new JobRunContext(JobTrigger.Timer), CancellationToken.None);
+
+        Assert.Equal(0, library.HistoryReads);
+        Assert.Equal(0, endpoint.Calls);
+    }
+
+    [Fact]
+    public async Task Every_batch_of_one_sweep_predicts_against_the_same_history()
+    {
+        var (job, library, _, _, _) = Create(unranked: 100);
+
+        await job.RunAsync(new JobRunContext(JobTrigger.Timer), CancellationToken.None);
+
+        // Read once for the whole sweep rather than once per batch.
+        Assert.Equal(1, library.HistoryReads);
+
+        // And the same object reached all four, so there is no route by which one
+        // batch could have been given different evidence from another.
+        Assert.Equal(4, library.HistoryPerBatch.Count);
+        Assert.All(library.HistoryPerBatch, h => Assert.NotNull(h));
+        Assert.Single(library.HistoryPerBatch.Distinct());
+    }
+
+    [Fact]
+    public async Task A_sync_landing_mid_sweep_does_not_change_what_later_batches_are_told()
+    {
+        // The case this exists for, and it is not hypothetical: a sweep was observed
+        // reporting 559 rated titles and then 563 within the same minute, because the
+        // AniList job runs in its own loop and had landed four new ratings between two
+        // batches. Scores from either side of that go into one column and get sorted
+        // against each other, which is the comparison D43 spent a phase making safe.
+        var (job, library, _, _, _) = Create(unranked: 100);
+
+        library.RatedTitles = 559;
+
+        // Driven from inside the fake rather than from the test body, which would race
+        // it: this fake completes synchronously, so a mutation written after RunAsync
+        // would land after the sweep had already finished and assert nothing at all.
+        // Here the library provably changes between batch one and batch two.
+        library.BeforeEachRequest = () => library.RatedTitles = 563;
+
+        await job.RunAsync(new JobRunContext(JobTrigger.Timer), CancellationToken.None);
+
+        // The library did change underneath the sweep...
+        Assert.Equal(563, library.RatedTitles);
+
+        // ...and no batch heard about it.
+        Assert.Equal(1, library.HistoryReads);
+        Assert.Equal(4, library.HistoryPerBatch.Count);
+        Assert.All(library.HistoryPerBatch, h => Assert.Equal(559, h!.Available));
     }
 
     [Fact]
