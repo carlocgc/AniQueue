@@ -229,8 +229,11 @@ public sealed record ScoringCoverage
 /// </remarks>
 public sealed record RecommendationDetail
 {
-    /// <summary>Placement within the ranking this came from, not within the backlog.</summary>
-    public required int Rank { get; init; }
+    // Rank, and the CandidateCount it was shown against, both stood here. Together
+    // they rendered "Ranked 3 of 50" on a title — a number meaningful only inside a
+    // batch the user never sees, and since D43 not a number at all. How many
+    // candidates a run weighed is still carried by RecommendationRunSummary, where
+    // it is a fact about the run rather than a claim about one title.
 
     public required double PredictedScore { get; init; }
 
@@ -245,9 +248,6 @@ public sealed record RecommendationDetail
 
     /// <summary>What the user said produced it, when they said anything.</summary>
     public string? ModelIdentifier { get; init; }
-
-    /// <summary>How many titles were weighed against each other to place this one.</summary>
-    public int CandidateCount { get; init; }
 }
 
 /// <summary>One past ranking, for the list of them.</summary>

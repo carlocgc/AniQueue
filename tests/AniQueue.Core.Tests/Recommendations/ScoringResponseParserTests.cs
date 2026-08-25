@@ -29,8 +29,8 @@ public class ScoringResponseParserTests
         var result = Parser.Parse(Wrap(
             """
             [
-              { "id": 7, "rank": 1, "predictedScore": 8.6, "confidence": 0.72, "reason": "Close to your top scores." },
-              { "id": 9, "rank": 2, "predictedScore": 7.1, "confidence": 0.5 }
+              { "id": 7, "predictedScore": 8.6, "confidence": 0.72, "reason": "Close to your top scores." },
+              { "id": 9, "predictedScore": 7.1, "confidence": 0.5 }
             ]
             """));
 
@@ -45,19 +45,41 @@ public class ScoringResponseParserTests
     }
 
     [Fact]
-    public void Orders_results_by_rank_rather_than_by_position()
+    public void Orders_results_by_predicted_score_rather_than_by_position()
     {
-        // A model may emit them in any order. The rank is what states the order, so
-        // the array's own sequence is not evidence of anything.
+        // A model may emit them in any order, and since D43 there is no rank stating
+        // one. The score is the only number it is asked for, so ordering by it is what
+        // makes a preview read in the order the backlog will once it is applied.
         var result = Parser.Parse(Wrap(
             """
             [
-              { "id": 9, "rank": 2, "predictedScore": 7.1, "confidence": 0.5 },
-              { "id": 7, "rank": 1, "predictedScore": 8.6, "confidence": 0.7 }
+              { "id": 9, "predictedScore": 7.1, "confidence": 0.5 },
+              { "id": 7, "predictedScore": 8.6, "confidence": 0.7 }
             ]
             """));
 
         Assert.False(result.HasErrors);
+        Assert.Equal([7, 9], result.Response!.Results.Select(r => r.Id));
+    }
+
+    [Fact]
+    public void A_rank_that_arrives_anyway_is_read_past_rather_than_refused()
+    {
+        // D43 took rank out of the request, not out of the world: a model repeating a
+        // shape it saw in training still sends one. Failing the batch over a field
+        // nothing reads would spend the sweep's error budget on the model being
+        // old-fashioned — and here the rank contradicts the scores outright, so this
+        // also pins down which of the two the parser believes.
+        var result = Parser.Parse(Wrap(
+            """
+            [
+              { "id": 9, "rank": 1, "predictedScore": 7.1, "confidence": 0.5 },
+              { "id": 7, "rank": 2, "predictedScore": 8.6, "confidence": 0.7 }
+            ]
+            """));
+
+        Assert.False(result.HasErrors);
+        Assert.Empty(result.Problems);
         Assert.Equal([7, 9], result.Response!.Results.Select(r => r.Id));
     }
 
@@ -68,7 +90,7 @@ public class ScoringResponseParserTests
         // absence cannot be what rejects an otherwise correct ranking.
         var result = Parser.Parse(
             """
-            { "results": [ { "id": 7, "rank": 1, "predictedScore": 8.0, "confidence": 0.6 } ] }
+            { "results": [ { "id": 7, "predictedScore": 8.0, "confidence": 0.6 } ] }
             """);
 
         Assert.False(result.HasErrors);
@@ -82,7 +104,7 @@ public class ScoringResponseParserTests
             """
             {
               "aniqueue": { "format": "aniqueue-scoring-request", "version": 1 },
-              "results": [ { "id": 7, "rank": 1, "predictedScore": 8.0, "confidence": 0.6 } ]
+              "results": [ { "id": 7, "predictedScore": 8.0, "confidence": 0.6 } ]
             }
             """);
 
@@ -97,7 +119,7 @@ public class ScoringResponseParserTests
             """
             {
               "aniqueue": { "format": "aniqueue-scoring-response", "version": 2 },
-              "results": [ { "id": 7, "rank": 1, "predictedScore": 8.0, "confidence": 0.6 } ]
+              "results": [ { "id": 7, "predictedScore": 8.0, "confidence": 0.6 } ]
             }
             """);
 
@@ -143,7 +165,7 @@ public class ScoringResponseParserTests
     [Fact]
     public void A_bare_array_is_an_error_that_says_what_was_expected()
     {
-        var result = Parser.Parse("""[ { "id": 7, "rank": 1, "predictedScore": 8.0, "confidence": 0.6 } ]""");
+        var result = Parser.Parse("""[ { "id": 7, "predictedScore": 8.0, "confidence": 0.6 } ]""");
 
         Assert.True(result.HasErrors);
         Assert.Contains(result.Problems, p => p.Message.Contains("results"));
@@ -166,7 +188,6 @@ public class ScoringResponseParserTests
 
     [Theory]
     [InlineData("id")]
-    [InlineData("rank")]
     [InlineData("predictedScore")]
     [InlineData("confidence")]
     public void Every_required_field_is_required(string omitted)
@@ -174,7 +195,6 @@ public class ScoringResponseParserTests
         var fields = new Dictionary<string, string>
         {
             ["id"] = "7",
-            ["rank"] = "1",
             ["predictedScore"] = "8.0",
             ["confidence"] = "0.6"
         };
@@ -194,40 +214,29 @@ public class ScoringResponseParserTests
         // Deserialisation would coerce this. Reading it explicitly is the difference
         // between rejecting a wrong id and storing one.
         var result = Parser.Parse(Wrap(
-            """[ { "id": "7", "rank": 1, "predictedScore": 8.0, "confidence": 0.6 } ]"""));
+            """[ { "id": "7", "predictedScore": 8.0, "confidence": 0.6 } ]"""));
 
         Assert.True(result.HasErrors);
         Assert.Contains(result.Problems, p => p.Message.Contains("whole number"));
     }
 
     [Fact]
-    public void A_title_ranked_twice_is_an_error()
+    public void A_title_scored_twice_is_an_error()
     {
+        // Two different scores for one title, with no honest way to pick between them.
+        // The companion case — two titles claiming one rank — was a test here until
+        // D43 deleted the field, and it is not replaced: nothing else in the reply can
+        // now contradict itself the way a numbering could.
         var result = Parser.Parse(Wrap(
             """
             [
-              { "id": 7, "rank": 1, "predictedScore": 8.0, "confidence": 0.6 },
-              { "id": 7, "rank": 2, "predictedScore": 7.0, "confidence": 0.6 }
+              { "id": 7, "predictedScore": 8.0, "confidence": 0.6 },
+              { "id": 7, "predictedScore": 7.0, "confidence": 0.6 }
             ]
             """));
 
         Assert.True(result.HasErrors);
-        Assert.Contains(result.Problems, p => p.Message.Contains("more than once"));
-    }
-
-    [Fact]
-    public void A_rank_used_twice_is_an_error()
-    {
-        var result = Parser.Parse(Wrap(
-            """
-            [
-              { "id": 7, "rank": 1, "predictedScore": 8.0, "confidence": 0.6 },
-              { "id": 9, "rank": 1, "predictedScore": 7.0, "confidence": 0.6 }
-            ]
-            """));
-
-        Assert.True(result.HasErrors);
-        Assert.Contains(result.Problems, p => p.Message.Contains("rank 1"));
+        Assert.Contains(result.Problems, p => p.Message.Contains("title 7 was scored more than once"));
     }
 
     [Theory]
@@ -237,7 +246,7 @@ public class ScoringResponseParserTests
     public void A_predicted_score_off_the_scale_is_an_error(double score)
     {
         var result = Parser.Parse(Wrap(
-            $$"""[ { "id": 7, "rank": 1, "predictedScore": {{score}}, "confidence": 0.6 } ]"""));
+            $$"""[ { "id": 7, "predictedScore": {{score}}, "confidence": 0.6 } ]"""));
 
         Assert.True(result.HasErrors);
         Assert.Contains(result.Problems, p => p.Message.Contains("outside 1–10"));
@@ -252,36 +261,18 @@ public class ScoringResponseParserTests
         // 72 is the interesting one: a model asked for a percentage answers in
         // percent, which is a plausible-looking number in the wrong unit.
         var result = Parser.Parse(Wrap(
-            $$"""[ { "id": 7, "rank": 1, "predictedScore": 8.0, "confidence": {{confidence}} } ]"""));
+            $$"""[ { "id": 7, "predictedScore": 8.0, "confidence": {{confidence}} } ]"""));
 
         Assert.True(result.HasErrors);
         Assert.Contains(result.Problems, p => p.Message.Contains("outside 0–1"));
     }
 
-    [Fact]
-    public void A_rank_below_one_is_an_error()
-    {
-        var result = Parser.Parse(Wrap(
-            """[ { "id": 7, "rank": 0, "predictedScore": 8.0, "confidence": 0.6 } ]"""));
-
-        Assert.True(result.HasErrors);
-    }
-
-    [Fact]
-    public void A_gap_in_the_ranks_is_a_warning_and_still_applies()
-    {
-        var result = Parser.Parse(Wrap(
-            """
-            [
-              { "id": 7, "rank": 1, "predictedScore": 8.0, "confidence": 0.6 },
-              { "id": 9, "rank": 5, "predictedScore": 7.0, "confidence": 0.6 }
-            ]
-            """));
-
-        Assert.False(result.HasErrors);
-        Assert.Contains(result.Problems, p => p.Severity == ScoringSeverity.Warning);
-        Assert.Equal(2, result.Response!.Results.Count);
-    }
+    // A_rank_below_one_is_an_error and A_gap_in_the_ranks_is_a_warning_and_still_applies
+    // stood here. Both policed a numbering, and D43 removed the numbering; stripping
+    // the rank out of their fixtures would have left two tests whose setup no longer
+    // reaches the assertion they were written for, which is worse than not having them.
+    // A reply that is short is still reported, but against ExpectedCount in
+    // ScoringPreview rather than against the model's own count of itself.
 
     [Fact]
     public void An_overlong_reason_is_shortened_and_warned_about_rather_than_refused()
@@ -289,7 +280,7 @@ public class ScoringResponseParserTests
         var reason = new string('a', 900);
 
         var result = Parser.Parse(Wrap(
-            $$"""[ { "id": 7, "rank": 1, "predictedScore": 8.0, "confidence": 0.6, "reason": "{{reason}}" } ]"""));
+            $$"""[ { "id": 7, "predictedScore": 8.0, "confidence": 0.6, "reason": "{{reason}}" } ]"""));
 
         Assert.False(result.HasErrors);
         Assert.Equal(500, result.Response!.Results[0].Reason!.Length);
@@ -302,7 +293,7 @@ public class ScoringResponseParserTests
         var parser = new ScoringResponseParser(new ScoringLimits { MaxBytes = 64 });
 
         var result = parser.Parse(Wrap(
-            """[ { "id": 7, "rank": 1, "predictedScore": 8.0, "confidence": 0.6 } ]"""));
+            """[ { "id": 7, "predictedScore": 8.0, "confidence": 0.6 } ]"""));
 
         Assert.True(result.HasErrors);
         Assert.Contains(result.Problems, p => p.Message.Contains("larger than"));
@@ -317,9 +308,9 @@ public class ScoringResponseParserTests
         var result = Parser.Parse(Wrap(
             """
             [
-              { "id": 7, "rank": 1, "predictedScore": 8.0, "confidence": 0.6 },
-              { "id": 9, "rank": 2, "predictedScore": 99, "confidence": 0.6 },
-              { "id": 11, "rank": 3, "predictedScore": 6.0, "confidence": 0.6 }
+              { "id": 7, "predictedScore": 8.0, "confidence": 0.6 },
+              { "id": 9, "predictedScore": 99, "confidence": 0.6 },
+              { "id": 11, "predictedScore": 6.0, "confidence": 0.6 }
             ]
             """));
 
@@ -341,7 +332,7 @@ public class ScoringResponseParserTests
         var result = Parser.Parse(
             $"""
              ```json
-             {Wrap("""[{ "id": 7, "rank": 1, "predictedScore": 8.0, "confidence": 0.6 }]""")}
+             {Wrap("""[{ "id": 7, "predictedScore": 8.0, "confidence": 0.6 }]""")}
              ```
              """);
 
@@ -356,7 +347,7 @@ public class ScoringResponseParserTests
             $"""
              Sure! Here is the ranking you asked for:
 
-             {Wrap("""[{ "id": 7, "rank": 1, "predictedScore": 8.0, "confidence": 0.6 }]""")}
+             {Wrap("""[{ "id": 7, "predictedScore": 8.0, "confidence": 0.6 }]""")}
 
              Hope that helps! Let me know if you would like me to explain any of these.
              """);
@@ -374,7 +365,7 @@ public class ScoringResponseParserTests
         var result = Parser.Parse(
             $"""
              Here you go:
-             {Wrap("""[{ "id": 7, "rank": 1, "predictedScore": 8.0, "confidence": 0.6 }]""")}
+             {Wrap("""[{ "id": 7, "predictedScore": 8.0, "confidence": 0.6 }]""")}
              """);
 
         var note = Assert.Single(result.Problems, p => p.Severity == ScoringSeverity.Warning);
@@ -389,7 +380,7 @@ public class ScoringResponseParserTests
         // Nothing was thrown away, so nothing is said. A warning on every reply would
         // train the reader to ignore the one that matters.
         var result = Parser.Parse(Wrap(
-            """[{ "id": 7, "rank": 1, "predictedScore": 8.0, "confidence": 0.6 }]"""));
+            """[{ "id": 7, "predictedScore": 8.0, "confidence": 0.6 }]"""));
 
         Assert.Empty(result.Problems);
     }
@@ -403,10 +394,10 @@ public class ScoringResponseParserTests
         var result = Parser.Parse(
             $"""
              You asked me to return this shape:
-             {Wrap("""[{ "id": 412, "rank": 1, "predictedScore": 9.5, "confidence": 0.8 }]""")}
+             {Wrap("""[{ "id": 412, "predictedScore": 9.5, "confidence": 0.8 }]""")}
 
              Here is my actual ranking:
-             {Wrap("""[{ "id": 7, "rank": 1, "predictedScore": 8.0, "confidence": 0.6 }]""")}
+             {Wrap("""[{ "id": 7, "predictedScore": 8.0, "confidence": 0.6 }]""")}
              """);
 
         Assert.Equal([7], result.Response!.Results.Select(r => r.Id));
@@ -424,7 +415,7 @@ public class ScoringResponseParserTests
              The user rated Gunbuster 10 and Najica 4, so they like dense sci-fi.
              I should rank the OVA highest.
              </think>
-             {Wrap("""[{ "id": 7, "rank": 1, "predictedScore": 8.0, "confidence": 0.6 }]""")}
+             {Wrap("""[{ "id": 7, "predictedScore": 8.0, "confidence": 0.6 }]""")}
              """);
 
         Assert.False(result.HasErrors);
@@ -441,7 +432,7 @@ public class ScoringResponseParserTests
         var result = Parser.Parse(
             """
             ```
-            { "results": [{ "id": 7, "rank": 1, "predictedScore": 8.0, "confidence": 0.6 }] }
+            { "results": [{ "id": 7, "predictedScore": 8.0, "confidence": 0.6 }] }
             ```
             """);
 
@@ -458,7 +449,7 @@ public class ScoringResponseParserTests
         var result = Parser.Parse(
             """
             Here:
-            { "results": [{ "id": 7, "rank": 1, "predictedScore": 8.0, "confidence": 0.6,
+            { "results": [{ "id": 7, "predictedScore": 8.0, "confidence": 0.6,
                             "reason": "Like Re:Zero {Director's Cut}, but shorter." }] }
             """);
 
@@ -503,7 +494,7 @@ public class ScoringResponseParserTests
         var result = Parser.Parse(
             """
             ```json
-            { "output": { "results": [{ "id": 7, "rank": 1, "predictedScore": 8.0, "confidence": 0.6 }] } }
+            { "output": { "results": [{ "id": 7, "predictedScore": 8.0, "confidence": 0.6 }] } }
             ```
             """);
 
@@ -519,14 +510,14 @@ public class ScoringResponseParserTests
             Here you go:
             ```json
             { "results": [
-                { "id": 7, "rank": 1, "predictedScore": 8.0, "confidence": 0.6 },
-                { "id": 9, "rank": 1, "predictedScore": 7.0, "confidence": 0.6 }
+                { "id": 7, "predictedScore": 8.0, "confidence": 0.6 },
+                { "id": 7, "predictedScore": 7.0, "confidence": 0.6 }
             ] }
             ```
             """);
 
         Assert.True(result.HasErrors);
-        Assert.Contains(result.Problems, p => p.Message.Contains("rank 1 was used more than once"));
+        Assert.Contains(result.Problems, p => p.Message.Contains("title 7 was scored more than once"));
     }
 
     [Fact]
@@ -547,14 +538,19 @@ public class ScoringResponseParserTests
             .Select(value => value.GetString())
             .ToList();
 
-        // The four the parser refuses a result without. "reason" is deliberately absent:
-        // a model that omits it has still answered the question.
-        Assert.Equal(["id", "rank", "predictedScore", "confidence"], required);
+        // The three the parser refuses a result without. "reason" is deliberately absent:
+        // a model that omits it has still answered the question. "rank" was a fourth
+        // until D43, and its absence from "properties" as well as from "required" is
+        // what this asserts next — the schema is open, so a model that sends one anyway
+        // is not refused by the server before the parser ever sees it.
+        Assert.Equal(["id", "predictedScore", "confidence"], required);
         Assert.True(item.GetProperty("properties").TryGetProperty("reason", out _));
+        Assert.False(item.GetProperty("properties").TryGetProperty("rank", out _));
+        Assert.False(item.TryGetProperty("additionalProperties", out _));
 
         // And a reply built to this schema is one the parser reads without complaint.
         var result = new ScoringResponseParser().Parse(
-            """{ "results": [{ "id": 7, "rank": 1, "predictedScore": 8.0, "confidence": 0.6 }] }""");
+            """{ "results": [{ "id": 7, "predictedScore": 8.0, "confidence": 0.6 }] }""");
 
         Assert.False(result.HasErrors);
     }

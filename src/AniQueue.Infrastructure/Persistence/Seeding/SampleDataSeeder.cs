@@ -175,9 +175,9 @@ public sealed class SampleDataSeeder(
             WasApplied = true,
             Items =
             [
-                RankItem(dragonMaid.Id, 1, 8.9, 0.86, "Comedy with a strong ensemble, matching high scores for Nichijou and KonoSuba."),
-                RankItem(hinamatsuri.Id, 2, 8.4, 0.79, "Deadpan comedy in the vein of Nichijou."),
-                RankItem(unknownRuntime.Id, 3, 6.2, 0.41, "Tonally distant from the user's comedy-weighted history.")
+                ScoredItem(dragonMaid.Id, 8.9, 0.86, "Comedy with a strong ensemble, matching high scores for Nichijou and KonoSuba."),
+                ScoredItem(hinamatsuri.Id, 8.4, 0.79, "Deadpan comedy in the vein of Nichijou."),
+                ScoredItem(unknownRuntime.Id, 6.2, 0.41, "Tonally distant from the user's comedy-weighted history.")
             ]
         };
 
@@ -244,10 +244,9 @@ public sealed class SampleDataSeeder(
             RelatedExternalId = relatedExternalId
         };
 
-        RecommendationRunItem RankItem(int animeId, int rank, double score, double confidence, string reason) => new()
+        RecommendationRunItem ScoredItem(int animeId, double score, double confidence, string reason) => new()
         {
             AnimeId = animeId,
-            Rank = rank,
             PredictedScore = score,
             Confidence = confidence,
             Reason = reason

@@ -53,12 +53,14 @@ public class ConstraintTests
     /// coverage at all until D16 touched its configuration.
     /// </summary>
     [Theory]
-    [InlineData(0, 0.5)]      // rank must be 1-based
-    [InlineData(-1, 0.5)]
-    [InlineData(1, -0.1)]     // confidence is a probability
-    [InlineData(1, 1.5)]
-    public async Task A_run_item_outside_the_permitted_ranges_is_rejected(int rank, double confidence)
+    [InlineData(-0.1)]        // confidence is a probability
+    [InlineData(1.5)]
+    public async Task A_run_item_outside_the_permitted_ranges_is_rejected(double confidence)
     {
+        // The rank cases — 0 and -1 against CK_RecommendationRunItems_RankPositive —
+        // went with the column in D43. Confidence is the range left at this boundary,
+        // and the boundary is still worth a test: these values arrive from an external
+        // model, so a validation gap upstream must not be able to persist nonsense.
         await using var database = await SqliteTestDatabase.CreateAsync();
         await using var context = database.CreateContext();
 
@@ -67,7 +69,6 @@ public class ConstraintTests
         run.Items.Add(new RecommendationRunItem
         {
             AnimeId = anime.Id,
-            Rank = rank,
             PredictedScore = 8.0,
             Confidence = confidence
         });
@@ -78,7 +79,7 @@ public class ConstraintTests
     [Fact]
     public async Task A_valid_run_item_is_stored_against_its_title()
     {
-        // Since D16 a placement is always one title; there is no group variant and
+        // Since D16 a score is always against one title; there is no group variant and
         // no exclusive-or constraint to satisfy.
         await using var database = await SqliteTestDatabase.CreateAsync();
         await using var context = database.CreateContext();
@@ -88,7 +89,6 @@ public class ConstraintTests
         run.Items.Add(new RecommendationRunItem
         {
             AnimeId = anime.Id,
-            Rank = 1,
             PredictedScore = 8.4,
             Confidence = 0.75,
             Reason = "Matches your comedy history"
@@ -98,7 +98,8 @@ public class ConstraintTests
 
         var stored = await context.Set<RecommendationRunItem>().SingleAsync();
         Assert.Equal(anime.Id, stored.AnimeId);
-        Assert.Equal(1, stored.Rank);
+        Assert.Equal(8.4, stored.PredictedScore);
+        Assert.Equal(0.75, stored.Confidence);
     }
 
     private static async Task<(RecommendationRun Run, Anime Anime)> CreateRunAsync(AniQueueDbContext context)

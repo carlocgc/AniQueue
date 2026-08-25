@@ -114,9 +114,9 @@ public class ScoringCourierTests : IAsyncDisposable
             {
               "aniqueue": { "format": "aniqueue-scoring-response", "version": 1 },
               "results": [
-                { "id": {{first.Id}}, "rank": 1, "predictedScore": 8.4, "confidence": 0.79,
+                { "id": {{first.Id}}, "predictedScore": 8.4, "confidence": 0.79,
                   "reason": "Deadpan comedy, like the ones you rate highest." },
-                { "id": {{second.Id}}, "rank": 2, "predictedScore": 7.1, "confidence": 0.6 }
+                { "id": {{second.Id}}, "predictedScore": 7.1, "confidence": 0.6 }
               ]
             }
             """);
@@ -163,7 +163,7 @@ public class ScoringCourierTests : IAsyncDisposable
         var endpoint = Endpoint(() => $$"""
             Sure! Here is the ranking:
             ```json
-            { "results": [{ "id": {{anime.Id}}, "rank": 1, "predictedScore": 8.4, "confidence": 0.8 }] }
+            { "results": [{ "id": {{anime.Id}}, "predictedScore": 8.4, "confidence": 0.8 }] }
             ```
             """);
 
@@ -187,7 +187,7 @@ public class ScoringCourierTests : IAsyncDisposable
         var request = await service.BuildRequestAsync(profileId);
 
         var endpoint = Endpoint(() =>
-            """{ "results": [{ "id": 9999, "rank": 1, "predictedScore": 8.0, "confidence": 0.7 }] }""");
+            """{ "results": [{ "id": 9999, "predictedScore": 8.0, "confidence": 0.7 }] }""");
 
         var answer = await endpoint.AskAsync(request);
         var preview = await service.PreviewAsync(profileId, answer.Reply!, request);

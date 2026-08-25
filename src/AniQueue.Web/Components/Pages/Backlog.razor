@@ -415,10 +415,14 @@ else
                                                             <dt>Confidence</dt>
                                                             <dd>@Percent(detail.Confidence)</dd>
                                                         </div>
-                                                        <div>
-                                                            <dt>Ranked</dt>
-                                                            <dd>@detail.Rank of @detail.CandidateCount</dd>
-                                                        </div>
+                                                        @* A "Ranked 3 of 50" pair stood here. It
+                                                           reported a placement inside a batch the
+                                                           user cannot see and never chose, so "3"
+                                                           was not a fact about this title's
+                                                           standing in their backlog — which is the
+                                                           only standing the page invites them to
+                                                           read it as. D43 removed the field it
+                                                           printed. *@
                                                         <div>
                                                             <dt>Decided</dt>
                                                             <dd>@Determined(detail.DeterminedAt)</dd>

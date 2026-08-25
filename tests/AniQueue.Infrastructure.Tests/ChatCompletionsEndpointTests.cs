@@ -87,7 +87,7 @@ public class ChatCompletionsEndpointTests
     [Fact]
     public async Task A_ranking_comes_back_verbatim()
     {
-        var reply = """{ "results": [{ "id": 1, "rank": 1, "predictedScore": 8.0, "confidence": 0.7 }] }""";
+        var reply = """{ "results": [{ "id": 1, "predictedScore": 8.0, "confidence": 0.7 }] }""";
 
         var (endpoint, _) = Create(_ => Json(Completion(reply)));
 
@@ -209,7 +209,7 @@ public class ChatCompletionsEndpointTests
         // already have. Reported as "not valid JSON" it looks like the model
         // misbehaved, when the model did as well as it was allowed to.
         var (endpoint, _) = Create(_ => Json(Completion(
-            """{ "results": [{ "id": 1, "rank": 1, "predictedScore": 8.0, "confi""",
+            """{ "results": [{ "id": 1, "predictedScore": 8.0, "confi""",
             finish: "length")));
 
         var result = await endpoint.AskAsync(Request());
@@ -311,7 +311,7 @@ public class ChatCompletionsEndpointTests
         // A ping would say the port is open. What is worth knowing is whether the thing
         // behind it can produce JSON, which nothing short of asking finds out.
         var (endpoint, handler) = Create(_ => Json(Completion(
-            """{ "results": [{ "id": 1, "rank": 1, "predictedScore": 8.0, "confidence": 0.7 }] }""")));
+            """{ "results": [{ "id": 1, "predictedScore": 8.0, "confidence": 0.7 }] }""")));
 
         var result = await endpoint.TestAsync();
 
@@ -342,7 +342,7 @@ public class ChatCompletionsEndpointTests
         var (endpoint, _) = Create(_ => Json(Completion(
             """
             ```json
-            { "results": [{ "id": 1, "rank": 1, "predictedScore": 8.0, "confidence": 0.7 }] }
+            { "results": [{ "id": 1, "predictedScore": 8.0, "confidence": 0.7 }] }
             ```
             """)));
 

@@ -46,7 +46,7 @@ public sealed record ScoringParseResult
 /// external response, and for a stronger reason here: §6 forbids executing or
 /// evaluating AI content, and D31 makes the reply data that fails rather than data
 /// that gets repaired. Deserialisation would silently accept a missing field as a
-/// default — a rank of 0, a confidence of 0 — and write it to the database as
+/// default — a predicted score of 0, a confidence of 0 — and write it to the database as
 /// though the model had said it.
 ///
 /// Nothing is inferred from a malformed reply. A response wrapped in prose, fenced
@@ -297,7 +297,6 @@ public sealed class ScoringResponseParser(ScoringLimits? limits = null)
 
         var parsed = new List<ScoringResult>(count);
         var seenIds = new HashSet<int>();
-        var seenRanks = new HashSet<int>();
         var position = 0;
 
         foreach (var element in results.EnumerateArray())
@@ -310,28 +309,22 @@ public sealed class ScoringResponseParser(ScoringLimits? limits = null)
                 continue;
             }
 
-            // Duplicates are checked here rather than after the loop so the message can
-            // name where the second one was. Both are errors: a title ranked twice and
-            // two titles claiming one rank are each a ranking that does not describe an
-            // order, and there is no reading of either that is safe to pick.
+            // Checked here rather than after the loop so the message can name where the
+            // second one was. A title scored twice is an error because there is no
+            // reading of two different scores for one title that is safe to pick.
+            //
+            // The companion check — two titles claiming one rank — went with the field
+            // in D43, along with the gap warning beside it. Both existed to police a
+            // numbering nothing asks for or stores any more.
             if (!seenIds.Add(result.Id))
             {
                 problems.Add(ScoringProblem.Error(
-                    $"Result {position}: title {result.Id} was ranked more than once."));
-                continue;
-            }
-
-            if (!seenRanks.Add(result.Rank))
-            {
-                problems.Add(ScoringProblem.Error(
-                    $"Result {position}: rank {result.Rank} was used more than once."));
+                    $"Result {position}: title {result.Id} was scored more than once."));
                 continue;
             }
 
             parsed.Add(result);
         }
-
-        WarnOnRankGaps(parsed, problems);
 
         return new ScoringParseResult
         {
@@ -339,7 +332,14 @@ public sealed class ScoringResponseParser(ScoringLimits? limits = null)
             // read beside what was wrong with it. Nothing downstream may apply it
             // while HasErrors is true, and IRecommendationService is where that is
             // enforced.
-            Response = new ScoringResponse { Results = parsed.OrderBy(r => r.Rank).ToList() },
+            // Ordered by the score, descending, because that is the only number the
+            // model is now asked to produce — so a preview reads top-down in the order
+            // the backlog will show once it is applied (D43). Until then this was the
+            // model's own numbering, which is exactly the field that went.
+            Response = new ScoringResponse
+            {
+                Results = parsed.OrderByDescending(r => r.PredictedScore).ToList()
+            },
             Problems = problems
         };
     }
@@ -394,11 +394,14 @@ public sealed class ScoringResponseParser(ScoringLimits? limits = null)
         }
 
         var id = ReadInt(element, "id", position, problems);
-        var rank = ReadInt(element, "rank", position, problems);
         var predictedScore = ReadDouble(element, "predictedScore", position, problems);
         var confidence = ReadDouble(element, "confidence", position, problems);
 
-        if (id is null || rank is null || predictedScore is null || confidence is null)
+        // A "rank" alongside these is simply not read (D43). Not an error: a model
+        // reproducing a shape from training has still answered the question, and
+        // failing a batch over a field nothing consumes would spend the sweep's error
+        // budget on the model being old-fashioned.
+        if (id is null || predictedScore is null || confidence is null)
         {
             return null;
         }
@@ -421,16 +424,9 @@ public sealed class ScoringResponseParser(ScoringLimits? limits = null)
             return null;
         }
 
-        if (rank < 1)
-        {
-            problems.Add(ScoringProblem.Error($"Result {position}: rank {rank} is not 1 or greater."));
-            return null;
-        }
-
         return new ScoringResult
         {
             Id = id.Value,
-            Rank = rank.Value,
             PredictedScore = predictedScore.Value,
             Confidence = confidence.Value,
             Reason = ReadReason(element, position, problems)
@@ -465,28 +461,13 @@ public sealed class ScoringResponseParser(ScoringLimits? limits = null)
         return text[.._limits.MaxReasonLength];
     }
 
-    /// <summary>
-    /// A ranking that skips ranks still states an order, so this is reported rather
-    /// than refused — but it is reported, because the usual cause is a model that
-    /// dropped entries it had already numbered, and that is worth knowing before
-    /// reading the result as complete.
-    /// </summary>
-    private static void WarnOnRankGaps(List<ScoringResult> parsed, List<ScoringProblem> problems)
-    {
-        if (parsed.Count == 0)
-        {
-            return;
-        }
-
-        var ranks = parsed.Select(r => r.Rank).Order().ToList();
-
-        if (ranks[0] != 1 || ranks[^1] != parsed.Count)
-        {
-            problems.Add(ScoringProblem.Warning(
-                $"The ranks run from {ranks[0]} to {ranks[^1]} across {parsed.Count} results, "
-                + "so some are missing. The order is still used as given."));
-        }
-    }
+    // WarnOnRankGaps stood here. It reported a numbering that started above 1 or
+    // ended below the count, on the reasoning that the usual cause is a model
+    // dropping entries it had already numbered. The signal was real and D43 removed
+    // what it read: with no rank in the reply there is no sequence to find a hole in,
+    // and a short reply is already reported against ExpectedCount by ScoringPreview,
+    // which measures it against what was asked for rather than against the model's
+    // own count of itself.
 
     private static int? ReadInt(JsonElement element, string name, int position, List<ScoringProblem> problems)
     {
