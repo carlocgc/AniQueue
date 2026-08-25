@@ -91,14 +91,20 @@ public class ScoringOptions
     public int StaleAfterRatings { get; set; } = 5;
 
     /// <summary>
-    /// The kill switch for scoring, mirroring <c>Sync:Enabled</c>.
+    /// Whether a scheduled sweep may ask a remote model. Off until asked for.
     /// </summary>
     /// <remarks>
     /// A configuration key for D20's reason: the moment it is needed is the moment
     /// somebody wants a model to stop being hammered, which may be the moment the
-    /// pages cannot be reached. It refuses every run, scheduled or pressed.
+    /// pages cannot be reached.
+    ///
+    /// <b>"It refuses every run, scheduled or pressed" was true and no longer is.</b>
+    /// D42 deleted the pressed run, so the only thing left for this to refuse is the
+    /// sweep — which is why turning its default off is exactly what "remote ranking is
+    /// opt-in" needs, and why no second setting was added beside it. The manual paste
+    /// route does not read this and is unaffected.
     /// </remarks>
-    public bool Enabled { get; set; } = true;
+    public bool Enabled { get; set; }
 
     // Schedule was here, and its own comment recorded the wart: the type was
     // SyncSchedule and the name "now lies slightly", kept because renaming it would

@@ -165,7 +165,9 @@ internal static class UserSettingsDocument
 
         new(
             "Scoring:Enabled",
-            ["Ranking at all. false stops every run, scheduled or pressed."],
+            ["Let scheduled runs ask your model to rank the backlog. Off by default.",
+             "Whether it works depends on the model — some never produce an answer.",
+             "Building a request and pasting the reply back works either way."],
             s => s.ScoringEnabled),
 
 
