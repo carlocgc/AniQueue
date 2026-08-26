@@ -1183,17 +1183,39 @@ button.danger:hover:not(:disabled) { filter: brightness(0.95); }
     margin-bottom: var(--gap);
 }
 
-.detail-dialog h2 { margin: 0; font-size: 1.25rem; }
+/* The badge sits inside the heading so it is part of the dialog's accessible name,
+   which means it has to stop inheriting the heading's size and weight. */
+.detail-dialog h2 {
+    margin: 0;
+    font-size: 1.25rem;
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    flex-wrap: wrap;
+}
 
-.detail-body {
-    display: grid;
-    grid-template-columns: 230px 1fr;
-    gap: var(--gap);
-    align-items: start;
+.detail-dialog h2 .badge { font-size: 0.75rem; font-weight: 600; }
+
+/* The poster floats and everything else runs around it, rather than the two sitting
+   in fixed grid columns. A grid gives the right-hand column a fixed width and lets it
+   run out of content — which is what happens on a completed title, where there is no
+   model reasoning to fill it and the result is a tall picture beside a tall gap. A
+   float has no such column: the facts sit alongside, the synopsis carries on
+   alongside, and whatever is left resumes underneath. */
+.detail-body::after {
+    content: "";
+    display: block;
+    clear: both;
 }
 
 .detail-poster {
+    /* Stated rather than left to the float. A float blockifies its element, so this
+       looks redundant on a wide viewport — and then the narrow rule below clears the
+       float, the span goes back to being inline, width stops applying, and the poster
+       stretches to fill the dialog. */
     display: block;
+    float: left;
+    margin: 0 var(--gap) 0.5rem 0;
     width: 230px;
     border-radius: var(--radius);
     overflow: hidden;
@@ -1277,6 +1299,10 @@ button.danger:hover:not(:disabled) { filter: brightness(0.95); }
     white-space: pre-wrap;
 }
 
+/* Never beside the picture. A row of links wrapping into the narrow channel left by
+   a floated poster reads as a stray column rather than as the foot of the dialog. */
+.detail-links { clear: both; }
+
 /* A spoiler is blacked out rather than removed, so the reader can see that
    something is being withheld and choose (D49). Colour alone would not do it —
    selecting the text or reading the DOM would give it away — but this is a
@@ -1307,10 +1333,15 @@ button.danger:hover:not(:disabled) { filter: brightness(0.95); }
 }
 
 @media (max-width: 720px) {
-    /* The poster stacks above the facts rather than beside them, and stops being a
-       fixed 230px. Deliberately unlike .cover-col, which is hidden outright at this
-       width: a list thumbnail is an aid to scanning that the narrow layout is not
-       doing, while this poster is most of what the dialog is for. */
-    .detail-body { grid-template-columns: 1fr; }
-    .detail-poster { width: min(230px, 60vw); }
+    /* The float comes off entirely and the poster stacks above everything. Wrapping
+       text around a picture needs a channel wide enough to hold a line; at 375px the
+       remainder would be four or five words per line, which is worse than no wrap at
+       all. Deliberately unlike .cover-col, which is hidden outright at this width: a
+       list thumbnail is an aid to scanning that the narrow layout is not doing, while
+       this poster is most of what the dialog is for. */
+    .detail-poster {
+        float: none;
+        width: min(230px, 60vw);
+        margin: 0 0 var(--gap);
+    }
 }

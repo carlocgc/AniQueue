@@ -3977,6 +3977,24 @@ scores only what is unwatched and a user score only exists on what has been watc
 The pairing is therefore built for a case that does not yet occur — a title rated after
 the model ranked it — which costs nothing, since the layout is the same either way.
 
+**The poster floats and the text runs around it, which is a consequence of that
+disjointness.** A two-column grid gives the right-hand column a fixed width and lets
+it run out of content: a planning title fills it with a score, a confidence and the
+model's reasoning, and a completed title has none of those, so the same layout that
+reads well on the first is a tall picture beside a tall gap on the second. A float has
+no column — the facts sit alongside, the synopsis carries on alongside, and whatever
+is left resumes underneath. Below 720px the float comes off entirely, because wrapping
+text needs a channel wide enough to hold a line and the remainder at 375px is four or
+five words.
+
+**Status and progress are shown, because the dialog already had them.**
+`TitleDetail` has carried `Status` and `EpisodesWatched` since it was written and
+rendered neither. The status is the badge the rows already use, placed *inside* the
+heading so it joins the accessible name the platform announces on open. Progress
+appears only while it says something — "12 / 12" beside "12 episodes" repeats itself
+and "0 / 12" says nothing the badge has not, but a part-watched title is the one case
+where where you got to is the most useful fact on the screen.
+
 **The poster has no fixed aspect ratio, and that was found by running it.** AniList
 publishes `extraLarge` at a fixed 460px *width* and a height that varies per title —
 652 and 690 both occur here. The first attempt hardcoded 230×326 with `object-fit:

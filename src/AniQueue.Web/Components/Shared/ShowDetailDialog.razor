@@ -24,7 +24,16 @@
     {
         <article>
             <header>
-                <h2 id="detail-dialog-title">@detail.Title</h2>
+                <h2 id="detail-dialog-title">
+                    @detail.Title
+
+                    @* The same badge the rows use, so a status means the same thing
+                       wherever it is read. Inside the heading rather than beside it
+                       so the accessible name a screen reader announces on open is
+                       "86 EIGHTY-SIX Part 2, Completed" — which is the sentence
+                       somebody opening this actually wants. *@
+                    <span class="badge @detail.Status.ToString().ToLowerInvariant()">@detail.Status</span>
+                </h2>
 
                 @* Autofocus so the platform's own focus move on showModal lands on
                    the control that dismisses, which is what a keyboard user reaches
@@ -120,10 +129,15 @@
                         }
                     }
                 </div>
-            </div>
 
             @if (detail.SynopsisSegments.Count > 0)
             {
+                @* Inside the body, and after the facts, so it wraps around the
+                   floated poster rather than starting below it. A completed title
+                   has no model reasoning to fill the column beside the poster, so
+                   without this the dialog is mostly empty space next to the art —
+                   which is what a magazine layout has always solved by letting the
+                   text run around the picture. *@
                 <div class="detail-synopsis">
                     @foreach (var segment in detail.SynopsisSegments)
                     {
@@ -146,6 +160,7 @@
                     }
                 </div>
             }
+            </div>
 
             @if (detail.SourceLinks.Count > 0)
             {
@@ -259,6 +274,17 @@
         if (RuntimeCalculator.Format(detail.EstimatedRuntimeMinutes) is { } runtime)
         {
             yield return runtime;
+        }
+
+        // Only while it is worth saying. "12 / 12" beside "12 episodes" repeats
+        // itself, and "0 / 12" on something not started says nothing the status
+        // badge has not already said — but a part-watched title is the one case
+        // where where you got to is the most useful fact on the screen.
+        if (detail.EpisodesWatched > 0 && detail.EpisodesWatched != detail.EpisodeCount)
+        {
+            yield return detail.EpisodeCount is { } total
+                ? $"watched {detail.EpisodesWatched} of {total}"
+                : $"watched {detail.EpisodesWatched}";
         }
     }
 
