@@ -2447,9 +2447,24 @@ behind the dialog is cheap; §7's 9b entry carries the table and the open questi
 definition is "what an image of a title actually shows", and a size is not what it shows; loading
 sizes into it makes every future kind×size pair a member of an append-only contract that can never
 be tidied. `AnimeImage` gains a `Rendition` column instead, and its unique index becomes
-`(AnimeId, Kind, Source, Rendition)`. Nothing else moves: two renditions have different bytes,
-therefore different hashes, therefore different filenames, so `ArtworkPaths` and the serving
-endpoint are untouched — which is the immutable-URL design paying for itself a second time.
+`(AnimeId, Kind, Source, Rendition)`. Two renditions have different bytes, therefore different
+hashes, therefore different filenames, so they cannot collide wherever they sit — which is the
+immutable-URL design paying for itself a second time.
+
+**They still get separate directories, and the first attempt did not give them any.** Sharing one
+was justified on exactly that no-collision argument, and it was the wrong argument: this entry's
+own reason for a directory per kind is that *"one directory holding all of them is worse to list,
+worse to sweep and hides what a file is"*, and 1,620 files in `art/posters` is that sentence
+describing itself. **What it actually cost is the disk-wins rule.** D47 made "the file is there"
+half the job's precondition so that deleting art reclaims space and heals within a tick — but that
+property only exists at directory granularity, so with one directory the 145 MB of full-size covers
+could only be freed by also blanking every list thumbnail until the job caught up. `art/thumbnails`
+and `art/posters` restore it.
+
+Side by side rather than nested. `posters/thumbnails` would have read more precisely, because one
+name is a size and the other is a kind; it was declined for being a level deeper in service of
+kinds nothing writes. The asymmetry is the price of the shallower tree, and it is only invisible
+while `Poster` is the only kind — which D48 is the reason for.
 
 **The pass gets longer and keeps its budget.** Two rows per title at 8.5× the bytes means a first
 run no longer finishes inside `CoverArtJob`'s ten minutes, which was justified as room for a
@@ -2655,7 +2670,8 @@ ByteCount?, FetchedAt?, FailedAt?, FailureIsPermanent, AttemptCount`. See D47, D
 - `Source` reuses the existing enum. It was to have gained TVDB and TMDB; D48 read their terms and
   neither is reachable from a self-hosted deployment, so `AniList` is the only value that appears.
 - **The bytes are not here.** §6 forbids image binaries in the database; the file lives under
-  `<data>/art/{kind}/` and this row records where it came from, whether it arrived, and what to serve
+  `<data>/art/{directory}/` — `thumbnails` or `posters`, one per rendition (D48) — and this row
+  records where it came from, whether it arrived, and what to serve
   it as. `ContentHash` is null until it has, and is what makes the served URL immutable.
 - **`RemoteUrl` is the invalidation key.** AniList's URLs carry a content hash, so replaced art
   changes the URL — which clears both failure states and re-fetches, with nothing scheduled and

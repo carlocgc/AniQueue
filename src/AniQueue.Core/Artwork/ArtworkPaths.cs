@@ -14,16 +14,25 @@ namespace AniQueue.Core.Artwork;
 /// and none would ever be served — so all three go through here and the URL is the
 /// disk path with separators in different places.
 ///
-/// <b>A directory per kind, under one <c>art</c> root.</b> The argument for this was
-/// that Phase 9b would turn 810 files into some four thousand across four kinds, and
-/// one directory holding all of them is worse to list, worse to sweep and hides what
-/// a file actually is. D48 declined the APIs those kinds were to come from, so only
-/// <c>posters</c> is ever written and the split earns nothing today.
+/// <b>A directory per picture, under one <c>art</c> root.</b> The argument for this
+/// was that Phase 9b would turn 810 files into some four thousand across four kinds,
+/// and one directory holding all of them is worse to list, worse to sweep and hides
+/// what a file actually is. D48 declined the APIs three of those kinds needed, so the
+/// count came from renditions instead — but 1,620 files in one directory is the same
+/// problem the argument described, so the split follows the rendition too.
 ///
-/// It stays because removing it costs a migration of the cache directory to save one
-/// path segment, and because the shape is still the right one: a second rendition of
-/// the poster lands in the same directory beside the first, which is what the
-/// content hash in the filename makes safe.
+/// <b>What it buys is not tidiness.</b> The job's precondition is "the row says
+/// cached <i>and</i> the file is there", so deleting a directory reclaims space and
+/// heals within a tick. Sharing one directory meant that property existed only for
+/// both renditions at once — and the full-size covers are 145 MB against the
+/// thumbnails' 13 MB, so all of the reclaimable space was behind a delete that also
+/// blanked every list thumbnail until the job caught up.
+///
+/// <b>The two names sit side by side rather than nesting</b> — <c>thumbnails</c>
+/// beside <c>posters</c>, not <c>posters/thumbnails</c>. Nesting rendition under kind
+/// would have read more precisely, since one name is a size and the other is a kind;
+/// it was declined for being a level deeper in service of kinds nothing writes. The
+/// asymmetry is real and is the price of the shallower tree.
 /// </remarks>
 public static class ArtworkPaths
 {
@@ -31,37 +40,53 @@ public static class ArtworkPaths
     public const string Root = "art";
 
     /// <summary>
-    /// The directory a kind's pictures live in — <c>posters</c>, <c>banners</c>.
+    /// The directory a picture lives in — <c>thumbnails</c>, <c>posters</c>.
     /// </summary>
     /// <remarks>
-    /// Spelled out rather than derived from the enum name, because the two answer to
-    /// different masters: the enum is a data contract whose members must never be
+    /// Spelled out rather than derived from the enum names, because the two answer to
+    /// different masters: the enums are data contracts whose members must never be
     /// reordered or renamed, and these are directory names a person reads. Tying them
     /// together would make renaming a directory a data migration.
+    ///
+    /// Only <see cref="ImageKind.Poster"/> distinguishes its renditions, because it is
+    /// the only kind anything writes (D48). A banner at two sizes would land in one
+    /// directory, which costs legibility and nothing else — the content hash in the
+    /// filename means two renditions of one picture cannot collide wherever they sit.
     /// </remarks>
-    public static string DirectoryFor(ImageKind kind) => kind switch
+    public static string DirectoryFor(ImageKind kind, ImageRendition rendition) => (kind, rendition) switch
     {
-        ImageKind.Poster => "posters",
-        ImageKind.Banner => "banners",
-        ImageKind.ClearLogo => "logos",
-        ImageKind.Backdrop => "backdrops",
+        (ImageKind.Poster, ImageRendition.Thumbnail) => "thumbnails",
+        (ImageKind.Poster, ImageRendition.Full) => "posters",
+        (ImageKind.Banner, _) => "banners",
+        (ImageKind.ClearLogo, _) => "logos",
+        (ImageKind.Backdrop, _) => "backdrops",
 
-        // Unreachable while the enum and this switch agree, and a throw rather than a
-        // fallback because a kind quietly filed under "other" would be a picture
-        // nothing could ever find again.
-        _ => throw new ArgumentOutOfRangeException(nameof(kind), kind, "No directory is defined for this image kind.")
+        // Unreachable while the enums and this switch agree, and a throw rather than a
+        // fallback because a picture quietly filed under "other" would be one nothing
+        // could ever find again.
+        _ => throw new ArgumentOutOfRangeException(
+            nameof(kind), kind, "No directory is defined for this image kind and rendition.")
     };
 
-    /// <summary>The kind a directory segment names, if it names one.</summary>
+    /// <summary>The picture a directory segment names, if it names one.</summary>
     /// <remarks>
     /// A whitelist, like <see cref="TryParseSegment"/> and for the same reason: this
     /// value arrives in a request and becomes a path component, so it is matched
-    /// against the four names that exist rather than checked for anything dangerous.
+    /// against the five names that exist rather than checked for anything dangerous.
+    ///
+    /// The three that nothing writes stay on the list. They resolve to
+    /// <see cref="ImageRendition.Full"/> because that is what
+    /// <see cref="DirectoryFor"/> would produce for them at either rendition, so a
+    /// request naming one 404s on a missing file rather than on an unparseable route
+    /// — which is the same answer, arrived at by the honest path.
     /// </remarks>
-    public static bool TryParseKind(string? directory, out ImageKind kind)
+    public static bool TryParseDirectory(string? directory, out ImageKind kind, out ImageRendition rendition)
     {
+        rendition = ImageRendition.Full;
+
         switch (directory)
         {
+            case "thumbnails": kind = ImageKind.Poster; rendition = ImageRendition.Thumbnail; return true;
             case "posters": kind = ImageKind.Poster; return true;
             case "banners": kind = ImageKind.Banner; return true;
             case "logos": kind = ImageKind.ClearLogo; return true;
@@ -91,14 +116,24 @@ public static class ArtworkPaths
     /// Relative and slash-separated so it can be compared against what the sweep finds
     /// on disk on either operating system without either side normalising.
     /// </remarks>
-    public static string RelativePath(ImageKind kind, int animeId, string contentHash, string fileExtension) =>
-        $"{DirectoryFor(kind)}/{CacheFileName(animeId, contentHash, fileExtension)}";
+    public static string RelativePath(
+        ImageKind kind,
+        ImageRendition rendition,
+        int animeId,
+        string contentHash,
+        string fileExtension) =>
+        $"{DirectoryFor(kind, rendition)}/{CacheFileName(animeId, contentHash, fileExtension)}";
 
     /// <summary>Where the page points an <c>img</c> at this picture.</summary>
-    public static string Url(ImageKind kind, int animeId, string contentHash, string fileExtension) =>
+    public static string Url(
+        ImageKind kind,
+        ImageRendition rendition,
+        int animeId,
+        string contentHash,
+        string fileExtension) =>
         string.Create(
             CultureInfo.InvariantCulture,
-            $"/{Root}/{DirectoryFor(kind)}/{animeId}/{contentHash}{fileExtension}");
+            $"/{Root}/{DirectoryFor(kind, rendition)}/{animeId}/{contentHash}{fileExtension}");
 
     /// <summary>
     /// Splits the last URL segment into a hash and an extension, if it is one this

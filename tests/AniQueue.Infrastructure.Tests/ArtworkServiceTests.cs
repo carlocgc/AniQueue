@@ -189,7 +189,7 @@ public class ArtworkServiceTests
 
         // Under its kind's directory, which is what makes 9b's four kinds four
         // directories rather than one holding four thousand files.
-        Assert.Equal([$"posters/{row.AnimeId}-{row.ContentHash}.jpg"], fixture.CachedFiles());
+        Assert.Equal([$"thumbnails/{row.AnimeId}-{row.ContentHash}.jpg"], fixture.CachedFiles());
     }
 
     [Fact]
@@ -296,7 +296,7 @@ public class ArtworkServiceTests
         await fixture.AddImageAsync();
         await fixture.Service.RunAsync(Budget, CancellationToken.None);
 
-        var orphan = Path.Combine(fixture.Root, "art", "posters", "999999-abcdef.jpg");
+        var orphan = Path.Combine(fixture.Root, "art", "thumbnails", "999999-abcdef.jpg");
         await File.WriteAllTextAsync(orphan, "junk", CancellationToken.None);
 
         var result = await fixture.Service.RunAsync(Budget, CancellationToken.None);

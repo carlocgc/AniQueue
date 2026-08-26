@@ -13,7 +13,7 @@ public class CoverImageResolverTests
     {
         var cover = CoverImageResolver.ForAnime(16498, "abc123", ".jpg", "#50bbf1");
 
-        Assert.Equal("/art/posters/16498/abc123.jpg", cover.Url);
+        Assert.Equal("/art/thumbnails/16498/abc123.jpg", cover.Url);
         Assert.Equal("#50bbf1", cover.Colour);
         Assert.True(cover.HasImage);
     }
