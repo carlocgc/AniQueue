@@ -18,20 +18,56 @@
 @* The quiet class is for having nothing at all, not for not having a picture yet.
    A colour block is a deliberate rendering of a real fact the source published and
    should look like one; only a title with neither is a gap. *@
-<span class="cover-thumb @(Cover.IsEmpty ? "cover-thumb-empty" : null)"
-      style="@ColourStyle()"
-      aria-hidden="true">
-    @if (Cover.HasImage)
-    {
-        <img src="@Cover.Url" alt="" width="40" height="60" loading="lazy" decoding="async" />
-    }
-</span>
+@if (OnActivate.HasDelegate)
+{
+    @* A pointer convenience and nothing more (D49). Clicking a poster to open a
+       title is what every media library does, so it is worth having — but it is a
+       second way to reach a control the row already has on its title, and announcing
+       both would make a screen reader read every row twice. So this stays hidden and
+       unreachable by keyboard, and the title carries the real, named button.
+
+       It also cannot be the only trigger: .cover-col is display:none below 720px,
+       so on a narrow window this element does not exist at all. *@
+    <button type="button"
+            class="cover-thumb cover-thumb-button @(Cover.IsEmpty ? "cover-thumb-empty" : null)"
+            style="@ColourStyle()"
+            tabindex="-1"
+            aria-hidden="true"
+            @onclick="OnActivate">
+        @if (Cover.HasImage)
+        {
+            <img src="@Cover.Url" alt="" width="40" height="60" loading="lazy" decoding="async" />
+        }
+    </button>
+}
+else
+{
+    <span class="cover-thumb @(Cover.IsEmpty ? "cover-thumb-empty" : null)"
+          style="@ColourStyle()"
+          aria-hidden="true">
+        @if (Cover.HasImage)
+        {
+            <img src="@Cover.Url" alt="" width="40" height="60" loading="lazy" decoding="async" />
+        }
+    </span>
+}
 
 @code {
     /// <summary>What to render, already resolved. This component decides nothing.</summary>
     [Parameter]
     [EditorRequired]
     public CoverArt Cover { get; set; }
+
+    /// <summary>
+    /// What to do when the poster is clicked, where clicking it does anything.
+    /// </summary>
+    /// <remarks>
+    /// Unset on a surface with nothing to open, which is what keeps this decorative
+    /// in the places it always was. Set, it becomes a pointer shortcut to a control
+    /// that also exists on the row's title — never the only way to reach it (D49).
+    /// </remarks>
+    [Parameter]
+    public EventCallback OnActivate { get; set; }
 
     /// <summary>
     /// The colour as a custom property rather than a background, so the stylesheet

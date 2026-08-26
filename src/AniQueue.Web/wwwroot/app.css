@@ -1124,3 +1124,229 @@ button.danger:hover:not(:disabled) { filter: brightness(0.95); }
        viewport is doing. */
     .cover-col { display: none; }
 }
+
+/* Show detail dialog ------------------------------------------------------ */
+
+/* The title as a control (D49). It has to read as the row's text, because that is
+   what it is — a button that looked like a button would put fifty of them down a
+   column that is meant to be scanned. Only the affordances that say "activate me"
+   are kept: a pointer cursor, and an underline on hover and focus. */
+.title-button {
+    all: unset;
+    cursor: pointer;
+    font: inherit;
+    color: inherit;
+}
+
+.title-button:hover { text-decoration: underline; }
+
+/* all: unset above resets font-weight, and this rule is later in the file than
+   .relation-title, so a relative would otherwise lose the weight that distinguishes
+   its title from the metadata around it. Two classes rather than relying on order. */
+.title-button.relation-title { font-weight: 500; }
+
+/* Not :focus, because the pointer path would then leave an outline behind after a
+   click. :focus-visible is the keyboard-only half, which is who the outline is for. */
+.title-button:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+    border-radius: 2px;
+}
+
+/* The poster as a pointer shortcut. It carries no focus ring because it is
+   tabindex="-1" and aria-hidden — the title beside it is the reachable control. */
+.cover-thumb-button {
+    padding: 0;
+    border: none;
+    background: var(--cover-colour, var(--surface-alt));
+    cursor: pointer;
+}
+
+.detail-dialog {
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--surface);
+    color: var(--text);
+    padding: 0;
+    width: min(46rem, calc(100vw - 2rem));
+
+    /* Capped rather than fixed so a title with no synopsis produces a short dialog
+       instead of a tall one holding a lot of nothing. */
+    max-height: min(44rem, calc(100vh - 2rem));
+    overflow: auto;
+}
+
+.detail-dialog::backdrop { background: rgb(0 0 0 / 0.55); }
+
+.detail-dialog article { padding: var(--gap); }
+
+.detail-dialog header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 0.75rem;
+    margin-bottom: var(--gap);
+}
+
+/* The badge sits inside the heading so it is part of the dialog's accessible name,
+   which means it has to stop inheriting the heading's size and weight. */
+.detail-dialog h2 {
+    margin: 0;
+    font-size: 1.25rem;
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    flex-wrap: wrap;
+}
+
+.detail-dialog h2 .badge { font-size: 0.75rem; font-weight: 600; }
+
+/* The poster floats and everything else runs around it, rather than the two sitting
+   in fixed grid columns. A grid gives the right-hand column a fixed width and lets it
+   run out of content — which is what happens on a completed title, where there is no
+   model reasoning to fill it and the result is a tall picture beside a tall gap. A
+   float has no such column: the facts sit alongside, the synopsis carries on
+   alongside, and whatever is left resumes underneath. */
+.detail-body::after {
+    content: "";
+    display: block;
+    clear: both;
+}
+
+.detail-poster {
+    /* Stated rather than left to the float. A float blockifies its element, so this
+       looks redundant on a wide viewport — and then the narrow rule below clears the
+       float, the span goes back to being inline, width stops applying, and the poster
+       stretches to fill the dialog. */
+    display: block;
+    float: left;
+    margin: 0 var(--gap) 0.5rem 0;
+    width: 230px;
+    border-radius: var(--radius);
+    overflow: hidden;
+    background: var(--cover-colour, var(--surface-alt));
+}
+
+/* No aspect-ratio, and the picture sets its own height. AniList publishes
+   extraLarge at a fixed 460px *width* and a height that varies per title — 652 and
+   690 both appear in this library — so any single ratio here crops somebody's
+   poster, and object-fit: cover takes it off the top and bottom, which is where
+   cover art puts its title. */
+.detail-poster img { width: 100%; height: auto; display: block; }
+
+/* Only the placeholder needs a shape of its own, because there is no picture to
+   give it one. */
+.detail-poster-blank { aspect-ratio: 230 / 326; }
+
+.detail-poster-empty { opacity: 0.55; }
+
+/* Separators drawn by CSS rather than written into the markup, so a title missing
+   its year or episode count does not leave a stranded bullet behind it. */
+.detail-meta { margin: 0 0 0.5rem; color: var(--text-muted); }
+.detail-meta span + span::before { content: " · "; }
+
+.detail-studio { margin: 0 0 0.75rem; font-weight: 600; }
+
+.detail-genres {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.35rem;
+    list-style: none;
+    margin: 0 0 0.75rem;
+    padding: 0;
+}
+
+.detail-genres li {
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    padding: 0.1rem 0.6rem;
+    font-size: 0.85rem;
+    color: var(--text-muted);
+}
+
+/* Two judgements of the same title, on the same 1-10 scale, so they are laid out
+   identically and read against each other. The label is small and quiet and the
+   number is large: which score this is takes a glance, what it says should not. */
+.detail-scores {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 1.75rem;
+    margin: 0 0 0.35rem;
+}
+
+.detail-stat { display: flex; flex-direction: column; gap: 0.1rem; }
+
+.detail-stat-label {
+    font-size: 0.7rem;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+}
+
+/* Tabular figures so 8.3 and 10 line up rather than shifting the label under them. */
+.detail-stat-value {
+    font-size: 2rem;
+    font-weight: 700;
+    line-height: 1.1;
+    font-variant-numeric: tabular-nums;
+}
+
+.detail-stat-note { font-size: 0.8rem; color: var(--text-muted); }
+
+.detail-reason { margin: 0.35rem 0 0; color: var(--text-muted); }
+
+/* pre-wrap because the formatter emits \n for AniList's <br>, and the alternative
+   is building markup out of a third party's string. */
+.detail-synopsis {
+    margin-top: var(--gap);
+    line-height: 1.55;
+    white-space: pre-wrap;
+}
+
+/* Never beside the picture. A row of links wrapping into the narrow channel left by
+   a floated poster reads as a stray column rather than as the foot of the dialog. */
+.detail-links { clear: both; }
+
+/* A spoiler is blacked out rather than removed, so the reader can see that
+   something is being withheld and choose (D49). Colour alone would not do it —
+   selecting the text or reading the DOM would give it away — but this is a
+   courtesy for someone browsing their own backlog, not a security boundary. */
+.spoiler {
+    all: unset;
+    cursor: pointer;
+    background: var(--text);
+    color: transparent;
+    border-radius: 2px;
+}
+
+.spoiler:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.spoiler.revealed {
+    background: transparent;
+    color: inherit;
+    cursor: auto;
+}
+
+.detail-links {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+    margin-top: var(--gap);
+    padding-top: 0.75rem;
+    border-top: 1px solid var(--border);
+}
+
+@media (max-width: 720px) {
+    /* The float comes off entirely and the poster stacks above everything. Wrapping
+       text around a picture needs a channel wide enough to hold a line; at 375px the
+       remainder would be four or five words per line, which is worse than no wrap at
+       all. Deliberately unlike .cover-col, which is hidden outright at this width: a
+       list thumbnail is an aid to scanning that the narrow layout is not doing, while
+       this poster is most of what the dialog is for. */
+    .detail-poster {
+        float: none;
+        width: min(230px, 60vw);
+        margin: 0 0 var(--gap);
+    }
+}

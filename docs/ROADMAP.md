@@ -2994,8 +2994,8 @@ numbering. What is finished is a column; what happens next is the first row with
 | 8d | Scheduled sweep | ✅ | A backlog scores itself in batches with nobody present, and idles when nothing has been rated |
 | 9a | Cover art | ✅ | Covers cached under `/data` by a job that idles, served immutably, and rendered on the backlog and Up Next |
 | 9b | AniList enrichment | ✅ | Genres, studios, synopsis and a full-size cover landed from one selection-set change, on the next sync, with no backfill job |
-| 9c | Show detail dialog | ▢ **next** | A row opens a dialog that argues for the title: poster, synopsis, genres, studio, and the score with its reason |
-| 10 | Settings page | ▢ | One page for preferences; operator configuration shown and not editable |
+| 9c | Show detail dialog | ✅ | A row opens a dialog that argues for the title: poster, synopsis, genres, studio, and the score with its reason |
+| 10 | Settings page | ▢ **next** | One page for preferences; operator configuration shown and not editable |
 | 10a | Per-source settings to the file | ✅ | `SourceSyncSettings` deleted; every sync setting read from `userconfig.json` |
 | 11 | Docker + README | ▢ | Migrations squashed to one baseline; compose up, health check, container recreated without data loss |
 | 12 | Optional auth | ▢ | A single-user login can be turned on; off by default, and off is still a supported deployment |
@@ -3926,6 +3926,96 @@ cached full-size poster shows less rather than showing a placeholder or an error
 degradation, which by this point the art path has already been following for two phases. The
 poster falls back to the thumbnail, then to `CoverImageColor`, then to a neutral block, which is
 the chain `CoverImageResolver` already implements.
+
+**A related title opens it too**, from inside the expansion Phase 6c built. That is
+where the question the dialog answers is least settled: a sequel found by expanding a
+row is a title the user has not decided about, and until now the only thing they could
+do with it was queue it. It needs no second lookup — `RelationService` joins relatives
+through `LibraryEntries`, so every one of them is an entry of this profile's and the
+same query finds it. Acting leaves the expansion open behind the dialog, which is D26's
+rule holding rather than a new one.
+
+**Two controls open it, and only one of them is a control.** The poster is the obvious
+place to click — every media library works that way — but `.cover-col` is
+`display: none` below 720px, a 9a decision that was right while the cover was
+decoration and would have made the dialog unreachable on a phone the moment it became
+a trigger. So the title carries the real button, with the accessible name; the poster
+is a pointer shortcut that is `aria-hidden` and `tabindex="-1"`. That also settles
+what would otherwise be the cost of two triggers — a screen reader announcing every
+row twice.
+
+**The dialog is a native `<dialog>` opened with `showModal()`**, which is the only
+reason this phase has any JavaScript at all. Rendering `<dialog open>` from Blazor
+produces a *non-modal* dialog: no backdrop, no inert page behind it, no focus trap and
+no Escape. The two-function module that calls `showModal` and `close` is what buys all
+four from the platform rather than reimplementing them.
+
+**The synopsis is formatted in Core and rendered as text.** `SynopsisFormatter` turns
+AniList's markdown into runs, and the page never touches `MarkupString` — which is
+what 9b's decision to store the markdown rather than the `asHtml` form was for. What
+it has to handle was measured across the library's 810 synopses rather than guessed:
+`<br>` in 1,538 places, `<i>` in 213, `<b>` in 44, `<strong>` in 12, and no anchors.
+A formatter that knew only about line breaks would have printed a literal `<i>` to the
+reader in a fifth of the library.
+
+**The spoiler rule is built and unproven.** `~!...!~` appears *nowhere* in this
+library, so unlike everything else here it rests on unit tests rather than on a
+measurement. It masks rather than strips, because a reader can then see that something
+is being withheld and choose; an unterminated `~!` masks everything after it, since of
+the two readings of malformed input only one can print a twist to somebody who did not
+ask for it. It is a courtesy for someone browsing their own backlog and not a security
+boundary — the text is in the DOM.
+
+**Everything degrades to absent**, and the sample profile is the proof rather than the
+argument: with no AniList data at all a title still opens, showing no studio line, no
+genres, no synopsis, a placeholder poster and a dialog 457px tall instead of a tall box
+of nothing.
+
+**Both scores are shown, labelled and large, and they are laid out identically because
+they are comparable** — every parser normalises an incoming score into 1–10 on the way
+in, and `ScoringScale.Default` asks the model for the same 1–10. The user's own score
+appears whenever there is one rather than only on a completed title: a score exists
+because the user gave it, and hiding their rating of something they dropped would be
+withholding the most relevant fact on a screen built to inform a decision.
+
+*In this library they never appear together, and that is worth recording.* Measured
+across the whole backlog sorted by AI rank: 50 titles carrying an AI score, none of
+them carrying a user score. The two are structurally disjoint today because the sweep
+scores only what is unwatched and a user score only exists on what has been watched.
+The pairing is therefore built for a case that does not yet occur — a title rated after
+the model ranked it — which costs nothing, since the layout is the same either way.
+
+**The poster floats and the text runs around it, which is a consequence of that
+disjointness.** A two-column grid gives the right-hand column a fixed width and lets
+it run out of content: a planning title fills it with a score, a confidence and the
+model's reasoning, and a completed title has none of those, so the same layout that
+reads well on the first is a tall picture beside a tall gap on the second. A float has
+no column — the facts sit alongside, the synopsis carries on alongside, and whatever
+is left resumes underneath. Below 720px the float comes off entirely, because wrapping
+text needs a channel wide enough to hold a line and the remainder at 375px is four or
+five words.
+
+**Status and progress are shown, because the dialog already had them.**
+`TitleDetail` has carried `Status` and `EpisodesWatched` since it was written and
+rendered neither. The status is the badge the rows already use, placed *inside* the
+heading so it joins the accessible name the platform announces on open. Progress
+appears only while it says something — "12 / 12" beside "12 episodes" repeats itself
+and "0 / 12" says nothing the badge has not, but a part-watched title is the one case
+where where you got to is the most useful fact on the screen.
+
+**The poster has no fixed aspect ratio, and that was found by running it.** AniList
+publishes `extraLarge` at a fixed 460px *width* and a height that varies per title —
+652 and 690 both occur here. The first attempt hardcoded 230×326 with `object-fit:
+cover`, which cropped 5.5% off a 690-tall poster, top and bottom, which is where cover
+art puts its title. The picture sets its own height now; only the placeholder needs a
+ratio, because it has no picture to give it one.
+
+**What could not be verified, stated plainly.** The browser this was driven through
+reports `visibilityState: hidden` and fires no `close` event even for a bare dialog
+created and closed in a single statement, so neither the Escape key nor Blazor's
+`@onclose` was exercised. The component is built not to need it: `ShowAsync` sets its
+state and renders before calling `showModal`, so the dialog is correct by the time it
+is visible whether or not the close handler ever runs.
 
 ### Phase 10 — Settings page
 
