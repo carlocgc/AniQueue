@@ -16,7 +16,7 @@ namespace AniQueue.Core.Domain;
 /// </summary>
 /// <remarks>
 /// <b>The bytes are not here.</b> §6 forbids image binaries in the database, so the
-/// file lives under <c>&lt;data&gt;/covers/</c> and this row records where it came
+/// file lives under <c>&lt;data&gt;/art/{kind}/</c> and this row records where it came
 /// from and what happened. Disk is the authority on whether it is actually cached:
 /// the job's precondition asks the filesystem as well as this row, so deleting the
 /// cache directory to reclaim space heals within a tick instead of breaking every
@@ -35,9 +35,11 @@ public class AnimeImage
     /// <summary>Who published this picture. Not who published the title.</summary>
     /// <remarks>
     /// <see cref="AnimeSource.Manual"/> never appears: a hand-created title has no
-    /// art to fetch. Phase 9b adds TVDB and TMDB, at which point one title carries
-    /// several rows of the same <see cref="Kind"/> and the source is what tells them
-    /// apart.
+    /// art to fetch. This was to become the column telling several rows of the same
+    /// <see cref="Kind"/> apart once Phase 9b added TVDB and TMDB; D48 declined both,
+    /// so <see cref="AnimeSource.AniList"/> is the only value that ever appears here.
+    /// What actually gives a title more than one row of a kind is rendition — a
+    /// thumbnail for a list slot and a full-size cover for the detail dialog.
     /// </remarks>
     public AnimeSource Source { get; set; }
 
@@ -62,8 +64,8 @@ public class AnimeImage
     /// </summary>
     /// <remarks>
     /// Doing double duty deliberately: it is what says a fetch succeeded, and it is
-    /// what makes the served URL immutable. <c>/covers/{id}/{hash}</c> can be given a
-    /// year's <c>max-age</c> because replaced art arrives at a different address, so
+    /// what makes the served URL immutable. <c>/art/{kind}/{id}/{hash}</c> can be given
+    /// a year's <c>max-age</c> because replaced art arrives at a different address, so
     /// a browser is never stale and never spends a request revalidating.
     /// </remarks>
     public string? ContentHash { get; set; }

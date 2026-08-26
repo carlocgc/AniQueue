@@ -55,7 +55,7 @@ public sealed class QueueService(
 
                 // Scalar subqueries rather than a join, as the backlog does: a slot
                 // wants one poster and a join would multiply the queue by however
-                // many image kinds Phase 9b adds (D47).
+                // many images a title has (D47, D48).
                 CoverContentHash = q.Anime.Images
                     .Where(x => x.Kind == ImageKind.Poster && x.ContentHash != null)
                     .Select(x => x.ContentHash)

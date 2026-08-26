@@ -14,11 +14,16 @@ namespace AniQueue.Core.Artwork;
 /// and none would ever be served — so all three go through here and the URL is the
 /// disk path with separators in different places.
 ///
-/// <b>A directory per kind, under one <c>art</c> root.</b> Phase 9b turns 810 files
-/// into some four thousand across four kinds, and one directory holding all of them
-/// is worse to list, worse to sweep and hides what a file actually is. The kinds sit
-/// under a single root rather than at the top of <c>/data</c> so the volume gains one
-/// entry beside the database rather than four.
+/// <b>A directory per kind, under one <c>art</c> root.</b> The argument for this was
+/// that Phase 9b would turn 810 files into some four thousand across four kinds, and
+/// one directory holding all of them is worse to list, worse to sweep and hides what
+/// a file actually is. D48 declined the APIs those kinds were to come from, so only
+/// <c>posters</c> is ever written and the split earns nothing today.
+///
+/// It stays because removing it costs a migration of the cache directory to save one
+/// path segment, and because the shape is still the right one: a second rendition of
+/// the poster lands in the same directory beside the first, which is what the
+/// content hash in the filename makes safe.
 /// </remarks>
 public static class ArtworkPaths
 {

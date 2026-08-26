@@ -24,9 +24,14 @@ public sealed class CoverArtJob(
     /// </summary>
     /// <remarks>
     /// A first pass over a fresh 810-title library measured four minutes and six
-    /// seconds at the pacing the service uses, so ten minutes is room for a library
-    /// twice that size to finish in one visit. Beyond that it stops and resumes, which
-    /// costs nothing because progress is recorded per picture.
+    /// seconds at the pacing the service uses. That was room for a library twice this
+    /// one's size to finish in one visit, and Phase 9b spends the headroom: a second
+    /// rendition per title at 8.5× the bytes means a first run stops and resumes
+    /// instead (D48). It costs nothing because progress is recorded per picture, and
+    /// the only visible consequence is that a fresh install shows a small poster in
+    /// the detail dialog for a while — the same degradation the colour block exists
+    /// for. Raising this would hold a database connection and a cancellation window
+    /// open longer to buy nothing.
     /// </remarks>
     private static readonly TimeSpan Budget = TimeSpan.FromMinutes(10);
 

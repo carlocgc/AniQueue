@@ -16,8 +16,10 @@ namespace AniQueue.Core.Artwork;
 ///
 /// So the <i>host set</i> is the constant and only the path comes from data. Every
 /// one of the 810 covers in the development library is on one host over https, which
-/// is what makes this cheap; Phase 9b adds the TVDB and TMDB image hosts to the list
-/// and changes nothing else about it.
+/// is what makes this cheap. Phase 9b was to add the TVDB and TMDB image hosts and
+/// change nothing else about it; D48 declined every service that would have been
+/// added, so the set is one host and this rule has never had a second case to prove
+/// it generalises.
 ///
 /// Pure and here rather than beside the fetcher because these are the checks worth
 /// testing exhaustively, and none of them needs a socket to decide.

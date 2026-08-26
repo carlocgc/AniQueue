@@ -2387,6 +2387,146 @@ library's covers to its owner, which took **4 minutes 6 seconds**. A first run o
 therefore shows colour blocks for a few minutes before it shows posters, which is exactly the
 degradation `coverImage.color` was banked for in Phase 6.
 
+### D48 — Three art APIs were read, and none of them survives a self-hosted deployment
+
+*Answers the question D46 left open and D47 deferred — whether TMDB, TheTVDB and fanart.tv may
+actually be called — and the answer removes Phase 9b as written rather than adjusting it.*
+
+**Every previous entry on this subject ended by saying the terms were unverified.** They have now
+been read, and all three fail, for three unrelated reasons:
+
+| Service | What it asks for | Why it does not work here |
+|---|---|---|
+| TMDB | A free key; personal, non-commercial use is permitted | *"Cache, for longer than 6 months, any information obtained through or from TMDB or the TMDB APIs"* is prohibited. It also mandates the TMDB logo and a verbatim disclaimer wherever its content appears |
+| TheTVDB | A v4 project key; the free tier covers anything under $50k revenue | A free key is *user-supported*, which means every end user must hold a paid TheTVDB subscription and pass their own PIN to `/login`. The only alternative is embedding a project key in a published image |
+| fanart.tv | A project key, with a personal key as an optional extra | The same embedded-credential problem, for one image kind TMDB already publishes |
+
+**TMDB's caching clause is the one that actually decides it.** D47's model is fetch once, hash the
+bytes, serve from an address that contains the hash, and give it a year's `max-age` with
+`immutable` — the hash is what earns the year, and nothing ever re-checks. A six-month purge
+obligation is the opposite instruction. Honouring it means TMDB rows carrying an expiry no other
+row has, a sweep that deletes art currently on screen, and a `max-age` that has to be shorter than
+a retention period the terms cap. That is not an addition to D47; it is a second, contradictory
+lifecycle inside the same table, and it would have been discovered after the schema was built.
+
+**TheTVDB's is the one that would have shipped broken.** The revenue tier reads as though a
+self-hosted hobby project is exactly the intended case, and it is — for a project that
+authenticates its *own* users. AniQueue is distributed as an image and run by strangers, so
+"user-supported" means every one of them buys a TheTVDB subscription before a backdrop appears.
+The alternative, a project key baked into a public container, is a credential in a published
+artifact, which §6 does not survive. Neither is a bug to be worked around; the licence is
+describing a different kind of application.
+
+**One finding is recorded because it is what would tempt a return.** TMDB's
+`/find/{external_id}` accepts `tvdb_id` as well as `imdb_id`. D46 assumed the MIT dataset's
+missing TMDB column cost one extra request per film and left series reachable only through
+TheTVDB; in fact the dataset's TVDB ids resolve to TMDB series directly, so series would have
+reached TMDB at 97% rather than 47%, and TheTVDB's API would never have needed calling at all.
+**The mapping was never the problem.** The plan was sound and the permission was not.
+
+**What this deletes.** D46's dataset is retired without ever having been fetched — that entry
+stays, because the licence reasoning is what stopped a worse mistake, not because anything now
+reads it. `IIdMappingJob` leaves §5's table unbuilt. `ImageSource`'s allowlist stays at one host.
+`ImageKind` keeps `Banner`, `ClearLogo` and `Backdrop`: the enum is stored as an integer and is
+append-only, so removing them is a data-contract break in exchange for nothing, and an unwritten
+member costs one arm of a switch. Their comments change from promising Phase 9b will fill them to
+saying why nothing does.
+
+**What survives is the only part the dialog needs**: a cover large enough to be a hero image.
+AniList publishes `extraLarge` at 460px wide against the 100px `medium` 9a caches for a 40×60
+slot, and D47 already priced it at 83.3 KB a title and 67 MB across this library. That measurement
+was taken in order to *reject* `extraLarge` for a fifty-row page, where it costs 4.2 MB a page; a
+dialog renders one image, so the number that disqualified it there does not apply here at all.
+
+**Two renditions therefore need a key, and `ImageKind` is the wrong place to put one.** Its own
+definition is "what an image of a title actually shows", and a size is not what it shows; loading
+sizes into it makes every future kind×size pair a member of an append-only contract that can never
+be tidied. `AnimeImage` gains a `Rendition` column instead, and its unique index becomes
+`(AnimeId, Kind, Source, Rendition)`. Nothing else moves: two renditions have different bytes,
+therefore different hashes, therefore different filenames, so `ArtworkPaths` and the serving
+endpoint are untouched — which is the immutable-URL design paying for itself a second time.
+
+**The pass gets longer and keeps its budget.** Two rows per title at 8.5× the bytes means a first
+run no longer finishes inside `CoverArtJob`'s ten minutes, which was justified as room for a
+library twice this one's size. It resumes correctly because progress is recorded per row, so the
+only real consequence is that a fresh install shows the dialog a small poster for a while — the
+same degradation `coverImage.color` was banked for. Raising the budget would hold a database
+connection and a cancellation window open longer for no gain, so the number stays and the comment
+that justified it is corrected.
+
+*Confidence, stated plainly:* the three sets of terms were read in August 2026 and are quoted
+above rather than characterised. They are the publishers' to change, so returning to any of these
+services means reading them again rather than trusting this table. Nothing here was measured
+against a running integration, because none was built.
+
+### D49 — A dialog that sells a show reads differently from a list that filters one
+
+*Reverses §10's outright decline of `description`, pulls genres and studios out of post-MVP, and
+gives the artwork work a page one phase after it lands.*
+
+**D48 left 9b holding a bigger cover and nothing to put it on.** The surface that wants it is a
+show detail dialog, opened from a backlog or Up Next row: genres, synopsis, studio, the large
+poster, and the score, confidence and reason already sitting on `LibraryEntry`. Its purpose is
+narrower than a detail page's, and that narrowness is what settles the field arguments below — it
+exists to make an unwatched title look worth queueing.
+
+**`description` was declined for a reader that is not this one.** §10's argument was that it "is
+read once and never filtered on, so the source links already answer it" — true of a list row,
+where a synopsis is a wall of text in a column with no room for it and a link to AniList costs one
+click. It is not true of a dialog whose whole job is the pitch. The column has existed on `Anime`
+since Phase 1 and has never once been written or read; this is what it was for.
+
+**Genres and studios leave post-MVP on the same argument, and keep the shape §10 already chose.**
+Normalised `Genre` and `Studio` entities with join tables, not a delimited column — §6 rules out a
+`LIKE` scan for "has genre Shonen". Nothing in these two phases filters, so this is being built
+ahead of its consumer; it is still the cheaper order, because it is one migration either way, both
+are squashed into Phase 11's baseline, and the delimited version adds a data migration the day
+filtering arrives. `Genre` is a table rather than an enum because AniList can add one, and an enum
+member is a contract that cannot absorb that.
+
+**The studio join carries `isMain`; the genre join carries nothing.** AniList returns animation
+studios and producers in one edge list, and `isMain` is what separates "the studio" from the
+companies that funded it. All edges are taken with the flag rather than filtered to the main one
+in the query: it is the same query shape and the same migration, the marginal cost is a boolean
+and a few thousand rows, and it leaves the studio-affinity signal §10 calls a stronger stretch
+goal than filtering with its data already present. A title with no main studio flagged shows no
+studio line rather than an arbitrary one — D25's silent degradation, applied to text. The two
+joins therefore look deliberately unalike: one is a join entity, the other a pure join.
+
+**None of it needs a backfill job, which is what makes this one phase rather than three.** The
+sync's only list query fetches the entire `MediaListCollection` every time, so `genres`,
+`studios`, `description` and `coverImage.extraLarge` are four fields added to one selection set,
+arriving in one response, populating every existing title on the next scheduled sync. Phase 6b's
+relations needed a paced backfill precisely because they are deliberately *not* on that query
+(D24); these are.
+
+**The synopsis is stored as AniList's own markdown, not as `asHtml`.** Three reasons, in the order
+they matter. AniList descriptions carry spoilers wrapped in `~!...!~`, and a dialog written to
+interest someone in an unwatched show must not print its twist — in the raw form that is a
+delimiter anything can detect, while `asHtml` has already expanded it into markup that would have
+to be parsed back out. Taking HTML would also hand a Blazor page third-party markup that only
+`MarkupString` can render, which is unescaped injection from a source any AniList user can edit;
+untrusted strings are encoded here, as the model's output already is. And storing the source's own
+string rather than a transformation of it is D47's lesson repeated: the cover parser stored the
+wrong rendition, the merge preserved it, and it could not be corrected without a migration. What
+AniList said is what is stored, and every rendering decision stays a code change.
+
+**The collections restate the merge invariant rather than inheriting it.** `Merge` reads "the
+incoming value if it exists and is allowed to land", resting on the property that *a source never
+erases a value by not carrying it* — a MyAnimeList export knows no episode duration, and reading
+that silence as "there isn't one" would discard what AniList said. A set has no null, so the rule
+has to be written again: **an empty incoming set is silence, and a non-empty one replaces.**
+Without that, re-importing a MyAnimeList XML — which carries no genres at all — would strip the
+genres off every title it identifies, in a way no build and no test would notice. Replacement
+rather than union, because a union means AniList correcting a mis-tagged genre never propagates
+and the set only ever grows.
+
+**One consequence is named here so it is not filed as a bug later.** For a title both sources
+identify, with MyAnimeList ranked first, `mayOverwrite` is false for AniList, so its synopsis and
+genres are filled once and never updated again. That is not new — `EpisodeCount` and `ReleaseYear`
+have always behaved that way (D18) — and the consistency is worth more than a special case for two
+fields.
+
 ---
 
 ## 3. Solution structure
@@ -2471,13 +2611,18 @@ instead of conflicting with it.
 
 ### AnimeImage
 
-`Id, AnimeId, Kind, Source, RemoteUrl, ContentHash?, FetchedUrl?, FileExtension?, ByteCount?,
-FetchedAt?, FailedAt?, FailureIsPermanent, AttemptCount`. See D47. Unique on
-`(AnimeId, Kind, Source)`.
+`Id, AnimeId, Kind, Source, Rendition, RemoteUrl, ContentHash?, FetchedUrl?, FileExtension?,
+ByteCount?, FetchedAt?, FailedAt?, FailureIsPermanent, AttemptCount`. See D47, D48. Unique on
+`(AnimeId, Kind, Source, Rendition)`.
 
-- `Kind`: `Poster, Banner, ClearLogo, Backdrop` — 9a writes only `Poster`, 9b adds the rest.
-  Stored as an integer, so the values are a data contract and append-only.
-- `Source` reuses the existing enum for now and gains TVDB and TMDB in 9b.
+- `Kind`: `Poster, Banner, ClearLogo, Backdrop` — only `Poster` is ever written. The other three
+  were for the TVDB and TMDB art D48 declined; they stay because the enum is stored as an integer
+  and is append-only, so removing them breaks a data contract to save one arm of a switch.
+- `Rendition`: `Thumbnail, Full` — the 100px `medium` cover the list rows use and the 460px
+  `extraLarge` the detail dialog needs. A size is not what a picture *shows*, which is why this is
+  its own column rather than more `Kind` members (D48).
+- `Source` reuses the existing enum. It was to have gained TVDB and TMDB; D48 read their terms and
+  neither is reachable from a self-hosted deployment, so `AniList` is the only value that appears.
 - **The bytes are not here.** §6 forbids image binaries in the database; the file lives under
   `<data>/art/{kind}/` and this row records where it came from, whether it arrived, and what to serve
   it as. `ContentHash` is null until it has, and is what makes the served URL immutable.
@@ -2488,6 +2633,32 @@ FetchedAt?, FailedAt?, FailureIsPermanent, AttemptCount`. See D47. Unique on
   shown and the other is the picture being shown; outstanding work is the two disagreeing, which
   covers "never fetched" and "replaced since" with one comparison, and the old art keeps
   rendering until the new art has actually arrived.
+
+### Genre and AnimeGenre
+
+`Genre: Id, Name`, unique on `Name`. `AnimeGenre: AnimeId, GenreId`, composite key, indexed both
+ways. See D49.
+
+- **A table rather than an enum**, because AniList can add a genre and an enum member is a data
+  contract that cannot absorb one.
+- **Normalised rather than a delimited column**, because §6 requires filtering to be indexed and
+  server-side, and `LIKE '%Shonen%'` is neither. Nothing filters on it in 9b or 9c; it is built
+  this way now because it is one migration either way and the delimited form would owe a data
+  migration the day a filter arrives.
+- **An empty incoming set is silence, not "no genres"** (D49). A MyAnimeList export carries none,
+  and reading that as fact would strip every genre AniList supplied.
+
+### Studio and AnimeStudio
+
+`Studio: Id, Name, IsAnimationStudio`, unique on `Name`. `AnimeStudio: AnimeId, StudioId, IsMain`,
+composite key. See D49.
+
+- **A join entity, not a pure join**, because `IsMain` is a fact about the pairing rather than
+  about either side: AniList returns animation studios and the companies that funded them in one
+  edge list, and this flag is the only thing separating them.
+- All edges are stored rather than filtering to the main one in the query — same query shape, same
+  migration, and it leaves §10's studio-affinity idea with its data already present.
+- A title with no main studio flagged renders no studio line rather than an arbitrary one.
 
 ### LibraryEntry
 
@@ -2595,7 +2766,7 @@ carries `ProfileId` so multi-user — post-MVP per §10 — stays possible. Sett
 | `IAiRecommendationProvider` | Core | `ManualJsonRecommendationProvider` (Phase 7) and a hosted-endpoint provider (Phase 8). The interface is what keeps the second additive |
 | `IRuntimeCalculator` | **Core** | episode×duration maths, sums, formatting |
 | `ITaskRegistry` | Web | **Phase 15** — per-unit task state, the trigger channel and the cancellation source. The only thing the tasks page talks to; it never reaches a job (D40) |
-| `IIdMappingJob` | Infrastructure | **Phase 9b** — maps a title to TVDB and IMDb ids from D46's dataset, carrying the season with them; gated on titles with no mapping (D25) |
+| ~~`IIdMappingJob`~~ | — | **Never built.** It was to map a title to TVDB and IMDb ids from D46's dataset; D48 read the art APIs those ids existed to reach and none of them is usable from a self-hosted deployment, so the mapping had nothing left to unlock. Kept as a row because a reader who finds the idea again should find the reason it lost with it |
 | `IArtworkService` | Infrastructure | **Phase 9a** — fetches and caches one image per title per kind under `/data`; gated on what is missing and healed by what is on disk (D47) |
 | `CoverImageResolver` | **Core** | **Phase 9a**, promoted from post-MVP by D25 and again by D34, and cited as `ICoverImageResolver` before it was built. Turns an image row into what a page should render — a served URL, a colour block, or nothing — which is why it is pure and lives here. Static rather than an interface, for `SourceLinkBuilder`'s reason: one implementation, no seam, nothing to inject. The reason it was drawn at all, that art must be served by AniQueue rather than hotlinked, is measured in §10 |
 
@@ -2708,8 +2879,9 @@ here.
 AniList response, so it is neither a constant nor user input, and it is not made settable — the
 host set stays a constant in code and only the path varies. The fetch follows no redirects,
 requires an image content type, caps the response as an upload is capped, and times out; a URL
-failing any of those is recorded as a permanent failure rather than retried. Phase 9b widens the
-host set and nothing else about this.
+failing any of those is recorded as a permanent failure rather than retried. Phase 9b was to widen
+the host set and change nothing else about this; D48 declined every service that would have been
+added to it, so the set is one host and the rule has never had a second case to survive.
 
 ---
 
@@ -2730,8 +2902,8 @@ were not in the original plan and are the next thing built, ahead of Phase 9 —
 D36's per-source move, runs before even that because D40 depends on it. Renumbering to put them
 in execution order would mean rewriting 49 phase citations in this file and the phase numbers
 carried in source comments, making every existing citation point at the wrong work. **The number
-is identity; the table is not a running order.** The order of work is: 10a, 15a–15e, 16, then 9a
-and 9b, then the remainder of 10, then 11 onwards.
+is identity; the table is not a running order.** The order of work is: 10a, 15a–15e, 16, then 9a,
+9b and 9c, then the remainder of 10, then 11 onwards.
 
 **Phase 16 is small and jumps the queue for the same reason 15 did**: it corrects something the
 application is doing wrong right now, every time the sweep runs, and every day it waits is another
@@ -2774,7 +2946,8 @@ numbering. What is finished is a column; what happens next is the first row with
 | 8c | Scoring surface | ✅ | Remote and Manual cards; a run started, waited on, cancelled and applied without anything being copied by hand |
 | 8d | Scheduled sweep | ✅ | A backlog scores itself in batches with nobody present, and idles when nothing has been rated |
 | 9a | Cover art | ✅ | Covers cached under `/data` by a job that idles, served immutably, and rendered on the backlog and Up Next |
-| 9b | Id mapping + richer art | ▢ **next** | Titles mapped to TVDB and IMDb from an MIT-licensed dataset, and richer art layered over the covers 9a already shows |
+| 9b | AniList enrichment | ▢ **next** | Genres, studios, synopsis and a full-size cover land from one selection-set change, on the next sync, with no backfill job |
+| 9c | Show detail dialog | ▢ | A row opens a dialog that argues for the title: poster, synopsis, genres, studio, and the score with its reason |
 | 10 | Settings page | ▢ | One page for preferences; operator configuration shown and not editable |
 | 10a | Per-source settings to the file | ✅ | `SourceSyncSettings` deleted; every sync setting read from `userconfig.json` |
 | 11 | Docker + README | ▢ | Migrations squashed to one baseline; compose up, health check, container recreated without data loss |
@@ -3596,36 +3769,82 @@ not is on the task's own row (D40).
 **The migration lands two weeks before Phase 11 squashes them**, which is what makes adding a
 table and dropping a column here cost nothing to carry.
 
-### Phase 9b — Id mapping and richer artwork
+### Phase 9b — AniList enrichment
 
-> **Unblocked by D46, and the blocker's answer changed the dataset.** `Fribb/anime-lists` has no
-> licence at all, so it is not usable; `Kometa-Team/Anime-IDs` is MIT and takes its place, at the
-> cost of a TMDB column. Held only on API terms now, not on a licence.
+> **This was "Id mapping and richer artwork", and D48 emptied it.** The TMDB, TVDB and fanart.tv
+> terms were finally read: one forbids caching its content beyond six months, one requires every
+> end user to buy a subscription, and one would need a project key baked into a public image. The
+> cross-service mapping existed only to reach those APIs, so it goes with them — and what is left
+> is the part AniList was always going to supply for free.
 
-Cross-service identifiers, and the art they unlock, layered over the covers 9a already shows.
+Four fields added to one GraphQL selection set: `genres`, `studios`, `description` and
+`coverImage.extraLarge`. Everything else in this phase is what has to happen for them to land
+correctly.
 
-**Identifiers get their own table**, not `AnimeExternalId` — D25's first schema warning. They are
-many-to-one and meaningless without the season the dataset supplies alongside them, so storing
-them as peers of an AniList id would claim an identity they do not have. D46's dataset carries
-`tvdb_season` and `tvdb_epoffset` on the record, which is what that warning asked for.
+**There is no backfill job, and that is the whole reason this is one phase.** The sync's list
+query fetches the entire `MediaListCollection` on every run, so the next scheduled sync populates
+every existing title. Phase 6b needed a paced pass because relations are deliberately kept *off*
+that query (D24); these four are on it, and the cost of adding them is one request that was
+already being made.
 
-**Films route through IMDb.** The dataset publishes no TMDB ids, but 79% of films carry an IMDb
-one, and TMDB's `find` endpoint resolves that to a film exactly rather than by matching titles —
-one extra request per film, and the only path to film art that does not guess.
+**Genres and studios arrive normalised** — `Genre` and `Studio` tables with join tables, the shape
+§10 decided and D49 keeps. Nothing filters on them yet; they are built this way because it is one
+migration either way and a delimited column owes a data migration the day a filter arrives. The
+studio join carries `IsMain`, which is what separates an animation studio from a producer in one
+undifferentiated edge list; the genre join carries nothing.
 
-**Nothing orchestrates the sequence, and that is the point** (D25, D28). The id-mapping job takes
-titles with no mapping; the artwork job takes titles that have a mapping and no cached image of
-some kind. Both wake on the broadcast, both are no-ops when their input is empty, and sync →
-mapping → art therefore happens in that order because of data readiness rather than because
-anything sequences it. Remove the broadcast and it all still works, one tick later — that remains
-the test of whether it has become orchestration.
+**The merge invariant is restated for sets, and it is the one thing here that can lose data.**
+`Merge` rests on "a source never erases a value by not carrying it", which has no meaning for a
+collection until it is written down again: **an empty incoming set is silence; a non-empty one
+replaces.** A MyAnimeList XML carries no genres, so the naive reading strips every genre AniList
+supplied off every title the two sources share — silently, and in a way a green build would not
+notice. Replacement rather than union, so that AniList correcting a mis-tagged genre propagates.
 
-**Additive by construction.** AniList covers 100% of titles and 9a already renders them, so
-richer art layers over a base that is always present and the 69% that maps degrades into the 100%
-that does not need to. Graceful degradation falls out of the data rather than being designed.
+**The synopsis is stored as AniList's markdown, not `asHtml`** (D49). Spoilers arrive wrapped in
+`~!...!~`, and keeping them as a delimiter is what lets 9c mask them; `asHtml` has already turned
+them into markup that would have to be parsed back out. `Anime.Description` has existed since
+Phase 1 without ever being written or read, and is written here for the first time.
 
-**What is still unverified is the reason this waits:** the TMDB, TVDB and fanart.tv API terms, key
-requirements and rate limits (D46). The dataset question is closed; these are not.
+**`AnimeImage` gains `Rendition`**, and the unique index becomes `(AnimeId, Kind, Source,
+Rendition)`. The 100px `medium` cover 9a caches is right for a 40×60 list slot and useless as a
+hero image; `extraLarge` is 460px and 83.3 KB, which D47 measured in order to reject it for a
+fifty-row page and which a dialog rendering one image is entirely happy to pay. `ArtworkPaths` and
+the serving endpoint do not change at all — two renditions have different bytes, so they have
+different hashes and different filenames, which is the immutable-URL design paying for itself
+twice.
+
+**The existing job does the fetching.** `IArtworkService` already walks rows whose `FetchedUrl` and
+`RemoteUrl` disagree, already paces itself, already carries both failure classes and the
+disk-heals-the-row precondition. A second rendition is another row in the same table, processed by
+the same pass, with no new failure mode and no new outbound path. It does mean the first run stops
+being a single visit — two rows per title at 8.5× the bytes overruns `CoverArtJob`'s ten-minute
+budget — so a fresh install shows the dialog a small poster for a while and resumes on the next
+tick. The budget stays; the comment claiming it has room to spare does not.
+
+**This phase ends without a page**, which is the thing D47 split Phase 9 to avoid. It is accepted
+here for one reason: 9c is the sole consumer and immediately follows, and the alternative is
+editing the same parser and refetching the same library twice to populate fields that were sitting
+in the first response.
+
+### Phase 9c — Show detail dialog
+
+The surface D48 left 9b needing, and the first thing in this application whose job is persuasion
+rather than administration. A button on a backlog or Up Next row opens a dialog that argues for
+the title: the full-size poster, the synopsis, its genres, its studio, and the score with its
+confidence and reason — all of which are in the database by the end of 9b, the last of them since
+Phase 8.
+
+**Two rendering rules are written down now so they are not rediscovered.** The synopsis is
+HTML-encoded with only line breaks converted, never handed to `MarkupString` — it is third-party
+text any AniList user can edit, and it is treated exactly as the model's output already is. And
+`~!...!~` spoilers are masked or stripped rather than printed, because a dialog whose purpose is
+interesting somebody in an unwatched show must not give away its twist.
+
+**Everything degrades to absent.** A title with no synopsis, no genres, no main studio or no
+cached full-size poster shows less rather than showing a placeholder or an error — D25's silent
+degradation, which by this point the art path has already been following for two phases. The
+poster falls back to the thumbnail, then to `CoverImageColor`, then to a neutral block, which is
+the chain `CoverImageResolver` already implements.
 
 ### Phase 10 — Settings page
 
@@ -4377,6 +4596,36 @@ optional AI providers, OpenAI-compatible endpoints, Ollama/LM Studio, scheduled 
 MAL API sync · **write-back to AniList or MAL** · multi-user, authentication, household
 profiles.
 
+**Four post-MVP phases are stubbed here rather than numbered**, because they are wanted and none
+of them is designed. They are recorded so that decisions taken before the MVP ships know what is
+coming; each needs its own interview and its own `D`-numbers before it is built.
+
+- **Database management.** A view that deletes what the application accumulates — a backlog, AI
+  scores, the art cache, related titles — each independently. The art cache already tolerates
+  deletion by design, because D47 made "the file is on disk" half the job's precondition, so that
+  one is a button over behaviour that exists. The others are not: deleting scores or relations
+  means deciding what a partial library means to every surface that reads it, and "destructive
+  actions confirm explicitly" (Phase 10) is the least of it.
+- **Mobile display.** Rows must stop cutting elements off on narrow viewports. **This overlaps
+  Phase 10, which already owns the responsive and accessibility passes** and schedules them
+  deliberately late so they run against the layout that ships. Whether this is a separate phase or
+  the discovery that Phase 10's pass was not enough is a question for when Phase 10 is done, not
+  before.
+- **Row view options.** Condensed with no art, standard as it is today, expanded with larger art
+  and more detail, banner view, poster view — a per-surface preference on `ProfileSettings`
+  alongside the ones Phase 10 introduces. Two things are already known about it: a banner view has
+  no banners to render after D48 declined tier 3, and poster view is questionable on Up Next,
+  where the queue is manually ordered and a grid makes position harder to see rather than easier.
+- **Dashboard and Up Next consolidation.** `/` is a dashboard with no purpose; Up Next is the
+  ordered queue and is what somebody opening AniQueue actually wants. Making Up Next the front
+  page is mostly deletion, which is the argument for it — but it moves the application's entry
+  point, so it is a redirect, a navigation change and a decision about what the empty-library
+  state (D27) looks like when it is the first thing seen.
+
+**Further art enrichment stays post-MVP and stays unplanned** (D48). Backlog, Up Next and the
+detail dialog could all use more than a poster, and after D48 there is no legitimate source for it
+yet. Kitsu is the only untried option and its terms have not been read.
+
 **The metadata line moved, and the distinction is deliberate.** *Enrichment* means going out to
 fetch data AniQueue was not given — a separate call, a separate concern — and that stays
 post-MVP. `duration`, `seasonYear` and `coverImage` arrive in the same response as `episodes`,
@@ -4386,6 +4635,11 @@ brought their *rendering* into the MVP as well, as Phase 9. `description` is dec
 outright — it is read once and never filtered on, so the source
 links already answer it.
 
+*That decline is reversed in 9b* (D49). It was argued against a list row, where a synopsis is a
+wall of text in a column with no room for it and a link to AniList costs one click. 9c is a dialog
+whose entire job is the pitch, and "the source links already answer it" is a different claim when
+the reader is being asked to queue something they have not seen.
+
 **Genres and studios: deferred, with the shape decided so it is not re-litigated.** They are the
 only catalogue data here that is many-to-many, so storing them usefully means normalised
 `Genre`/`Studio` entities and join tables — a delimited or JSON column makes "has genre Shonen" a
@@ -4394,6 +4648,13 @@ titles. That is Phase 3-shaped work, and there is no backfill penalty for waitin
 `MediaListCollection` returns an entire list in one request, refetching to populate them later
 costs a single call. Two details worth keeping: genre can be filtered but **not sorted**, being
 multi-valued, while studio can be both because AniList's `studios` edges carry `isMain`.
+
+*Deferred no longer — both land in 9b* (D49), in exactly the shape decided above, which is what
+that paragraph was written to achieve. What brought them forward was not a change of mind about
+their value but the arrival of a consumer: 9c shows a title's genres and studio to argue for it.
+The "no backfill penalty" observation is what makes the pull-forward cheap, and it is also what
+makes 9b a single phase — genres, studios, synopsis and the full-size cover are four fields on one
+selection set, so splitting them across phases would mean refetching the same library twice.
 
 **Genre and studio affinity is a stronger stretch goal than filtering.** "You rate Kyoto
 Animation 8.4 and Shonen 6.1" computed from the user's own history is a local, transparent,
@@ -4418,7 +4679,7 @@ and should be approached carefully: it is the one direction that can damage a li
 maintains elsewhere, and every safeguard in the import pipeline exists to protect data
 flowing the other way.
 
-### Artwork — measured here, built in Phase 9a and 9b
+### Artwork — measured here, built in Phase 9a; tier 3 declined
 
 > **No longer a stretch goal** — see D25 for where each tier landed. Kept intact because
 > everything below is measured, and the measurements are what those phases are costed against.
@@ -4428,6 +4689,12 @@ flowing the other way.
 > size chosen below is nine times larger than a thumbnail needs. Both are marked where they
 > appear. The reasoning that produced them is still the reasoning those phases were costed
 > against, and deleting it would leave the new numbers looking arbitrary.
+>
+> **Tier 3 is then declined outright** (D48). Its coverage was real and its dataset was finally
+> licensed, but the three APIs the mapping existed to reach all refuse a self-hosted deployment —
+> one forbids caching beyond six months, one bills every end user, one wants a key in a public
+> image. Tier 1 and tier 2 shipped; tier 3 did not, and the whole of it below is now a record of
+> work that was priced and not bought.
 
 **The premise is accepted as real rather than decorative.** A backlog of several hundred rows is
 a wall of text, and recognising a show by its art is faster than reading its title — which makes
@@ -4549,6 +4816,16 @@ all, which removed vendoring as an option rather than permitting it, and `Kometa
 takes its place on the strength of being MIT. The rest of that paragraph stands unchanged: the
 API terms are still unverified and still gate 9b, and Kitsu is still the fallback nobody has
 needed yet.
+
+*And then the rest of it was checked too, which ended the tier* (D48). The API terms were the
+last unread thing in this section and they turned out to be the decisive one: TMDB forbids caching
+its content past six months, TheTVDB's free key requires every end user to hold a paid
+subscription, and fanart.tv wants a project key that a public image cannot keep secret. **The
+licence work was not wasted, but it answered the wrong question** — permission to redistribute the
+mapping was never what was missing; permission to use what the mapping pointed at was. Kitsu is
+still the untested fallback, and it is now the only one left: it publishes its own art under 1:1
+identity, reachable through D17's table with no mapping at all. Nobody has needed it, and after
+D48 nobody has read its terms either.
 
 **One schema note, because it is the same shape as a decision already made.** More than one image
 per title means `Anime.CoverImageUrl` stops being sufficient — poster, banner and later logo and
