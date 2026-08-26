@@ -212,6 +212,11 @@ else
                                buttons, so the only thing separating them was aim. *@
                             <th class="add-col"></th>
                             <th class="expand-col"></th>
+                            @* Beside the title rather than leading the row: it is the
+                               same fact as the title, said faster (§10), so the two
+                               belong together and the control columns stay where the
+                               hand already expects them. *@
+                            <th class="cover-col"></th>
                             <th>Title</th>
                             <th>Type</th>
                             <th class="numeric">Year</th>
@@ -266,6 +271,9 @@ else
                                             <span class="count">@count</span>
                                         </button>
                                     }
+                                </td>
+                                <td class="cover-col">
+                                    <CoverThumb Cover="item.Cover" />
                                 </td>
                                 <td>
                                     <div class="title-cell">
@@ -998,11 +1006,19 @@ else
     }
 
     /// <summary>
-    /// How wide an expansion has to stretch. Derived rather than written down,
-    /// because a hard-coded number is a colspan that silently goes wrong the next
-    /// time a column is added.
+    /// How wide an expansion has to stretch.
     /// </summary>
-    private int ColumnCount => Facets is { HasRecommendations: true } ? 11 : 10;
+    /// <remarks>
+    /// This used to say it was "derived rather than written down, because a
+    /// hard-coded number is a colspan that silently goes wrong the next time a column
+    /// is added". It was two literals, and the next time a column was added — the
+    /// cover in 9a — is exactly when it went wrong. It is still two literals, because
+    /// the columns are written out in markup and there is nothing to count them from
+    /// short of building the header from a list, which would be a worse page to read
+    /// in order to make one number maintain itself. What is here instead is the
+    /// warning, stated accurately: <b>adding a column means changing both of these.</b>
+    /// </remarks>
+    private int ColumnCount => Facets is { HasRecommendations: true } ? 12 : 11;
 
     private bool IsQueued(int animeId) => _queued.Contains(animeId);
 

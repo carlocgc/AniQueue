@@ -51,6 +51,20 @@ public sealed class QueueService(
                 q.Anime.EpisodeDurationMinutes,
                 q.Anime.ReleaseYear,
                 q.Anime.Source,
+                q.Anime.CoverImageColor,
+
+                // Scalar subqueries rather than a join, as the backlog does: a slot
+                // wants one poster and a join would multiply the queue by however
+                // many image kinds Phase 9b adds (D47).
+                CoverContentHash = q.Anime.Images
+                    .Where(x => x.Kind == ImageKind.Poster && x.ContentHash != null)
+                    .Select(x => x.ContentHash)
+                    .FirstOrDefault(),
+                CoverFileExtension = q.Anime.Images
+                    .Where(x => x.Kind == ImageKind.Poster && x.ContentHash != null)
+                    .Select(x => x.FileExtension)
+                    .FirstOrDefault(),
+
                 ExternalIds = q.Anime.ExternalIds
                     .Select(x => new { x.Source, x.ExternalId })
                     .ToList(),
@@ -74,7 +88,10 @@ public sealed class QueueService(
             EpisodesWatched = r.Entry?.EpisodesWatched ?? 0,
             Source = r.Source,
             ExternalIds = [.. r.ExternalIds.Select(x => new ExternalIdentifier(x.Source, x.ExternalId))],
-            EstimatedRuntimeMinutes = RuntimeCalculator.Estimate(r.EpisodeCount, r.EpisodeDurationMinutes)
+            EstimatedRuntimeMinutes = RuntimeCalculator.Estimate(r.EpisodeCount, r.EpisodeDurationMinutes),
+            CoverContentHash = r.CoverContentHash,
+            CoverFileExtension = r.CoverFileExtension,
+            CoverImageColor = r.CoverImageColor
         });
     }
 

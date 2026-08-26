@@ -1,3 +1,4 @@
+using AniQueue.Core.Artwork;
 using AniQueue.Core.Domain;
 using AniQueue.Core.Library;
 using AniQueue.Core.Progress;
@@ -71,6 +72,19 @@ public sealed record QueueListItem
 
     /// <summary>Estimated minutes to watch, or null when it cannot be known.</summary>
     public int? EstimatedRuntimeMinutes { get; init; }
+
+    /// <summary>The hash of the cached poster, or null while there is not one.</summary>
+    public string? CoverContentHash { get; init; }
+
+    /// <summary>The cached poster's extension, which travels in its served URL.</summary>
+    public string? CoverFileExtension { get; init; }
+
+    /// <summary>The dominant colour of the cover, as the source published it.</summary>
+    public string? CoverImageColor { get; init; }
+
+    /// <summary>What this row should render for art (D47). See LibraryListItem.Cover.</summary>
+    public CoverArt Cover => CoverImageResolver.ForAnime(
+        AnimeId, CoverContentHash, CoverFileExtension, CoverImageColor);
 
     /// <summary>Links out to every site that knows this title, in a stable order.</summary>
     public IReadOnlyList<SourceLink> SourceLinks => SourceLinkBuilder.ForAnime(ExternalIds);

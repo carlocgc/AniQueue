@@ -1,6 +1,7 @@
 using AniQueue.Core.Recommendations;
 using AniQueue.Core.Settings;
 using AniQueue.Infrastructure;
+using AniQueue.Infrastructure.Artwork;
 using AniQueue.Infrastructure.Jobs;
 using AniQueue.Infrastructure.Persistence;
 using AniQueue.Infrastructure.Persistence.Seeding;
@@ -8,6 +9,7 @@ using AniQueue.Infrastructure.Recommendations;
 using AniQueue.Infrastructure.Settings;
 using AniQueue.Infrastructure.Sync;
 using AniQueue.Web.Components;
+using AniQueue.Web.Endpoints;
 using AniQueue.Web.Services;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -143,6 +145,12 @@ builder.Services.AddHostedService<BackgroundJobRunner<RelationBackfillJob>>();
 // queue advancing.
 builder.Services.AddHostedService<BackgroundJobRunner<ScoringSweepJob>>();
 
+// The fourth, and the second of D25's enrichment passes (D47). Its own runner for
+// the same reason as the others, and here that reason is at its sharpest: a first
+// pass over a whole library spends several minutes fetching pictures, and a
+// picture arriving late must never be what holds up a sync.
+builder.Services.AddHostedService<BackgroundJobRunner<CoverArtJob>>();
+
 // Registered even when the file is fine, so the banner component can ask without
 // caring whether a data directory was configured at all.
 builder.Services.AddSingleton(userConfig ?? new UserConfigStatus { Path = UserConfigStatus.FileName });
@@ -257,6 +265,7 @@ app.UseStatusCodePagesWithReExecute("/not-found", createScopeForStatusCodePages:
 app.UseAntiforgery();
 
 app.MapStaticAssets();
+app.MapCachedCoverArt();
 app.MapRazorComponents<App>()
     .AddInteractiveServerRenderMode();
 

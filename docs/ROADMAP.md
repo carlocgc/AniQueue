@@ -2327,13 +2327,20 @@ the same title costs:
 
 | Field | bytes | 810 titles | a 50-row page |
 |---|---|---|---|
-| `medium` | **9.7 KB** | 7.9 MB | 486 KB |
+| `medium` | **9.7 KB** | 16 MB *(measured)* | 486 KB |
 | `large` | 28.4 KB | 23 MB | 1.4 MB |
 | `extraLarge` | 83.3 KB | 67 MB | **4.2 MB** |
 
-9a caches `medium`, which is ample for a 40×60 slot at 2× and makes the cache roughly double the
-database rather than twenty times it — and D33 makes `/data` the backup, so that ratio is somebody
-else's copy time. Server-side downscaling was rejected without argument: it means ImageSharp or
+9a caches `medium`, which is ample for a 40×60 slot at 2×.
+
+**The whole-library column is measured rather than multiplied, and the first estimate was half the
+truth.** Extrapolating one JPEG gave 7.9 MB; the real cache is **16 MB**, because 223 of the 810
+covers are PNGs averaging 30 KB against a JPEG's 11 KB at the same dimensions. It changes no
+decision — 16 MB is still about four times the database rather than the twenty `extraLarge` would
+have been, and D33 makes `/data` the backup, so that ratio is somebody else's copy time — but a
+number arrived at by multiplying one sample is worth marking as such wherever one appears.
+
+Server-side downscaling was rejected without argument: it means ImageSharp or
 SkiaSharp, which is a §12 dependency decision and native libraries in the container, to save
 bytes that AniList is already serving in the right size. A later layout wanting larger art re-runs
 the job against a different URL; the row stores its own, so that is a re-run and not a migration.
@@ -2357,10 +2364,11 @@ the job against a different URL; the row stores its own, so that is a re-run and
 - **Silently, still.** D25's rule is unchanged: a failed cover logs and shows nothing. What a user
   needs is on the task's own row (D40), which reports what the pass fetched and what it could not.
 
-**What this costs.** One migration, one job, one endpoint and a component; roughly 7.9 MB under
-`/data` and 810 one-off requests against a CDN that is already serving this library's covers to
-its owner. And a first run on a large library shows colour blocks for a few minutes before it
-shows posters, which is the degradation `coverImage.color` was banked for in Phase 6.
+**What this costs, measured rather than estimated.** One migration, one job, one endpoint and a
+component; **16 MB** under `/data` and 810 one-off requests against a CDN already serving this
+library's covers to its owner, which took **4 minutes 6 seconds**. A first run on a large library
+therefore shows colour blocks for a few minutes before it shows posters, which is exactly the
+degradation `coverImage.color` was banked for in Phase 6.
 
 ---
 

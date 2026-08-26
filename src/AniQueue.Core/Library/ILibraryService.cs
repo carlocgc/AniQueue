@@ -1,3 +1,4 @@
+using AniQueue.Core.Artwork;
 using AniQueue.Core.Domain;
 using AniQueue.Core.Progress;
 
@@ -38,6 +39,28 @@ public sealed record LibraryListItem
 
     /// <summary>Whether this title already occupies a slot in the Up Next queue.</summary>
     public bool IsQueued { get; init; }
+
+    /// <summary>The hash of the cached poster, or null while there is not one.</summary>
+    public string? CoverContentHash { get; init; }
+
+    /// <summary>The cached poster's extension, which travels in its served URL.</summary>
+    public string? CoverFileExtension { get; init; }
+
+    /// <summary>The dominant colour of the cover, as the source published it.</summary>
+    public string? CoverImageColor { get; init; }
+
+    /// <summary>
+    /// What this row should render for art: a served picture, a colour, or nothing.
+    /// </summary>
+    /// <remarks>
+    /// Computed here rather than in markup for the reason §3 gives about components —
+    /// no logic in a <c>.razor</c> file — and the three columns above are what the
+    /// query carries so that the page needs no second lookup per row. Nothing here
+    /// reaches the filesystem: the endpoint answers a miss with a 404 and the job
+    /// repairs the row, which keeps I/O out of a render that happens on every paint.
+    /// </remarks>
+    public CoverArt Cover => CoverImageResolver.ForAnime(
+        AnimeId, CoverContentHash, CoverFileExtension, CoverImageColor);
 
     /// <summary>Estimated minutes to watch, or null when it cannot be known.</summary>
     public int? EstimatedRuntimeMinutes => RuntimeCalculator.Estimate(EpisodeCount, EpisodeDurationMinutes);

@@ -1,0 +1,45 @@
+@using AniQueue.Core.Artwork
+
+@*
+    A title's art, at whatever fidelity is available (D47).
+
+    Three states in a fixed order, because they degrade into one another rather than
+    being alternatives: the cached picture, then the dominant colour AniList
+    published, then nothing at all. The colour covers 92% of titles and is what a
+    first run shows for the few minutes before the pictures land — which is the whole
+    reason six bytes per title were taken back in Phase 6 (D25).
+
+    The image is decorative, deliberately. The title is in the cell beside it, so an
+    alt text would be the same words announced twice; a screen reader should hear a
+    row once. Explicit dimensions and lazy loading are what keep a fifty-row page from
+    reflowing under itself as pictures arrive.
+*@
+
+@* The quiet class is for having nothing at all, not for not having a picture yet.
+   A colour block is a deliberate rendering of a real fact the source published and
+   should look like one; only a title with neither is a gap. *@
+<span class="cover-thumb @(Cover.IsEmpty ? "cover-thumb-empty" : null)"
+      style="@ColourStyle()"
+      aria-hidden="true">
+    @if (Cover.HasImage)
+    {
+        <img src="@Cover.Url" alt="" width="40" height="60" loading="lazy" decoding="async" />
+    }
+</span>
+
+@code {
+    /// <summary>What to render, already resolved. This component decides nothing.</summary>
+    [Parameter]
+    [EditorRequired]
+    public CoverArt Cover { get; set; }
+
+    /// <summary>
+    /// The colour as a custom property rather than a background, so the stylesheet
+    /// owns how it is used — a flat fill today, and whatever a later layout wants
+    /// without this component changing. Null when the source published no colour, or
+    /// published one that is not six hexadecimal digits, which the resolver rejects
+    /// before it can reach a style attribute at all.
+    /// </summary>
+    private string? ColourStyle() =>
+        Cover.Colour is { } colour ? $"--cover-colour: {colour}" : null;
+}

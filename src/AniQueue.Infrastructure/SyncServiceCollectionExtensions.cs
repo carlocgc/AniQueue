@@ -1,10 +1,12 @@
 using System.Net;
+using AniQueue.Core.Artwork;
 using AniQueue.Core.Domain;
 using AniQueue.Core.Import;
 using AniQueue.Core.Jobs;
 using AniQueue.Core.Library;
 using AniQueue.Core.Sync;
 using AniQueue.Infrastructure.Sync;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 
@@ -56,6 +58,21 @@ public static class SyncServiceCollectionExtensions
         // with no marker, which is a question the database answers.
         services.AddScoped<IRelationBackfill, Sync.RelationBackfillService>();
         services.AddScoped<Sync.RelationBackfillJob>();
+
+        // The third, and the first that fetches something other than JSON (D47). The
+        // store is a singleton because it is a path and nothing else; the service is
+        // scoped like every other job body.
+        services.AddSingleton<Artwork.CoverArtStore>();
+
+        // A singleton holding one long-lived client, exactly as AniListClient is —
+        // and not registered as a bare HttpClient, which would hand the image client
+        // to anything that ever asks for one.
+        services.AddSingleton<ICoverArtClient>(serviceProvider => new Artwork.CoverArtClient(
+            CreateImageHttpClient(),
+            serviceProvider.GetRequiredService<ILogger<Artwork.CoverArtClient>>()));
+
+        services.AddScoped<IArtworkService, Artwork.ArtworkService>();
+        services.AddScoped<Artwork.CoverArtJob>();
 
         // A singleton because it is a rendezvous between things with no other way to
         // reach each other: a background scope publishing, and every open circuit
@@ -120,6 +137,52 @@ public static class SyncServiceCollectionExtensions
         // Identifying the client is ordinary manners toward a free public API, and
         // it is what makes an operator's traffic recognisable if it ever needs to be
         // discussed with them. No version of anything personal goes in it.
+        client.DefaultRequestHeaders.UserAgent.ParseAdd("AniQueue (self-hosted)");
+
+        return client;
+    }
+
+    /// <summary>
+    /// The client that fetches pictures, which is deliberately not the one above.
+    /// </summary>
+    /// <remarks>
+    /// Separate because almost every setting differs, and two of them are load
+    /// bearing rather than tuning. <b>Redirects are not followed</b>: the host
+    /// allowlist vouches for the address that was asked for and can vouch for nothing
+    /// about where that address points, so a 3xx is a refusal rather than a hop
+    /// (D47, §6). And the buffer limit is the size cap enforced by the transport, so
+    /// an oversized body is refused while it is still arriving rather than after it
+    /// has been read into memory.
+    ///
+    /// Built by hand for the same reason the other one is: <c>AddHttpClient</c> would
+    /// mean taking <c>Microsoft.Extensions.Http</c> as a dependency, and §12 requires
+    /// approval for a package to manage two long-lived clients.
+    /// </remarks>
+    private static HttpClient CreateImageHttpClient()
+    {
+        var handler = new SocketsHttpHandler
+        {
+            AllowAutoRedirect = false,
+            UseCookies = false,
+
+            // Already-compressed bytes. Asking for an encoding would spend CPU on
+            // both ends to make a JPEG very slightly larger.
+            AutomaticDecompression = DecompressionMethods.None,
+
+            PooledConnectionLifetime = TimeSpan.FromMinutes(5)
+        };
+
+        var client = new HttpClient(handler, disposeHandler: true)
+        {
+            // A cover is ten kilobytes. Anything still arriving after fifteen seconds
+            // is a moment worth abandoning and trying again later, which is exactly
+            // what a transient failure means here.
+            Timeout = TimeSpan.FromSeconds(15),
+
+            MaxResponseContentBufferSize = ImageSource.MaxByteCount
+        };
+
+        client.DefaultRequestHeaders.Accept.Add(new("image/*"));
         client.DefaultRequestHeaders.UserAgent.ParseAdd("AniQueue (self-hosted)");
 
         return client;

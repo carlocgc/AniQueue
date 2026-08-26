@@ -1083,3 +1083,44 @@ button.danger:hover:not(:disabled) { filter: brightness(0.95); }
     display: inline-block;
     vertical-align: middle;
 }
+
+/* Cover art (D47). A fixed 40×60 box on every row whether or not there is a picture
+   in it, because a column that changes width as pictures arrive would reflow the
+   table under the cursor for the whole of a first pass. */
+.cover-col { width: 1%; padding-right: 0.4rem; }
+
+.cover-thumb {
+    display: block;
+    width: 40px;
+    height: 60px;
+    border-radius: 3px;
+    overflow: hidden;
+
+    /* The dominant colour AniList published, or the neutral surface when it
+       published none — which is about one title in thirteen. It shows through while
+       a picture is still being fetched and stays behind one that never arrives, so
+       the row never has a hole in it. */
+    background: var(--cover-colour, var(--surface-alt));
+    border: 1px solid var(--border);
+}
+
+.cover-thumb img {
+    display: block;
+    width: 100%;
+    height: 100%;
+
+    /* Posters are all 2:3, but the cache holds whatever the source served rather
+       than whatever this expects, so the box crops instead of distorting. */
+    object-fit: cover;
+}
+
+/* A colour block is a filled rectangle and reads as one; an empty one reads as a
+   missing image, so it is quieter than the border alone would make it. */
+.cover-thumb-empty { opacity: 0.55; }
+
+@media (max-width: 720px) {
+    /* The narrow layout is already fighting for width and the title is the thing
+       being read. Art is an aid to scanning a long list, which is not what this
+       viewport is doing. */
+    .cover-col { display: none; }
+}
