@@ -67,6 +67,20 @@ public sealed class LibraryService(
                 e.RecommendationScore,
                 e.RecommendationConfidence,
                 e.Anime.Source,
+                e.Anime.CoverImageColor,
+
+                // The cached poster, as a scalar rather than a collection. It is a
+                // subquery per row instead of a join because the row wants at most
+                // one of them and a join would multiply the page by however many
+                // kinds Phase 9b adds (D47).
+                CoverContentHash = e.Anime.Images
+                    .Where(x => x.Kind == ImageKind.Poster && x.ContentHash != null)
+                    .Select(x => x.ContentHash)
+                    .FirstOrDefault(),
+                CoverFileExtension = e.Anime.Images
+                    .Where(x => x.Kind == ImageKind.Poster && x.ContentHash != null)
+                    .Select(x => x.FileExtension)
+                    .FirstOrDefault(),
 
                 // Projected to an anonymous shape and mapped after materialising:
                 // a collection projection translates to a join, and building the
@@ -96,7 +110,10 @@ public sealed class LibraryService(
                 RecommendationConfidence = i.RecommendationConfidence,
                 Source = i.Source,
                 ExternalIds = [.. i.ExternalIds.Select(x => new ExternalIdentifier(x.Source, x.ExternalId))],
-                IsQueued = queuedIds.Contains(i.AnimeId)
+                IsQueued = queuedIds.Contains(i.AnimeId),
+                CoverContentHash = i.CoverContentHash,
+                CoverFileExtension = i.CoverFileExtension,
+                CoverImageColor = i.CoverImageColor
             }).ToList()
         };
     }

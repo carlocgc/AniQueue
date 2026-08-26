@@ -81,7 +81,7 @@ public sealed class AniListClient(HttpClient httpClient, ILogger<AniListClient> 
                   duration
                   seasonYear
                   title { romaji english native }
-                  coverImage { extraLarge }
+                  coverImage { medium }
                 }
               }
             }

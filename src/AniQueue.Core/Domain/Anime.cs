@@ -87,10 +87,21 @@ public class Anime
     public DateOnly? StartDate { get; set; }
 
     /// <summary>
-    /// Remote URL only. Image binaries are never stored in the database; the
-    /// application must render correctly when this is null or unreachable.
+    /// Every picture of this title, by kind and source (D47).
     /// </summary>
-    public string? CoverImageUrl { get; set; }
+    /// <remarks>
+    /// This replaced a single <c>CoverImageUrl</c> column, and the reason is the one
+    /// D17 already paid for identity: one column holds one thing, and a title has a
+    /// poster, a banner and later a logo and a backdrop. It also replaced a column
+    /// that could not be corrected — it was written through the import merge, which
+    /// preserves what is already stored, so pointing it at a different image size
+    /// would have updated titles arriving afterwards and silently left every existing
+    /// row behind.
+    ///
+    /// Empty for a manual entry, and empty for a MyAnimeList import: that export
+    /// publishes no art at all.
+    /// </remarks>
+    public ICollection<AnimeImage> Images { get; set; } = [];
 
     /// <summary>
     /// The dominant colour of the cover art, as <c>#rrggbb</c>, where the source

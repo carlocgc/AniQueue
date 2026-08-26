@@ -344,7 +344,7 @@ public sealed class ImportService(
                 a.EpisodeCount,
                 a.EpisodeDurationMinutes,
                 a.ReleaseYear,
-                a.CoverImageUrl))
+                a.Images.Any()))
             .ToListAsync(cancellationToken);
 
         // Loaded whole for the same reason the catalogue is: an IN clause built
@@ -565,7 +565,7 @@ public sealed class ImportService(
         // exact churn D21 relies on not happening when it says an unchanged sync
         // writes nothing. Gaining art where there was none is a real change and is
         // shown.
-        if (entry.CoverImageUrl is not null && existing.CoverImageUrl is null)
+        if (entry.CoverImageUrl is not null && !existing.HasCover)
         {
             changes.Add("Adds cover art");
         }
@@ -652,6 +652,7 @@ public sealed class ImportService(
         // sources describe this row.
         var existing = await context.Anime
             .Include(a => a.ExternalIds)
+            .Include(a => a.Images)
             .FirstOrDefaultAsync(a => a.Id == existingId, cancellationToken);
         if (existing is null)
         {
@@ -706,6 +707,7 @@ public sealed class ImportService(
                 // which sources describe this row.
                 return await context.Anime
                     .Include(a => a.ExternalIds)
+                    .Include(a => a.Images)
                     .FirstOrDefaultAsync(a => a.Id == id, cancellationToken);
             }
         }
@@ -770,21 +772,77 @@ public sealed class ImportService(
         }
     }
 
-    private static Anime CreateAnime(ParsedLibraryEntry entry, DateTimeOffset now, TitleLanguage preferredTitle) => new()
+    private static Anime CreateAnime(ParsedLibraryEntry entry, DateTimeOffset now, TitleLanguage preferredTitle)
     {
-        Title = DisplayTitle(entry, preferredTitle),
-        TitleRomaji = entry.TitleRomaji,
-        TitleEnglish = entry.TitleEnglish,
-        TitleNative = entry.TitleNative,
-        Source = entry.Source,
-        MediaType = entry.MediaType,
-        EpisodeCount = entry.EpisodeCount,
-        EpisodeDurationMinutes = entry.EpisodeDurationMinutes,
-        ReleaseYear = entry.ReleaseYear,
-        CoverImageUrl = entry.CoverImageUrl,
-        CreatedAt = now,
-        UpdatedAt = now
-    };
+        var anime = new Anime
+        {
+            Title = DisplayTitle(entry, preferredTitle),
+            TitleRomaji = entry.TitleRomaji,
+            TitleEnglish = entry.TitleEnglish,
+            TitleNative = entry.TitleNative,
+            Source = entry.Source,
+            MediaType = entry.MediaType,
+            EpisodeCount = entry.EpisodeCount,
+            EpisodeDurationMinutes = entry.EpisodeDurationMinutes,
+            ReleaseYear = entry.ReleaseYear,
+            CreatedAt = now,
+            UpdatedAt = now
+        };
+
+        ApplyCoverImage(anime, entry);
+        return anime;
+    }
+
+    /// <summary>
+    /// Records where the source says this title's cover is (D47).
+    /// </summary>
+    /// <remarks>
+    /// <b>Not routed through <c>Merge</c>, and that is the point of the table.</b>
+    /// Every other catalogue field is guarded by precedence because two sources
+    /// describe one column and the poorer one must not erase the richer. A picture
+    /// is not like that: the row is keyed by the source that published it, so
+    /// AniList's poster and MyAnimeList's poster could never have been the same
+    /// storage to fight over. Which is why this can be *corrected* — the column it
+    /// replaced could not, because a value already stored always won, so pointing it
+    /// at a different image size would have updated titles arriving afterwards and
+    /// left the whole existing library holding the old address.
+    ///
+    /// A changed URL means AniList replaced the art — the address carries their own
+    /// content hash — so the failure state is cleared and the job will fetch it
+    /// again. What is already cached stays cached and stays rendering until it does.
+    /// </remarks>
+    private static void ApplyCoverImage(Anime anime, ParsedLibraryEntry entry)
+    {
+        if (entry.CoverImageUrl is not { Length: > 0 } url)
+        {
+            return;
+        }
+
+        var existing = anime.Images
+            .FirstOrDefault(i => i.Kind == ImageKind.Poster && i.Source == entry.Source);
+
+        if (existing is null)
+        {
+            anime.Images.Add(new AnimeImage
+            {
+                Kind = ImageKind.Poster,
+                Source = entry.Source,
+                RemoteUrl = url
+            });
+
+            return;
+        }
+
+        if (string.Equals(existing.RemoteUrl, url, StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        existing.RemoteUrl = url;
+        existing.FailedAt = null;
+        existing.FailureIsPermanent = false;
+        existing.AttemptCount = 0;
+    }
 
     /// <summary>
     /// Refreshes catalogue metadata only. Nothing the user decided locally is
@@ -855,7 +913,7 @@ public sealed class ImportService(
         anime.EpisodeCount = Merge(anime.EpisodeCount, entry.EpisodeCount, mayOverwrite);
         anime.EpisodeDurationMinutes = Merge(anime.EpisodeDurationMinutes, entry.EpisodeDurationMinutes, mayOverwrite);
         anime.ReleaseYear = Merge(anime.ReleaseYear, entry.ReleaseYear, mayOverwrite);
-        anime.CoverImageUrl = Merge(anime.CoverImageUrl, entry.CoverImageUrl, mayOverwrite);
+        ApplyCoverImage(anime, entry);
 
         anime.UpdatedAt = now;
     }
@@ -1024,7 +1082,11 @@ public sealed class ImportService(
         int? EpisodeCount,
         int? EpisodeDurationMinutes,
         int? ReleaseYear,
-        string? CoverImageUrl);
+        // Whether there is art, not where it is. The preview reports gaining a cover
+        // and nothing else — a URL that merely changed is almost always the same
+        // picture behind a rotated path, and the comment below on that is what this
+        // flag exists to keep true now that the address lives on another table.
+        bool HasCover);
 
     private sealed record EntrySnapshot(
         int AnimeId,

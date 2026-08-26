@@ -75,7 +75,17 @@ public sealed record ParsedLibraryEntry
 
     public int? ReleaseYear { get; init; }
 
-    /// <summary>Remote URL only. Nothing downloads or stores the image.</summary>
+    /// <summary>
+    /// Where the source says the cover is. The parser does not fetch it.
+    /// </summary>
+    /// <remarks>
+    /// This lands on an <c>AnimeImage</c> row rather than a column, and it is the
+    /// <i>thumbnail</i> size rather than the largest available (D47). §10 took
+    /// <c>extraLarge</c> on the reasoning that nothing rendered art yet, which was
+    /// right about the timing and wrong about the size: something renders it now, in
+    /// a forty-pixel column, and the same picture is 9.7 KB or 83.3 KB depending only
+    /// on which field named it.
+    /// </remarks>
     public string? CoverImageUrl { get; init; }
 
     public LibraryStatus Status { get; init; } = LibraryStatus.Planning;

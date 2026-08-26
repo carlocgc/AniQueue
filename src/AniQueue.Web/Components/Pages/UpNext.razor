@@ -60,6 +60,7 @@ else
                     <tr>
                         <th class="handle-col"><span class="visually-hidden">Drag to reorder</span></th>
                         <th class="numeric position-col">#</th>
+                        <th class="cover-col"></th>
                         <th>Title</th>
                         <th class="numeric">Runtime</th>
                         <th>Progress</th>
@@ -85,6 +86,9 @@ else
                                 <span class="drag-handle" aria-hidden="true" title="Drag to reorder">⠿</span>
                             </td>
                             <td class="numeric position-col">@(index + 1)</td>
+                            <td class="cover-col">
+                                <CoverThumb Cover="item.Cover" />
+                            </td>
                             <td>
                                 <div class="title-cell">
                                     <span>@item.Title</span>

@@ -52,4 +52,21 @@ public class TaskOptions
     /// boolean would be a home built for a single tenant.
     /// </remarks>
     public bool RelationsEnabled { get; set; } = true;
+
+    /// <summary>
+    /// Whether cover art is fetched and cached at all.
+    /// </summary>
+    /// <remarks>
+    /// On by default, unlike <see cref="Schedule"/>. The argument for that one being
+    /// off is that a scheduled run spends bandwidth or electricity without anybody
+    /// asking; this spends about 16 MB once, against a CDN already serving the same
+    /// pictures to the same person, and the alternative default is an application
+    /// whose backlog ships as a wall of text until somebody finds a switch.
+    ///
+    /// It has a switch at all for the reason the relation pass gained one: it has a
+    /// row with a button on it, and a row carrying a button and no way to stop it
+    /// invites the question of how (D40). Turning it off leaves what is already
+    /// cached serving — the pages read the table, not this.
+    /// </remarks>
+    public bool CoverArtEnabled { get; set; } = true;
 }

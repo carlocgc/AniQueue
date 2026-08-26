@@ -272,6 +272,18 @@ public sealed class SampleDataSeeder(
                 // is the only place it is read: an expansion orders by air date, and
                 // a year cannot separate two halves of a split cour (D24).
                 StartDate = startDate,
+
+                // A colour but no cover URL, which is exactly the state 9a degrades
+                // into and the only one this profile can reach. The sample run has no
+                // AniList account (D27), so nothing will ever fetch a picture here —
+                // and without this the artwork column would render as an empty box in
+                // the one place it can be looked at without touching the network.
+                //
+                // Derived from the title rather than listed, so a title added later
+                // gets one without anybody remembering to. Six hexadecimal digits,
+                // which is the only shape CoverImageResolver will let through to a
+                // style attribute.
+                CoverImageColor = SampleColour(title),
                 Source = source,
                 ExternalIds = sourceId is null
                     ? []
@@ -290,6 +302,32 @@ public sealed class SampleDataSeeder(
                 CreatedAt = now,
                 UpdatedAt = now
             };
+    }
+
+    /// <summary>
+    /// A stable, readable accent colour for a sample title.
+    /// </summary>
+    /// <remarks>
+    /// Not random: a seeder that produced a different palette on every run would make
+    /// two screenshots of the same page disagree for no reason. Hashing the title
+    /// gives the same colour every time without a table of them to maintain.
+    ///
+    /// The channels are kept in the middle of the range on purpose. Real
+    /// <c>coverImage.color</c> values are dominant colours sampled from artwork, so
+    /// they are rarely black or white, and a sample that produced either would be
+    /// checking the layout against a case the real data does not contain.
+    /// </remarks>
+    private static string SampleColour(string title)
+    {
+        // Its own arithmetic rather than string.GetHashCode, which is randomised per
+        // process — the whole point here is that it is not.
+        var hash = title.Aggregate(17, (current, character) => (current * 31) + character);
+
+        var red = 80 + (Math.Abs(hash) % 120);
+        var green = 80 + (Math.Abs(hash / 7) % 120);
+        var blue = 80 + (Math.Abs(hash / 13) % 120);
+
+        return $"#{red:x2}{green:x2}{blue:x2}";
     }
 
     private static async Task ApplyRunToLibraryAsync(
