@@ -121,6 +121,129 @@ public sealed class LibraryService(
     }
 
     /// <summary>
+    /// Loads one title in the detail the dialog argues with (D49).
+    /// </summary>
+    /// <remarks>
+    /// <b>Split rather than joined.</b> Genres, studios, identifiers and the two
+    /// poster renditions are four collections hanging off one row, and a single query
+    /// multiplies them together — four genres, five studios, two identifiers and two
+    /// images is eighty rows to build one object from. EF warns about exactly this by
+    /// name, so the query splits, which costs a handful of round trips at human speed
+    /// to read one title somebody just clicked.
+    ///
+    /// The renditions are read as two scalars rather than a collection because the
+    /// dialog wants at most one of each, and picking between them is
+    /// <see cref="TitleDetail.Poster"/>'s job.
+    /// </remarks>
+    public async Task<TitleDetail?> GetTitleDetailAsync(
+        int profileId,
+        int animeId,
+        CancellationToken cancellationToken = default)
+    {
+        await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
+
+        var row = await context.LibraryEntries
+            .AsNoTracking()
+            .Where(e => e.ProfileId == profileId && e.AnimeId == animeId)
+            .Select(e => new
+            {
+                e.AnimeId,
+                e.Anime!.Title,
+                e.Anime.MediaType,
+                e.Anime.EpisodeCount,
+                e.Anime.EpisodeDurationMinutes,
+                e.Anime.ReleaseYear,
+                e.Anime.Description,
+                e.Anime.Source,
+                e.Anime.CoverImageColor,
+                e.Status,
+                e.EpisodesWatched,
+                e.UserScore,
+                e.RecommendationScore,
+                e.RecommendationConfidence,
+                e.RecommendationReason,
+
+                Genres = e.Anime.Genres
+                    .Select(g => g.Genre!.Name)
+                    .OrderBy(name => name)
+                    .ToList(),
+
+                // The one AniList flags as primary, and null when it flags none —
+                // which is common enough that the dialog is built to omit the line
+                // rather than to promote whichever company came back first (D49).
+                MainStudio = e.Anime.Studios
+                    .Where(s => s.IsMain)
+                    .Select(s => s.Studio!.Name)
+                    .FirstOrDefault(),
+
+                ExternalIds = e.Anime.ExternalIds
+                    .Select(x => new { x.Source, x.ExternalId })
+                    .ToList(),
+
+                PosterContentHash = e.Anime.Images
+                    .Where(i => i.Kind == ImageKind.Poster
+                        && i.Rendition == ImageRendition.Full
+                        && i.ContentHash != null)
+                    .Select(i => i.ContentHash)
+                    .FirstOrDefault(),
+                PosterFileExtension = e.Anime.Images
+                    .Where(i => i.Kind == ImageKind.Poster
+                        && i.Rendition == ImageRendition.Full
+                        && i.ContentHash != null)
+                    .Select(i => i.FileExtension)
+                    .FirstOrDefault(),
+                ThumbnailContentHash = e.Anime.Images
+                    .Where(i => i.Kind == ImageKind.Poster
+                        && i.Rendition == ImageRendition.Thumbnail
+                        && i.ContentHash != null)
+                    .Select(i => i.ContentHash)
+                    .FirstOrDefault(),
+                ThumbnailFileExtension = e.Anime.Images
+                    .Where(i => i.Kind == ImageKind.Poster
+                        && i.Rendition == ImageRendition.Thumbnail
+                        && i.ContentHash != null)
+                    .Select(i => i.FileExtension)
+                    .FirstOrDefault(),
+
+                IsQueued = context.QueueItems.Any(q => q.ProfileId == profileId && q.AnimeId == animeId)
+            })
+            .AsSplitQuery()
+            .FirstOrDefaultAsync(cancellationToken);
+
+        if (row is null)
+        {
+            return null;
+        }
+
+        return new TitleDetail
+        {
+            AnimeId = row.AnimeId,
+            Title = row.Title,
+            MediaType = row.MediaType,
+            EpisodeCount = row.EpisodeCount,
+            EpisodeDurationMinutes = row.EpisodeDurationMinutes,
+            ReleaseYear = row.ReleaseYear,
+            Status = row.Status,
+            EpisodesWatched = row.EpisodesWatched,
+            UserScore = row.UserScore,
+            IsQueued = row.IsQueued,
+            Synopsis = row.Description,
+            Genres = row.Genres,
+            MainStudio = row.MainStudio,
+            RecommendationScore = row.RecommendationScore,
+            RecommendationConfidence = row.RecommendationConfidence,
+            RecommendationReason = row.RecommendationReason,
+            Source = row.Source,
+            ExternalIds = [.. row.ExternalIds.Select(x => new ExternalIdentifier(x.Source, x.ExternalId))],
+            PosterContentHash = row.PosterContentHash,
+            PosterFileExtension = row.PosterFileExtension,
+            ThumbnailContentHash = row.ThumbnailContentHash,
+            ThumbnailFileExtension = row.ThumbnailFileExtension,
+            CoverImageColor = row.CoverImageColor
+        };
+    }
+
+    /// <summary>
     /// Aggregates over the library to discover which filters could match anything.
     ///
     /// Every value is computed by the database. Loading the library to inspect it

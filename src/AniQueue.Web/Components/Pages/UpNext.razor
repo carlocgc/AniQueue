@@ -1,6 +1,7 @@
 @page "/up-next"
 @using AniQueue.Core.Queue
 @implements IAsyncDisposable
+@inject ILibraryService LibraryService
 @inject IQueueService QueueService
 @inject IJSRuntime JS
 @inject ILogger<UpNext> Logger
@@ -87,11 +88,16 @@ else
                             </td>
                             <td class="numeric position-col">@(index + 1)</td>
                             <td class="cover-col">
-                                <CoverThumb Cover="item.Cover" />
+                                <CoverThumb Cover="item.Cover" OnActivate="() => ShowDetailAsync(item.AnimeId)" />
                             </td>
                             <td>
                                 <div class="title-cell">
-                                    <span>@item.Title</span>
+                                    @* As on the backlog: the poster is a pointer shortcut and
+                                       vanishes below 720px, so the title is the real control. *@
+                                    <button type="button"
+                                            class="title-button"
+                                            aria-label="Details for @item.Title"
+                                            @onclick="() => ShowDetailAsync(item.AnimeId)">@item.Title</button>
                                 </div>
                                 <div class="row-meta">
                                     @if (item.Status is { } status)
@@ -150,7 +156,31 @@ else
     </div>
 }
 
+@* One instance for the page rather than one per row: a modal shows a single title
+   at a time, so fifty dialogs in the markup would be forty-nine that can never open
+   (D49). *@
+<ShowDetailDialog @ref="_detailDialog" />
+
 @code {
+    private ShowDetailDialog? _detailDialog;
+
+    /// <summary>Opens the detail dialog for one title (D49).</summary>
+    /// <remarks>
+    /// Read here rather than inside the dialog so the component stays a renderer with
+    /// no service of its own — the same split every other shared component here uses,
+    /// and what lets two pages share it without either of them handing it a query.
+    /// </remarks>
+    private async Task ShowDetailAsync(int animeId)
+    {
+        if (_detailDialog is null)
+        {
+            return;
+        }
+
+        var detail = await LibraryService.GetTitleDetailAsync(Profile.DefaultProfileId, animeId);
+
+        await _detailDialog.ShowAsync(detail);
+    }
     // Not persisted across the prerender handoff, for the reason recorded on the
     // backlog page: persisted state is serialised into the page and posted back
     // when the circuit starts, and a long queue would push that past SignalR's

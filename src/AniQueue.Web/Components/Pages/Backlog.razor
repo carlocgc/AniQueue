@@ -273,11 +273,18 @@ else
                                     }
                                 </td>
                                 <td class="cover-col">
-                                    <CoverThumb Cover="item.Cover" />
+                                    <CoverThumb Cover="item.Cover" OnActivate="() => ShowDetailAsync(item.AnimeId)" />
                                 </td>
                                 <td>
                                     <div class="title-cell">
-                                        <span>@item.Title</span>
+                                        @* The row's one real control for opening the dialog. The
+                                           poster beside it is a pointer shortcut to the same
+                                           thing and disappears below 720px, so this is what has
+                                           to carry the accessible name (D49). *@
+                                        <button type="button"
+                                                class="title-button"
+                                                aria-label="Details for @item.Title"
+                                                @onclick="() => ShowDetailAsync(item.AnimeId)">@item.Title</button>
                                         @* Both badges read the page's own state rather than
                                            what the query returned, so a row acted on says so
                                            immediately without the list being re-read under
@@ -596,7 +603,32 @@ else
     }
 }
 
+@* One instance for the page rather than one per row: a modal shows a single title
+   at a time, so fifty dialogs in the markup would be forty-nine that can never open
+   (D49). *@
+<ShowDetailDialog @ref="_detailDialog" />
+
 @code {
+
+    private ShowDetailDialog? _detailDialog;
+
+    /// <summary>Opens the detail dialog for one title (D49).</summary>
+    /// <remarks>
+    /// Read here rather than inside the dialog so the component stays a renderer with
+    /// no service of its own — the same split every other shared component here uses,
+    /// and what lets two pages share it without either of them handing it a query.
+    /// </remarks>
+    private async Task ShowDetailAsync(int animeId)
+    {
+        if (_detailDialog is null)
+        {
+            return;
+        }
+
+        var detail = await LibraryService.GetTitleDetailAsync(Profile.DefaultProfileId, animeId);
+
+        await _detailDialog.ShowAsync(detail);
+    }
     private const int PageSize = 50;
 
     // Deliberately NOT persisted across the prerender handoff.
