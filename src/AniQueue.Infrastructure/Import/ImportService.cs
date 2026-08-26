@@ -176,6 +176,9 @@ public sealed class ImportService(
 
         var preferredTitle = await LoadPreferredTitleAsync(context, profileId, cancellationToken);
 
+        // Both vocabularies, once, for the whole commit (D49).
+        var taxonomy = await TaxonomyCache.LoadAsync(context, cancellationToken);
+
         foreach (var item in preview.Items)
         {
             processed++;
@@ -199,7 +202,7 @@ public sealed class ImportService(
                 if (item.Resolution == ConflictResolution.LinkToExisting)
                 {
                     var linked = await LinkToExistingAsync(
-                        context, item, now, preferredTitle, precedence, cancellationToken);
+                        context, taxonomy, item, now, preferredTitle, precedence, cancellationToken);
                     if (linked is null)
                     {
                         // The record the user chose has since gone. Skipping is safer
@@ -226,17 +229,21 @@ public sealed class ImportService(
             {
                 anime = CreateAnime(item.Entry, now, preferredTitle);
                 context.Anime.Add(anime);
+
+                // Before the save rather than after, so the title and its genre and
+                // studio links insert together. A new title has nothing stored to
+                // preserve, which is why it may always overwrite.
+                ApplyTaxonomy(context, taxonomy, anime, item.Entry, mayOverwrite: true);
+
                 await context.SaveChangesAsync(cancellationToken);
                 created++;
             }
             else
             {
-                ApplyCatalogueFields(
-                    anime,
-                    item.Entry,
-                    now,
-                    preferredTitle,
-                    OutranksOtherSources(anime, item.Entry, precedence));
+                var mayOverwrite = OutranksOtherSources(anime, item.Entry, precedence);
+
+                ApplyCatalogueFields(anime, item.Entry, now, preferredTitle, mayOverwrite);
+                ApplyTaxonomy(context, taxonomy, anime, item.Entry, mayOverwrite);
                 updated++;
             }
 
@@ -294,6 +301,31 @@ public sealed class ImportService(
     /// <summary>
     /// Whether this entry knows a title variant the stored row does not.
     /// </summary>
+    /// <summary>
+    /// Whether an incoming set says something different from what is stored.
+    /// </summary>
+    /// <remarks>
+    /// <b>Empty incoming is silence and never differs</b>, which is the collection
+    /// form of the rule <c>Merge</c> keeps for scalars: a source that does not carry
+    /// something has not said it is absent (D49). A MyAnimeList export publishes no
+    /// genres at all, so without this a re-import would report — and then apply —
+    /// the removal of every genre AniList supplied.
+    ///
+    /// Order-insensitive and case-insensitive, because neither is a fact about the
+    /// title: AniList is free to return the same genres in a different order, and
+    /// reporting that as a change would make an idle sync look busy.
+    /// </remarks>
+    private static bool Differs(IReadOnlyList<string> incoming, IReadOnlyList<string> stored)
+    {
+        if (incoming.Count == 0)
+        {
+            return false;
+        }
+
+        return !incoming.ToHashSet(StringComparer.OrdinalIgnoreCase)
+            .SetEquals(stored);
+    }
+
     private static bool StoresNewVariants(ParsedLibraryEntry entry, AnimeSnapshot existing) =>
         IsNew(entry.TitleRomaji, existing.TitleRomaji) ||
         IsNew(entry.TitleEnglish, existing.TitleEnglish) ||
@@ -344,7 +376,12 @@ public sealed class ImportService(
                 a.EpisodeCount,
                 a.EpisodeDurationMinutes,
                 a.ReleaseYear,
-                a.Images.Any()))
+                a.Images.Any(i => i.Rendition == ImageRendition.Thumbnail),
+                a.Images.Any(i => i.Rendition == ImageRendition.Full),
+                a.Description,
+                a.Genres.Select(g => g.Genre!.Name).ToList(),
+                a.Studios.Select(s => s.Studio!.Name).ToList(),
+                a.Studios.Where(s => s.IsMain).Select(s => s.Studio!.Name).FirstOrDefault()))
             .ToListAsync(cancellationToken);
 
         // Loaded whole for the same reason the catalogue is: an IN clause built
@@ -565,9 +602,49 @@ public sealed class ImportService(
         // exact churn D21 relies on not happening when it says an unchanged sync
         // writes nothing. Gaining art where there was none is a real change and is
         // shown.
-        if (entry.CoverImageUrl is not null && !existing.HasCover)
+        if (entry.CoverImageUrl is not null && !existing.HasThumbnail)
         {
             changes.Add("Adds cover art");
+        }
+
+        // Reported separately because it is gained separately, and because every
+        // title already in the library gains exactly this on the first sync after
+        // Phase 9b (D48). Without this line those titles look unchanged, and an
+        // unchanged item is skipped outright at commit — so the full-size covers
+        // would never have been written at all.
+        if (entry.CoverImageFullUrl is not null && !existing.HasFullCover)
+        {
+            changes.Add("Adds a full-size cover");
+        }
+
+        // Unlike the cover URL, a differing synopsis is never spurious, so it is
+        // reported whenever it differs rather than only when it is gained (D49).
+        if (entry.Description is { Length: > 0 }
+            && !string.Equals(entry.Description, existing.Description, StringComparison.Ordinal))
+        {
+            changes.Add(existing.Description is { Length: > 0 } ? "Updates the synopsis" : "Adds a synopsis");
+        }
+
+        // An empty incoming set is silence and is never a change — the same rule the
+        // merge itself keeps, and the reason a MyAnimeList re-import does not report
+        // every AniList-sourced title as losing its genres (D49).
+        if (Differs(entry.Genres, existing.Genres))
+        {
+            changes.Add(existing.Genres.Count == 0 ? "Adds genres" : "Updates genres");
+        }
+
+        // Two questions, because the answer to one does not imply the other: which
+        // companies are credited, and which of them is the studio. A title recredited
+        // from Wit Studio to MAPPA credits both before and after.
+        if (entry.Studios.Count > 0)
+        {
+            var incomingMain = entry.Studios.FirstOrDefault(s => s.IsMain).Name;
+
+            if (Differs(entry.Studios.Select(s => s.Name).ToList(), existing.Studios)
+                || !string.Equals(incomingMain, existing.MainStudio, StringComparison.OrdinalIgnoreCase))
+            {
+                changes.Add(existing.Studios.Count == 0 ? "Adds studios" : "Updates studios");
+            }
         }
 
         // Identifiers this record does not carry yet. Shown because it is a real
@@ -637,6 +714,7 @@ public sealed class ImportService(
     /// </remarks>
     private static async Task<Anime?> LinkToExistingAsync(
         AniQueueDbContext context,
+        TaxonomyCache taxonomy,
         ImportPreviewItem item,
         DateTimeOffset now,
         TitleLanguage preferredTitle,
@@ -653,18 +731,24 @@ public sealed class ImportService(
         var existing = await context.Anime
             .Include(a => a.ExternalIds)
             .Include(a => a.Images)
+            .Include(a => a.Genres)
+            .Include(a => a.Studios)
+
+            // Four collections on one row multiply together in a single query — a
+            // title with two identifiers, two renditions, four genres and five
+            // studios comes back as eighty rows to build one entity from. Split, as
+            // EF itself warns to (D49).
+            .AsSplitQuery()
             .FirstOrDefaultAsync(a => a.Id == existingId, cancellationToken);
         if (existing is null)
         {
             return null;
         }
 
-        ApplyCatalogueFields(
-            existing,
-            item.Entry,
-            now,
-            preferredTitle,
-            OutranksOtherSources(existing, item.Entry, precedence));
+        var mayOverwrite = OutranksOtherSources(existing, item.Entry, precedence);
+
+        ApplyCatalogueFields(existing, item.Entry, now, preferredTitle, mayOverwrite);
+        ApplyTaxonomy(context, taxonomy, existing, item.Entry, mayOverwrite);
 
         await context.SaveChangesAsync(cancellationToken);
         return existing;
@@ -708,6 +792,9 @@ public sealed class ImportService(
                 return await context.Anime
                     .Include(a => a.ExternalIds)
                     .Include(a => a.Images)
+                    .Include(a => a.Genres)
+                    .Include(a => a.Studios)
+                    .AsSplitQuery()
                     .FirstOrDefaultAsync(a => a.Id == id, cancellationToken);
             }
         }
@@ -785,6 +872,7 @@ public sealed class ImportService(
             EpisodeCount = entry.EpisodeCount,
             EpisodeDurationMinutes = entry.EpisodeDurationMinutes,
             ReleaseYear = entry.ReleaseYear,
+            Description = entry.Description,
             CreatedAt = now,
             UpdatedAt = now
         };
@@ -813,13 +901,33 @@ public sealed class ImportService(
     /// </remarks>
     private static void ApplyCoverImage(Anime anime, ParsedLibraryEntry entry)
     {
-        if (entry.CoverImageUrl is not { Length: > 0 } url)
+        ApplyCoverImage(anime, entry, ImageRendition.Thumbnail, entry.CoverImageUrl);
+        ApplyCoverImage(anime, entry, ImageRendition.Full, entry.CoverImageFullUrl);
+    }
+
+    /// <summary>
+    /// Records one size of one title's cover.
+    /// </summary>
+    /// <remarks>
+    /// Called once per rendition, and the two are entirely independent from here on
+    /// (D48): each has its own row, its own fetch, its own retry count and its own
+    /// failure state, so a full-size cover that has not arrived does not hold up the
+    /// thumbnail that has, and a title showing a list thumbnail with no dialog poster
+    /// is a normal intermediate state rather than a fault.
+    /// </remarks>
+    private static void ApplyCoverImage(
+        Anime anime,
+        ParsedLibraryEntry entry,
+        ImageRendition rendition,
+        string? remoteUrl)
+    {
+        if (remoteUrl is not { Length: > 0 } url)
         {
             return;
         }
 
-        var existing = anime.Images
-            .FirstOrDefault(i => i.Kind == ImageKind.Poster && i.Source == entry.Source);
+        var existing = anime.Images.FirstOrDefault(i =>
+            i.Kind == ImageKind.Poster && i.Source == entry.Source && i.Rendition == rendition);
 
         if (existing is null)
         {
@@ -827,6 +935,7 @@ public sealed class ImportService(
             {
                 Kind = ImageKind.Poster,
                 Source = entry.Source,
+                Rendition = rendition,
                 RemoteUrl = url
             });
 
@@ -856,6 +965,174 @@ public sealed class ImportService(
     /// one after an AniList sync must not blank all three (D18 draws the same line
     /// for tracking data, guarded by precedence rather than by nullness).
     /// </remarks>
+    /// <summary>
+    /// Every genre and studio already known, by name, for the length of one commit.
+    /// </summary>
+    /// <remarks>
+    /// <b>Loaded once rather than queried per title.</b> Both vocabularies are shared
+    /// across the whole library — a few dozen genres and a few thousand studios for
+    /// hundreds of titles — so resolving a name against the database per entry would
+    /// be thousands of round trips to answer the same handful of questions. Rows
+    /// created during the commit are added here as they are created, which is what
+    /// stops the second title carrying a brand-new genre inserting it a second time
+    /// and violating the unique index.
+    /// </remarks>
+    private sealed class TaxonomyCache
+    {
+        private TaxonomyCache(Dictionary<string, Genre> genres, Dictionary<string, Studio> studios)
+        {
+            Genres = genres;
+            Studios = studios;
+        }
+
+        public Dictionary<string, Genre> Genres { get; }
+
+        public Dictionary<string, Studio> Studios { get; }
+
+        public static async Task<TaxonomyCache> LoadAsync(
+            AniQueueDbContext context,
+            CancellationToken cancellationToken) =>
+            new(
+                await context.Genres.ToDictionaryAsync(
+                    g => g.Name, StringComparer.OrdinalIgnoreCase, cancellationToken),
+                await context.Studios.ToDictionaryAsync(
+                    s => s.Name, StringComparer.OrdinalIgnoreCase, cancellationToken));
+    }
+
+    /// <summary>
+    /// Applies the genres and studios this source credits (D49).
+    /// </summary>
+    /// <remarks>
+    /// <b>Separate from <see cref="ApplyCatalogueFields"/> because it needs the
+    /// database</b>, not because it obeys different rules — it obeys exactly the same
+    /// ones, restated for a shape <c>Merge</c> cannot express.
+    ///
+    /// <c>Merge</c> rests on "a source never erases a value by not carrying it", and a
+    /// set has no null to carry that meaning. So the rule is written again here: an
+    /// empty incoming set is <i>silence</i> and changes nothing. Without it, importing
+    /// a MyAnimeList export — which publishes no genres at all — would strip the
+    /// genres off every title the two sources share, and nothing in a build or a green
+    /// suite would notice.
+    /// </remarks>
+    private static void ApplyTaxonomy(
+        AniQueueDbContext context,
+        TaxonomyCache cache,
+        Anime anime,
+        ParsedLibraryEntry entry,
+        bool mayOverwrite)
+    {
+        ApplyGenres(context, cache, anime, entry, mayOverwrite);
+        ApplyStudios(context, cache, anime, entry, mayOverwrite);
+    }
+
+    private static void ApplyGenres(
+        AniQueueDbContext context,
+        TaxonomyCache cache,
+        Anime anime,
+        ParsedLibraryEntry entry,
+        bool mayOverwrite)
+    {
+        // Silence, or a source that may only fill a gap and there is no gap.
+        if (entry.Genres.Count == 0 || !(mayOverwrite || anime.Genres.Count == 0))
+        {
+            return;
+        }
+
+        var desired = new List<Genre>(entry.Genres.Count);
+
+        foreach (var name in entry.Genres)
+        {
+            if (!cache.Genres.TryGetValue(name, out var genre))
+            {
+                genre = new Genre { Name = name };
+                context.Genres.Add(genre);
+                cache.Genres[name] = genre;
+            }
+
+            desired.Add(genre);
+        }
+
+        // Replacement rather than union, so that a genre AniList has removed from a
+        // title actually goes. A union would only ever grow the set, which means a
+        // mis-tagged title could be corrected at the source and never here.
+        foreach (var link in anime.Genres.ToList())
+        {
+            if (!desired.Any(g => g.Id != 0 && g.Id == link.GenreId))
+            {
+                anime.Genres.Remove(link);
+            }
+        }
+
+        foreach (var genre in desired)
+        {
+            // A genre created moments ago has no id yet, so it cannot already be
+            // linked — and asking by id would match every other unsaved row.
+            if (genre.Id == 0 || anime.Genres.All(l => l.GenreId != genre.Id))
+            {
+                anime.Genres.Add(new AnimeGenre { Anime = anime, Genre = genre });
+            }
+        }
+    }
+
+    private static void ApplyStudios(
+        AniQueueDbContext context,
+        TaxonomyCache cache,
+        Anime anime,
+        ParsedLibraryEntry entry,
+        bool mayOverwrite)
+    {
+        if (entry.Studios.Count == 0 || !(mayOverwrite || anime.Studios.Count == 0))
+        {
+            return;
+        }
+
+        var desired = new List<(Studio Studio, bool IsMain)>(entry.Studios.Count);
+
+        foreach (var credited in entry.Studios)
+        {
+            if (!cache.Studios.TryGetValue(credited.Name, out var studio))
+            {
+                studio = new Studio { Name = credited.Name };
+                context.Studios.Add(studio);
+                cache.Studios[credited.Name] = studio;
+            }
+
+            // A fact about the company rather than this pairing, so it is refreshed
+            // from whichever title mentioned it most recently. Every title crediting
+            // a company agrees about what kind of company it is, so there is nothing
+            // here for two sources to fight over.
+            studio.IsAnimationStudio = credited.IsAnimationStudio;
+
+            desired.Add((studio, credited.IsMain));
+        }
+
+        foreach (var link in anime.Studios.ToList())
+        {
+            if (!desired.Any(d => d.Studio.Id != 0 && d.Studio.Id == link.StudioId))
+            {
+                anime.Studios.Remove(link);
+            }
+        }
+
+        foreach (var (studio, isMain) in desired)
+        {
+            var link = studio.Id == 0
+                ? null
+                : anime.Studios.FirstOrDefault(l => l.StudioId == studio.Id);
+
+            if (link is null)
+            {
+                anime.Studios.Add(new AnimeStudio { Anime = anime, Studio = studio, IsMain = isMain });
+                continue;
+            }
+
+            // Which company is the main one is the part of this pairing that can
+            // change without the pairing itself changing — a title recredited to a
+            // different studio keeps both companies and moves the flag.
+            link.IsMain = isMain;
+        }
+    }
+
     /// <summary>
     /// Writes what a source says about the title itself, subject to whether it is
     /// allowed to overwrite what another source already said (D18, D29).
@@ -913,6 +1190,14 @@ public sealed class ImportService(
         anime.EpisodeCount = Merge(anime.EpisodeCount, entry.EpisodeCount, mayOverwrite);
         anime.EpisodeDurationMinutes = Merge(anime.EpisodeDurationMinutes, entry.EpisodeDurationMinutes, mayOverwrite);
         anime.ReleaseYear = Merge(anime.ReleaseYear, entry.ReleaseYear, mayOverwrite);
+
+        // Stored exactly as the source published it (D49). Through Merge like every
+        // other catalogue scalar, which means a title both sources identify with
+        // MyAnimeList ranked first keeps whichever synopsis landed first — the same
+        // behaviour EpisodeCount and ReleaseYear have always had (D18), and the
+        // consistency is worth more than a special case for one field.
+        anime.Description = Merge(anime.Description, entry.Description, mayOverwrite);
+
         ApplyCoverImage(anime, entry);
 
         anime.UpdatedAt = now;
@@ -1084,9 +1369,28 @@ public sealed class ImportService(
         int? ReleaseYear,
         // Whether there is art, not where it is. The preview reports gaining a cover
         // and nothing else — a URL that merely changed is almost always the same
-        // picture behind a rotated path, and the comment below on that is what this
-        // flag exists to keep true now that the address lives on another table.
-        bool HasCover);
+        // picture behind a rotated path, and the comment below on that is what these
+        // flags exist to keep true now that the address lives on another table.
+        //
+        // One flag per rendition, because they are gained independently: every title
+        // in a library that predates Phase 9b has a thumbnail and no full-size cover
+        // (D48), and a preview that could not see the difference would call those
+        // titles unchanged and skip them — which is the whole of how the new data
+        // would have failed to land.
+        bool HasThumbnail,
+        bool HasFullCover,
+        // Carried in full rather than as a flag, because a synopsis that has been
+        // rewritten is a real change and unlike a rotated cover URL it is never
+        // spurious. The cost is bounded by §6's sizing and is smaller in practice
+        // than the four title variants above already are.
+        string? Description,
+        IReadOnlyList<string> Genres,
+        IReadOnlyList<string> Studios,
+        // Carried alongside the names because which company is the main one can
+        // change without the set of companies changing at all — a title recredited
+        // from Wit Studio to MAPPA credits both either way. Comparing names alone
+        // would call that unchanged, and an unchanged item is never applied.
+        string? MainStudio);
 
     private sealed record EntrySnapshot(
         int AnimeId,

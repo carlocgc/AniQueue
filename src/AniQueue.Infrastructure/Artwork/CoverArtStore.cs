@@ -32,8 +32,13 @@ public sealed class CoverArtStore(IOptions<AniQueueDatabaseOptions> databaseOpti
     public bool IsAvailable => _root is not null;
 
     /// <summary>Whether the bytes for this row are actually present.</summary>
-    public bool Exists(ImageKind kind, int animeId, string? contentHash, string? fileExtension) =>
-        PathFor(kind, animeId, contentHash, fileExtension) is { } path && File.Exists(path);
+    public bool Exists(
+        ImageKind kind,
+        ImageRendition rendition,
+        int animeId,
+        string? contentHash,
+        string? fileExtension) =>
+        PathFor(kind, rendition, animeId, contentHash, fileExtension) is { } path && File.Exists(path);
 
     /// <summary>
     /// Writes a picture, atomically.
@@ -46,6 +51,7 @@ public sealed class CoverArtStore(IOptions<AniQueueDatabaseOptions> databaseOpti
     /// </remarks>
     public async Task WriteAsync(
         ImageKind kind,
+        ImageRendition rendition,
         int animeId,
         string contentHash,
         string fileExtension,
@@ -54,7 +60,7 @@ public sealed class CoverArtStore(IOptions<AniQueueDatabaseOptions> databaseOpti
     {
         ArgumentNullException.ThrowIfNull(content);
 
-        if (PathFor(kind, animeId, contentHash, fileExtension) is not { } path)
+        if (PathFor(kind, rendition, animeId, contentHash, fileExtension) is not { } path)
         {
             return;
         }
@@ -71,9 +77,14 @@ public sealed class CoverArtStore(IOptions<AniQueueDatabaseOptions> databaseOpti
     /// Asynchronous and sequential because the caller is an HTTP endpoint streaming
     /// straight to a response, and the access pattern is one pass front to back.
     /// </remarks>
-    public Stream? OpenRead(ImageKind kind, int animeId, string contentHash, string fileExtension)
+    public Stream? OpenRead(
+        ImageKind kind,
+        ImageRendition rendition,
+        int animeId,
+        string contentHash,
+        string fileExtension)
     {
-        if (PathFor(kind, animeId, contentHash, fileExtension) is not { } path)
+        if (PathFor(kind, rendition, animeId, contentHash, fileExtension) is not { } path)
         {
             return null;
         }
@@ -154,9 +165,17 @@ public sealed class CoverArtStore(IOptions<AniQueueDatabaseOptions> databaseOpti
         return removed;
     }
 
-    private string? PathFor(ImageKind kind, int animeId, string? contentHash, string? fileExtension) =>
+    private string? PathFor(
+        ImageKind kind,
+        ImageRendition rendition,
+        int animeId,
+        string? contentHash,
+        string? fileExtension) =>
         _root is not null && contentHash is { Length: > 0 } hash && fileExtension is { Length: > 0 } extension
-            ? Path.Combine(_root, ArtworkPaths.DirectoryFor(kind), ArtworkPaths.CacheFileName(animeId, hash, extension))
+            ? Path.Combine(
+                _root,
+                ArtworkPaths.DirectoryFor(kind, rendition),
+                ArtworkPaths.CacheFileName(animeId, hash, extension))
             : null;
 
     private static string? ResolveRoot(AniQueueDatabaseOptions options)

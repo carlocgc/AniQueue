@@ -18,6 +18,14 @@ public class AnimeConfiguration : IEntityTypeConfiguration<Anime>
         // Six hexadecimal digits behind a hash, and nothing else is ever stored.
         builder.Property(a => a.CoverImageColor).HasMaxLength(7);
 
+        // Sized the way §6 sizes the import limit and ImageSource.MaxByteCount:
+        // generously enough that nothing legitimate is refused — AniList's longest
+        // synopses run to a couple of thousand characters — and bounded so a
+        // malformed or hostile response cannot write unbounded text a row at a time.
+        // SQLite does not enforce this, which is exactly why it is stated: the cap
+        // documents the contract the provider does not.
+        builder.Property(a => a.Description).HasMaxLength(8000);
+
         builder.HasIndex(a => a.Title);
 
         // No CoverImageUrl any more (D47). Where a picture lives is a fact about the

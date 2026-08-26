@@ -57,11 +57,11 @@ public sealed class QueueService(
                 // wants one poster and a join would multiply the queue by however
                 // many images a title has (D47, D48).
                 CoverContentHash = q.Anime.Images
-                    .Where(x => x.Kind == ImageKind.Poster && x.ContentHash != null)
+                    .Where(x => x.Kind == ImageKind.Poster && x.Rendition == ImageRendition.Thumbnail && x.ContentHash != null)
                     .Select(x => x.ContentHash)
                     .FirstOrDefault(),
                 CoverFileExtension = q.Anime.Images
-                    .Where(x => x.Kind == ImageKind.Poster && x.ContentHash != null)
+                    .Where(x => x.Kind == ImageKind.Poster && x.Rendition == ImageRendition.Thumbnail && x.ContentHash != null)
                     .Select(x => x.FileExtension)
                     .FirstOrDefault(),
 

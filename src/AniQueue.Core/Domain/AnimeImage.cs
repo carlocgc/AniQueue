@@ -16,7 +16,8 @@ namespace AniQueue.Core.Domain;
 /// </summary>
 /// <remarks>
 /// <b>The bytes are not here.</b> §6 forbids image binaries in the database, so the
-/// file lives under <c>&lt;data&gt;/art/{kind}/</c> and this row records where it came
+/// file lives under <c>&lt;data&gt;/art/{directory}/</c> — <c>thumbnails</c> or
+/// <c>posters</c>, one per rendition (D48) — and this row records where it came
 /// from and what happened. Disk is the authority on whether it is actually cached:
 /// the job's precondition asks the filesystem as well as this row, so deleting the
 /// cache directory to reclaim space heals within a tick instead of breaking every
@@ -44,6 +45,19 @@ public class AnimeImage
     public AnimeSource Source { get; set; }
 
     /// <summary>
+    /// Which size of this picture the row holds (D48).
+    /// </summary>
+    /// <remarks>
+    /// The reason a title has more than one row of the same <see cref="Kind"/>: a
+    /// 100px thumbnail for a list slot and a 460px cover for the detail dialog. They
+    /// are separate rows rather than extra columns because that is what makes each
+    /// one fetchable, retryable and cacheable on its own — the job's precondition is
+    /// per row, so a full-size cover that has not arrived yet does not hold up the
+    /// thumbnail that has.
+    /// </remarks>
+    public ImageRendition Rendition { get; set; }
+
+    /// <summary>
     /// Where the picture is, as the source published it.
     /// </summary>
     /// <remarks>
@@ -64,7 +78,7 @@ public class AnimeImage
     /// </summary>
     /// <remarks>
     /// Doing double duty deliberately: it is what says a fetch succeeded, and it is
-    /// what makes the served URL immutable. <c>/art/{kind}/{id}/{hash}</c> can be given
+    /// what makes the served URL immutable. <c>/art/{directory}/{id}/{hash}</c> can be given
     /// a year's <c>max-age</c> because replaced art arrives at a different address, so
     /// a browser is never stale and never spends a request revalidating.
     /// </remarks>

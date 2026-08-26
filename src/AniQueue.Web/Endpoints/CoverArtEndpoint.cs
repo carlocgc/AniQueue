@@ -40,17 +40,17 @@ public static class CoverArtEndpoint
         ArgumentNullException.ThrowIfNull(endpoints);
 
         endpoints.MapGet(
-            $"/{ArtworkPaths.Root}/{{kind}}/{{animeId:int}}/{{segment}}",
-            (string kind, int animeId, string segment, CoverArtStore store, HttpContext httpContext) =>
+            $"/{ArtworkPaths.Root}/{{directory}}/{{animeId:int}}/{{segment}}",
+            (string directory, int animeId, string segment, CoverArtStore store, HttpContext httpContext) =>
             {
-                if (!ArtworkPaths.TryParseKind(kind, out var imageKind)
+                if (!ArtworkPaths.TryParseDirectory(directory, out var imageKind, out var rendition)
                     || !ArtworkPaths.TryParseSegment(segment, out var contentHash, out var fileExtension)
                     || ImageSource.ContentTypeFor(fileExtension) is not { } contentType)
                 {
                     return Results.NotFound();
                 }
 
-                var content = store.OpenRead(imageKind, animeId, contentHash, fileExtension);
+                var content = store.OpenRead(imageKind, rendition, animeId, contentHash, fileExtension);
                 if (content is null)
                 {
                     // Deliberately without the cache header below. A miss means the

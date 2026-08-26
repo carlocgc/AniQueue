@@ -54,10 +54,11 @@ public static class CoverImageResolver
         string? contentHash,
         string? fileExtension,
         string? colour,
-        ImageKind kind = ImageKind.Poster)
+        ImageKind kind = ImageKind.Poster,
+        ImageRendition rendition = ImageRendition.Thumbnail)
     {
         var url = contentHash is { Length: > 0 } hash && fileExtension is { Length: > 0 } extension
-            ? ArtworkPaths.Url(kind, animeId, hash, extension)
+            ? ArtworkPaths.Url(kind, rendition, animeId, hash, extension)
             : null;
 
         return new CoverArt(url, Palette(colour));
