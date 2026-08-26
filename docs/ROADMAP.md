@@ -3927,6 +3927,14 @@ degradation, which by this point the art path has already been following for two
 poster falls back to the thumbnail, then to `CoverImageColor`, then to a neutral block, which is
 the chain `CoverImageResolver` already implements.
 
+**A related title opens it too**, from inside the expansion Phase 6c built. That is
+where the question the dialog answers is least settled: a sequel found by expanding a
+row is a title the user has not decided about, and until now the only thing they could
+do with it was queue it. It needs no second lookup — `RelationService` joins relatives
+through `LibraryEntries`, so every one of them is an entry of this profile's and the
+same query finds it. Acting leaves the expansion open behind the dialog, which is D26's
+rule holding rather than a new one.
+
 **Two controls open it, and only one of them is a control.** The poster is the obvious
 place to click — every media library works that way — but `.cover-col` is
 `display: none` below 720px, a 9a decision that was right while the cover was

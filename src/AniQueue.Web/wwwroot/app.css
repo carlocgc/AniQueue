@@ -1140,6 +1140,11 @@ button.danger:hover:not(:disabled) { filter: brightness(0.95); }
 
 .title-button:hover { text-decoration: underline; }
 
+/* all: unset above resets font-weight, and this rule is later in the file than
+   .relation-title, so a relative would otherwise lose the weight that distinguishes
+   its title from the metadata around it. Two classes rather than relying on order. */
+.title-button.relation-title { font-weight: 500; }
+
 /* Not :focus, because the pointer path would then leave an outline behind after a
    click. :focus-visible is the keyboard-only half, which is who the outline is for. */
 .title-button:focus-visible {

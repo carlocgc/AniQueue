@@ -561,7 +561,24 @@ else
                                                                this connected", not "what
                                                                else exists". *@
                                                             <span class="badge relation">@relative.Label</span>
-                                                            <span class="relation-title">@relative.Title</span>
+
+                                                            @* The same control the rows
+                                                               carry, because this is the
+                                                               same question asked about a
+                                                               title one line further in:
+                                                               a sequel found here is
+                                                               exactly the case where "is
+                                                               this worth queueing" has not
+                                                               been answered yet. Relatives
+                                                               are library entries for this
+                                                               profile — RelationService
+                                                               joins them through
+                                                               LibraryEntries — so the same
+                                                               lookup finds them. *@
+                                                            <button type="button"
+                                                                    class="title-button relation-title"
+                                                                    aria-label="Details for @relative.Title"
+                                                                    @onclick="() => ShowDetailAsync(relative.AnimeId)">@relative.Title</button>
                                                             <span class="badge @relative.Status.ToString().ToLowerInvariant()">@relative.Status</span>
                                                             @if (IsQueued(relative.AnimeId))
                                                             {
