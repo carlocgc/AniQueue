@@ -26,6 +26,14 @@ public class AniQueueDbContext(DbContextOptions<AniQueueDbContext> options) : Db
 
     public DbSet<AnimeRelation> AnimeRelations => Set<AnimeRelation>();
 
+    public DbSet<Genre> Genres => Set<Genre>();
+
+    public DbSet<AnimeGenre> AnimeGenres => Set<AnimeGenre>();
+
+    public DbSet<Studio> Studios => Set<Studio>();
+
+    public DbSet<AnimeStudio> AnimeStudios => Set<AnimeStudio>();
+
     public DbSet<LibraryEntry> LibraryEntries => Set<LibraryEntry>();
 
     public DbSet<QueueItem> QueueItems => Set<QueueItem>();

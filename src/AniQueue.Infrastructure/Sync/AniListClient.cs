@@ -55,6 +55,18 @@ public sealed class AniListClient(HttpClient httpClient, ILogger<AniListClient> 
     /// is deliberately absent, and stays absent: relations are near-static while a
     /// list changes constantly, so they belong to a separate, lazy pass rather than
     /// riding along on every poll of the data that does change (D24).
+    ///
+    /// <b>Phase 9b's four fields ride along, and that is the whole of the phase's
+    /// fetching</b> (D49). <c>description</c>, <c>genres</c>, <c>studios</c> and
+    /// <c>coverImage.extraLarge</c> arrive in a request that was already being made
+    /// for the entire collection, so every existing title is populated by the next
+    /// scheduled sync and no backfill pass is needed — unlike relations, which needed
+    /// one precisely because they are not here.
+    ///
+    /// <c>description</c> is taken without <c>asHtml</c> deliberately. AniList's own
+    /// markdown keeps spoilers as <c>~!...!~</c>, which a renderer can mask; the HTML
+    /// form has already expanded them into markup, and would additionally be
+    /// third-party HTML that only <c>MarkupString</c> could render (D49).
     /// </remarks>
     private const string ListQuery =
         """
@@ -80,8 +92,11 @@ public sealed class AniListClient(HttpClient httpClient, ILogger<AniListClient> 
                   episodes
                   duration
                   seasonYear
+                  description
+                  genres
                   title { romaji english native }
-                  coverImage { medium }
+                  coverImage { medium extraLarge }
+                  studios { edges { isMain node { name isAnimationStudio } } }
                 }
               }
             }

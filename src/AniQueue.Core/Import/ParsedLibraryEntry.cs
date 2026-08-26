@@ -88,6 +88,38 @@ public sealed record ParsedLibraryEntry
     /// </remarks>
     public string? CoverImageUrl { get; init; }
 
+    /// <summary>
+    /// Where the source says the full-size cover is, for the detail dialog (D48).
+    /// </summary>
+    /// <remarks>
+    /// A second field rather than a second entry, because both sizes arrive on the
+    /// same title in the same response and splitting them would mean the parser
+    /// producing two records for one row. They become two <c>AnimeImage</c> rows,
+    /// which is where they stop travelling together.
+    /// </remarks>
+    public string? CoverImageFullUrl { get; init; }
+
+    /// <summary>
+    /// The synopsis, as the source published it. Never transformed here (D49).
+    /// </summary>
+    public string? Description { get; init; }
+
+    /// <summary>
+    /// Genres the source names, or empty when it names none.
+    /// </summary>
+    /// <remarks>
+    /// <b>Empty means the source did not say</b>, and every consumer has to read it
+    /// that way. A MyAnimeList export publishes no genres at all, so treating empty
+    /// as a statement of fact would strip whatever AniList supplied off every title
+    /// the two sources share — the collection form of the rule <c>Merge</c> already
+    /// keeps for scalars (D49).
+    /// </remarks>
+    public IReadOnlyList<string> Genres { get; init; } = [];
+
+    /// <summary>Companies the source credits, or empty when it credits none.</summary>
+    /// <remarks>Empty means silence, for <see cref="Genres"/>' reason.</remarks>
+    public IReadOnlyList<ParsedStudio> Studios { get; init; } = [];
+
     public LibraryStatus Status { get; init; } = LibraryStatus.Planning;
 
     public int EpisodesWatched { get; init; }
@@ -101,3 +133,17 @@ public sealed record ParsedLibraryEntry
 
     public int TimesRewatched { get; init; }
 }
+
+/// <summary>
+/// One company credited on a title, as the source states it (D49).
+/// </summary>
+/// <param name="Name">The company's name, verbatim.</param>
+/// <param name="IsMain">
+/// Whether the source marks this as the primary studio. False for producers, and
+/// false for every edge on a title where the source flags none.
+/// </param>
+/// <param name="IsAnimationStudio">
+/// Whether the company animates rather than funds. A fact about the company, carried
+/// alongside the pairing because it arrives in the same edge.
+/// </param>
+public readonly record struct ParsedStudio(string Name, bool IsMain, bool IsAnimationStudio);

@@ -44,6 +44,19 @@ public class AnimeImage
     public AnimeSource Source { get; set; }
 
     /// <summary>
+    /// Which size of this picture the row holds (D48).
+    /// </summary>
+    /// <remarks>
+    /// The reason a title has more than one row of the same <see cref="Kind"/>: a
+    /// 100px thumbnail for a list slot and a 460px cover for the detail dialog. They
+    /// are separate rows rather than extra columns because that is what makes each
+    /// one fetchable, retryable and cacheable on its own — the job's precondition is
+    /// per row, so a full-size cover that has not arrived yet does not hold up the
+    /// thumbnail that has.
+    /// </remarks>
+    public ImageRendition Rendition { get; set; }
+
+    /// <summary>
     /// Where the picture is, as the source published it.
     /// </summary>
     /// <remarks>

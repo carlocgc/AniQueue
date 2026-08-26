@@ -116,7 +116,42 @@ public class Anime
     /// </remarks>
     public string? CoverImageColor { get; set; }
 
+    /// <summary>
+    /// The synopsis, as AniList's own markdown (D49).
+    /// </summary>
+    /// <remarks>
+    /// <b>Stored verbatim, and deliberately not as <c>asHtml</c>.</b> AniList
+    /// descriptions carry spoilers wrapped in <c>~!...!~</c>, and keeping them as a
+    /// delimiter is what lets the detail dialog mask them; the HTML form has already
+    /// expanded them into markup that would have to be parsed back out. It is also
+    /// text any AniList user can edit, so rendering the HTML form would mean
+    /// <c>MarkupString</c> — unescaped third-party markup in the DOM.
+    ///
+    /// Storing what the source said rather than a transformation of it is D47's
+    /// lesson repeated: the cover parser stored the wrong rendition, the merge
+    /// preserved it, and it could not be corrected without a migration. Every
+    /// rendering decision stays a code change.
+    ///
+    /// §10 declined this field outright — "read once and never filtered on, so the
+    /// source links already answer it" — which was an argument about a list row,
+    /// where a synopsis is a wall of text in a column with no room for it. The
+    /// argument lost to a dialog whose whole job is the pitch (D49). The column
+    /// existed unwritten from Phase 1 until then.
+    /// </remarks>
     public string? Description { get; set; }
+
+    /// <summary>Genres AniList publishes for this title (D49).</summary>
+    /// <remarks>
+    /// Empty for a manual entry and for a MyAnimeList import, which publishes none —
+    /// and empty there means <i>the source did not say</i>, never "this title has no
+    /// genres". The merge depends on that distinction; without it, re-importing a
+    /// MyAnimeList export would strip the genres off every title the two sources
+    /// share.
+    /// </remarks>
+    public ICollection<AnimeGenre> Genres { get; set; } = [];
+
+    /// <summary>Studios and producers, with the main one flagged (D49).</summary>
+    public ICollection<AnimeStudio> Studios { get; set; } = [];
 
     public AnimeSource Source { get; set; } = AnimeSource.Manual;
 

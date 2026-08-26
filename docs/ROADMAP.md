@@ -2438,6 +2438,11 @@ slot, and D47 already priced it at 83.3 KB a title and 67 MB across this library
 was taken in order to *reject* `extraLarge` for a fifty-row page, where it costs 4.2 MB a page; a
 dialog renders one image, so the number that disqualified it there does not apply here at all.
 
+*Both of those figures turned out to be low, and 9b measured the real ones* — 183.3 KB a title and
+145 MB across the library, so a fifty-row page would have been 9.2 MB rather than 4.2. It
+strengthens the argument for keeping `extraLarge` off the list and weakens the case that putting it
+behind the dialog is cheap; §7's 9b entry carries the table and the open question.
+
 **Two renditions therefore need a key, and `ImageKind` is the wrong place to put one.** Its own
 definition is "what an image of a title actually shows", and a size is not what it shows; loading
 sizes into it makes every future kind×size pair a member of an append-only contract that can never
@@ -2526,6 +2531,32 @@ identify, with MyAnimeList ranked first, `mayOverwrite` is false for AniList, so
 genres are filled once and never updated again. That is not new — `EpisodeCount` and `ReleaseYear`
 have always behaved that way (D18) — and the consistency is worth more than a special case for two
 fields.
+
+**Building it found the thing that would have made the whole phase inert, and it was in the
+preview rather than the merge.** A preview item with no changes is `Unchanged`, and `CommitAsync`
+skips an `Unchanged` item outright — so anything the *preview* cannot see is something the commit
+will never write, however correct the merge is. Genres, studios, a synopsis and a full-size cover
+are all invisible to a comparison written before they existed, so every title already in a library
+would have looked unchanged and received none of them. The snapshot the preview compares against
+therefore carries all four, plus a rendition flag each for the thumbnail and the full-size cover.
+**The measured proof is the sync that followed: 810 updated, 0 unchanged**, on a library where
+nothing but these fields had moved.
+
+**Two smaller things the same run decided.** Which company is the *main* studio has to be compared
+separately from which companies are credited, because a title recredited from Wit Studio to MAPPA
+credits both either way — comparing the set alone calls that unchanged and never applies it. And
+four collection `Include`s on one row multiply together in a single query, which EF warns about by
+name; the title lookup is `AsSplitQuery` because eighty rows to build one entity is the warning
+being right.
+
+**A gap in 9a that this phase surfaced without fixing.** D47 says a changed `RemoteUrl` "clears
+both failure states and re-fetches". The merge does exactly that, but it only runs on an item the
+preview did not call `Unchanged` — and a cover URL that has merely rotated is *deliberately* not
+reported, because reporting it would turn an idle sync into a library-wide list of updated rows.
+So replaced art is picked up only when the title changed for some other reason. Left alone here
+rather than widened into: the honest reading is that D47's sentence claims something stronger than
+the code does, and which of the two should move is a question about churn that this phase has no
+evidence to settle.
 
 ---
 
@@ -2946,8 +2977,8 @@ numbering. What is finished is a column; what happens next is the first row with
 | 8c | Scoring surface | ✅ | Remote and Manual cards; a run started, waited on, cancelled and applied without anything being copied by hand |
 | 8d | Scheduled sweep | ✅ | A backlog scores itself in batches with nobody present, and idles when nothing has been rated |
 | 9a | Cover art | ✅ | Covers cached under `/data` by a job that idles, served immutably, and rendered on the backlog and Up Next |
-| 9b | AniList enrichment | ▢ **next** | Genres, studios, synopsis and a full-size cover land from one selection-set change, on the next sync, with no backfill job |
-| 9c | Show detail dialog | ▢ | A row opens a dialog that argues for the title: poster, synopsis, genres, studio, and the score with its reason |
+| 9b | AniList enrichment | ✅ | Genres, studios, synopsis and a full-size cover landed from one selection-set change, on the next sync, with no backfill job |
+| 9c | Show detail dialog | ▢ **next** | A row opens a dialog that argues for the title: poster, synopsis, genres, studio, and the score with its reason |
 | 10 | Settings page | ▢ | One page for preferences; operator configuration shown and not editable |
 | 10a | Per-source settings to the file | ✅ | `SourceSyncSettings` deleted; every sync setting read from `userconfig.json` |
 | 11 | Docker + README | ▢ | Migrations squashed to one baseline; compose up, health check, container recreated without data loss |
@@ -3825,6 +3856,40 @@ tick. The budget stays; the comment claiming it has room to spare does not.
 here for one reason: 9c is the sole consumer and immediately follows, and the alternative is
 editing the same parser and refetching the same library twice to populate fields that were sitting
 in the first response.
+
+**What it cost, measured on the development library rather than estimated.** One migration, four
+fields on one query, and a sync that reported **810 updated, 0 unchanged** — which is the number
+that proves the preview saw the new data, because a title the preview calls unchanged is skipped
+outright and would have received none of it. The response grew to 1.3 MB across two requests. The
+full-size covers were fetched by the existing job with no new code, over about ten minutes,
+resuming across visits exactly as D48 predicted.
+
+**The cache cost more than twice what D48 budgeted, and the error is the one D47 warned about in
+its own text.** Measured over 1,620 files after the pass completed:
+
+| Rendition | Files | Average | Total |
+|---|---|---|---|
+| `medium` thumbnail | 810 | 16.6 KB | 13.1 MB |
+| `extraLarge` full-size | 810 | **183.3 KB** | **145.0 MB** |
+| | **1,620** | | **158.1 MB** |
+
+D47 priced `extraLarge` at 83.3 KB and 67 MB. The real figure is **2.2× that**, and the cause is
+the same one that made its first `medium` estimate half the truth: roughly a quarter of this
+library's covers are PNGs, and a PNG at 460×650 is far heavier than a JPEG at the same dimensions.
+D47 measured `medium` properly across the whole library and marked it *(measured)*; its
+`extraLarge` column was extrapolated in the same table without being marked, and that is exactly
+the practice its own closing paragraph says is worth flagging. **Both columns of that table are now
+measured**, and the one that was not is corrected here rather than there, because what it was
+arguing at the time — that `extraLarge` is far too heavy for a fifty-row list — was right, and is
+more right at 183 KB than it was at 83.
+
+Whether 158 MB is the right price for a hero poster is a live question rather than a settled one.
+`large` at 230px would cost roughly a quarter of the pixels; D47's own rule makes switching a job
+re-run against a different URL rather than a migration, because the row stores its own address.
+
+The synopsis arriving as markdown rather than HTML is visible in the stored bytes: 1,538 `<br>`
+tags, which AniList's own users write, against a single `<p>` — `asHtml: true` would have wrapped
+every one of them in paragraphs.
 
 ### Phase 9c — Show detail dialog
 

@@ -253,7 +253,11 @@ public sealed class AniListJsonParser(ImportLimits? limits = null) : IAnimeListP
             EpisodeCount = episodeCount,
             EpisodeDurationMinutes = Positive(media, "duration"),
             ReleaseYear = Positive(media, "seasonYear"),
-            CoverImageUrl = MapCoverImage(media),
+            CoverImageUrl = MapCoverImage(media, "medium"),
+            CoverImageFullUrl = MapCoverImage(media, "extraLarge"),
+            Description = Text(media, "description"),
+            Genres = MapGenres(media),
+            Studios = MapStudios(media),
             Status = MapStatus(Text(entry, "status"), fallback, recordNumber, problems),
             EpisodesWatched = watched,
             UserScore = MapScore(entry, fallback, recordNumber, problems),
@@ -415,14 +419,23 @@ public sealed class AniListJsonParser(ImportLimits? limits = null) : IAnimeListP
     /// the slot it goes in, and stored on a row that can simply be re-fetched if a
     /// later layout wants another.
     /// </remarks>
-    private static string? MapCoverImage(JsonElement media)
+    /// <summary>
+    /// One named size of the cover, if the response carries it and it is a URL.
+    /// </summary>
+    /// <remarks>
+    /// The size is a parameter rather than two near-identical methods because the two
+    /// renditions differ in nothing but which key is read — and keeping them in one
+    /// place is what stops the thumbnail and the full-size cover drifting into
+    /// different validation (D48).
+    /// </remarks>
+    private static string? MapCoverImage(JsonElement media, string size)
     {
         if (!media.TryGetProperty("coverImage", out var cover) || cover.ValueKind != JsonValueKind.Object)
         {
             return null;
         }
 
-        var url = Text(cover, "medium");
+        var url = Text(cover, size);
         if (url is null)
         {
             return null;
@@ -433,6 +446,113 @@ public sealed class AniListJsonParser(ImportLimits? limits = null) : IAnimeListP
             ? url
             : null;
     }
+
+    /// <summary>
+    /// The genres AniList names for this title, deduplicated and in order (D49).
+    /// </summary>
+    /// <remarks>
+    /// <b>An absent or empty list is silence, and returns empty.</b> Nothing here can
+    /// express "this title has no genres", because nothing downstream could act on the
+    /// difference without risking the erasure the merge exists to prevent — an empty
+    /// result reaching a title that already has genres leaves them alone.
+    ///
+    /// Deduplicated because a join keyed on the pair would otherwise throw on a
+    /// duplicate, and a source repeating itself is not worth failing an entire sync
+    /// over.
+    /// </remarks>
+    private static List<string> MapGenres(JsonElement media)
+    {
+        if (!media.TryGetProperty("genres", out var genres) || genres.ValueKind != JsonValueKind.Array)
+        {
+            return [];
+        }
+
+        var names = new List<string>();
+
+        foreach (var genre in genres.EnumerateArray())
+        {
+            if (genre.ValueKind != JsonValueKind.String)
+            {
+                continue;
+            }
+
+            var name = genre.GetString()?.Trim();
+
+            if (name is { Length: > 0 } && !names.Contains(name, StringComparer.OrdinalIgnoreCase))
+            {
+                names.Add(name);
+            }
+        }
+
+        return names;
+    }
+
+    /// <summary>
+    /// Every company credited, with the main-studio flag AniList puts on the edge.
+    /// </summary>
+    /// <remarks>
+    /// <b>The flag is on the edge and the animation-studio fact is on the node</b>,
+    /// which is why both are read here rather than one of them being inferred later:
+    /// AniList returns studios and producers in one undifferentiated list, and losing
+    /// either flag makes it impossible to say afterwards which was which.
+    ///
+    /// Deduplicated by name, keeping the first edge that claims to be main — a company
+    /// credited twice on one title is one row, and the stronger claim wins so that a
+    /// duplicate cannot demote the actual studio.
+    /// </remarks>
+    private static List<ParsedStudio> MapStudios(JsonElement media)
+    {
+        if (!media.TryGetProperty("studios", out var studios) || studios.ValueKind != JsonValueKind.Object
+            || !studios.TryGetProperty("edges", out var edges) || edges.ValueKind != JsonValueKind.Array)
+        {
+            return [];
+        }
+
+        var parsed = new List<ParsedStudio>();
+
+        foreach (var edge in edges.EnumerateArray())
+        {
+            if (edge.ValueKind != JsonValueKind.Object
+                || !edge.TryGetProperty("node", out var node)
+                || node.ValueKind != JsonValueKind.Object)
+            {
+                continue;
+            }
+
+            if (Text(node, "name") is not { Length: > 0 } name)
+            {
+                continue;
+            }
+
+            var isMain = Flag(edge, "isMain");
+            var index = parsed.FindIndex(x => string.Equals(x.Name, name, StringComparison.OrdinalIgnoreCase));
+
+            if (index >= 0)
+            {
+                if (isMain && !parsed[index].IsMain)
+                {
+                    parsed[index] = parsed[index] with { IsMain = true };
+                }
+
+                continue;
+            }
+
+            parsed.Add(new ParsedStudio(name, isMain, Flag(node, "isAnimationStudio")));
+        }
+
+        return parsed;
+    }
+
+    /// <summary>
+    /// A boolean property, treating anything that is not literally true as false.
+    /// </summary>
+    /// <remarks>
+    /// Absent, null and non-boolean all mean false rather than throwing. These flags
+    /// only ever narrow what is displayed, so a missing one costs a studio line and
+    /// never a failed sync — D25's rule that enrichment degrades quietly.
+    /// </remarks>
+    private static bool Flag(JsonElement element, string property) =>
+        element.TryGetProperty(property, out var value) && value.ValueKind == JsonValueKind.True;
 
     private static string? Text(JsonElement element, string property) =>
         element.TryGetProperty(property, out var value) &&

@@ -76,11 +76,11 @@ public sealed class LibraryService(
                 // D48 declined the sources those needed, and it is renditions of the
                 // one poster instead — which changes the count and not the argument.
                 CoverContentHash = e.Anime.Images
-                    .Where(x => x.Kind == ImageKind.Poster && x.ContentHash != null)
+                    .Where(x => x.Kind == ImageKind.Poster && x.Rendition == ImageRendition.Thumbnail && x.ContentHash != null)
                     .Select(x => x.ContentHash)
                     .FirstOrDefault(),
                 CoverFileExtension = e.Anime.Images
-                    .Where(x => x.Kind == ImageKind.Poster && x.ContentHash != null)
+                    .Where(x => x.Kind == ImageKind.Poster && x.Rendition == ImageRendition.Thumbnail && x.ContentHash != null)
                     .Select(x => x.FileExtension)
                     .FirstOrDefault(),
 
