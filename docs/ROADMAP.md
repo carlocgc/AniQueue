@@ -2756,8 +2756,8 @@ numbering. What is finished is a column; what happens next is the first row with
 | 8b | Scoring courier | ✅ | A stubbed endpoint returns a ranking that becomes a preview — client, guards and extraction, with no page involved |
 | 8c | Scoring surface | ✅ | Remote and Manual cards; a run started, waited on, cancelled and applied without anything being copied by hand |
 | 8d | Scheduled sweep | ✅ | A backlog scores itself in batches with nobody present, and idles when nothing has been rated |
-| 9a | Cover art | ▢ **next** | Covers cached under `/data` by a job that idles, served immutably, and rendered on the backlog and Up Next |
-| 9b | Id mapping + richer art | ▢ | Titles mapped to TVDB and IMDb from an MIT-licensed dataset, and richer art layered over the covers 9a already shows |
+| 9a | Cover art | ✅ | Covers cached under `/data` by a job that idles, served immutably, and rendered on the backlog and Up Next |
+| 9b | Id mapping + richer art | ▢ **next** | Titles mapped to TVDB and IMDb from an MIT-licensed dataset, and richer art layered over the covers 9a already shows |
 | 10 | Settings page | ▢ | One page for preferences; operator configuration shown and not editable |
 | 10a | Per-source settings to the file | ✅ | `SourceSyncSettings` deleted; every sync setting read from `userconfig.json` |
 | 11 | Docker + README | ▢ | Migrations squashed to one baseline; compose up, health check, container recreated without data loss |
