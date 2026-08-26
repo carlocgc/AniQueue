@@ -33,7 +33,7 @@ public class ArtworkServiceTests
     /// </remarks>
     private sealed class ImmediateTimeProvider : TimeProvider
     {
-        private DateTimeOffset _now = DateTimeOffset.UtcNow;
+        private readonly DateTimeOffset _now = DateTimeOffset.UtcNow;
 
         public override DateTimeOffset GetUtcNow() => _now;
 
