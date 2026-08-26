@@ -80,6 +80,20 @@ public static class ScoringRequestWriter
         writer.WriteStartObject("aniqueue");
         writer.WriteString("format", ScoringRequest.RequestFormat);
         writer.WriteNumber("version", ScoringRequest.CurrentVersion);
+
+        // Which library is being ranked, for the reply to echo back (D50). Invariant
+        // for the life of a database, so it belongs in the prefix and costs a sweep
+        // nothing: it is written once per request and never varies between batches.
+        //
+        // No version bump goes with it. The field is additive in both directions — a
+        // reply that omits it is read exactly as replies were before — and raising the
+        // version would refuse every reply a user is currently holding, which is the
+        // harm this whole change exists to prevent rather than to cause.
+        if (!string.IsNullOrEmpty(request.Library))
+        {
+            writer.WriteString("library", request.Library);
+        }
+
         writer.WriteEndObject();
 
         writer.WriteStartObject("scale");

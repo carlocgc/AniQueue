@@ -1097,4 +1097,134 @@ public class RecommendationServiceTests
 
         await context.SaveChangesAsync();
     }
+    /// <summary>A ranking whose envelope names a library, for D50's check to read.</summary>
+    private static string RankingFrom(string? library, params (int Id, double Score)[] results) =>
+        Ranking(results).Replace(
+            "\"version\": 1",
+            library is null ? "\"version\": 1" : $"\"version\": 1, \"library\": \"{library}\"",
+            StringComparison.Ordinal);
+
+    private static async Task<string?> LibraryKeyAsync(Fixture fixture)
+    {
+        await using var context = fixture.Database.CreateContext();
+        return await context.Profiles.Select(p => p.LibraryKey).SingleAsync();
+    }
+
+    [Fact]
+    public async Task A_request_says_which_library_it_is_about()
+    {
+        // Without this in the envelope there is nothing for a reply to echo, and the
+        // check D50 adds can never fire.
+        await using var fixture = await Fixture.CreateAsync();
+
+        var request = await fixture.Recommendations.BuildRequestAsync(fixture.ProfileId);
+
+        Assert.Equal(await LibraryKeyAsync(fixture), request.Library);
+    }
+
+    [Fact]
+    public async Task A_reply_built_for_another_library_is_refused_whole()
+    {
+        // The failure D50 exists for, and the reason it cannot be caught by matching:
+        // every id here names a real title in a real backlog. Only the envelope knows
+        // the reply is about a different database.
+        await using var fixture = await Fixture.CreateAsync();
+        await using var context = fixture.Database.CreateContext();
+
+        var anime = await AddAsync(context, fixture.ProfileId, "Waiting");
+
+        var preview = await fixture.Recommendations.PreviewAsync(
+            fixture.ProfileId,
+            RankingFrom("000000000000", (anime.Id, 8.0)));
+
+        Assert.True(preview.HasErrors);
+        Assert.Empty(preview.Items);
+
+        // One problem, not one per result. A reply from elsewhere carries hundreds.
+        var problem = Assert.Single(preview.Problems);
+        Assert.Contains("different library", problem.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task A_reply_that_names_this_library_is_applied()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        await using var context = fixture.Database.CreateContext();
+
+        var anime = await AddAsync(context, fixture.ProfileId, "Waiting");
+
+        var preview = await fixture.Recommendations.PreviewAsync(
+            fixture.ProfileId,
+            RankingFrom(await LibraryKeyAsync(fixture), (anime.Id, 8.0)));
+
+        Assert.False(preview.HasErrors);
+        Assert.Equal(anime.Id, Assert.Single(preview.Items).Result.Id);
+    }
+
+    [Fact]
+    public async Task A_reply_that_names_no_library_is_read_as_it_always_was()
+    {
+        // The leniency is deliberate and load-bearing: the parser tolerates a missing
+        // envelope because models drop it, so requiring the key would refuse correct
+        // rankings over a field that carries no ranking.
+        await using var fixture = await Fixture.CreateAsync();
+        await using var context = fixture.Database.CreateContext();
+
+        var anime = await AddAsync(context, fixture.ProfileId, "Waiting");
+
+        var preview = await fixture.Recommendations.PreviewAsync(
+            fixture.ProfileId,
+            RankingFrom(null, (anime.Id, 8.0)));
+
+        Assert.False(preview.HasErrors);
+        Assert.Single(preview.Items);
+    }
+
+    [Fact]
+    public async Task A_reply_where_nothing_matches_is_reported_once()
+    {
+        // The same wrong-library case arriving without an envelope to declare itself.
+        // It cannot be told apart from a model inventing ids, and it does not need to
+        // be: both mean the reply is not about this library, and neither is applied.
+        await using var fixture = await Fixture.CreateAsync();
+        await using var context = fixture.Database.CreateContext();
+
+        await AddAsync(context, fixture.ProfileId, "Waiting");
+
+        var preview = await fixture.Recommendations.PreviewAsync(
+            fixture.ProfileId,
+            Ranking((9001, 8.0), (9002, 7.0), (9003, 6.0)));
+
+        Assert.True(preview.HasErrors);
+
+        var problem = Assert.Single(preview.Problems);
+        Assert.Contains("None of the 3 rankings", problem.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Unmatched_ids_are_summarised_once_there_are_too_many_to_read()
+    {
+        // What the user actually saw: a panel of identical red sentences, one per
+        // result, with the button below it. The information is all still here — five
+        // examples and a count — in three lines rather than eleven.
+        await using var fixture = await Fixture.CreateAsync();
+        await using var context = fixture.Database.CreateContext();
+
+        var anime = await AddAsync(context, fixture.ProfileId, "Waiting");
+
+        var results = Enumerable.Range(9001, 10)
+            .Select(id => (Id: id, Score: 7.0))
+            .Append((anime.Id, 8.0))
+            .ToArray();
+
+        var preview = await fixture.Recommendations.PreviewAsync(fixture.ProfileId, Ranking(results));
+
+        Assert.True(preview.HasErrors);
+
+        // Five named, then one line counting the rest.
+        Assert.Equal(6, preview.Problems.Count);
+        Assert.Equal(5, preview.Problems.Count(p => p.Message.Contains("there is no title", StringComparison.Ordinal)));
+        Assert.Contains(preview.Problems, p => p.Message.Contains("5 further result(s)", StringComparison.Ordinal));
+    }
+
 }

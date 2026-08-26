@@ -567,4 +567,51 @@ public class ScoringResponseParserTests
 
         Assert.Equal(["results"], required);
     }
+
+    [Fact]
+    public void Reads_the_library_a_reply_names()
+    {
+        // Read here and judged by IRecommendationService, which is the only thing
+        // holding the library it would have to be judged against (D50).
+        var result = Parser.Parse(
+            """
+            {
+              "aniqueue": { "format": "aniqueue-scoring-response", "version": 1, "library": "a1b2c3d4e5f6" },
+              "results": [{ "id": 1, "predictedScore": 8.0, "confidence": 0.5 }]
+            }
+            """);
+
+        Assert.Empty(result.Problems);
+        Assert.Equal("a1b2c3d4e5f6", result.Response!.Library);
+    }
+
+    [Fact]
+    public void A_reply_naming_no_library_is_still_a_reply()
+    {
+        // The leniency that makes the whole check safe to add: models drop the
+        // envelope, and refusing a ranking over a field carrying no ranking would
+        // cost the user everything and protect nothing.
+        var result = Parser.Parse(Wrap("""[{ "id": 1, "predictedScore": 8.0, "confidence": 0.5 }]"""));
+
+        Assert.Empty(result.Problems);
+        Assert.Null(result.Response!.Library);
+    }
+
+    [Fact]
+    public void A_library_key_of_any_shape_is_read_rather_than_judged()
+    {
+        // Deliberately not validated. Whatever it is, it either matches this
+        // library's key or it does not, and "does not" is already the answer — so a
+        // shape rule here would only add a second way to reject the same reply.
+        var result = Parser.Parse(
+            """
+            {
+              "aniqueue": { "format": "aniqueue-scoring-response", "version": 1, "library": "not a key" },
+              "results": [{ "id": 1, "predictedScore": 8.0, "confidence": 0.5 }]
+            }
+            """);
+
+        Assert.Empty(result.Problems);
+        Assert.Equal("not a key", result.Response!.Library);
+    }
 }

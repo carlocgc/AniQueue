@@ -12,6 +12,11 @@ public class ProfileConfiguration : IEntityTypeConfiguration<Profile>
 
         builder.Property(p => p.Name).IsRequired().HasMaxLength(100);
 
+        // Twelve characters (D50), with room to spare rather than a tight fit: the
+        // column is compared and never parsed, so a longer value from a future build
+        // would be wrong rather than truncated.
+        builder.Property(p => p.LibraryKey).HasMaxLength(32);
+
         builder.HasIndex(p => p.Name).IsUnique();
 
         builder

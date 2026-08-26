@@ -75,6 +75,7 @@ public sealed class RecommendationService(
         return new ScoringRequest
         {
             GeneratedAt = _time.GetUtcNow(),
+            Library = await ReadLibraryKeyAsync(context, profileId, cancellationToken),
             Candidates = candidates,
             History = snapshot.Entries,
             HistoryAvailable = snapshot.Available,
@@ -138,6 +139,33 @@ public sealed class RecommendationService(
 
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
 
+        // Asked before anything is matched, because the answer decides whether matching
+        // means anything at all (D50). An id is a row key, and a row key from another
+        // database names whatever this one happens to have put at that number — so a
+        // reply from elsewhere does not fail loudly, it fails by applying a stranger's
+        // scores to titles that were never ranked.
+        //
+        // Both sides must be present to disagree. A reply that echoed no key is read
+        // exactly as replies were read before this existed: the parser tolerates a
+        // missing envelope on purpose, and a model that dropped it has still answered
+        // the question.
+        var libraryKey = await ReadLibraryKeyAsync(context, profileId, cancellationToken);
+
+        if (!string.IsNullOrEmpty(libraryKey)
+            && !string.IsNullOrEmpty(parsed.Response.Library)
+            && !string.Equals(libraryKey, parsed.Response.Library, StringComparison.OrdinalIgnoreCase))
+        {
+            // Whole-reply, and one message. Naming the results individually would be
+            // both wrong and cruel: they are not individually wrong, they are wholly
+            // about something else, and there may be hundreds of them.
+            problems.Add(ScoringProblem.Error(
+                $"This reply was built for a different library — it names \"{parsed.Response.Library}\", "
+                + $"and this one is \"{libraryKey}\". Every id in it belongs to that library, so none "
+                + "of them are read here. Score this library's own request instead."));
+
+            return new ScoringPreview { Problems = problems };
+        }
+
         var ranked = parsed.Response.Results;
         var rankedIds = ranked.Select(r => r.Id).ToList();
 
@@ -170,6 +198,7 @@ public sealed class RecommendationService(
         var expectedCount = request?.ExpectedResults ?? candidateCount;
 
         var items = new List<ScoringPreviewItem>(ranked.Count);
+        var unmatched = new List<string>();
         var position = 0;
 
         foreach (var result in ranked)
@@ -187,8 +216,13 @@ public sealed class RecommendationService(
                 // the rank never was, and no longer exists. The same wording the
                 // parser uses for its own per-result problems, so two halves of one
                 // validation pass do not count differently.
-                problems.Add(ScoringProblem.Error(
-                    $"Result {position}: there is no title {result.Id} in your library."));
+                //
+                // Gathered rather than reported one by one (D50). Every one of these
+                // has the same cause, and a reply generated against a different library
+                // produces one per result — two hundred and fifty identical sentences
+                // that say a single thing, in a panel the user has to scroll to reach
+                // the button. Summarised below instead.
+                unmatched.Add($"Result {position}: there is no title {result.Id} in your library.");
                 continue;
             }
 
@@ -229,6 +263,8 @@ public sealed class RecommendationService(
             });
         }
 
+        ReportUnmatched(unmatched, ranked.Count, problems);
+
         var preview = new ScoringPreview
         {
             Items = items,
@@ -258,6 +294,84 @@ public sealed class RecommendationService(
 
         return preview with { Problems = problems };
     }
+
+    /// <summary>
+    /// How many unmatched ids are named one by one before the rest are counted (D50).
+    /// </summary>
+    /// <remarks>
+    /// Five is enough to see the shape of the problem — which positions, which ids —
+    /// and few enough that the panel stays readable. The rest are counted rather than
+    /// dropped: the number is the useful part once the examples have made the point.
+    /// </remarks>
+    private const int UnmatchedShown = 5;
+
+    /// <summary>
+    /// Reports ids that named nothing, as few problems as will carry the information.
+    /// </summary>
+    /// <remarks>
+    /// These were one error each until D50, which is correct per result and unusable in
+    /// aggregate: the case that produces them is a reply built against a library that
+    /// no longer exists, and it produces one for every result in the reply.
+    ///
+    /// <b>All of them unmatched is a different statement from some of them.</b> A reply
+    /// where nothing matches is not a reply with many bad ids; it is a reply about
+    /// another library, said without an envelope to say it with — so it gets one
+    /// sentence that says that, rather than a truncated list of a fact that was never
+    /// about individual results. It stays an error either way: D31 applies nothing in
+    /// part, and an id naming nothing is exactly as unsafe as it was before.
+    /// </remarks>
+    private static void ReportUnmatched(
+        List<string> unmatched,
+        int rankedCount,
+        List<ScoringProblem> problems)
+    {
+        if (unmatched.Count == 0)
+        {
+            return;
+        }
+
+        if (unmatched.Count == rankedCount)
+        {
+            problems.Add(ScoringProblem.Error(
+                $"None of the {rankedCount} rankings name a title in this library. The reply is "
+                + "about a different one — most likely an older library, or one built before the "
+                + "database was replaced."));
+
+            return;
+        }
+
+        foreach (var message in unmatched.Take(UnmatchedShown))
+        {
+            problems.Add(ScoringProblem.Error(message));
+        }
+
+        if (unmatched.Count > UnmatchedShown)
+        {
+            problems.Add(ScoringProblem.Error(
+                $"{unmatched.Count - UnmatchedShown} further result(s) named titles that are not in "
+                + "your library."));
+        }
+    }
+
+    /// <summary>
+    /// The key naming this profile's library, or null on a database old enough not to
+    /// have been given one yet (D50).
+    /// </summary>
+    /// <remarks>
+    /// Read from the database on every use rather than cached or taken from the request
+    /// in hand. It changes once, at the moment the row is created, and a request is
+    /// exactly the document whose provenance is in question — trusting it to say which
+    /// library it belongs to would be asking the suspect for an alibi.
+    /// </remarks>
+    private static async Task<string?> ReadLibraryKeyAsync(
+        AniQueueDbContext context,
+        int profileId,
+        CancellationToken cancellationToken) =>
+        await context.Profiles
+            .AsNoTracking()
+            .Where(p => p.Id == profileId)
+            .Select(p => p.LibraryKey)
+            .FirstOrDefaultAsync(cancellationToken);
 
     public async Task<ScoringApplyResult> ApplyAsync(
         int profileId,

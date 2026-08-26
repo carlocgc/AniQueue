@@ -213,4 +213,38 @@ public class ScoringPromptBuilderTests
         // rejected reply.
         Assert.Contains("rank as many as you can and stop", ScoringPromptBuilder.Build(Request()));
     }
+
+    [Fact]
+    public void Asks_for_the_library_key_back_and_shows_where_it_goes()
+    {
+        // Said twice on purpose (D50): once as a rule, once inside the worked example,
+        // because a model reproduces a shape it has seen more reliably than it follows
+        // a sentence about one.
+        var prompt = ScoringPromptBuilder.Build(Request() with { Library = "a1b2c3d4e5f6" });
+
+        Assert.Contains("Copy \"library\"", prompt, StringComparison.Ordinal);
+        Assert.Contains("\"library\": \"a1b2c3d4e5f6\"", prompt, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Says_nothing_about_a_library_when_the_request_names_none()
+    {
+        // A rule about a field the request does not carry is an instruction to invent
+        // one, which is the last thing this check can tolerate.
+        var prompt = ScoringPromptBuilder.Build(Request());
+
+        Assert.DoesNotContain("library", prompt, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void The_example_carrying_a_library_key_is_one_the_parser_accepts()
+    {
+        // The same guard as the first test in this file, applied to the shape the
+        // example takes once a key is in it.
+        var result = new ScoringResponseParser()
+            .Parse(ScoringPromptBuilder.Schema(ScoringScale.Default, "a1b2c3d4e5f6"));
+
+        Assert.False(result.HasErrors);
+        Assert.Equal("a1b2c3d4e5f6", result.Response!.Library);
+    }
 }

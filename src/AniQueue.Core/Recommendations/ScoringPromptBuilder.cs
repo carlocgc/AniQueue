@@ -114,12 +114,24 @@ public static class ScoringPromptBuilder
 
         prompt.AppendLine("Return this exact shape, and nothing else:");
         prompt.AppendLine();
-        prompt.AppendLine(Schema(scale));
+        prompt.AppendLine(Schema(scale, request.Library));
         prompt.AppendLine();
 
         prompt.AppendLine("Rules for the reply:");
         prompt.AppendLine("- Output JSON only. No explanation before it, no code fence around it.");
         prompt.AppendLine("- \"id\" must be copied exactly from the candidate. Never invent one.");
+
+        // Asked for plainly, because the whole value of the key is that it travels
+        // with a reply a person may keep and paste back months later (D50). A model
+        // that ignores this produces a reply AniQueue reads exactly as it read replies
+        // before the key existed, so the instruction is worth making and not worth
+        // insisting on.
+        if (!string.IsNullOrEmpty(request.Library))
+        {
+            prompt.AppendLine(
+                "- Copy \"library\" into the reply's \"aniqueue\" object exactly as the request states it.");
+        }
+
         prompt.AppendLine(
             CultureInfo.InvariantCulture,
             $"- \"predictedScore\" is {scale.Min}–{scale.Max}. \"confidence\" is 0–1.");
@@ -155,13 +167,33 @@ public static class ScoringPromptBuilder
     /// where it can be tested — an instruction is a request, not a guarantee, and
     /// treating it as one is how invalid output reaches the database.
     /// </remarks>
-    public static string Schema(ScoringScale scale) => $$"""
+    public static string Schema(ScoringScale scale, string? library = null) => $$"""
         {
-          "aniqueue": { "format": "{{ScoringResponse.ResponseFormat}}", "version": {{ScoringRequest.CurrentVersion}} },
+          "aniqueue": { "format": "{{ScoringResponse.ResponseFormat}}", "version": {{ScoringRequest.CurrentVersion}}{{LibraryField(library)}} },
           "results": [
             { "id": 412, "predictedScore": {{scale.Max - 1}}.5, "confidence": 0.8, "reason": "Same studio as several of your highest-rated titles." },
             { "id": 98, "predictedScore": 7.0, "confidence": 0.6, "reason": "Nothing close in your history; ranked on genre alone." }
           ]
         }
         """;
+
+    /// <summary>
+    /// The library key as it appears inside the example envelope, or nothing at all
+    /// when the request carries none (D50).
+    /// </summary>
+    /// <remarks>
+    /// Shown in the worked example rather than described in a rule alone, for the
+    /// reason <see cref="Schema"/> exists at all: a model reproduces a shape it has
+    /// seen more reliably than it follows a sentence about one.
+    ///
+    /// <b>The example carries this request's own key rather than a placeholder, and
+    /// that is what makes it safe.</b> D37 accepts a reply by finding the last object
+    /// carrying a <c>results</c> array, and this example is itself such an object — a
+    /// model that restates the question before answering it emits two. So a model that
+    /// copies the envelope out of the example instead of out of the request still
+    /// names the right library. A placeholder here would have made the example a
+    /// source of convincingly wrong keys.
+    /// </remarks>
+    private static string LibraryField(string? library) =>
+        string.IsNullOrEmpty(library) ? string.Empty : $", \"library\": \"{library}\"";
 }
