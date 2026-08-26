@@ -1237,9 +1237,36 @@ button.danger:hover:not(:disabled) { filter: brightness(0.95); }
     color: var(--text-muted);
 }
 
-.detail-score { display: flex; align-items: baseline; gap: 0.5rem; }
-.detail-score-value { font-size: 1.5rem; font-weight: 700; }
-.detail-score-confidence { color: var(--text-muted); font-size: 0.85rem; }
+/* Two judgements of the same title, on the same 1-10 scale, so they are laid out
+   identically and read against each other. The label is small and quiet and the
+   number is large: which score this is takes a glance, what it says should not. */
+.detail-scores {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 1.75rem;
+    margin: 0 0 0.35rem;
+}
+
+.detail-stat { display: flex; flex-direction: column; gap: 0.1rem; }
+
+.detail-stat-label {
+    font-size: 0.7rem;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+}
+
+/* Tabular figures so 8.3 and 10 line up rather than shifting the label under them. */
+.detail-stat-value {
+    font-size: 2rem;
+    font-weight: 700;
+    line-height: 1.1;
+    font-variant-numeric: tabular-nums;
+}
+
+.detail-stat-note { font-size: 0.8rem; color: var(--text-muted); }
+
 .detail-reason { margin: 0.35rem 0 0; color: var(--text-muted); }
 
 /* pre-wrap because the formatter emits \n for AniList's <br>, and the alternative

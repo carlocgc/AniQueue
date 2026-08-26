@@ -77,13 +77,38 @@
                         </ul>
                     }
 
-                    @if (detail.RecommendationScore is { } score)
+                    @* Side by side because they are the same measurement of the same
+                       title from two different judges, and directly comparable: every
+                       parser normalises an incoming score into 1–10 on the way in, and
+                       ScoringScale.Default is the same 1–10 the model is asked for. If
+                       those ever diverged this pairing would start lying, which is why
+                       it is written down here rather than assumed. *@
+                    @if (detail.UserScore is not null || detail.RecommendationScore is not null)
                     {
-                        <div class="detail-score">
-                            <span class="detail-score-value">@score.ToString("0.0")</span>
-                            @if (detail.RecommendationConfidence is { } confidence)
+                        <div class="detail-scores">
+                            @* Shown whenever there is one, rather than only when the
+                               title is Completed. A score exists because the user gave
+                               it, and they can rate something they dropped or put on
+                               hold — hiding it there would be withholding their own
+                               judgement on a screen built to inform one. *@
+                            @if (detail.UserScore is { } userScore)
                             {
-                                <span class="detail-score-confidence">@Percent(confidence) confident</span>
+                                <div class="detail-stat">
+                                    <span class="detail-stat-label">Your score</span>
+                                    <span class="detail-stat-value">@userScore</span>
+                                </div>
+                            }
+
+                            @if (detail.RecommendationScore is { } score)
+                            {
+                                <div class="detail-stat">
+                                    <span class="detail-stat-label">AI score</span>
+                                    <span class="detail-stat-value">@score.ToString("0.0")</span>
+                                    @if (detail.RecommendationConfidence is { } confidence)
+                                    {
+                                        <span class="detail-stat-note">@Percent(confidence) confident</span>
+                                    }
+                                </div>
                             }
                         </div>
 

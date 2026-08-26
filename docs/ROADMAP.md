@@ -3963,6 +3963,20 @@ argument: with no AniList data at all a title still opens, showing no studio lin
 genres, no synopsis, a placeholder poster and a dialog 457px tall instead of a tall box
 of nothing.
 
+**Both scores are shown, labelled and large, and they are laid out identically because
+they are comparable** — every parser normalises an incoming score into 1–10 on the way
+in, and `ScoringScale.Default` asks the model for the same 1–10. The user's own score
+appears whenever there is one rather than only on a completed title: a score exists
+because the user gave it, and hiding their rating of something they dropped would be
+withholding the most relevant fact on a screen built to inform a decision.
+
+*In this library they never appear together, and that is worth recording.* Measured
+across the whole backlog sorted by AI rank: 50 titles carrying an AI score, none of
+them carrying a user score. The two are structurally disjoint today because the sweep
+scores only what is unwatched and a user score only exists on what has been watched.
+The pairing is therefore built for a case that does not yet occur — a title rated after
+the model ranked it — which costs nothing, since the layout is the same either way.
+
 **The poster has no fixed aspect ratio, and that was found by running it.** AniList
 publishes `extraLarge` at a fixed 460px *width* and a height that varies per title —
 652 and 690 both occur here. The first attempt hardcoded 230×326 with `object-fit:
