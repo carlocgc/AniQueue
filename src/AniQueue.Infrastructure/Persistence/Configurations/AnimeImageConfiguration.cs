@@ -21,10 +21,11 @@ public class AnimeImageConfiguration : IEntityTypeConfiguration<AnimeImage>
         builder.Property(x => x.FileExtension).HasMaxLength(8);
 
         // One picture of each kind from each source. AniList publishes one cover, so
-        // this is trivially satisfied today; it is here because Phase 9b adds TVDB
-        // and TMDB rows of the same kind, and "one poster per source" is the rule
-        // that keeps a title from accumulating a new row on every fetch when a
-        // source changes its URL.
+        // this is trivially satisfied today. It was written for the TVDB and TMDB
+        // rows Phase 9b would add of the same kind; D48 declined both, and the rule
+        // it states is the one that survives that — "one poster per source" is what
+        // keeps a title from accumulating a new row on every fetch when a source
+        // changes its URL, whether or not a second source ever exists.
         builder
             .HasIndex(x => new { x.AnimeId, x.Kind, x.Source })
             .IsUnique()

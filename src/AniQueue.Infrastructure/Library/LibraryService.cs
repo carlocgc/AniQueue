@@ -72,7 +72,9 @@ public sealed class LibraryService(
                 // The cached poster, as a scalar rather than a collection. It is a
                 // subquery per row instead of a join because the row wants at most
                 // one of them and a join would multiply the page by however many
-                // kinds Phase 9b adds (D47).
+                // images a title has (D47). The multiplier was to be image kinds;
+                // D48 declined the sources those needed, and it is renditions of the
+                // one poster instead — which changes the count and not the argument.
                 CoverContentHash = e.Anime.Images
                     .Where(x => x.Kind == ImageKind.Poster && x.ContentHash != null)
                     .Select(x => x.ContentHash)

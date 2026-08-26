@@ -96,9 +96,9 @@ public sealed class RelationBackfillJob(
         }
 
         // Published because relations are library data and something downstream may
-        // want them — Phase 9's metadata job is written against exactly this. Nothing
-        // here knows that, which is the point: the signal says data changed, never
-        // "run the metadata job" (D41).
+        // want them — the cover art job wakes on exactly this. Nothing here knows
+        // that, which is the point: the signal says data changed, never "run the
+        // cover art job" (D41).
         //
         // Without a payload, because there is no sentence a page could usefully show
         // about it. A runner wakes on the signal and ignores the detail; the notice
