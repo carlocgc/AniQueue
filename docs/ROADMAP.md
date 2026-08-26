@@ -2345,15 +2345,32 @@ SkiaSharp, which is a §12 dependency decision and native libraries in the conta
 bytes that AniList is already serving in the right size. A later layout wanting larger art re-runs
 the job against a different URL; the row stores its own, so that is a re-run and not a migration.
 
-**Four smaller rules, decided once.**
+**Five smaller rules, decided once.**
 
-- **Immutable URLs.** Art is served from `/covers/{id}/{hash}` with a year's `max-age` and
-  `immutable`. AniList's URLs carry a content hash, so replaced art changes URL, refetches, and
-  arrives at the browser under a new address — no revalidation, and never a stale poster. The page
-  already joins `AnimeImage` to know whether to render an image or a colour block, so the hash is
-  a column on a join it is doing anyway.
+- **Immutable URLs, and a directory per kind.** Art is served from
+  `/art/{kind}/{id}/{hash}{ext}` and cached at `<data>/art/{kind}/{id}-{hash}{ext}`, with a year's
+  `max-age` and `immutable`. AniList's URLs carry a content hash, so replaced art changes URL,
+  refetches, and arrives at the browser under a new address — no revalidation, and never a stale
+  poster. The page already joins `AnimeImage` to know whether to render an image or a colour block,
+  so the hash is a column on a join it is doing anyway.
+
+  **The hash is what earns the year, so a readable filename cannot replace it.** Naming files after
+  the title instead — `covers/1763-midnightpanther.png` — was considered and declined: the address
+  would then be unchanged when the picture changed, so every browser holding a copy would serve
+  stale art for up to a year with no way to push a correction, which is §10's measured "the URLs
+  rot" moved from AniList's CDN onto ours. Two further reasons specific to this codebase. The
+  displayed title is a *preference* (D22), recomputed library-wide when the language changes, and
+  a native-script title yields an empty ASCII slug — so the name is neither stable nor always
+  non-empty. And it would put a third party's string into a path, which is what the whitelist
+  parser makes impossible today: traversal is not sanitised away, it is unrepresentable. A slug
+  could be carried *alongside* the hash for readability, at the cost of a stored column; it buys a
+  nicer `ls` in a directory whose entry point is the application.
+- **A directory per kind, under one `art` root** — the readable half of that proposal, taken.
+  Phase 9b turns 810 files into some four thousand across four kinds, and one directory holding
+  all of them is worse to list, worse to sweep, and hides what a file is. The kinds sit under a
+  single root so the volume gains one entry beside the database rather than four.
 - **Disk wins.** The job's precondition is "row says cached *and* the file is there", so deleting
-  the covers directory to reclaim space heals within a tick instead of breaking every image
+  the art directory to reclaim space heals within a tick instead of breaking every image
   permanently. The same pass deletes files with no row, which is what removes art for a title that
   has left the library.
 - **Two failure classes.** A 404, a non-image content type, an oversized body or a disallowed host
@@ -2462,7 +2479,7 @@ FetchedAt?, FailedAt?, FailureIsPermanent, AttemptCount`. See D47. Unique on
   Stored as an integer, so the values are a data contract and append-only.
 - `Source` reuses the existing enum for now and gains TVDB and TMDB in 9b.
 - **The bytes are not here.** §6 forbids image binaries in the database; the file lives under
-  `<data>/covers/` and this row records where it came from, whether it arrived, and what to serve
+  `<data>/art/{kind}/` and this row records where it came from, whether it arrived, and what to serve
   it as. `ContentHash` is null until it has, and is what makes the served URL immutable.
 - **`RemoteUrl` is the invalidation key.** AniList's URLs carry a content hash, so replaced art
   changes the URL — which clears both failure states and re-fetches, with nothing scheduled and
@@ -3561,8 +3578,8 @@ title per kind per source, holding the remote URL, the content hash and the fail
 `Poster` rows exist in this phase.
 
 **Served, never hotlinked**, which is the whole reason `ICoverImageResolver` was drawn — §10
-measures the four ways rendering AniList's URLs directly fails. `/covers/{id}/{hash}` with a
-year's `max-age` and `immutable`, streamed from `<data>/covers/`. Replaced art changes hash and
+measures the four ways rendering AniList's URLs directly fails. `/art/{kind}/{id}/{hash}` with
+a year's `max-age` and `immutable`, streamed from `<data>/art/{kind}/`. Replaced art changes hash and
 therefore changes URL, so a browser is never stale and never revalidates.
 
 **What renders is a thumbnail column on the backlog and on Up Next**, one shared component, with

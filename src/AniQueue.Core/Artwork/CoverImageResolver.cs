@@ -1,5 +1,4 @@
-using System.Diagnostics.CodeAnalysis;
-using System.Globalization;
+using AniQueue.Core.Domain;
 
 namespace AniQueue.Core.Artwork;
 
@@ -34,17 +33,12 @@ public readonly record struct CoverArt(string? Url, string? Colour)
 /// because there is one implementation, no seam anything would substitute at, and
 /// nothing to inject — the same conclusion <c>SourceLinkBuilder</c> reached. The
 /// interface would have been a name with no behaviour behind it.
+///
+/// Where the picture actually is belongs to <see cref="ArtworkPaths"/>, which the job
+/// and the endpoint share. This decides only <i>what to show</i>.
 /// </remarks>
 public static class CoverImageResolver
 {
-    /// <summary>The route the endpoint serves cached art from.</summary>
-    /// <remarks>
-    /// Held here rather than in the endpoint so the two cannot disagree: this builds
-    /// the URL and the endpoint answers it, and a mismatch would be a page of broken
-    /// images that compiled cleanly.
-    /// </remarks>
-    public const string RoutePrefix = "covers";
-
     /// <summary>
     /// The art for one title, given its cached image row and its dominant colour.
     /// </summary>
@@ -55,77 +49,18 @@ public static class CoverImageResolver
     /// a year's <c>max-age</c> with <c>immutable</c> and a fifty-row page spends no
     /// requests revalidating images it already has.
     /// </remarks>
-    public static CoverArt ForAnime(int animeId, string? contentHash, string? fileExtension, string? colour)
+    public static CoverArt ForAnime(
+        int animeId,
+        string? contentHash,
+        string? fileExtension,
+        string? colour,
+        ImageKind kind = ImageKind.Poster)
     {
         var url = contentHash is { Length: > 0 } hash && fileExtension is { Length: > 0 } extension
-            ? string.Create(CultureInfo.InvariantCulture, $"/{RoutePrefix}/{animeId}/{hash}{extension}")
+            ? ArtworkPaths.Url(kind, animeId, hash, extension)
             : null;
 
         return new CoverArt(url, Palette(colour));
-    }
-
-    /// <summary>
-    /// What the cached file is called on disk.
-    /// </summary>
-    /// <remarks>
-    /// Derived rather than stored, and derived <i>here</i>, so the job that writes
-    /// the file and the endpoint that serves it cannot disagree about its name.
-    /// Both halves go through <see cref="TryParseSegment"/> or through a hash this
-    /// application computed, so nothing a third party wrote ever reaches a path.
-    /// </remarks>
-    public static string CacheFileName(int animeId, string contentHash, string fileExtension) =>
-        string.Create(CultureInfo.InvariantCulture, $"{animeId}-{contentHash}{fileExtension}");
-
-    /// <summary>
-    /// Splits the last URL segment into a hash and an extension, if it is one this
-    /// application could have produced.
-    /// </summary>
-    /// <remarks>
-    /// <b>This is the path-safety gate, and it is a whitelist rather than a
-    /// sanitiser.</b> §6 forbids user-supplied file paths, and the segment arrives
-    /// from a request — so rather than stripping what looks dangerous, this accepts
-    /// only hexadecimal followed by a known image extension. A traversal sequence, a
-    /// separator, a drive letter and a null byte all fail the same check, because
-    /// none of them is a hexadecimal digit.
-    /// </remarks>
-    public static bool TryParseSegment(
-        string? segment,
-        [NotNullWhen(true)] out string? contentHash,
-        [NotNullWhen(true)] out string? fileExtension)
-    {
-        contentHash = null;
-        fileExtension = null;
-
-        if (segment is null)
-        {
-            return false;
-        }
-
-        var dot = segment.LastIndexOf('.');
-        if (dot <= 0)
-        {
-            return false;
-        }
-
-        var hash = segment[..dot];
-        var extension = segment[dot..];
-
-        if (hash.Length is 0 or > 64 || ImageSource.ContentTypeFor(extension) is null)
-        {
-            return false;
-        }
-
-        foreach (var character in hash)
-        {
-            if (!Uri.IsHexDigit(character))
-            {
-                return false;
-            }
-        }
-
-        contentHash = hash;
-        fileExtension = extension;
-        return true;
     }
 
     /// <summary>
@@ -139,7 +74,7 @@ public static class CoverImageResolver
     /// hexadecimal digits behind a hash is the entire shape AniList publishes, so
     /// requiring exactly that costs nothing and closes it.
     /// </remarks>
-    private static string? Palette([NotNullWhen(true)] string? colour)
+    private static string? Palette(string? colour)
     {
         if (colour is not { Length: 7 } || colour[0] != '#')
         {

@@ -2,6 +2,10 @@ using AniQueue.Core.Artwork;
 
 namespace AniQueue.Core.Tests.Artwork;
 
+/// <summary>
+/// What a row renders for its art. Where the picture actually lives is
+/// <c>ArtworkPaths</c>' business and is tested there.
+/// </summary>
 public class CoverImageResolverTests
 {
     [Fact]
@@ -9,7 +13,7 @@ public class CoverImageResolverTests
     {
         var cover = CoverImageResolver.ForAnime(16498, "abc123", ".jpg", "#50bbf1");
 
-        Assert.Equal("/covers/16498/abc123.jpg", cover.Url);
+        Assert.Equal("/art/posters/16498/abc123.jpg", cover.Url);
         Assert.Equal("#50bbf1", cover.Colour);
         Assert.True(cover.HasImage);
     }
@@ -60,64 +64,5 @@ public class CoverImageResolverTests
 
         Assert.Null(cover.Colour);
         Assert.True(cover.IsEmpty);
-    }
-
-    [Theory]
-    [InlineData("abc123.jpg", "abc123", ".jpg")]
-    [InlineData("ABCDEF.png", "ABCDEF", ".png")]
-    public void A_segment_this_application_could_have_produced_is_parsed(
-        string segment, string expectedHash, string expectedExtension)
-    {
-        Assert.True(CoverImageResolver.TryParseSegment(segment, out var hash, out var extension));
-        Assert.Equal(expectedHash, hash);
-        Assert.Equal(expectedExtension, extension);
-    }
-
-    [Theory]
-    // §6 forbids user-supplied file paths, and this is the check that keeps that
-    // true: the segment arrives from a request and goes into a filename. It is a
-    // whitelist rather than a sanitiser, so every one of these fails for the same
-    // dull reason — a separator is not a hexadecimal digit.
-    [InlineData("../../etc/passwd")]
-    [InlineData("..%2F..%2Fpasswd.jpg")]
-    [InlineData("../secrets.jpg")]
-    [InlineData("abc/def.jpg")]
-    [InlineData("abc\\def.jpg")]
-    [InlineData("C:\\windows\\system32.jpg")]
-    [InlineData("abc123.jpg\0.txt")]
-    [InlineData("abc123")]
-    [InlineData(".jpg")]
-    [InlineData("abc123.exe")]
-    [InlineData("abc123.svg")]
-    [InlineData("zzz.jpg")]
-    [InlineData("")]
-    [InlineData(null)]
-    public void Anything_else_is_refused(string? segment)
-    {
-        Assert.False(CoverImageResolver.TryParseSegment(segment, out var hash, out var extension));
-        Assert.Null(hash);
-        Assert.Null(extension);
-    }
-
-    [Fact]
-    public void A_hash_longer_than_one_could_ever_be_is_refused()
-    {
-        // Not a real attack so much as a bound: the filename is built from this, and
-        // there is no reason to let a request name a path component of any length.
-        Assert.False(CoverImageResolver.TryParseSegment(new string('a', 65) + ".jpg", out _, out _));
-    }
-
-    [Fact]
-    public void The_served_address_and_the_file_on_disk_are_built_from_the_same_parts()
-    {
-        // The job writes the file and the endpoint reads it, and they never speak.
-        // If these two drifted apart, every picture would cache successfully and
-        // none of them would ever be served.
-        var cover = CoverImageResolver.ForAnime(42, "deadbeef", ".png", null);
-
-        Assert.NotNull(cover.Url);
-        Assert.True(CoverImageResolver.TryParseSegment(
-            cover.Url.Split('/')[^1], out var hash, out var extension));
-        Assert.Equal("42-deadbeef.png", CoverImageResolver.CacheFileName(42, hash, extension));
     }
 }

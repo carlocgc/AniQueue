@@ -165,11 +165,11 @@ public sealed class ArtworkService(
 
         var claimed = await context.AnimeImages
             .Where(i => i.ContentHash != null && i.FetchedUrl == i.RemoteUrl)
-            .Select(i => new { i.Id, i.AnimeId, i.ContentHash, i.FileExtension })
+            .Select(i => new { i.Id, i.AnimeId, i.Kind, i.ContentHash, i.FileExtension })
             .ToListAsync(cancellationToken);
 
         var missing = claimed
-            .Where(i => !store.Exists(i.AnimeId, i.ContentHash, i.FileExtension))
+            .Where(i => !store.Exists(i.Kind, i.AnimeId, i.ContentHash, i.FileExtension))
             .Select(i => i.Id)
             .ToList();
 
@@ -218,6 +218,7 @@ public sealed class ArtworkService(
             {
                 i.Id,
                 i.AnimeId,
+                i.Kind,
                 i.RemoteUrl,
                 Priority = context.QueueItems.Any(q => q.AnimeId == i.AnimeId)
                     ? 0
@@ -229,7 +230,7 @@ public sealed class ArtworkService(
             .ThenBy(i => i.Id)
             .ToListAsync(cancellationToken);
 
-        return rows.ConvertAll(r => new PendingImage(r.Id, r.AnimeId, r.RemoteUrl, r.Priority));
+        return rows.ConvertAll(r => new PendingImage(r.Id, r.AnimeId, r.Kind, r.RemoteUrl, r.Priority));
     }
 
     /// <summary>
@@ -259,7 +260,7 @@ public sealed class ArtworkService(
         // to describe the thing behind the address rather than the address itself.
         var hash = Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(content));
 
-        await store.WriteAsync(image.AnimeId, hash, fetch.FileExtension!, content, cancellationToken);
+        await store.WriteAsync(image.Kind, image.AnimeId, hash, fetch.FileExtension!, content, cancellationToken);
 
         return FetchOutcome.Success(image, hash, fetch.FileExtension!, content.Length);
     }
@@ -321,17 +322,17 @@ public sealed class ArtworkService(
 
         var claimed = await context.AnimeImages
             .Where(i => i.ContentHash != null && i.FileExtension != null)
-            .Select(i => new { i.AnimeId, i.ContentHash, i.FileExtension })
+            .Select(i => new { i.Kind, i.AnimeId, i.ContentHash, i.FileExtension })
             .ToListAsync(cancellationToken);
 
         var names = claimed
-            .Select(i => CoverImageResolver.CacheFileName(i.AnimeId, i.ContentHash!, i.FileExtension!))
+            .Select(i => ArtworkPaths.RelativePath(i.Kind, i.AnimeId, i.ContentHash!, i.FileExtension!))
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
 
         return store.RemoveUnclaimed(names);
     }
 
-    private sealed record PendingImage(int Id, int AnimeId, string RemoteUrl, int Priority);
+    private sealed record PendingImage(int Id, int AnimeId, ImageKind Kind, string RemoteUrl, int Priority);
 
     private sealed record FetchOutcome(
         PendingImage Image,

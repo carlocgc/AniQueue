@@ -15,12 +15,12 @@ namespace AniQueue.Web.Endpoints;
 /// rather than an <c>img</c> for anything it knows is not cached, and the job repairs
 /// the row on its next pass.
 ///
-/// <b>No database is touched.</b> The route carries everything — the title's id, the
-/// content hash and the extension — so a backlog page with fifty covers costs fifty
-/// file reads and no queries. That is only safe because the segment is parsed by a
-/// whitelist rather than sanitised: hexadecimal followed by a known image extension,
-/// which no traversal sequence, separator or null byte can satisfy (§6 forbids
-/// user-supplied file paths, and this is how that is kept true).
+/// <b>No database is touched.</b> The route carries everything — the kind, the
+/// title's id, the content hash and the extension — so a backlog page with fifty
+/// covers costs fifty file reads and no queries. That is only safe because every
+/// segment is matched against a whitelist rather than sanitised: one of four kind
+/// names, an integer, and hexadecimal followed by a known image extension. §6 forbids
+/// user-supplied file paths, and this is how that is kept true.
 /// </remarks>
 public static class CoverArtEndpoint
 {
@@ -40,16 +40,17 @@ public static class CoverArtEndpoint
         ArgumentNullException.ThrowIfNull(endpoints);
 
         endpoints.MapGet(
-            $"/{CoverImageResolver.RoutePrefix}/{{animeId:int}}/{{segment}}",
-            (int animeId, string segment, CoverArtStore store, HttpContext httpContext) =>
+            $"/{ArtworkPaths.Root}/{{kind}}/{{animeId:int}}/{{segment}}",
+            (string kind, int animeId, string segment, CoverArtStore store, HttpContext httpContext) =>
             {
-                if (!CoverImageResolver.TryParseSegment(segment, out var contentHash, out var fileExtension)
+                if (!ArtworkPaths.TryParseKind(kind, out var imageKind)
+                    || !ArtworkPaths.TryParseSegment(segment, out var contentHash, out var fileExtension)
                     || ImageSource.ContentTypeFor(fileExtension) is not { } contentType)
                 {
                     return Results.NotFound();
                 }
 
-                var content = store.OpenRead(animeId, contentHash, fileExtension);
+                var content = store.OpenRead(imageKind, animeId, contentHash, fileExtension);
                 if (content is null)
                 {
                     // Deliberately without the cache header below. A miss means the

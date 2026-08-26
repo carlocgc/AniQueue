@@ -134,9 +134,22 @@ public class ArtworkServiceTests
             return await context.AnimeImages.SingleAsync(i => i.Id == id);
         }
 
-        public string[] CachedFiles() => Directory.Exists(Path.Combine(Root, "covers"))
-            ? Directory.GetFiles(Path.Combine(Root, "covers")).Select(f => Path.GetFileName(f)).ToArray()
-            : [];
+        /// <summary>Every cached file, as a path relative to the art root.</summary>
+        /// <remarks>
+        /// Relative rather than by name, because the kind is a directory now and two
+        /// kinds can legitimately hold the same filename for the same title.
+        /// </remarks>
+        public string[] CachedFiles()
+        {
+            var art = Path.Combine(Root, "art");
+
+            return Directory.Exists(art)
+                ? Directory.GetFiles(art, "*", SearchOption.AllDirectories)
+                    .Select(f => Path.GetRelativePath(art, f).Replace('\\', '/'))
+                    .Order()
+                    .ToArray()
+                : [];
+        }
 
         public async ValueTask DisposeAsync()
         {
@@ -174,7 +187,9 @@ public class ArtworkServiceTests
         // this exact address, which is what stops it being picked up again.
         Assert.Equal(Url, row.FetchedUrl);
 
-        Assert.Equal([$"{row.AnimeId}-{row.ContentHash}.jpg"], fixture.CachedFiles());
+        // Under its kind's directory, which is what makes 9b's four kinds four
+        // directories rather than one holding four thousand files.
+        Assert.Equal([$"posters/{row.AnimeId}-{row.ContentHash}.jpg"], fixture.CachedFiles());
     }
 
     [Fact]
@@ -258,7 +273,7 @@ public class ArtworkServiceTests
 
         await fixture.Service.RunAsync(Budget, CancellationToken.None);
 
-        foreach (var file in Directory.GetFiles(Path.Combine(fixture.Root, "covers")))
+        foreach (var file in Directory.GetFiles(Path.Combine(fixture.Root, "art"), "*", SearchOption.AllDirectories))
         {
             File.Delete(file);
         }
@@ -281,7 +296,7 @@ public class ArtworkServiceTests
         await fixture.AddImageAsync();
         await fixture.Service.RunAsync(Budget, CancellationToken.None);
 
-        var orphan = Path.Combine(fixture.Root, "covers", "999999-abcdef.jpg");
+        var orphan = Path.Combine(fixture.Root, "art", "posters", "999999-abcdef.jpg");
         await File.WriteAllTextAsync(orphan, "junk", CancellationToken.None);
 
         var result = await fixture.Service.RunAsync(Budget, CancellationToken.None);

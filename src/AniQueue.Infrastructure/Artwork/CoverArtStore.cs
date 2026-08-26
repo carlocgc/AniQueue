@@ -1,4 +1,5 @@
 using AniQueue.Core.Artwork;
+using AniQueue.Core.Domain;
 using AniQueue.Infrastructure.Persistence;
 using Microsoft.Extensions.Options;
 
@@ -8,7 +9,7 @@ namespace AniQueue.Infrastructure.Artwork;
 /// The cached pictures on disk (D47).
 /// </summary>
 /// <remarks>
-/// <b>Under <c>&lt;data&gt;/covers/</c>, derived from the database path.</b> §6
+/// <b>Under <c>&lt;data&gt;/art/{kind}/</c>, derived from the database path.</b> §6
 /// forbids image binaries in the database, and §9 already had to solve the non-root
 /// bind-mount problem for the database file — solving it once solves it here. It also
 /// means the sample profile gets its own cache without anything being configured,
@@ -17,14 +18,12 @@ namespace AniQueue.Infrastructure.Artwork;
 ///
 /// <b>Disk is the authority on what is cached, not the table.</b> A row saying a
 /// picture is cached is a claim; this is where it is checked. Somebody reclaiming
-/// space by deleting the covers directory is the same instinct that makes deleting
+/// space by deleting the art directory is the same instinct that makes deleting
 /// <c>data/sample</c> safe, and it heals on the next tick rather than leaving every
 /// row pointing at a file that is not there.
 /// </remarks>
 public sealed class CoverArtStore(IOptions<AniQueueDatabaseOptions> databaseOptions)
 {
-    private const string DirectoryName = "covers";
-
     private readonly string? _root = ResolveRoot(databaseOptions.Value);
 
     /// <summary>
@@ -33,8 +32,8 @@ public sealed class CoverArtStore(IOptions<AniQueueDatabaseOptions> databaseOpti
     public bool IsAvailable => _root is not null;
 
     /// <summary>Whether the bytes for this row are actually present.</summary>
-    public bool Exists(int animeId, string? contentHash, string? fileExtension) =>
-        PathFor(animeId, contentHash, fileExtension) is { } path && File.Exists(path);
+    public bool Exists(ImageKind kind, int animeId, string? contentHash, string? fileExtension) =>
+        PathFor(kind, animeId, contentHash, fileExtension) is { } path && File.Exists(path);
 
     /// <summary>
     /// Writes a picture, atomically.
@@ -46,6 +45,7 @@ public sealed class CoverArtStore(IOptions<AniQueueDatabaseOptions> databaseOpti
     /// will never be requested again.
     /// </remarks>
     public async Task WriteAsync(
+        ImageKind kind,
         int animeId,
         string contentHash,
         string fileExtension,
@@ -54,12 +54,12 @@ public sealed class CoverArtStore(IOptions<AniQueueDatabaseOptions> databaseOpti
     {
         ArgumentNullException.ThrowIfNull(content);
 
-        if (PathFor(animeId, contentHash, fileExtension) is not { } path)
+        if (PathFor(kind, animeId, contentHash, fileExtension) is not { } path)
         {
             return;
         }
 
-        Directory.CreateDirectory(_root!);
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
 
         var staging = path + ".partial";
         await File.WriteAllBytesAsync(staging, content, cancellationToken);
@@ -71,9 +71,9 @@ public sealed class CoverArtStore(IOptions<AniQueueDatabaseOptions> databaseOpti
     /// Asynchronous and sequential because the caller is an HTTP endpoint streaming
     /// straight to a response, and the access pattern is one pass front to back.
     /// </remarks>
-    public Stream? OpenRead(int animeId, string contentHash, string fileExtension)
+    public Stream? OpenRead(ImageKind kind, int animeId, string contentHash, string fileExtension)
     {
-        if (PathFor(animeId, contentHash, fileExtension) is not { } path)
+        if (PathFor(kind, animeId, contentHash, fileExtension) is not { } path)
         {
             return null;
         }
@@ -98,20 +98,24 @@ public sealed class CoverArtStore(IOptions<AniQueueDatabaseOptions> databaseOpti
     }
 
     /// <summary>
-    /// Deletes every cached file nothing claims.
+    /// Deletes every cached file nothing claims, across every kind.
     /// </summary>
     /// <remarks>
     /// A row deleted by the cascade behind a removed title cannot reach the
     /// filesystem, and neither can a picture that has been replaced by a new one at a
     /// different hash. Both leave a file behind, and both are the same problem: a
-    /// name on disk that no row expects. Listing the directory once and subtracting
-    /// what is claimed handles them together, and needs no bookkeeping at the moment
-    /// of deletion — which is the part that would otherwise have to be remembered in
+    /// name on disk that no row expects. Listing the tree once and subtracting what is
+    /// claimed handles them together, and needs no bookkeeping at the moment of
+    /// deletion — which is the part that would otherwise have to be remembered in
     /// several places and would be forgotten in one of them.
+    ///
+    /// It walks recursively rather than per known kind, so a directory left behind by
+    /// a kind that no longer exists is cleaned up too instead of becoming a pocket of
+    /// files nothing will ever look at again.
     /// </remarks>
-    public int RemoveUnclaimed(IReadOnlySet<string> claimedFileNames)
+    public int RemoveUnclaimed(IReadOnlySet<string> claimedRelativePaths)
     {
-        ArgumentNullException.ThrowIfNull(claimedFileNames);
+        ArgumentNullException.ThrowIfNull(claimedRelativePaths);
 
         if (_root is null || !Directory.Exists(_root))
         {
@@ -120,10 +124,11 @@ public sealed class CoverArtStore(IOptions<AniQueueDatabaseOptions> databaseOpti
 
         var removed = 0;
 
-        foreach (var path in Directory.EnumerateFiles(_root))
+        foreach (var path in Directory.EnumerateFiles(_root, "*", SearchOption.AllDirectories))
         {
-            var name = Path.GetFileName(path);
-            if (claimedFileNames.Contains(name))
+            var relative = Path.GetRelativePath(_root, path).Replace('\\', '/');
+
+            if (claimedRelativePaths.Contains(relative))
             {
                 continue;
             }
@@ -149,9 +154,9 @@ public sealed class CoverArtStore(IOptions<AniQueueDatabaseOptions> databaseOpti
         return removed;
     }
 
-    private string? PathFor(int animeId, string? contentHash, string? fileExtension) =>
+    private string? PathFor(ImageKind kind, int animeId, string? contentHash, string? fileExtension) =>
         _root is not null && contentHash is { Length: > 0 } hash && fileExtension is { Length: > 0 } extension
-            ? Path.Combine(_root, CoverImageResolver.CacheFileName(animeId, hash, extension))
+            ? Path.Combine(_root, ArtworkPaths.DirectoryFor(kind), ArtworkPaths.CacheFileName(animeId, hash, extension))
             : null;
 
     private static string? ResolveRoot(AniQueueDatabaseOptions options)
@@ -163,6 +168,6 @@ public sealed class CoverArtStore(IOptions<AniQueueDatabaseOptions> databaseOpti
 
         var directory = Path.GetDirectoryName(Path.GetFullPath(options.Path));
 
-        return string.IsNullOrEmpty(directory) ? null : Path.Combine(directory, DirectoryName);
+        return string.IsNullOrEmpty(directory) ? null : Path.Combine(directory, ArtworkPaths.Root);
     }
 }
