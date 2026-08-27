@@ -95,6 +95,39 @@ public sealed record ScoringRequestOptions
     };
 }
 
+/// <summary>
+/// How large a request would be, without building the one that would be sent (D53).
+/// </summary>
+/// <remarks>
+/// Two numbers rather than one, because the size of a request is a straight line and
+/// the page needs both ends of it: a fixed cost that is almost entirely the history,
+/// and a slope that is what one more title adds. A user moving the candidate limit
+/// gets an answer without another database read.
+///
+/// <b>Measured rather than estimated, and that is the reason this exists at all.</b> A
+/// candidate carrying three title variants and two external identifiers is several
+/// times the size of one added by hand, and which of those a library has is not
+/// something to guess at.
+/// </remarks>
+public sealed record ScoringSizeEstimate
+{
+    /// <summary>Titles waiting to be watched and visible.</summary>
+    public required int CandidatesAvailable { get; init; }
+
+    /// <summary>Rated titles this profile has.</summary>
+    public required int HistoryAvailable { get; init; }
+
+    /// <summary>Characters a one-title request costs, instructions included.</summary>
+    public required int BaselineCharacters { get; init; }
+
+    /// <summary>Characters each title after the first adds.</summary>
+    public required int PerCandidateCharacters { get; init; }
+
+    /// <summary>What a request covering <paramref name="candidates"/> titles would cost.</summary>
+    public int CharactersFor(int candidates) =>
+        BaselineCharacters + (Math.Max(candidates - 1, 0) * PerCandidateCharacters);
+}
+
 /// <summary>One ranked title, resolved against the library it claims to describe.</summary>
 public sealed record ScoringPreviewItem
 {
@@ -324,6 +357,31 @@ public interface IRecommendationService
     Task<ScoringHistorySnapshot> BuildHistoryAsync(
         int profileId,
         int? maxHistory,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Measures what a request would cost without building the one that would be sent
+    /// (D53).
+    /// </summary>
+    /// <remarks>
+    /// The page above the Remote card says how many tokens a run would be before anybody
+    /// asks for one, and this is what answers it. It reads the backlog once and the
+    /// history once, whatever the answer covers.
+    ///
+    /// <b>It used to be two calls to <see cref="BuildRequestAsync"/>, one for a request
+    /// of a single candidate and one for two.</b> That read and serialised the whole
+    /// history twice to render one number, on a page whose initialiser runs twice per
+    /// visit under prerendering — so four full history reads to show a figure nobody had
+    /// asked for yet. It also logged both of them at the level a real request logs at,
+    /// which is why they looked alarming in a server log.
+    ///
+    /// <paramref name="options"/> is read for its history size and its notes flag, which
+    /// are what change the size of a request. Its candidate limit is ignored: the
+    /// measurement always probes with two, and the caller multiplies.
+    /// </remarks>
+    Task<ScoringSizeEstimate> MeasureAsync(
+        int profileId,
+        ScoringRequestOptions? options = null,
         CancellationToken cancellationToken = default);
 
     /// <summary>
