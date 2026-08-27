@@ -71,7 +71,7 @@ public sealed class RecommendationService(
 
         var waiting = context.LibraryEntries
             .AsNoTracking()
-            .Where(e => e.ProfileId == profileId && e.Status == LibraryStatus.Planning && !e.IsHidden);
+            .Where(e => e.ProfileId == profileId && e.Status == LibraryStatus.Planning);
 
         var candidatesAvailable = await waiting.CountAsync(cancellationToken);
 
@@ -292,7 +292,7 @@ public sealed class RecommendationService(
         var candidateCount = offered?.Count ?? await context.LibraryEntries
             .AsNoTracking()
             .CountAsync(
-                e => e.ProfileId == profileId && e.Status == LibraryStatus.Planning && !e.IsHidden,
+                e => e.ProfileId == profileId && e.Status == LibraryStatus.Planning,
                 cancellationToken);
 
         // How many rankings a complete reply holds, which is what "missing" is
@@ -680,7 +680,7 @@ public sealed class RecommendationService(
 
         var waiting = context.LibraryEntries
             .AsNoTracking()
-            .Where(e => e.ProfileId == profileId && e.Status == LibraryStatus.Planning && !e.IsHidden);
+            .Where(e => e.ProfileId == profileId && e.Status == LibraryStatus.Planning);
 
         var total = await waiting.CountAsync(cancellationToken);
 

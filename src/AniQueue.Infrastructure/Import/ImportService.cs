@@ -18,7 +18,7 @@ namespace AniQueue.Infrastructure.Import;
 /// 1. <see cref="PreviewAsync"/> never writes. The user has to see the consequence
 ///    and confirm before anything changes.
 /// 2. An import brings catalogue data and watch progress. It never touches what
-///    the user curated here — notes, queue position, hidden flag, recommendation
+///    the user curated here — notes, queue position, recommendation
 ///    data. Re-importing an export must not undo an evening
 ///    spent organising the backlog.
 ///
@@ -1314,7 +1314,7 @@ public sealed class ImportService(
         entry.DateStarted = parsed.DateStarted ?? entry.DateStarted;
         entry.DateCompleted = parsed.DateCompleted ?? entry.DateCompleted;
 
-        // Deliberately untouched: PersonalNotes, IsHidden and every
+        // Deliberately untouched: PersonalNotes and every
         // Recommendation* field, along with queue membership held on another
         // table. These are the user's work, not the source's.
     }

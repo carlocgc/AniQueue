@@ -52,8 +52,7 @@ public class LibraryServiceTests
         double? recommendation = null,
         double? confidence = null,
         AnimeSource source = AnimeSource.MyAnimeList,
-        string? sourceId = null,
-        bool hidden = false)
+        string? sourceId = null)
     {
         var now = DateTimeOffset.UtcNow;
 
@@ -91,7 +90,6 @@ public class LibraryServiceTests
             AnimeId = anime.Id,
             Status = status,
             UserScore = userScore,
-            IsHidden = hidden,
             RecommendationScore = recommendation,
             RecommendationConfidence = confidence,
             DateAdded = now,
@@ -181,83 +179,36 @@ public class LibraryServiceTests
         Assert.Equal(expected, Assert.Single(page.Items).Title);
     }
 
-    [Fact]
-    public async Task Hidden_entries_stay_out_of_listings_unless_asked_for()
-    {
-        await using var fixture = await Fixture.CreateAsync();
-
-        await using (var context = fixture.Database.CreateContext())
-        {
-            await AddAsync(context, "Visible");
-            await AddAsync(context, "Hidden", hidden: true);
-        }
-
-        var normal = await fixture.Library.GetPageAsync(Profile.DefaultProfileId, new LibraryQuery());
-        Assert.Equal("Visible", Assert.Single(normal.Items).Title);
-
-        // Only the hidden ones, not both. Mixing them back in among the visible
-        // entries answers no question anybody asks: either the backlog is being
-        // read, where hidden means hidden, or what was set aside is being looked
-        // for, where everything else is noise.
-        var hiddenOnly = await fixture.Library.GetPageAsync(
-            Profile.DefaultProfileId, new LibraryQuery { HiddenOnly = true });
-        Assert.Equal("Hidden", Assert.Single(hiddenOnly.Items).Title);
-    }
-
     /// <summary>
-    /// The number beside a status is a promise about what choosing it shows, and
-    /// what it shows excludes hidden entries.
+    /// The number beside a status is a promise about what choosing it shows.
     /// </summary>
     /// <remarks>
-    /// Harmless while hiding was a bulk action somebody did rarely; not harmless now
-    /// that it is one press on every row (D26), and a picker whose counts do not
-    /// match its own results is worse than one with no counts at all.
+    /// A picker whose counts do not match its own results is worse than one with no
+    /// counts at all. The two used to be able to disagree because the count excluded
+    /// hidden entries and so did the listing, and each was capable of forgetting;
+    /// Phase 18b removed hiding, and this holds the two to each other anyway.
     /// </remarks>
     [Fact]
-    public async Task Status_counts_exclude_hidden_entries_and_the_hidden_count_holds_them()
+    public async Task A_status_count_is_what_choosing_that_status_lists()
     {
         await using var fixture = await Fixture.CreateAsync();
 
         await using (var context = fixture.Database.CreateContext())
         {
             await AddAsync(context, "Planned");
-            await AddAsync(context, "Planned but set aside", hidden: true);
+            await AddAsync(context, "Also planned");
             await AddAsync(context, "Finished", LibraryStatus.Completed);
         }
 
         var facets = await fixture.Library.GetFacetsAsync(Profile.DefaultProfileId);
 
-        Assert.Equal(1, facets.CountByStatus.GetValueOrDefault(LibraryStatus.Planning));
+        Assert.Equal(2, facets.CountByStatus.GetValueOrDefault(LibraryStatus.Planning));
         Assert.Equal(1, facets.CountByStatus.GetValueOrDefault(LibraryStatus.Completed));
-        Assert.Equal(1, facets.HiddenCount);
-        Assert.True(facets.HasHiddenEntries);
 
         var planning = await fixture.Library.GetPageAsync(
             Profile.DefaultProfileId, new LibraryQuery { Status = LibraryStatus.Planning });
 
         Assert.Equal(facets.CountByStatus[LibraryStatus.Planning], planning.TotalCount);
-    }
-
-    /// <summary>
-    /// The hidden list is not narrowed by status, because hiding is orthogonal to
-    /// it — an entry is hidden <i>and</i> Planning.
-    /// </summary>
-    [Fact]
-    public async Task The_hidden_view_shows_every_status()
-    {
-        await using var fixture = await Fixture.CreateAsync();
-
-        await using (var context = fixture.Database.CreateContext())
-        {
-            await AddAsync(context, "Set aside, planned", hidden: true);
-            await AddAsync(context, "Set aside, finished", LibraryStatus.Completed, hidden: true);
-            await AddAsync(context, "Still listed");
-        }
-
-        var hidden = await fixture.Library.GetPageAsync(
-            Profile.DefaultProfileId, new LibraryQuery { HiddenOnly = true, Status = null });
-
-        Assert.Equal(2, hidden.TotalCount);
     }
 
     [Fact]
@@ -386,26 +337,6 @@ public class LibraryServiceTests
         // defaults to Planning, so a fresh install always has a filter applied and
         // would otherwise offer to clear one that is not the reason (D27).
         Assert.True(facets.IsEmpty);
-    }
-
-    /// <summary>
-    /// A library whose every entry is hidden is not an empty one — the first screen
-    /// should offer the hidden list, not an import.
-    /// </summary>
-    [Fact]
-    public async Task A_library_of_only_hidden_entries_is_not_empty()
-    {
-        await using var fixture = await Fixture.CreateAsync();
-
-        await using (var context = fixture.Database.CreateContext())
-        {
-            await AddAsync(context, "Set aside", hidden: true);
-        }
-
-        var facets = await fixture.Library.GetFacetsAsync(Profile.DefaultProfileId);
-
-        Assert.Empty(facets.CountByStatus);
-        Assert.False(facets.IsEmpty);
     }
 
     [Fact]
@@ -537,58 +468,6 @@ public class LibraryServiceTests
         });
 
         await context.SaveChangesAsync();
-    }
-
-    [Fact]
-    public async Task Hiding_is_reversible_and_keeps_the_entry()
-    {
-        // Hiding must never be a disguised delete: the entry, its score and its
-        // history all survive.
-        await using var fixture = await Fixture.CreateAsync();
-        int id;
-
-        await using (var context = fixture.Database.CreateContext())
-        {
-            id = (await AddAsync(context, "Hide me", userScore: 8)).Id;
-        }
-
-        await fixture.Library.SetHiddenAsync(Profile.DefaultProfileId, [id], hidden: true);
-        await fixture.Library.SetHiddenAsync(Profile.DefaultProfileId, [id], hidden: false);
-
-        await using var verify = fixture.Database.CreateContext();
-        var entry = await verify.LibraryEntries.SingleAsync(e => e.AnimeId == id);
-
-        Assert.False(entry.IsHidden);
-        Assert.Equal(8, entry.UserScore);
-    }
-
-    [Fact]
-    public async Task A_bulk_action_on_nothing_does_nothing()
-    {
-        await using var fixture = await Fixture.CreateAsync();
-
-        var result = await fixture.Library.SetHiddenAsync(Profile.DefaultProfileId, [], hidden: true);
-
-        Assert.Equal(0, result.Affected);
-    }
-
-    [Fact]
-    public async Task Ids_that_are_not_in_the_library_are_counted_as_skipped()
-    {
-        // A stale selection must not fail the whole batch.
-        await using var fixture = await Fixture.CreateAsync();
-        int realId;
-
-        await using (var context = fixture.Database.CreateContext())
-        {
-            realId = (await AddAsync(context, "Real")).Id;
-        }
-
-        var result = await fixture.Library.SetHiddenAsync(
-            Profile.DefaultProfileId, [realId, 999_999], hidden: true);
-
-        Assert.Equal(1, result.Affected);
-        Assert.Equal(1, result.Skipped);
     }
 
     [Fact]

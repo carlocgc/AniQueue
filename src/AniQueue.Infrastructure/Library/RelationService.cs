@@ -292,7 +292,7 @@ public sealed class RelationService(
 
         return await context.LibraryEntries
             .AsNoTracking()
-            .Where(e => e.ProfileId == profileId && !e.IsHidden)
+            .Where(e => e.ProfileId == profileId)
             .Where(e => e.Anime!.ExternalIds.Any(x =>
                 x.Source == Source && reached.Contains(x.ExternalId) && !excluded.Contains(x.ExternalId)))
 
@@ -354,17 +354,18 @@ public sealed class RelationService(
 
     /// <summary>
     /// Every edge one step out from the given titles, in both directions, narrowed
-    /// to relatives the profile owns and has not hidden.
+    /// to relatives the profile owns.
     /// </summary>
     /// <remarks>
     /// One step, and the count and the detail share this method so neither can
     /// drift into promising what the other does not show.
     ///
-    /// Hidden is the only status excluded. An expansion is context rather than
-    /// results — a completed prequel is frequently the most useful thing it can say
-    /// — so filtering it the way the listing above it is filtered would empty it of
-    /// exactly what it exists for. Hiding is different in kind: it is the user
-    /// saying they do not want to see that title anywhere.
+    /// No status is excluded. An expansion is context rather than results — a
+    /// completed prequel is frequently the most useful thing it can say — so
+    /// filtering it the way the listing above it is filtered would empty it of
+    /// exactly what it exists for. Hidden used to be the one exception, on the
+    /// grounds that it was the user saying they did not want to see that title
+    /// anywhere; Phase 18b deleted hiding.
     /// </remarks>
     private static IQueryable<Edge> Edges(
         AniQueueDbContext context,
@@ -378,7 +379,7 @@ public sealed class RelationService(
 
         var owned = context.LibraryEntries
             .AsNoTracking()
-            .Where(e => e.ProfileId == profileId && !e.IsHidden);
+            .Where(e => e.ProfileId == profileId);
 
         // Stated by the title itself.
         var forward =

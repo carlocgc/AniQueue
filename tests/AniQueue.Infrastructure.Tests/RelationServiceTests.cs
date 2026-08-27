@@ -68,7 +68,6 @@ public class RelationServiceTests
             string externalId,
             string? title = null,
             LibraryStatus status = LibraryStatus.Planning,
-            bool hidden = false,
             DateOnly? startDate = null,
             int? year = null)
         {
@@ -95,7 +94,6 @@ public class RelationServiceTests
                 ProfileId = ProfileId,
                 AnimeId = anime.Id,
                 Status = status,
-                IsHidden = hidden,
                 DateAdded = now,
                 LastUpdated = now
             });
@@ -265,19 +263,6 @@ public class RelationServiceTests
         Assert.Empty(await fixture.CountsAsync(owned));
     }
 
-    [Fact]
-    public async Task A_hidden_relative_is_neither_counted_nor_shown()
-    {
-        await using var fixture = await Fixture.CreateAsync();
-
-        var owned = await fixture.OwnAsync("100");
-        await fixture.OwnAsync("200", hidden: true);
-        await fixture.RelateAsync("100", RelationType.Sequel, "200");
-
-        Assert.Empty(await fixture.RelatedAsync(owned));
-        Assert.Empty(await fixture.CountsAsync(owned));
-    }
-
     /// <summary>
     /// An expansion is context rather than results. A completed prequel is
     /// frequently the most useful thing it can say, so it is not filtered the way
@@ -288,7 +273,7 @@ public class RelationServiceTests
     [InlineData(LibraryStatus.Watching)]
     [InlineData(LibraryStatus.Dropped)]
     [InlineData(LibraryStatus.OnHold)]
-    public async Task Every_status_except_hidden_is_shown(LibraryStatus status)
+    public async Task Every_status_is_shown(LibraryStatus status)
     {
         await using var fixture = await Fixture.CreateAsync();
 
@@ -421,7 +406,7 @@ public class RelationServiceTests
 
         var owned = await fixture.OwnAsync("100");
         await fixture.OwnAsync("200", status: LibraryStatus.Completed);
-        await fixture.OwnAsync("300", hidden: true);
+        await fixture.OwnAsync("300");
         await fixture.OwnAsync("400");
 
         await fixture.RelateAsync("100", RelationType.Prequel, "200");
@@ -433,7 +418,7 @@ public class RelationServiceTests
         var related = await fixture.RelatedAsync(owned);
 
         Assert.Equal(related.Count, counts[owned]);
-        Assert.Equal(2, related.Count);
+        Assert.Equal(3, related.Count);
     }
 
     // --- The sequel walk -------------------------------------------------
@@ -597,25 +582,6 @@ public class RelationServiceTests
         await fixture.Relations.AddWithSequelsAsync(fixture.ProfileId, one);
 
         Assert.Equal("Season one Season two", await fixture.QueueOrderAsync());
-    }
-
-    [Fact]
-    public async Task A_hidden_season_is_not_queued_by_the_walk()
-    {
-        await using var fixture = await Fixture.CreateAsync();
-
-        var one = await fixture.OwnAsync("100", "Season one", startDate: new DateOnly(2015, 1, 8));
-        await fixture.OwnAsync("200", "Season two", hidden: true, startDate: new DateOnly(2016, 4, 5));
-        await fixture.OwnAsync("300", "Season three", startDate: new DateOnly(2017, 10, 3));
-
-        await fixture.RelateAsync("100", RelationType.Sequel, "200");
-        await fixture.RelateAsync("200", RelationType.Sequel, "300");
-
-        await fixture.Relations.AddWithSequelsAsync(fixture.ProfileId, one);
-
-        // Hidden is the user saying they do not want to see it, so it is not queued
-        // — but it still carries the chain to season three.
-        Assert.Equal("Season one Season three", await fixture.QueueOrderAsync());
     }
 
     /// <summary>

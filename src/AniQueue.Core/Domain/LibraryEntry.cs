@@ -47,8 +47,11 @@ public class LibraryEntry
     // which is a real rank, and the AI's is RecommendationScore. Two orderings,
     // both meaningful, and a hybrid can blend them.
 
-    /// <summary>Hidden entries stay in the library but drop out of backlog views.</summary>
-    public bool IsHidden { get; set; }
+    // No IsHidden (Phase 18b). It was a second, local way to say "stop offering me
+    // this", and D11 already settled where that is said: list membership lives
+    // outside AniQueue. The honest answer to "I do not want this ranked" is to take
+    // it off the AniList or MyAnimeList list it came from and let the next sync
+    // agree — a local flag only made AniQueue disagree with the source it trusts.
 
     /// <summary>
     /// Which source last wrote the tracking fields above — status, progress, score

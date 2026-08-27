@@ -25,8 +25,6 @@ public sealed record LibraryListItem
 
     public int? UserScore { get; init; }
 
-    public bool IsHidden { get; init; }
-
     public double? RecommendationScore { get; init; }
 
     public double? RecommendationConfidence { get; init; }
@@ -188,9 +186,6 @@ public sealed record LibraryPage
     public required int TotalCount { get; init; }
 }
 
-/// <summary>What a bulk action did.</summary>
-public sealed record BulkActionResult(int Affected, int Skipped);
-
 /// <summary>
 /// Reads and bulk-edits the library.
 ///
@@ -226,14 +221,7 @@ public interface ILibraryService
 
     Task<LibraryFacets> GetFacetsAsync(int profileId, CancellationToken cancellationToken = default);
 
-    /// <summary>
-    /// Hides or unhides many entries. Hiding keeps the entry and its history; it
-    /// only removes it from listings, so it is always reversible.
-    /// </summary>
-    Task<BulkActionResult> SetHiddenAsync(
-        int profileId,
-        IReadOnlyCollection<int> animeIds,
-        bool hidden,
-        IProgress<OperationProgress>? progress = null,
-        CancellationToken cancellationToken = default);
+    // No SetHiddenAsync (Phase 18b). Hiding was a local way to say "stop offering me
+    // this" beside the one D11 already settled — the list this title came from. Two
+    // answers to one question, and only one of them survives a sync.
 }

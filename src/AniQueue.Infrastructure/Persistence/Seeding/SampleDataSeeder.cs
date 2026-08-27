@@ -7,7 +7,7 @@ namespace AniQueue.Infrastructure.Persistence.Seeding;
 /// <summary>
 /// Fills an empty database with enough data to exercise every concept: completed
 /// titles with a spread of scores, a title in progress, planning entries, several
-/// seasons of one series with the relation graph between them, a hidden entry, a
+/// seasons of one series with the relation graph between them, a
 /// manually ordered queue with something deliberately sitting between two of those
 /// seasons, and an applied AI ranking.
 /// </summary>
@@ -89,15 +89,13 @@ public sealed class SampleDataSeeder(
         var dragonMaid = NewAnime("Miss Kobayashi's Dragon Maid", MediaType.Tv, 13, 24, 2017, source: AnimeSource.MyAnimeList, sourceId: "33206");
         var unknownRuntime = NewAnime("Serial Experiments Lain", MediaType.Tv, 13, null, 1998, source: AnimeSource.MyAnimeList, sourceId: "339");
 
-        // Set aside, so the hidden view has something in it and the status picker
-        // offers it. Sample data exists to make surfaces reachable, and a surface
-        // reachable only after hiding something by hand is one nobody checks.
-        var setAside = NewAnime("Mars of Destruction", MediaType.Ova, 1, 19, 2005, source: AnimeSource.MyAnimeList, sourceId: "413");
-
+        // A tenth title used to sit here, seeded hidden so that the hidden view and
+        // its status-picker option were reachable without hiding a row by hand. Phase
+        // 18b deleted hiding, and with it the only reason that title existed.
         context.Anime.AddRange(slayersEntries);
         context.Anime.AddRange(
             goldenBoy, gunbuster, nichijou, konosuba, mediocre,
-            newGame, hinamatsuri, dragonMaid, unknownRuntime, setAside);
+            newGame, hinamatsuri, dragonMaid, unknownRuntime);
 
         await context.SaveChangesAsync(cancellationToken);
 
@@ -110,8 +108,7 @@ public sealed class SampleDataSeeder(
             Watching(newGame, episodesWatched: 4),
             Planning(hinamatsuri),
             Planning(dragonMaid),
-            Planning(unknownRuntime),
-            Hidden(setAside));
+            Planning(unknownRuntime));
 
         foreach (var entry in slayersEntries)
         {
@@ -222,16 +219,6 @@ public sealed class SampleDataSeeder(
             ProfileId = profileId,
             AnimeId = anime.Id,
             Status = LibraryStatus.Planning,
-            DateAdded = now,
-            LastUpdated = now
-        };
-
-        LibraryEntry Hidden(Anime anime) => new()
-        {
-            ProfileId = profileId,
-            AnimeId = anime.Id,
-            Status = LibraryStatus.Planning,
-            IsHidden = true,
             DateAdded = now,
             LastUpdated = now
         };

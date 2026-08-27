@@ -262,8 +262,8 @@ This is a constraint on the model, chosen deliberately over a broader one:
   the way to change shape later.
 - **It needs no new persistence.** `RecommendationRunItem` referencing an existing anime or
   franchise holds, because every ranked item exists locally. Acting on a removal candidate
-  uses what is already modelled — `Dropped` status or `IsHidden` — so nothing has to be
-  written back to an external service.
+  uses what is already modelled — `Dropped` status; `IsHidden` was the other answer here, and
+  Phase 18b deleted it — so nothing has to be written back to an external service.
 
 Deferred until the core is done, and deliberately not designed yet: an LLM-written summary
 of the user's taste for the dashboard. Pleasant, not load-bearing.
@@ -1121,6 +1121,14 @@ dataset that replaces it is chosen partly for having one.
 *Reverses the "bulk selection, bulk queue-add and bulk hide" half of Phase 3, on use rather
 than on argument.*
 
+*Half of what follows was deleted by Phase 18b, which removed hiding altogether: the per-row
+hide toggle, the Hidden view in the status picker, `HiddenOnly`, the dimmed row and its badge,
+and the status counts that had to exclude hidden entries. The rule this decision is actually
+about — one action, on the row it acts on — is untouched, and the plus button is now the only
+thing that rule governs on the backlog. The hiding paragraphs are left standing because the
+argument they lost to is a different one (D11, applied where it had not been) rather than a
+reversal of this.*
+
 The backlog shipped with a checkbox per row, a select-all in the header, and a bar that
 appeared above the table once anything was ticked, carrying **Add to Up Next**, **Hide** and
 **Clear selection**. Every row now carries its own **+** and its own hide toggle instead, and
@@ -1272,9 +1280,10 @@ Three things make the returning version safer than the one that was removed:
   looking. The absence report that started all this only happens if somebody presses *Sync now*
   afterwards — which is then a decision to mix sample data with a real account, and the report
   is correct.
-- **It seeds a hidden entry**, because the hidden view and its status-picker option only exist
-  when something is hidden, and a surface reachable only after hiding a row by hand is one
-  nobody checks.
+- **It seeded a hidden entry**, because the hidden view and its status-picker option only
+  existed when something was hidden, and a surface reachable only after hiding a row by hand is
+  one nobody checks. *Phase 18b deleted hiding, and that title went with it — it existed for a
+  surface that no longer does.*
 
 **Sample data and a real account remain alternatives, not complements.** That is stated rather
 than engineered around: there is no way to hold invented identifiers in a library that also
@@ -1481,7 +1490,7 @@ The brief's criteria 23–24 ask for a full-library JSON export and a restore fr
 **It is a second persistence format for one that already exists as a single file.** A
 self-hosted application's backup is `/data`, and Phase 11 already has to prove the database
 survives a container being recreated — criterion 25 tests the same property that 23–24 were
-protecting. A JSON round trip would additionally have to carry queue order, hidden flags,
+protecting. A JSON round trip would additionally have to carry queue order,
 settings, external identifier sets and run history, and stay backwards compatible across every
 future migration. That is a schema maintained twice, and the copy that is not the schema is the
 one that silently falls behind.
@@ -3056,11 +3065,14 @@ composite key. See D49.
 ### LibraryEntry
 
 `Id, ProfileId, AnimeId, Status, UserScore?, EpisodesWatched, DateStarted?, DateCompleted?,
-DateAdded, LastUpdated, PersonalNotes?, IsHidden, LastWrittenBySource?, RecommendationScore?,
+DateAdded, LastUpdated, PersonalNotes?, LastWrittenBySource?, RecommendationScore?,
 RecommendationConfidence?, RecommendationReason?, RecommendationUpdatedAt?`
 
 - `Status`: `Planning, Watching, Completed, OnHold, Dropped`
-- Unique `(ProfileId, AnimeId)`; indexes on `(ProfileId, Status)`, `(ProfileId, IsHidden)`
+- Unique `(ProfileId, AnimeId)`; index on `(ProfileId, Status)`
+- **No `IsHidden`, dropped by Phase 18b**, along with its `(ProfileId, IsHidden)` index. It was a
+  local way to say "stop offering me this" beside the one D11 already settled, and only the
+  source list survives a sync.
 - `UserScore` is 1–10 or null, enforced by `CK_LibraryEntries_UserScoreRange`. Sources that use
   a different scale must normalise *before* reaching here — see Phase 5b on AniList's five
   scoring systems.
@@ -3256,7 +3268,7 @@ The UI states plainly what is being sent.
 **Data integrity on import.** Match on external identity first — every identifier the incoming
 entry supplies, in source-precedence order (D17) — then title matching only cautiously and never
 silently merging ambiguous matches. An import must not overwrite manual queue position, personal
-notes, hidden flag, or recommendation history unless explicitly requested.
+notes or recommendation history unless explicitly requested.
 Where a title is known to more than one source, D18 decides which one's tracking data stands.
 
 **Outbound HTTP.** Every **host** AniQueue reaches on its own initiative is a constant, held in
@@ -3364,7 +3376,7 @@ numbering. What is finished is a column; what happens next is the first row with
 | 15e | Sources reshape | ✅ | Sources is configuration, one review button and a file import |
 | 16 | Scoring without a rank | ✅ | The model returns scores and no ordering; nothing asks for, stores or shows a rank |
 | 17 | Improve remote model scoring | ▢ *held* | A sweep gets past a batch it cannot score, reports itself as one run, and cannot be defeated by a history that outgrew the context |
-| 18 | Mobile first | ◐ *18a landed* | Every page usable at 375px with no sideways scroll and no control under 44px; five thumb-reachable tabs; the lists show a poster, a title, one score and one action |
+| 18 | Mobile first | ◐ *18a, 18b landed* | Every page usable at 375px with no sideways scroll and no control under 44px; five thumb-reachable tabs; the lists show a poster, a title, one score and one action |
 
 **✅ done · ◐ part landed · ▢ not started.** *next* is what the running order reaches first;
 *held* waits on something outside the repository — for 17, a wider sample of models to
@@ -3400,12 +3412,14 @@ Under 6h, Movie, OVA, TV, decades, High AI confidence, Not yet ranked) — **eac
 only when the backing metadata exists**. Bulk selection, bulk queue-add and bulk hide.
 Anime cards degrade cleanly instead of printing rows of "N/A".
 
-*Amended by D26: the selection is gone.* Every row carries its own add-to-queue and hide
-control, because a backlog is read one interesting row at a time and selection priced the
-common case as though it were the rare one. Mass hiding is the one capability withdrawn, and
-D26 records what would bring it back. The "show hidden" quick filter goes with it: hidden is a
-view in the status picker now, listing only what was set aside, which is the list somebody
-actually wants when they go looking for something to restore.
+*Amended by D26: the selection is gone.* Every row carries its own add-to-queue control, because
+a backlog is read one interesting row at a time and selection priced the common case as though
+it were the rare one.
+
+*Amended again by Phase 18b: hiding is gone.* D26 had kept it as a per-row toggle and moved the
+"show hidden" quick filter into the status picker as a view. Both are deleted, along with the
+column behind them — a title nobody wants offered comes off the source list it arrived on (D11),
+which is the only answer that survives a sync.
 
 No priority filter, sort or bulk action: manual priority does not exist (D14).
 
@@ -3965,7 +3979,7 @@ two of them and hand the model a payload that does not match what the user is re
 
 **Full-library backup and restore are declined here** (D33), and MVP criteria 23–24 with them.
 This phase exports what a ranking needs, which is a different payload from a restore — queue
-order, hidden flags, settings and run history are all deliberately absent from it.
+order, settings and run history are all deliberately absent from it.
 
 ### Phase 8 — Hosted model scoring
 The same round trip as Phase 7 with the copying removed: AniQueue posts the generated prompt
@@ -4943,6 +4957,13 @@ on/off states, and a power symbol would lie about them.
 `LibraryEntry.IsHidden` goes: the column, its index, the filter chip, the hide button, and the
 branches in `LibraryService` and `RelationService` that read it.
 
+*As built it took four more things with it, each of which existed only to serve hiding.
+`SetHiddenAsync` was the last caller of `BulkUpdateAsync`, so the bulk-edit helper and
+`BulkActionResult` went too — D26 had already removed the selection that would have given them
+another user. `RecommendationService` lost the same predicate in three places. The sample seeder
+lost the tenth title it added so that the hidden view had content. And the backlog's actions
+column is now empty of controls, so the column itself is gone — which is what 18d wanted anyway.*
+
 **The argument is D11's, applied where it was not.** List membership lives outside AniQueue.
 Hiding was a second, local way to say *stop offering me this*, which the source list already says
 by not containing the title — so the honest answer to "I do not want this ranked" is to take it
@@ -5125,7 +5146,7 @@ Phase 6 adds:
   trusted and one a day past it is not; an edge the source no longer publishes is removed; an
   edge belonging to a title the response never mentioned is kept; a failed re-read deletes
   nothing at all. The clock is moved by a stub rather than waited on.
-- **What an expansion shows.** Counts exclude hidden entries and include every other status;
+- **What an expansion shows.** Counts include every status;
   only owned relatives are counted, so the badge never promises more than it opens; ordering is
   by release date with unknowns last; a relation read from the far end is inverted; the same
   pair stated from both ends counts once; two ends that disagree are labelled "Related" rather
@@ -5133,8 +5154,7 @@ Phase 6 adds:
 - **The sequel walk.** It traverses *through* a Completed middle season without queueing it,
   and through a season the library does not own at all; it never goes backwards; it appends in
   release order rather than the order it found things; a recap or compilation in the middle of
-  the chain is passed through rather than queued; a hidden season carries the chain without
-  being queued; a cycle terminates; it reports `QueueAddResult` categories correctly, is a no-op
+  the chain is passed through rather than queued; a cycle terminates; it reports `QueueAddResult` categories correctly, is a no-op
   when re-run, and leaves positions contiguous. The count behind the button reports what the
   press would actually append, and a title with no AniList identifier has no chain at all.
   Tested against the real `QueueService` rather than a stub, because the hand-off to
@@ -5742,7 +5762,7 @@ has every one of them.
 
   Development only, refused if the library already holds anything, and it leaves AniList sync
   switched off in what it seeds. It covers the states a manual pass needs and an empty database
-  cannot offer: a queue to reorder and empty, a relation graph to expand and walk, a hidden
-  entry, a spread of scores, and an applied AI ranking. **Do not sync a real account into a
+  cannot offer: a queue to reorder and empty, a relation graph to expand and walk, a spread of
+  scores, and an applied AI ranking. **Do not sync a real account into a
   seeded database** — the sample titles carry identifiers AniList does not issue, so the first
   real list that comes back without them reports them as missing, correctly (D19, D27).

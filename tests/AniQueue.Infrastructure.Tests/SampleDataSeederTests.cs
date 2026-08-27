@@ -155,20 +155,6 @@ public class SampleDataSeederTests
     }
 
     /// <summary>
-    /// The hidden view and the status picker's "Set aside" option only exist when
-    /// something is hidden, and a surface reachable only after hiding a row by hand
-    /// is one nobody checks.
-    /// </summary>
-    [Fact]
-    public async Task Something_is_set_aside_so_the_hidden_view_has_content()
-    {
-        await using var database = await SeededDatabaseAsync();
-        await using var context = database.CreateContext();
-
-        Assert.Equal(1, await context.LibraryEntries.CountAsync(e => e.IsHidden));
-    }
-
-    /// <summary>
     /// A seeded database says up front that AniList is not to be read.
     /// </summary>
     /// <remarks>

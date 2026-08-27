@@ -63,7 +63,6 @@ public sealed class LibraryService(
                 e.Status,
                 e.EpisodesWatched,
                 e.UserScore,
-                e.IsHidden,
                 e.RecommendationScore,
                 e.RecommendationConfidence,
                 e.Anime.Source,
@@ -107,7 +106,6 @@ public sealed class LibraryService(
                 Status = i.Status,
                 EpisodesWatched = i.EpisodesWatched,
                 UserScore = i.UserScore,
-                IsHidden = i.IsHidden,
                 RecommendationScore = i.RecommendationScore,
                 RecommendationConfidence = i.RecommendationConfidence,
                 Source = i.Source,
@@ -284,11 +282,11 @@ public sealed class LibraryService(
             sources.Add(AnimeSource.Manual);
         }
 
-        // Counted over what the status options actually list, which excludes hidden
-        // entries — a "Planning (8)" that produces seven rows is a picker lying
-        // about its own options.
+        // Counted over exactly what the status options list. It used to exclude
+        // hidden entries because the listing did too — a "Planning (8)" that
+        // produced seven rows is a picker lying about its own options — and Phase
+        // 18b removed both halves of that.
         var countByStatus = await entries
-            .Where(e => !e.IsHidden)
             .GroupBy(e => e.Status)
             .Select(g => new { Status = g.Key, Count = g.Count() })
             .ToDictionaryAsync(x => x.Status, x => x.Count, cancellationToken);
@@ -309,7 +307,6 @@ public sealed class LibraryService(
             HasRecommendations = await entries.AnyAsync(e => e.RecommendationScore != null, cancellationToken),
             HasUnrankedEntries = await entries.AnyAsync(e => e.RecommendationScore == null, cancellationToken),
             HasUserScores = await entries.AnyAsync(e => e.UserScore != null, cancellationToken),
-            HiddenCount = await entries.CountAsync(e => e.IsHidden, cancellationToken),
 
             // Asked of the graph rather than of the library, and not narrowed to
             // owned titles: it is the same population the filter reads, so the chip
@@ -322,69 +319,11 @@ public sealed class LibraryService(
         };
     }
 
-    public Task<BulkActionResult> SetHiddenAsync(
-        int profileId,
-        IReadOnlyCollection<int> animeIds,
-        bool hidden,
-        IProgress<OperationProgress>? progress = null,
-        CancellationToken cancellationToken = default) =>
-        BulkUpdateAsync(
-            profileId,
-            animeIds,
-            entry => entry.IsHidden = hidden,
-            hidden ? "Hiding entries" : "Restoring entries",
-            progress,
-            cancellationToken);
-
-    private async Task<BulkActionResult> BulkUpdateAsync(
-        int profileId,
-        IReadOnlyCollection<int> animeIds,
-        Action<LibraryEntry> update,
-        string message,
-        IProgress<OperationProgress>? progress,
-        CancellationToken cancellationToken)
-    {
-        ArgumentNullException.ThrowIfNull(animeIds);
-
-        if (animeIds.Count == 0)
-        {
-            return new BulkActionResult(0, 0);
-        }
-
-        progress?.Report(new OperationProgress(message));
-
-        await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
-        await using var transaction = await context.Database.BeginTransactionAsync(cancellationToken);
-
-        var ids = animeIds.ToHashSet();
-
-        var entries = await context.LibraryEntries
-            .Where(e => e.ProfileId == profileId && ids.Contains(e.AnimeId))
-            .ToListAsync(cancellationToken);
-
-        var now = DateTimeOffset.UtcNow;
-        var done = 0;
-
-        foreach (var entry in entries)
-        {
-            update(entry);
-            entry.LastUpdated = now;
-            done++;
-
-            progress?.Report(new OperationProgress(message, done, entries.Count));
-        }
-
-        await context.SaveChangesAsync(cancellationToken);
-        await transaction.CommitAsync(cancellationToken);
-
-        logger.LogInformation(
-            "Bulk update '{Action}' applied to {Affected} of {Requested} requested entries",
-            message,
-            entries.Count,
-            animeIds.Count);
-
-        return new BulkActionResult(entries.Count, animeIds.Count - entries.Count);
-    }
+    // No BulkUpdateAsync. It applied one edit to many entries inside a transaction,
+    // reporting progress as it went, and hiding was the only edit that ever used it
+    // — so Phase 18b took the last caller with it. D26 already removed the bulk
+    // selection that would have given it more; if a filtered bulk action is ever
+    // wanted, D26 records what it would take.
 
     private static IQueryable<LibraryEntry> ApplyFilters(
         AniQueueDbContext context,
@@ -393,12 +332,6 @@ public sealed class LibraryService(
         LibraryQuery query)
     {
         var filtered = source.Where(e => e.ProfileId == profileId);
-
-        // Hidden is a view rather than a filter: either the whole listing is what
-        // was set aside, or none of it is.
-        filtered = query.HiddenOnly
-            ? filtered.Where(e => e.IsHidden)
-            : filtered.Where(e => !e.IsHidden);
 
         if (query.Status is { } status)
         {

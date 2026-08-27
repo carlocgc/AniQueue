@@ -51,12 +51,9 @@ else
             <input type="search" placeholder="Search titles" value="@_query.Search"
                    @oninput="OnSearchChangedAsync" aria-label="Search titles" />
 
-            @* One control for "which slice am I looking at", statuses and the hidden
-               list together. Hiding used to be a chip among the filters, which put
-               the only route back to a set-aside title in the same row as "Under 2
-               hours" — findable if you already knew, and not otherwise. It is
-               separated into its own group because it is a different axis: an entry
-               is hidden *and* Planning, not hidden *instead of* it. *@
+            @* Which slice of the library is being looked at. It used to carry a
+               second group listing what had been set aside; Phase 18b deleted
+               hiding, so status is the only slice there is. *@
             <select value="@_statusValue" @onchange="OnStatusChangedAsync" aria-label="Show">
                 <option value="">All statuses</option>
                 @foreach (var status in Enum.GetValues<LibraryStatus>())
@@ -67,16 +64,6 @@ else
                     {
                         <option value="@status">@status (@count)</option>
                     }
-                }
-
-                @* Offered while anything is hidden — and while it is being looked at
-                   even once nothing is, because unhiding the last entry must not
-                   pull the selected option out from under the user. *@
-                @if (Facets.HasHiddenEntries || _query.HiddenOnly)
-                {
-                    <optgroup label="Set aside">
-                        <option value="@HiddenValue">Hidden (@Facets.HiddenCount)</option>
-                    </optgroup>
                 }
             </select>
 
@@ -177,20 +164,10 @@ else
     {
         <div class="card">
             <div class="empty-state">
-                @* An empty hidden list is the expected end state rather than a dead
-                   end — it is what unhiding the last entry looks like — so it says
-                   so instead of offering to clear filters that are not the reason. *@
                 @* An empty library never reaches here — it is answered above, before
                    the filter bar is drawn at all. *@
-                @if (_query.HiddenOnly)
-                {
-                    <p>Nothing is hidden.</p>
-                }
-                else
-                {
-                    <p>Nothing matches those filters.</p>
-                    <button @onclick="ClearFiltersAsync">Clear filters</button>
-                }
+                <p>Nothing matches those filters.</p>
+                <button @onclick="ClearFiltersAsync">Clear filters</button>
             </div>
         </div>
     }
@@ -209,11 +186,10 @@ else
                                control per row, and naming them would put a word above
                                fifty chevrons.
 
-                               Adding leads the row and hiding ends it, with the whole
-                               table between them. They were adjacent, which put the
-                               action done constantly a few pixels from the one that
-                               takes a title out of the list — and both are small icon
-                               buttons, so the only thing separating them was aim. *@
+                               A hide button used to end the row, deliberately as far
+                               from the add button as the table is wide: both were
+                               small icons and only aim separated them. Phase 18b
+                               deleted hiding, so adding is the only action left. *@
                             <th class="add-col"></th>
                             <th class="expand-col"></th>
                             @* Beside the title rather than leading the row: it is the
@@ -232,13 +208,12 @@ else
                             {
                                 <th class="numeric">AI</th>
                             }
-                            <th class="actions-col"></th>
                         </tr>
                     </thead>
                     <tbody>
                         @foreach (var item in Page.Items)
                         {
-                            <tr class="@(IsHidden(item) ? "row-hidden" : null)">
+                            <tr>
                                 <td class="add-col">
                                     @* Present on every row and disabled where it cannot
                                        work, rather than absent: a control that comes and
@@ -296,10 +271,6 @@ else
                                         @if (IsQueued(item.AnimeId))
                                         {
                                             <span class="badge queued" title="Already in Up Next">Queued</span>
-                                        }
-                                        @if (IsHidden(item))
-                                        {
-                                            <span class="badge">Hidden</span>
                                         }
                                     </div>
                                     <div class="row-meta">
@@ -370,16 +341,6 @@ else
                                         }
                                     </td>
                                 }
-                                <td class="actions-col">
-                                    <div class="row-actions">
-                                        <button class="icon @(IsHidden(item) ? "restore" : null)"
-                                                title="@(IsHidden(item) ? "Show again in listings" : "Hide from listings")"
-                                                aria-label="@(IsHidden(item)
-                                                    ? $"Show {item.Title} in listings again"
-                                                    : $"Hide {item.Title} from listings")"
-                                                @onclick="() => SetHiddenAsync(item, !IsHidden(item))">@(IsHidden(item) ? "↺" : "⊘")</button>
-                                    </div>
-                                </td>
                             </tr>
 
                             @if (IsScoring(item.AnimeId))
@@ -680,12 +641,9 @@ else
     // lose the reader's place — to report a change they just made.
     //
     // Queue membership can be a plain set because a title is either in Up Next or it
-    // is not, and the page can say which for anything on screen. Hiding needs an
-    // override keyed by title instead: "no answer" has to stay distinguishable from
-    // "hidden false", or unhiding a row would be indistinguishable from never having
-    // touched it.
+    // is not, and the page can say which for anything on screen. Hiding needed a
+    // three-state override beside it, and Phase 18b deleted hiding.
     private readonly HashSet<int> _queued = [];
-    private readonly Dictionary<int, bool> _hiddenOverride = [];
 
     // How many relatives each visible row has, so a row with none draws no chevron
     // at all. One grouped query per page, loaded with it (D24).
@@ -710,18 +668,7 @@ else
     private readonly HashSet<int> _scoringOpen = [];
     private readonly Dictionary<int, RecommendationDetail?> _scoring = [];
 
-    /// <summary>
-    /// The hidden view's option value.
-    /// </summary>
-    /// <remarks>
-    /// Deliberately not a word <see cref="LibraryStatus"/> could ever parse as, so
-    /// that adding a status later cannot silently turn this into one — the parse
-    /// below is the only thing separating the two axes sharing this control.
-    /// </remarks>
-    private const string HiddenValue = "!hidden";
-
-    private string _statusValue =>
-        _query.HiddenOnly ? HiddenValue : _query.Status?.ToString() ?? string.Empty;
+    private string _statusValue => _query.Status?.ToString() ?? string.Empty;
 
     protected override async Task OnInitializedAsync()
     {
@@ -765,7 +712,6 @@ else
         // database is now the truth about these rows, and keeping a local answer on
         // top of it is how a page starts disagreeing with itself.
         _queued.Clear();
-        _hiddenOverride.Clear();
 
         foreach (var item in Page.Items.Where(i => i.IsQueued))
         {
@@ -802,28 +748,11 @@ else
     /// Switches which slice of the library is listed: a status, everything, or what
     /// has been set aside.
     /// </summary>
-    /// <remarks>
-    /// The hidden view widens the status to everything rather than keeping whatever
-    /// was selected. Hiding is orthogonal to status — an entry is hidden *and*
-    /// Planning — so carrying a status into it would silently answer "what have I
-    /// set aside" with only part of it, which is the wrong answer for a list whose
-    /// whole purpose is finding something to put back.
-    /// </remarks>
-    private Task OnStatusChangedAsync(ChangeEventArgs e)
-    {
-        var value = e.Value?.ToString();
-
-        if (value == HiddenValue)
+    private Task OnStatusChangedAsync(ChangeEventArgs e) =>
+        ApplyAsync(_query with
         {
-            return ApplyAsync(_query with { HiddenOnly = true, Status = null });
-        }
-
-        return ApplyAsync(_query with
-        {
-            HiddenOnly = false,
-            Status = Enum.TryParse<LibraryStatus>(value, out var status) ? status : null
+            Status = Enum.TryParse<LibraryStatus>(e.Value?.ToString(), out var status) ? status : null
         });
-    }
 
     private Task OnSortChangedAsync(ChangeEventArgs e) =>
         ApplyAsync(_query with
@@ -839,8 +768,7 @@ else
         ApplyAsync(new LibraryQuery
         {
             Take = PageSize,
-            Status = _query.Status,
-            HiddenOnly = _query.HiddenOnly
+            Status = _query.Status
         });
 
     // Quick filters toggle: pressing an active chip clears it, so a chip is never
@@ -1075,12 +1003,9 @@ else
     /// in order to make one number maintain itself. What is here instead is the
     /// warning, stated accurately: <b>adding a column means changing both of these.</b>
     /// </remarks>
-    private int ColumnCount => Facets is { HasRecommendations: true } ? 12 : 11;
+    private int ColumnCount => Facets is { HasRecommendations: true } ? 11 : 10;
 
     private bool IsQueued(int animeId) => _queued.Contains(animeId);
-
-    private bool IsHidden(LibraryListItem item) =>
-        _hiddenOverride.TryGetValue(item.AnimeId, out var hidden) ? hidden : item.IsHidden;
 
     /// <summary>
     /// Puts one title into Up Next or takes it out again, from a row or from an
@@ -1123,34 +1048,6 @@ else
         // do, in either direction: queue season three by hand and the button offering
         // to queue the run has one fewer to add; unqueue it and it has one more.
         await RefreshSequelCountsAsync();
-    }
-
-    /// <summary>
-    /// Hides or restores one entry, in place.
-    /// </summary>
-    /// <remarks>
-    /// The row stays where it is rather than vanishing, wearing the Hidden badge
-    /// until the list is next read. A row that disappeared the instant it was hidden
-    /// would look like a delete, and hiding is the one action here that has to be
-    /// obviously reversible — so the button that did it stays under the cursor,
-    /// offering to undo it.
-    ///
-    /// The facets are re-read because hiding the first entry is what makes the
-    /// "Show hidden" chip exist at all, and unhiding the last is what should take it
-    /// away.
-    /// </remarks>
-    private async Task SetHiddenAsync(LibraryListItem item, bool hidden)
-    {
-        var result = await LibraryService.SetHiddenAsync(Profile.DefaultProfileId, [item.AnimeId], hidden);
-
-        if (result.Affected == 0)
-        {
-            return;
-        }
-
-        _hiddenOverride[item.AnimeId] = hidden;
-
-        Facets = await LibraryService.GetFacetsAsync(Profile.DefaultProfileId);
     }
 
     private static string Active(bool isActive) => isActive ? "active" : string.Empty;
