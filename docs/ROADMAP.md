@@ -2818,6 +2818,43 @@ in a way nothing else explains, `episodeMinutes` comes back on its own.
 unaffected: nothing read these fields back, and a model that saw them in an older request is not
 holding anything a new request contradicts.
 
+### D53 — A page rendering a number is not a request
+
+*Adds `IRecommendationService.MeasureAsync`. Amends Phase 7b's size estimate.*
+
+The Recommendations page prints how large a run would be before anybody asks for one, and it
+found that out by building two whole scoring requests: one of a single candidate for the fixed
+cost, one of two so the difference gave the cost of a further title. Measuring rather than
+estimating was right — a candidate carrying three title variants and two external identifiers is
+several times the size of one written by hand — and the way it was done was not.
+
+**It read and serialised every rated title twice to render one number.** On a real library that
+is 563 history rows, twice, and the page initialises twice per visit because it prerenders and
+then initialises again when its circuit connects. Four full history reads to show a figure nobody
+had asked for. The method's own comment said it existed so that "building a whole request to
+render a number would mean loading the backlog on every page view" — which it then did, twice.
+
+**And both probes logged at the level a real request logs at**, so a server log on an idle page
+filled with `Built a scoring request for profile 1: 1 candidates, 563 of 563 scored titles`. That
+line is worth having when a ranking is about to happen and is noise otherwise, and nothing could
+tell the two apart because nothing was told.
+
+**Decision:** the measurement is its own operation. `MeasureAsync` returns the two numbers the
+page needs — a baseline and a slope — plus the two counts it was reading the requests for anyway.
+It builds **one** request of two candidates and takes the baseline by re-serialising that same
+record with a shorter candidate list, which costs nothing because it is already in memory. One
+database read per call rather than two, and the Information line now only ever describes a
+request somebody is going to send.
+
+`ScoringSizeEstimate.CharactersFor` carries the arithmetic, so the page multiplies rather than
+re-deriving a formula the service already knows.
+
+**A bug fell out of it.** The old probes never passed `IncludePersonalNotes`, while the request
+they were predicting does. Somebody who had opted in was told their request was smaller than the
+one they would actually send — on the one card whose number exists to warn about a model's
+context limit. The measurement now takes the same options a request takes, and ignores only the
+candidate limit, because it always probes with two and the caller multiplies.
+
 ---
 
 ## 3. Solution structure
@@ -3056,7 +3093,7 @@ would invalidate every reply a user is holding.
 | `IRelationBackfill` | Infrastructure | fills the relation graph in, and reports how much of it is known |
 | `IRelationService` | Infrastructure | a title's relations, tagged and ordered; the sequel walk (D24) |
 | `IImportService` | Infrastructure | orchestrates the import pipeline |
-| `IRecommendationService` | Infrastructure | Phase 7 — build the export, validate a response, apply it, keep run history |
+| `IRecommendationService` | Infrastructure | Phase 7 — build the export, measure what one would cost (D53), validate a response, apply it, keep run history |
 | `IAnimeListParser` | **Core** (incl. impls) | `MyAnimeListXmlParser`, `AniListJsonParser` — pure, no database |
 | `IAniListClient` | Infrastructure | HTTP, GraphQL, paging, rate limits. Produces streams the parser reads |
 | `ISyncService` | Infrastructure | Orchestrates fetch → preview → apply per source; owns `SyncRun` |

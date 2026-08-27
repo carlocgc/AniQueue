@@ -34,6 +34,28 @@ public sealed class RecommendationService(
         ScoringHistorySnapshot? history = null,
         CancellationToken cancellationToken = default)
     {
+        var request = await ReadRequestAsync(profileId, options, history, cancellationToken);
+
+        // Logged here rather than in the read below, so the line means what it says: a
+        // request somebody asked for and is going to send. <see cref="MeasureAsync"/>
+        // builds one too and does not log at this level, because a page rendering a size
+        // estimate is not a ranking about to happen (D53).
+        logger.LogInformation(
+            "Built a scoring request for profile {ProfileId}: {Candidates} candidates, {History} of {Available} scored titles.",
+            profileId,
+            request.Candidates.Count,
+            request.History.Count,
+            request.HistoryAvailable);
+
+        return request;
+    }
+
+    private async Task<ScoringRequest> ReadRequestAsync(
+        int profileId,
+        ScoringRequestOptions? options,
+        ScoringHistorySnapshot? history,
+        CancellationToken cancellationToken)
+    {
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
 
         // Everything about how much to send now arrives as an argument. It used to be
@@ -64,13 +86,6 @@ public sealed class RecommendationService(
         // passes nothing and reads it here, which is the same behaviour as before.
         var snapshot = history ?? await ReadHistoryAsync(
             context, profileId, options.MaxHistory, cancellationToken);
-
-        logger.LogInformation(
-            "Built a scoring request for profile {ProfileId}: {Candidates} candidates, {History} of {Available} scored titles.",
-            profileId,
-            candidates.Count,
-            snapshot.Entries.Count,
-            snapshot.Available);
 
         return new ScoringRequest
         {
@@ -125,6 +140,54 @@ public sealed class RecommendationService(
             .ToListAsync(cancellationToken);
 
         return new ScoringHistorySnapshot { Entries = history, Available = available };
+    }
+
+    public async Task<ScoringSizeEstimate> MeasureAsync(
+        int profileId,
+        ScoringRequestOptions? options = null,
+        CancellationToken cancellationToken = default)
+    {
+        options ??= ScoringRequestOptions.Default;
+
+        // Two candidates, once. The one-candidate request the baseline needs is this
+        // same request with a shorter list, and re-serialising a record already in
+        // memory costs nothing — where asking for it separately cost a second read of
+        // every rated title (D53).
+        var probe = await ReadRequestAsync(
+            profileId,
+            options with { MaxCandidates = 2 },
+            history: null,
+            cancellationToken);
+
+        var baseline = probe with { Candidates = [.. probe.Candidates.Take(1)] };
+
+        var withTwo = ScoringRequestWriter.Write(probe).Length;
+        var withOne = ScoringRequestWriter.Write(baseline).Length;
+
+        logger.LogDebug(
+            "Measured a scoring request for profile {ProfileId}: {Baseline} characters plus "
+            + "{PerCandidate} per title, over {Candidates} waiting and {History} rated.",
+            profileId,
+            withOne,
+            withTwo - withOne,
+            probe.CandidatesAvailable,
+            probe.HistoryAvailable);
+
+        return new ScoringSizeEstimate
+        {
+            CandidatesAvailable = probe.CandidatesAvailable,
+            HistoryAvailable = probe.HistoryAvailable,
+
+            // Instructions included, because they are sent too and they are not free —
+            // the prompt states the scale, the counts and the rules, and on a small
+            // model that is context like any other.
+            BaselineCharacters = withOne + ScoringPromptBuilder.Build(baseline).Length,
+
+            // Never negative. A backlog of one title makes both writes the same length,
+            // and a subtraction that can only be zero should not be able to look like
+            // a saving.
+            PerCandidateCharacters = Math.Max(withTwo - withOne, 0)
+        };
     }
 
     public async Task<ScoringPreview> PreviewAsync(

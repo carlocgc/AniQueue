@@ -1323,4 +1323,79 @@ public class RecommendationServiceTests
             p => p.Message.Contains("3 further title(s) are no longer waiting", StringComparison.Ordinal));
     }
 
+
+    [Fact]
+    public async Task A_size_estimate_reports_what_is_there_to_send()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        await using var context = fixture.Database.CreateContext();
+
+        for (var i = 0; i < 4; i++)
+        {
+            await AddAsync(context, fixture.ProfileId, $"Waiting {i}");
+        }
+
+        await AddAsync(context, fixture.ProfileId, "Rated", LibraryStatus.Completed, userScore: 8);
+
+        var estimate = await fixture.Recommendations.MeasureAsync(fixture.ProfileId);
+
+        Assert.Equal(4, estimate.CandidatesAvailable);
+        Assert.Equal(1, estimate.HistoryAvailable);
+        Assert.True(estimate.BaselineCharacters > 0);
+        Assert.True(estimate.PerCandidateCharacters > 0);
+    }
+
+    [Fact]
+    public async Task A_size_estimate_predicts_what_a_real_request_costs()
+    {
+        // The whole point of measuring rather than estimating, and the only assertion
+        // that can catch the slope being wrong: a request of five identical-sized titles
+        // must be four slopes longer than a request of one.
+        await using var fixture = await Fixture.CreateAsync();
+        await using var context = fixture.Database.CreateContext();
+
+        for (var i = 0; i < 5; i++)
+        {
+            await AddAsync(context, fixture.ProfileId, $"Waiting {i}", aniListId: $"1000{i}");
+        }
+
+        var estimate = await fixture.Recommendations.MeasureAsync(fixture.ProfileId);
+
+        var one = await fixture.Recommendations.BuildRequestAsync(
+            fixture.ProfileId, ScoringRequestOptions.From(null, candidateLimit: 1));
+
+        var five = await fixture.Recommendations.BuildRequestAsync(
+            fixture.ProfileId, ScoringRequestOptions.From(null, candidateLimit: 5));
+
+        var actual = ScoringRequestWriter.Write(five).Length - ScoringRequestWriter.Write(one).Length;
+
+        Assert.Equal(4 * estimate.PerCandidateCharacters, actual);
+    }
+
+    [Fact]
+    public async Task A_size_estimate_counts_personal_notes_when_they_travel()
+    {
+        // The old pair of probes never passed this flag, so somebody who had opted in
+        // was told their request was smaller than the one they would actually send —
+        // on the one card whose number exists to warn about a model's context limit.
+        await using var fixture = await Fixture.CreateAsync();
+        await using var context = fixture.Database.CreateContext();
+
+        for (var i = 0; i < 2; i++)
+        {
+            await AddAsync(
+                context,
+                fixture.ProfileId,
+                $"Waiting {i}",
+                notes: "Recommended by a friend who has never been wrong about this.");
+        }
+
+        var without = await fixture.Recommendations.MeasureAsync(fixture.ProfileId);
+
+        var with = await fixture.Recommendations.MeasureAsync(
+            fixture.ProfileId,
+            ScoringRequestOptions.From(null, candidateLimit: null, includePersonalNotes: true));
+
+        Assert.True(with.PerCandidateCharacters > without.PerCandidateCharacters);
+    }
 }

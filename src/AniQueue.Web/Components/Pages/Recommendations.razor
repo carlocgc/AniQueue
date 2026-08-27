@@ -903,11 +903,8 @@ else
         }
     }
 
-    /// <summary>Characters in a one-candidate request, so the fixed part can be sized.</summary>
-    private int _baselineCharacters;
-
-    /// <summary>Characters one candidate adds, measured rather than assumed.</summary>
-    private int _perCandidateCharacters;
+    /// <summary>What a request would cost, measured once per load (D53).</summary>
+    private ScoringSizeEstimate? _estimate;
 
     /// <summary>
     /// Roughly how much a run would ask the model to read.
@@ -923,10 +920,14 @@ else
     {
         get
         {
-            var candidates = Math.Min(_candidateLimit ?? _waitingCount, _waitingCount);
-            var characters = _baselineCharacters + (Math.Max(candidates - 1, 0) * _perCandidateCharacters);
+            if (_estimate is not { } estimate)
+            {
+                return 0;
+            }
 
-            return characters / 4;
+            var candidates = Math.Min(_candidateLimit ?? _waitingCount, _waitingCount);
+
+            return estimate.CharactersFor(candidates) / 4;
         }
     }
 
@@ -1056,31 +1057,26 @@ else
     /// </remarks>
     private async Task CountWaitingAsync()
     {
-        // Two requests rather than one, and the second is what makes the size on the
-        // card mean anything: a request with the real history and one candidate is the
-        // fixed cost, and the difference against two candidates is what each further
-        // title adds. Measuring beats estimating here because a candidate carrying
-        // three title variants and two external ids is several times the size of one
-        // added by hand, and which a library has is not something to guess at.
-        var baseline = await Scoring.BuildRequestAsync(
+        // One call, and it is the service that decides how to answer it (D53). This was
+        // two BuildRequestAsync calls, which read and serialised every rated title twice
+        // to render one number — four times a visit, because this page prerenders and
+        // initialises again when its circuit connects.
+        //
+        // The notes flag travels with it, which the old pair did not carry: a request
+        // built with personal notes is bigger than one without, so leaving it out
+        // under-reported the size for exactly the person who had opted in.
+        _estimate = await Scoring.MeasureAsync(
             Profile.DefaultProfileId,
-            ScoringRequestOptions.From(_historySize, candidateLimit: 1));
+            ScoringRequestOptions.From(
+                _historySize,
+                candidateLimit: null,
+                includePersonalNotes: ScoringOptions.CurrentValue.IncludePersonalNotes));
 
-        var withTwo = await Scoring.BuildRequestAsync(
-            Profile.DefaultProfileId,
-            ScoringRequestOptions.From(_historySize, candidateLimit: 2));
-
-        _waitingCount = baseline.CandidatesAvailable;
-        _scoredCount = baseline.HistoryAvailable;
+        _waitingCount = _estimate.CandidatesAvailable;
+        _scoredCount = _estimate.HistoryAvailable;
 
         _staleAfterRatings = ScoringOptions.CurrentValue.StaleAfterRatings;
         _coverage = await Scoring.GetCoverageAsync(Profile.DefaultProfileId, _staleAfterRatings);
-        _baselineCharacters = ScoringRequestWriter.Write(baseline).Length
-            + ScoringPromptBuilder.Build(baseline).Length;
-
-        _perCandidateCharacters = Math.Max(
-            ScoringRequestWriter.Write(withTwo).Length - ScoringRequestWriter.Write(baseline).Length,
-            0);
     }
 
     private async Task BuildAsync()

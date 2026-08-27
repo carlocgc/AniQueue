@@ -92,6 +92,11 @@ public class ScoringSweepJobTests
 
         public ScoringRoute? Route { get; private set; }
 
+        /// <summary>Never called by the sweep. The page is the only caller (D53).</summary>
+        public Task<ScoringSizeEstimate> MeasureAsync(
+            int profileId, ScoringRequestOptions? options = null, CancellationToken ct = default) =>
+            throw new NotSupportedException("The sweep does not measure requests.");
+
         /// <summary>The route the job asked for, so a test can assert it (D50).</summary>
         public Task<ScoringPreview> PreviewAsync(int profileId, ScoringRoute route, string json, ScoringRequest? request = null, CancellationToken ct = default)
         {
