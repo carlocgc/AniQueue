@@ -502,15 +502,22 @@
 
             <div class="field">
                 <label for="return-top">Rankings to ask for back</label>
+                @* "All N of them", the same sentence the two fields either side of it use
+                   when empty (D51). It read "One for every title", which is the same fact
+                   said a different way — and three controls that all mean everything when
+                   left alone should not need three readings to establish that. The number
+                   is what a limit here is measured against, so saying it is also what makes
+                   a typed value obviously smaller or obviously pointless. *@
                 <input id="return-top" type="number" min="1" max="@MaxReturnTop"
-                       placeholder="One for every title" disabled="@_busy.IsRunning"
+                       placeholder="All @MaxReturnTop of them" disabled="@_busy.IsRunning"
                        @bind="_returnTop" @bind:event="oninput" />
                 <p class="muted">
-                    The model still weighs every title you send; this asks it to return only
-                    the best of them. At most @MaxReturnTop, because nothing can come back
-                    that was not offered. Worth setting when the reply is the slow part — a
-                    ranking with a sentence of reasoning per title is generated a word at a
-                    time, and a long one can run out of room halfway down the list.
+                    Leave this empty to get a ranking for every title you send — all
+                    @MaxReturnTop of them, because nothing can come back that was not offered.
+                    Set a number and the model still weighs every title; it just returns the
+                    best of them. Worth setting when the reply is the slow part: a ranking
+                    with a sentence of reasoning per title is generated a word at a time, and
+                    a long one can run out of room halfway down the list.
                 </p>
             </div>
 

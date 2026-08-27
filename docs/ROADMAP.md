@@ -2769,6 +2769,12 @@ navigates to is scaffolding for a use that has not appeared.
 Its two count columns are right-aligned in the header as well as the body. They were `numeric`
 cells under plain headers, so each label sat over the far edge of the numbers it names.
 
+**All three size fields now say the same thing when empty.** *Rankings to ask for back* read
+"One for every title", which is the same fact as "All 237 of them" said a different way — and
+three controls that all mean everything when left alone should not need three readings to
+establish it. None of them accepts zero any more: it was never reachable on two of them, and the
+third is what this decision retired.
+
 ---
 
 ## 3. Solution structure
