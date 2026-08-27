@@ -543,88 +543,12 @@ button:has(> .icon-glyph), .button:has(> .icon-glyph) {
 
 .badge.queued { background: var(--accent); color: var(--accent-text); border-color: transparent; }
 
-/* Related titles ---------------------------------------------------------- */
+/* The set a title comes with ---------------------------------------------- */
 
-/* The chevron is drawn only for rows that have something to open (D24), so the
-   column is mostly empty — which is the signal. A fixed width stops the title
-   column shifting between rows that have one and rows that do not. */
-.expand-col { width: 1%; white-space: nowrap; padding-right: 0; }
-
-.expander {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.3rem;
-    padding: 0.15rem 0.4rem;
-    background: none;
-    border: 1px solid transparent;
-    color: var(--text-muted);
-    font-variant-numeric: tabular-nums;
-}
-
-.expander:hover, .expander:focus-visible { color: var(--text); border-color: var(--border); }
-
-/* A triangle from a border trick rather than a glyph: a text arrow inherits the
-   font's own idea of alignment and drifts against the row. */
-.expander .chevron {
-    width: 0;
-    height: 0;
-    border-top: 0.3rem solid transparent;
-    border-bottom: 0.3rem solid transparent;
-    border-left: 0.4rem solid currentColor;
-    transition: transform 0.12s ease-out;
-}
-
-.expander.open .chevron { transform: rotate(90deg); }
-
-.expander .count { font-size: 0.8rem; }
-
-/* The score, made pressable without ceasing to be the score. It borrows the
-   expander's behaviour but keeps the column's alignment and tabular figures,
-   because the number is what the column is for and a sorted listing has to stay
-   readable down its edge. */
-.score-expander {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.35rem;
-    padding: 0.15rem 0.35rem;
-    background: none;
-    border: 1px solid transparent;
-    color: inherit;
-    font: inherit;
-    font-variant-numeric: tabular-nums;
-}
-
-.score-expander:hover, .score-expander:focus-visible { border-color: var(--border); }
-
-.score-expander .chevron {
-    width: 0;
-    height: 0;
-    border-top: 0.28rem solid transparent;
-    border-bottom: 0.28rem solid transparent;
-    border-left: 0.36rem solid currentColor;
-    color: var(--text-muted);
-    transition: transform 0.12s ease-out;
-}
-
-.score-expander.open .chevron { transform: rotate(90deg); }
-
-/* Tinted rather than bordered: the expansion belongs to the row above it, and a
-   box around it would read as a separate thing on the page. */
-.relations-row > td, .scoring-row > td { background: var(--surface-alt); }
-
-.relations-row:hover > td, .scoring-row:hover > td { background: var(--surface-alt); }
-
-.scoring-detail h3 {
-    font-size: 0.78rem;
-    text-transform: uppercase;
-    letter-spacing: 0.04em;
-    color: var(--text-muted);
-    margin: 0 0 0.4rem;
-}
-
-/* The reasoning is a sentence to read, so it is given a measure rather than the
-   full width of a table that may be a very wide one. */
-.scoring-detail .reason { margin: 0 0 0.6rem; max-width: 60ch; }
+/* Two expandable rows lived here until 18c — a chevron column, a pressable score,
+   and the tinted rows they opened. Both moved into the detail dialog, where the
+   reasoning already was and where a phone can read either. What is left is the
+   list itself and the one control above it, restyled for the dialog. */
 
 /* Label above value rather than beside it: the four facts are short and of
    different lengths, and a two-column grid of them leaves one column mostly air. */
@@ -651,24 +575,24 @@ button:has(> .icon-glyph), .button:has(> .icon-glyph) {
 /* The only control on the page that acts on more than one title, so it is the only
    one that is a worded button rather than a glyph — "queue six things" is not
    something an icon should be trusted to say. */
-.relations-action { display: flex; align-items: center; gap: 0.5rem; margin: 0 0 0.6rem; }
+.detail-set-action { display: flex; align-items: center; gap: 0.5rem; margin: 0 0 0.6rem; }
 
-.relations-action .follow { padding: 0.3rem 0.6rem; font-size: 0.85rem; }
+.detail-set-action .follow { padding: 0.3rem 0.6rem; font-size: 0.85rem; }
 
-.relations-action .follow:hover:not(:disabled) { color: var(--accent); }
+.detail-set-action .follow:hover:not(:disabled) { color: var(--accent); }
 
 /* Carries the size, so the button says how big the commitment is before it is
    made rather than after. */
-.relations-action .badge.count {
+.detail-set-action .badge.count {
     margin-left: 0.4rem;
     background: var(--accent);
     color: var(--accent-text);
     border-color: transparent;
 }
 
-.relations { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.35rem; }
+.detail-set-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.35rem; }
 
-.relations li {
+.detail-set-list li {
     display: flex;
     align-items: center;
     gap: 0.45rem;
@@ -1425,6 +1349,45 @@ button.danger:hover:not(:disabled) { filter: brightness(0.95); }
     white-space: pre-wrap;
 }
 
+/* Who decided the score, when, and carried how. Under the reasoning because it
+   qualifies it: the sentence is the claim and these three say how much to trust it. */
+.detail-provenance {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.35rem 1.4rem;
+    margin: 0.5rem 0 0;
+}
+
+.detail-provenance > div { display: block; }
+
+.detail-provenance dt {
+    font-size: 0.7rem;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--text-muted);
+}
+
+.detail-provenance dd { margin: 0.1rem 0 0; font-size: 0.85rem; }
+
+.detail-provenance-missing { margin: 0.5rem 0 0; font-size: 0.85rem; }
+
+/* Below the synopsis and clear of the poster, because it is a list rather than
+   prose and would read as a stray column in the channel beside the art. */
+.detail-set {
+    clear: both;
+    margin-top: var(--gap);
+    padding-top: var(--gap);
+    border-top: 1px solid var(--border);
+}
+
+.detail-set h3 {
+    font-size: 0.78rem;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--text-muted);
+    margin: 0 0 0.5rem;
+}
+
 /* Never beside the picture. A row of links wrapping into the narrow channel left by
    a floated poster reads as a stray column rather than as the foot of the dialog. */
 .detail-links { clear: both; }
@@ -1520,13 +1483,6 @@ button.danger:hover:not(:disabled) { filter: brightness(0.95); }
        above it is more specific and would otherwise put the thumbnail back. */
     table.library td.cover-col, table.queue td.cover-col { display: none; }
 
-    /* The spacer column of an expansion row, and an expander with nothing to expand.
-       Left as blocks they each take a gap of nothing. Not :empty, which a cell
-       holding only the whitespace Razor renders does not match. */
-    table.library tr.relations-row td:first-child,
-    table.library tr.scoring-row td:first-child,
-    table.library td.expand-col:not(:has(*)) { display: none; }
-
     table.library tbody td[data-label]::before,
     table.queue tbody td[data-label]::before {
         content: attr(data-label);
@@ -1536,7 +1492,7 @@ button.danger:hover:not(:disabled) { filter: brightness(0.95); }
     /* Line one, in the order a hand reaches for it: what acts on the row, then
        what the row is, then what removes it. */
     table.library td.add-col, table.queue td.handle-col { order: 1; }
-    table.library td.expand-col, table.queue td.position-col { order: 2; }
+    table.queue td.position-col { order: 2; }
 
     table.library td.title-col, table.queue td.title-col {
         order: 3;
@@ -1566,12 +1522,4 @@ button.danger:hover:not(:disabled) { filter: brightness(0.95); }
        you can send it. Drag still works where a pointer exists; these are what a
        touch screen has instead. */
     table.queue td.actions-col { order: 7; flex-basis: 100%; justify-content: flex-start; }
-
-    /* An expansion panel is prose and a list, not a cell. */
-    table.library tr.relations-row td, table.library tr.scoring-row td {
-        flex-basis: 100%;
-        display: block;
-        color: var(--text);
-        font-size: 0.92rem;
-    }
 }

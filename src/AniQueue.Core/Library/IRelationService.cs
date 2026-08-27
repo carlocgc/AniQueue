@@ -4,14 +4,14 @@ using AniQueue.Core.Queue;
 namespace AniQueue.Core.Library;
 
 /// <summary>
-/// One title the user owns, shown against another it is related to (D24).
+/// One title the user owns, listed as part of another title's set (D24, D55).
 /// </summary>
 /// <remarks>
-/// Deliberately not a <see cref="LibraryListItem"/>. An expansion is context
-/// rather than a result: nothing is selected, queued or sorted from it,
-/// and the AI columns have no meaning beside a relative. Reusing the row type
-/// would carry every one of those fields into a query that has no use for them,
-/// and would invite the expansion to grow a copy of the toolbar above it.
+/// Deliberately not a <see cref="LibraryListItem"/>. A set is context rather than a
+/// result: nothing is sorted or filtered from it, and the AI columns have no meaning
+/// beside a title you are being shown for orientation. Reusing the row type would
+/// carry every one of those fields into a query that has no use for them, and would
+/// invite the list to grow a copy of the backlog's toolbar.
 /// </remarks>
 public sealed record RelatedTitle
 {
@@ -46,10 +46,14 @@ public sealed record RelatedTitle
     public bool IsQueued { get; init; }
 
     /// <summary>
-    /// How the source says the two are related, or null when the edges disagree.
+    /// How the source says the two are related, where it says anything at all.
     /// </summary>
     /// <remarks>
-    /// Null is a real answer rather than missing data — see <see cref="Label"/>.
+    /// Null is a real answer rather than missing data, and it now means one of two
+    /// things. The edges may disagree — see <see cref="Label"/>. Or the title may
+    /// simply be further than one edge away, which since D55 is routine: season one
+    /// is in season three's set without any edge between them saying so, and calling
+    /// that "Prequel" would state a relationship the source did not.
     /// </remarks>
     public RelationType? Relation { get; init; }
 
@@ -72,58 +76,49 @@ public sealed record RelatedTitle
 }
 
 /// <summary>
-/// Answers what a title is related to, for the rows the backlog is showing (D24).
+/// Answers what one title comes with: the set a complete box set would hold (D55).
 ///
-/// There are no groups here and there will not be. A title's relatives are a
-/// property of that title, read one edge out, which is why this is a lookup keyed
-/// by anime id rather than anything that returns a set of sets.
+/// There are no groups here and there will not be. This is keyed by anime id and
+/// answered per title, because a set is a property of the title you asked about
+/// rather than a thing stored anywhere (D23).
 /// </summary>
 /// <remarks>
-/// Split into a count and a detail deliberately, and the split is what makes the
-/// page affordable. Fifty rows need to know only whether they have anything to
-/// show — a row with no relatives shows no chevron at all, because a control that
-/// sometimes does nothing teaches people to stop pressing it — and that is one
-/// grouped query. The rest is loaded when somebody actually expands a row.
+/// <b>The set is the same work, followed as far as it goes.</b> Prequel, sequel,
+/// parent and side-story edges are the ones a box set is assembled along — main
+/// seasons and their specials — so the walk follows those transitively and stops at
+/// nothing else. Spin-offs, alternative versions, recaps and compilations are not in
+/// the box: a separate work set in the same world is a different purchase, and a
+/// remake or a recap is the same story told again.
+///
+/// <b>This reverses D24's "one edge out, never transitive" for this surface, and
+/// deliberately.</b> One edge out was right for a panel injected into a list, where
+/// the question was "how is this connected". The dialog asks a bigger question —
+/// what am I taking on if I start here — and season one is the answer to it from
+/// season three, one edge away or three.
 /// </remarks>
 public interface IRelationService
 {
     /// <summary>
-    /// How many displayable relatives each of the given titles has.
+    /// The set one title belongs to, in release order, excluding the title itself.
     /// </summary>
     /// <remarks>
-    /// One query for the whole page, and it counts exactly what an expansion would
-    /// list: owned, one edge out, the title itself excluded. A badge
-    /// that promised more than the panel below it opened would be worse than no
-    /// badge, so the two share their definition rather than their nerve.
-    ///
-    /// Titles with nothing are absent from the result rather than present as zero.
-    /// </remarks>
-    Task<IReadOnlyDictionary<int, int>> GetRelatedCountsAsync(
-        int profileId,
-        IReadOnlyCollection<int> animeIds,
-        CancellationToken cancellationToken = default);
-
-    /// <summary>
-    /// What one title is related to, tagged and in release order.
-    /// </summary>
-    /// <remarks>
-    /// <b>One edge out, never transitive.</b> Season five is not the sequel of
-    /// season one, and a walk that kept going would pull an entire franchise into a
-    /// panel opened to answer a much smaller question.
-    ///
-    /// <b>Owned titles only.</b> Relations reach thousands of titles the user has
+    /// <b>Owned titles only.</b> The walk reaches thousands of titles the user has
     /// never expressed an interest in, and the only action AniQueue could offer for
-    /// one of those is "go and add this somewhere else yourself" (D11).
+    /// one of those is "go and add this somewhere else yourself" (D11). It walks
+    /// through them, though: an unowned middle season is a gap in the results rather
+    /// than a wall, because the walk happens in external identifiers and resolves to
+    /// library rows only at the end.
     ///
-    /// <b>Every status.</b> A completed prequel is the most useful thing an
-    /// expansion can say — it is why the title in front of you makes sense — so an
-    /// expansion is not filtered the way results are. Hidden used to be the one
-    /// exception; Phase 18b deleted hiding, so there is no exception left.
+    /// <b>Every status.</b> A completed prequel is the most useful thing this can
+    /// say — it is why the title in front of you makes sense.
     ///
     /// <b>Release order, and nothing else.</b> AniList publishes no viewing
-    /// sequence, and a topological sort along prequel edges produces *story* order,
+    /// sequence, and a topological sort along prequel edges produces story order,
     /// which is frequently the wrong watch order. Release order is a fact the source
     /// supplies; story order would be an opinion (D24). Unknown dates sort last.
+    ///
+    /// <see cref="RelatedTitle.Relation"/> is set only for titles one edge away and
+    /// null for anything further — see the note on that property.
     /// </remarks>
     Task<IReadOnlyList<RelatedTitle>> GetRelatedAsync(
         int profileId,
@@ -131,43 +126,36 @@ public interface IRelationService
         CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// How many titles <see cref="AddWithSequelsAsync"/> would put in the queue, so
-    /// the action can name its own size before anybody presses it.
+    /// How many titles <see cref="QueueSetAsync"/> would put in the queue, so the
+    /// action can name its own size before anybody presses it.
     /// </summary>
     /// <remarks>
-    /// Counts what the walk would actually append — owned, still Planning, not
-    /// already queued — so "queue this and two sequels" is a promise rather than an
-    /// estimate. Zero means the action is not worth offering at all: everything that
-    /// follows is either already queued or already watched.
+    /// Counts what would actually be appended — owned, still Planning, not already
+    /// queued — so "queue five titles" is a promise rather than an estimate. The
+    /// title the dialog is open on counts too, because it is part of its own set.
+    /// Zero means the action is not worth offering at all: everything in the set is
+    /// already queued or already watched.
     /// </remarks>
-    Task<int> CountSequelsToQueueAsync(
+    Task<int> CountToQueueAsync(
         int profileId,
         int animeId,
         CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Queues a title and everything that follows it, in release order (D24).
+    /// Queues a title and the whole set it belongs to, in release order (D55).
     /// </summary>
     /// <remarks>
-    /// <b>Transitive, unlike everything else here</b>, and that is the point: the
-    /// expansion answers "how is this connected", which stops at one edge, while this
-    /// answers "what am I signing up for", which does not. Season five is reached from
-    /// season one precisely because the user asked for the run.
+    /// <b>Both directions, unlike the sequel walk this replaces.</b> That one went
+    /// forward only, on the grounds that prequels are seasons the user has already
+    /// watched. They are not always, and an unwatched prequel is the single best
+    /// reason not to start here — while status already excludes the watched ones,
+    /// because a Completed season is refused by the queue whichever direction it was
+    /// reached from. The direction rule was doing work status was doing anyway.
     ///
-    /// <b>It traverses through titles it will not queue.</b> A Completed season four
-    /// between three and five must not stop the walk, and neither must a season the
-    /// user does not own at all — the walk happens in external identifiers and
-    /// resolves to library rows only at the end, so a gap in the collection is a gap
-    /// in the results rather than a wall.
-    ///
-    /// <b>Forward only.</b> Prequels are excluded by construction, which is what makes
-    /// this better than the franchise expansion it replaces: that one proposed the
-    /// seasons the user had already watched, every time.
-    ///
-    /// <b>Recaps and compilations are skipped</b> even when the chain runs through
+    /// <b>Recaps and compilations are skipped</b> even when the walk runs through
     /// them, because a recap film linked as the sequel of one season and the prequel
-    /// of the next is exactly how AniList threads them — and nobody asking for "the
-    /// rest of this series" means the summary of the part they just watched.
+    /// of the next is exactly how AniList threads them — and nobody asking for the
+    /// rest of a series means the summary of the part they just watched.
     ///
     /// <b>It writes nothing itself.</b> The ordered set goes to
     /// <see cref="IQueueService.AddAnimeAsync"/>, which is what keeps the contiguity
@@ -175,7 +163,7 @@ public interface IRelationService
     /// does for a single press — so the result accounts for a Completed season the
     /// walk passed through rather than silently dropping it.
     /// </remarks>
-    Task<QueueAddResult> AddWithSequelsAsync(
+    Task<QueueAddResult> QueueSetAsync(
         int profileId,
         int animeId,
         CancellationToken cancellationToken = default);

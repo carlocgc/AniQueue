@@ -1,11 +1,8 @@
 @page "/backlog"
 @using System.Globalization
 @using AniQueue.Core.Queue
-@using AniQueue.Core.Recommendations
 @inject ILibraryService LibraryService
-@inject IRelationService RelationService
 @inject IQueueService QueueService
-@inject IRecommendationService Scoring
 
 <PageTitle>Backlog — AniQueue</PageTitle>
 
@@ -191,7 +188,6 @@ else
                                small icons and only aim separated them. Phase 18b
                                deleted hiding, so adding is the only action left. *@
                             <th class="add-col"></th>
-                            <th class="expand-col"></th>
                             @* Beside the title rather than leading the row: it is the
                                same fact as the title, said faster (§10), so the two
                                belong together and the control columns stay where the
@@ -224,32 +220,6 @@ else
                                     <QueueButton AnimeId="item.AnimeId" Title="@item.Title"
                                                  Status="item.Status" IsQueued="IsQueued(item.AnimeId)"
                                                  OnToggle="ToggleQueuedAsync" />
-                                </td>
-                                <td class="expand-col">
-                                    @* Drawn only when there is something to open. A
-                                       control that sometimes does nothing teaches
-                                       people to stop pressing it, which would cost
-                                       exactly the discoverability this phase is for
-                                       (D24). *@
-                                    @if (RelatedCount(item.AnimeId) is { } count)
-                                    {
-                                        @* aria-expanded is spelled out rather than bound to
-                                           the bool: Blazor renders a true bool attribute with
-                                           an empty value and omits a false one, and an absent
-                                           aria-expanded means "this does not expand" rather
-                                           than "closed". aria-controls is set only while the
-                                           row it names exists, since a dangling one points
-                                           assistive technology at nothing. *@
-                                        <button class="expander @(IsExpanded(item.AnimeId) ? "open" : null)"
-                                                @onclick="() => ToggleRelatedAsync(item.AnimeId)"
-                                                aria-expanded="@(IsExpanded(item.AnimeId) ? "true" : "false")"
-                                                aria-controls="@(IsExpanded(item.AnimeId) ? RelatedRowId(item.AnimeId) : null)"
-                                                title="@RelatedLabel(item, count, IsExpanded(item.AnimeId))"
-                                                aria-label="@RelatedLabel(item, count, IsExpanded(item.AnimeId))">
-                                            <span class="chevron" aria-hidden="true"></span>
-                                            <span class="count">@count</span>
-                                        </button>
-                                    }
                                 </td>
                                 <td class="cover-col">
                                     <CoverThumb Cover="item.Cover" OnActivate="() => ShowDetailAsync(item.AnimeId)" />
@@ -312,260 +282,16 @@ else
                                 <td class="numeric" data-label="You">@(item.UserScore?.ToString() ?? "—")</td>
                                 @if (Facets.HasRecommendations)
                                 {
+                                    @* The score, and only the score. It used to be a
+                                       button opening a panel with the model's reasoning
+                                       and which model it was; that panel is in the
+                                       detail dialog now, where the reasoning already
+                                       lived and where a phone can read it (18c). *@
                                     <td class="numeric" data-label="AI">
-                                        @* The score stays legible in the row: it is the
-                                           column's whole job, and a listing sorted by it
-                                           that made you open something to read it would
-                                           be unusable. The button is the number, with a
-                                           chevron beside it.
-
-                                           Offered only where there is something behind
-                                           it — an unscored row has nothing to explain,
-                                           and a control that opens an empty panel is
-                                           worse than no control. *@
-                                        @if (item.RecommendationScore is { } score)
-                                        {
-                                            <button class="score-expander @(IsScoring(item.AnimeId) ? "open" : null)"
-                                                    @onclick="() => ToggleScoringAsync(item.AnimeId)"
-                                                    aria-expanded="@(IsScoring(item.AnimeId) ? "true" : "false")"
-                                                    aria-controls="@(IsScoring(item.AnimeId) ? ScoringRowId(item.AnimeId) : null)"
-                                                    title="@ScoringLabel(item, IsScoring(item.AnimeId))"
-                                                    aria-label="@ScoringLabel(item, IsScoring(item.AnimeId))">
-                                                <span class="score">@score.ToString("0.0")</span>
-                                                <span class="chevron" aria-hidden="true"></span>
-                                            </button>
-                                        }
-                                        else
-                                        {
-                                            @:—
-                                        }
+                                        @(item.RecommendationScore?.ToString("0.0") ?? "—")
                                     </td>
                                 }
                             </tr>
-
-                            @if (IsScoring(item.AnimeId))
-                            {
-                                @* Its own row, the same shape the relatives use, and for
-                                   the same reason: this explains the title above it and
-                                   detaching it into a floating panel would put a
-                                   paragraph of reasoning somewhere it has to be dismissed
-                                   rather than read.
-
-                                   A tooltip was the other candidate and is the wrong
-                                   tool here — it cannot hold a heading, it is gone on
-                                   touch, and this is several fields rather than a
-                                   caption. *@
-                                <tr class="scoring-row" id="@ScoringRowId(item.AnimeId)">
-                                    <td></td>
-                                    <td colspan="@(ColumnCount - 1)">
-                                        @if (_scoring.TryGetValue(item.AnimeId, out var detail))
-                                        {
-                                            @if (detail is null)
-                                            {
-                                                @* The score is on the entry but no applied
-                                                   run mentions this title — the history was
-                                                   cleared, or the row was scored by a build
-                                                   that kept no run. Said plainly rather
-                                                   than shown as an empty panel. *@
-                                                <p class="muted">
-                                                    This score is on the title, but the ranking that
-                                                    produced it is no longer on record.
-                                                </p>
-                                            }
-                                            else
-                                            {
-                                                <div class="scoring-detail">
-                                                    <h3>Why this score</h3>
-
-                                                    @if (detail.Reason is { } reason)
-                                                    {
-                                                        <p class="reason">@reason</p>
-                                                    }
-                                                    else
-                                                    {
-                                                        <p class="muted">The model gave no reason for this one.</p>
-                                                    }
-
-                                                    @* A definition list, because every line is a
-                                                       label and its value — and it is what lets the
-                                                       fields stay readable when the panel narrows. *@
-                                                    @* Each pair wrapped in a div — permitted in a
-                                                       dl since HTML5, and necessary here: flexing
-                                                       the list itself would make every dt and dd
-                                                       its own item, so a label could wrap onto a
-                                                       different line from its value. *@
-                                                    <dl class="scoring-facts">
-                                                        <div>
-                                                            <dt>Confidence</dt>
-                                                            <dd>@Percent(detail.Confidence)</dd>
-                                                        </div>
-                                                        @* A "Ranked 3 of 50" pair stood here. It
-                                                           reported a placement inside a batch the
-                                                           user cannot see and never chose, so "3"
-                                                           was not a fact about this title's
-                                                           standing in their backlog — which is the
-                                                           only standing the page invites them to
-                                                           read it as. D43 removed the field it
-                                                           printed. *@
-                                                        <div>
-                                                            <dt>Decided</dt>
-                                                            <dd>@Determined(detail.DeterminedAt)</dd>
-                                                        </div>
-                                                        @* Two facts, not one. These were a single
-                                                           "By" cell falling back from the model to
-                                                           the route, which meant each hid the other:
-                                                           a named model concealed how it was carried,
-                                                           and an unnamed one left the route standing
-                                                           where a model name was expected — so
-                                                           "Manual" read as the name of a model. *@
-                                                        <div>
-                                                            <dt>Type</dt>
-                                                            <dd>@detail.ProviderName</dd>
-                                                        </div>
-                                                        @* The model earns its own line because it is
-                                                           the one fact here that tells a user whether
-                                                           to run this again. A score from a small
-                                                           local model is worth revisiting once a
-                                                           better one is available; the same score
-                                                           from the best model they have is not, and
-                                                           nothing else on this panel separates
-                                                           those. *@
-                                                        <div>
-                                                            <dt>Model</dt>
-                                                            <dd>
-                                                                @if (detail.ModelIdentifier is { } model)
-                                                                {
-                                                                    @model
-                                                                }
-                                                                else
-                                                                {
-                                                                    @* Shown rather than omitted. A
-                                                                       missing row is indistinguishable
-                                                                       from a panel that never had the
-                                                                       field, and "I did not say" is a
-                                                                       different answer from "there was
-                                                                       no model". *@
-                                                                    <span class="muted">Unspecified</span>
-                                                                }
-                                                            </dd>
-                                                        </div>
-                                                    </dl>
-                                                </div>
-                                            }
-                                        }
-                                        else
-                                        {
-                                            <p class="muted" aria-live="polite">Loading…</p>
-                                        }
-                                    </td>
-                                </tr>
-                            }
-
-                            @if (IsExpanded(item.AnimeId))
-                            {
-                                @* A row of its own rather than a floating panel: the
-                                   relatives belong to the title above them, and
-                                   anything that detached them from it would be a
-                                   grouping by another name (D24). *@
-                                <tr class="relations-row" id="@RelatedRowId(item.AnimeId)">
-                                    <td></td>
-                                    <td colspan="@(ColumnCount - 1)">
-                                        @* The one control that acts on more than one title,
-                                           and it lives here rather than on the row because
-                                           the panel is where a run of seasons is visible —
-                                           an action that queues several things belongs
-                                           beside the list of what they are (D26).
-
-                                           Offered only when it would do more than the row's
-                                           own button already does: at one title it is that
-                                           button with a longer name, and at none there is
-                                           nothing left to queue. *@
-                                        @if (SequelsToQueue(item.AnimeId) is > 1 and var toQueue)
-                                        {
-                                            <p class="relations-action">
-                                                <button class="follow"
-                                                        title="@FollowLabel(item.Title, toQueue)"
-                                                        aria-label="@FollowLabel(item.Title, toQueue)"
-                                                        @onclick="() => QueueWithSequelsAsync(item.AnimeId)">
-                                                    Queue this and what follows
-                                                    <span class="badge count">@toQueue</span>
-                                                </button>
-                                                <span class="muted">in release order</span>
-                                            </p>
-                                        }
-
-                                        @if (_relations.TryGetValue(item.AnimeId, out var relatives))
-                                        {
-                                            @if (relatives.Count == 0)
-                                            {
-                                                @* Reachable only if the library changed
-                                                   under the page between the count and
-                                                   the expansion. *@
-                                                <p class="muted">Nothing related that you own.</p>
-                                            }
-                                            else
-                                            {
-                                                <ul class="relations">
-                                                    @foreach (var relative in relatives)
-                                                    {
-                                                        <li>
-                                                            @* Leads the line, under the
-                                                               column the rows put it in, so
-                                                               one run of buttons goes down
-                                                               the page whether a title is on
-                                                               a row or inside an expansion.
-                                                               The whole point of finding a
-                                                               sequel here is being able to
-                                                               act on it (D26), and acting
-                                                               leaves the panel open so the
-                                                               next one down is still in
-                                                               front of the user. *@
-                                                            <QueueButton AnimeId="relative.AnimeId" Title="@relative.Title"
-                                                                         Status="relative.Status" IsQueued="IsQueued(relative.AnimeId)"
-                                                                         OnToggle="ToggleQueuedAsync" />
-
-                                                            @* Then the tag, because it is
-                                                               what the line is being read
-                                                               for: the question is "how is
-                                                               this connected", not "what
-                                                               else exists". *@
-                                                            <span class="badge relation">@relative.Label</span>
-
-                                                            @* The same control the rows
-                                                               carry, because this is the
-                                                               same question asked about a
-                                                               title one line further in:
-                                                               a sequel found here is
-                                                               exactly the case where "is
-                                                               this worth queueing" has not
-                                                               been answered yet. Relatives
-                                                               are library entries for this
-                                                               profile — RelationService
-                                                               joins them through
-                                                               LibraryEntries — so the same
-                                                               lookup finds them. *@
-                                                            <button type="button"
-                                                                    class="title-button relation-title"
-                                                                    aria-label="Details for @relative.Title"
-                                                                    @onclick="() => ShowDetailAsync(relative.AnimeId)">@relative.Title</button>
-                                                            <span class="badge @relative.Status.ToString().ToLowerInvariant()">@relative.Status</span>
-                                                            @if (IsQueued(relative.AnimeId))
-                                                            {
-                                                                <span class="badge queued" title="Already in Up Next">Queued</span>
-                                                            }
-                                                            <span class="muted">@RelativeMeta(relative)</span>
-                                                        </li>
-                                                    }
-                                                </ul>
-                                            }
-                                        }
-                                        else
-                                        {
-                                            <p class="muted" aria-live="polite">Loading…</p>
-                                        }
-                                    </td>
-                                </tr>
-                            }
                         }
                     </tbody>
                 </table>
@@ -592,7 +318,7 @@ else
 @* One instance for the page rather than one per row: a modal shows a single title
    at a time, so fifty dialogs in the markup would be forty-nine that can never open
    (D49). *@
-<ShowDetailDialog @ref="_detailDialog" />
+<ShowDetailDialog @ref="_detailDialog" OnChanged="LoadPageAsync" />
 
 @code {
 
@@ -600,21 +326,18 @@ else
 
     /// <summary>Opens the detail dialog for one title (D49).</summary>
     /// <remarks>
-    /// Read here rather than inside the dialog so the component stays a renderer with
-    /// no service of its own — the same split every other shared component here uses,
-    /// and what lets two pages share it without either of them handing it a query.
+    /// The read used to happen here, so the dialog could stay a renderer with no
+    /// service of its own. It loads its own three reads since 18c, because it gained
+    /// an action and two pages were otherwise going to learn the same four calls.
+    ///
+    /// <b>Re-reading the whole page is the right answer to the dialog changing
+    /// something, and it is the opposite of what a row press does.</b> D26's rule —
+    /// patch the row, never re-query — exists to stop rows moving under the cursor
+    /// while somebody is reading a list. Nobody is reading the list while a modal is
+    /// covering it, and what came back may have queued six titles rather than one.
     /// </remarks>
-    private async Task ShowDetailAsync(int animeId)
-    {
-        if (_detailDialog is null)
-        {
-            return;
-        }
-
-        var detail = await LibraryService.GetTitleDetailAsync(Profile.DefaultProfileId, animeId);
-
-        await _detailDialog.ShowAsync(detail);
-    }
+    private Task ShowDetailAsync(int animeId) =>
+        _detailDialog is null ? Task.CompletedTask : _detailDialog.ShowAsync(animeId);
     private const int PageSize = 50;
 
     // Deliberately NOT persisted across the prerender handoff.
@@ -645,28 +368,10 @@ else
     // three-state override beside it, and Phase 18b deleted hiding.
     private readonly HashSet<int> _queued = [];
 
-    // How many relatives each visible row has, so a row with none draws no chevron
-    // at all. One grouped query per page, loaded with it (D24).
-    private IReadOnlyDictionary<int, int> _relatedCounts = new Dictionary<int, int>();
-
-    // Which rows are open, and what they are showing. Detail is fetched on expand
-    // rather than with the page: fifty rows' worth of relatives is a great deal of
-    // data to fetch for the one row somebody opens.
-    private readonly HashSet<int> _expanded = [];
-    private readonly Dictionary<int, IReadOnlyList<RelatedTitle>> _relations = [];
-
-    // How many titles "queue this and what follows" would actually append, per open
-    // panel. Read when the panel opens and recomputed after anything queues, so the
-    // number on the button is what pressing it will do rather than what it would
-    // have done when the panel was opened.
-    private readonly Dictionary<int, int> _sequelCounts = [];
-
-    // Which score panels are open, and what each one found. The value is nullable
-    // inside a dictionary that records the key: present-with-null means "asked, and
-    // no applied run mentions this title", which is a different thing from "not
-    // asked yet" and has to render differently.
-    private readonly HashSet<int> _scoringOpen = [];
-    private readonly Dictionary<int, RecommendationDetail?> _scoring = [];
+    // Nothing else is kept here any more. Related titles, how many of a set would
+    // queue, and what a model said about a score were all page state in service of
+    // two expandable rows; 18c moved both into the detail dialog, which loads them
+    // itself for whichever title is open.
 
     private string _statusValue => _query.Status?.ToString() ?? string.Empty;
 
@@ -680,33 +385,10 @@ else
         }
     }
 
-    /// <summary>
-    /// Loads the current query's page, and the one thing every row needs to know
-    /// about its relatives: whether it has any.
-    /// </summary>
-    /// <remarks>
-    /// Open expansions do not survive this. Reload, paging and every filter change
-    /// come through here, and each of them means the rows on screen are a different
-    /// set — a panel left open would be showing relatives of a title that has
-    /// scrolled out of the result, which is worse than closing it.
-    /// </remarks>
+    /// <summary>Loads the current query's page.</summary>
     private async Task LoadPageAsync()
     {
         Page = await LibraryService.GetPageAsync(Profile.DefaultProfileId, _query);
-
-        _relatedCounts = await RelationService.GetRelatedCountsAsync(
-            Profile.DefaultProfileId,
-            [.. Page.Items.Select(i => i.AnimeId)]);
-
-        _expanded.Clear();
-        _relations.Clear();
-        _sequelCounts.Clear();
-
-        // Cleared with the rest: a reload can change which titles are on the page,
-        // and a panel left open against a row that is no longer here would be
-        // explaining a score the user cannot see.
-        _scoringOpen.Clear();
-        _scoring.Clear();
 
         // The overlay is discarded rather than merged: what just came back from the
         // database is now the truth about these rows, and keeping a local answer on
@@ -797,214 +479,9 @@ else
     private Task ToggleStandaloneAsync() =>
         ApplyAsync(_query with { StandaloneOnly = !_query.StandaloneOnly });
 
-    private int? RelatedCount(int animeId) =>
-        _relatedCounts.TryGetValue(animeId, out var count) ? count : null;
-
-    private bool IsExpanded(int animeId) => _expanded.Contains(animeId);
-
-    private static string RelatedRowId(int animeId) => $"related-{animeId}";
-
-    private static string ScoringRowId(int animeId) => $"scoring-{animeId}";
-
-    private bool IsScoring(int animeId) => _scoringOpen.Contains(animeId);
-
-    private static string ScoringLabel(LibraryListItem item, bool open) =>
-        open ? $"Hide why {item.Title} scored {item.RecommendationScore:0.0}"
-             : $"Why {item.Title} scored {item.RecommendationScore:0.0}";
-
-    /// <summary>
-    /// Opens or closes a row's scoring detail, fetching it the first time.
-    /// </summary>
-    /// <remarks>
-    /// Cached for the life of the page and not routed through
-    /// <see cref="BusyScope"/>, both for the reasons the relatives panel gives: it
-    /// is one indexed read about a row already on screen, and a modal to announce it
-    /// would be more disruptive than the wait.
-    ///
-    /// Unlike the relatives, nothing here goes stale while the panel is shut. A
-    /// ranking is a fact about a run that has already happened, so the only thing
-    /// that could change it is applying another one — which reloads the page.
-    /// </remarks>
-    private async Task ToggleScoringAsync(int animeId)
-    {
-        if (!_scoringOpen.Add(animeId))
-        {
-            _scoringOpen.Remove(animeId);
-            return;
-        }
-
-        if (_scoring.ContainsKey(animeId))
-        {
-            return;
-        }
-
-        _scoring[animeId] = await Scoring.GetDetailAsync(Profile.DefaultProfileId, animeId);
-    }
-
-    private static string Percent(double value) =>
-        ((int)Math.Round(value * 100)).ToString(CultureInfo.CurrentCulture) + "%";
-
-    /// <summary>
-    /// When a ranking was decided, in local time and in the profile's date format.
-    /// </summary>
-    private string Determined(DateTimeOffset when) =>
-        when.ToLocalTime().ToString("g", CultureInfo.CurrentCulture);
-
-    /// <summary>
-    /// Opens or closes a row's relatives, fetching them the first time.
-    /// </summary>
-    /// <remarks>
-    /// Cached for as long as the page lasts, which is until any reload clears it.
-    /// Collapsing and reopening the same row is a common way to compare two of
-    /// them, and re-querying for it would make the second look slower than the
-    /// first for no reason.
-    ///
-    /// Not routed through <see cref="BusyScope"/>: this is one small indexed read
-    /// against a row already on screen, and a modal covering the page to report it
-    /// would be far more disruptive than the wait it describes.
-    /// </remarks>
-    private async Task ToggleRelatedAsync(int animeId)
-    {
-        if (!_expanded.Add(animeId))
-        {
-            _expanded.Remove(animeId);
-            return;
-        }
-
-        // The count is read even when the relatives are already cached, because it is
-        // the one thing here that goes out of date while the panel is shut: anything
-        // queued elsewhere on the page changes what "and what follows" would still
-        // append.
-        _sequelCounts[animeId] =
-            await RelationService.CountSequelsToQueueAsync(Profile.DefaultProfileId, animeId);
-
-        if (_relations.ContainsKey(animeId))
-        {
-            return;
-        }
-
-        var relatives = await RelationService.GetRelatedAsync(Profile.DefaultProfileId, animeId);
-
-        _relations[animeId] = relatives;
-
-        // Folded into the same set the rows read, so a relative queued from one
-        // expansion shows as queued in another that also lists it — and on its own
-        // row further down the page.
-        foreach (var relative in relatives.Where(r => r.IsQueued))
-        {
-            _queued.Add(relative.AnimeId);
-        }
-    }
-
-    private int? SequelsToQueue(int animeId) =>
-        _sequelCounts.TryGetValue(animeId, out var count) ? count : null;
-
-    private static string FollowLabel(string title, int count) =>
-        $"Queue {title} and everything that follows it — {count} titles, in release order";
-
-    /// <summary>
-    /// Queues a title and its unwatched sequels, in one press.
-    /// </summary>
-    /// <remarks>
-    /// The panel stays open and the list is not re-read, as everywhere else on this
-    /// page (D26) — but the queued set is read back from the database rather than
-    /// guessed at, because this is the one action whose effect the caller cannot
-    /// enumerate: it returns how many went in, not which. The queue is small by
-    /// design, so asking is cheaper than making the service report a list nothing
-    /// else needs.
-    /// </remarks>
-    private async Task QueueWithSequelsAsync(int animeId)
-    {
-        await RelationService.AddWithSequelsAsync(Profile.DefaultProfileId, animeId);
-
-        var queued = await QueueService.GetQueuedAnimeIdsAsync(Profile.DefaultProfileId);
-
-        _queued.Clear();
-        _queued.UnionWith(queued);
-
-        await RefreshSequelCountsAsync();
-    }
-
-    /// <summary>
-    /// Re-reads the count behind every open panel's action, so the number on it
-    /// still describes what pressing it would do.
-    /// </summary>
-    /// <remarks>
-    /// Bounded by open panels, which is normally one and never many: the button is
-    /// the only thing that reads these, and a stale count is a button promising to
-    /// queue titles that are already queued.
-    /// </remarks>
-    private async Task RefreshSequelCountsAsync()
-    {
-        foreach (var animeId in _sequelCounts.Keys.ToList())
-        {
-            _sequelCounts[animeId] =
-                await RelationService.CountSequelsToQueueAsync(Profile.DefaultProfileId, animeId);
-        }
-    }
-
-    /// <summary>
-    /// The accessible name of a chevron, which has to say whose relatives and how
-    /// many — "expand", announced fifty times down a table, says neither.
-    /// </summary>
-    private static string RelatedLabel(LibraryListItem item, int count, bool expanded)
-    {
-        var verb = expanded ? "Hide" : "Show";
-
-        return count == 1
-            ? $"{verb} the one related title you own for {item.Title}"
-            : $"{verb} the {count} related titles you own for {item.Title}";
-    }
-
-    /// <summary>
-    /// The trailing detail on a relative: type, year, runtime, and progress where
-    /// there is any. Absent parts are dropped rather than dashed — an expansion is
-    /// prose beside a table, and a run of em dashes in it reads as damage.
-    /// </summary>
-    private static string RelativeMeta(RelatedTitle relative)
-    {
-        var parts = new List<string>(4);
-
-        if (relative.MediaType != MediaType.Unknown)
-        {
-            parts.Add(MediaTypeLabel(relative.MediaType));
-        }
-
-        if (relative.ReleaseYear is { } year)
-        {
-            parts.Add(year.ToString(CultureInfo.InvariantCulture));
-        }
-
-        if (RuntimeCalculator.Format(relative.EstimatedRuntimeMinutes) is { } runtime)
-        {
-            parts.Add(runtime);
-        }
-
-        if (relative.EpisodesWatched > 0)
-        {
-            parts.Add(relative.EpisodeCount is { } total
-                ? $"{relative.EpisodesWatched} / {total} watched"
-                : $"{relative.EpisodesWatched} watched");
-        }
-
-        return string.Join(" · ", parts);
-    }
-
-    /// <summary>
-    /// How wide an expansion has to stretch.
-    /// </summary>
-    /// <remarks>
-    /// This used to say it was "derived rather than written down, because a
-    /// hard-coded number is a colspan that silently goes wrong the next time a column
-    /// is added". It was two literals, and the next time a column was added — the
-    /// cover in 9a — is exactly when it went wrong. It is still two literals, because
-    /// the columns are written out in markup and there is nothing to count them from
-    /// short of building the header from a list, which would be a worse page to read
-    /// in order to make one number maintain itself. What is here instead is the
-    /// warning, stated accurately: <b>adding a column means changing both of these.</b>
-    /// </remarks>
-    private int ColumnCount => Facets is { HasRecommendations: true } ? 11 : 10;
-
+    // No ColumnCount. It existed to give the two expansion rows a colspan, and 18c
+    // moved both into the detail dialog — so the warning it carried, that adding a
+    // column meant changing a literal in two places, is gone with the literals.
     private bool IsQueued(int animeId) => _queued.Contains(animeId);
 
     /// <summary>
@@ -1044,10 +521,6 @@ else
             _queued.Remove(request.AnimeId);
         }
 
-        // A single press changes what the run-queueing action beside it would still
-        // do, in either direction: queue season three by hand and the button offering
-        // to queue the run has one fewer to add; unqueue it and it has one more.
-        await RefreshSequelCountsAsync();
     }
 
     private static string Active(bool isActive) => isActive ? "active" : string.Empty;

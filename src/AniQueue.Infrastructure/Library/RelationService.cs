@@ -7,7 +7,7 @@ using Microsoft.EntityFrameworkCore;
 namespace AniQueue.Infrastructure.Library;
 
 /// <summary>
-/// Resolves the relation graph into owned titles, for the row the user expanded.
+/// Resolves the relation graph into the set one title belongs to (D55).
 /// </summary>
 /// <remarks>
 /// Every read here has the same shape and it is worth stating once: an edge is
@@ -34,51 +34,33 @@ public sealed class RelationService(
     private const AnimeSource Source = AnimeSource.AniList;
 
     /// <summary>
-    /// How many times the sequel walk will ask for the next step before giving up.
+    /// How many times the walk will ask for the next step before giving up.
     /// </summary>
     /// <remarks>
     /// A stop, not a budget. Each step is one indexed query over the frontier, and a
-    /// real chain is a handful long — the longest television runs anyone owns are
+    /// real set is a handful deep — the longest television runs anyone owns are
     /// nowhere near this. It exists because the walk is transitive over data an
     /// external editor maintains, and an unbounded loop over a graph somebody else
     /// can reshape is a page that hangs rather than a page that is wrong. The visited
-    /// set already makes cycles terminate; this bounds length as well.
+    /// set already makes cycles terminate; this bounds depth as well.
     /// </remarks>
-    private const int MaxSequelSteps = 32;
+    private const int MaxWalkSteps = 32;
 
-    public async Task<IReadOnlyDictionary<int, int>> GetRelatedCountsAsync(
-        int profileId,
-        IReadOnlyCollection<int> animeIds,
-        CancellationToken cancellationToken = default)
-    {
-        ArgumentNullException.ThrowIfNull(animeIds);
-
-        if (animeIds.Count == 0)
-        {
-            return new Dictionary<int, int>();
-        }
-
-        await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
-
-        // Distinct pairs rather than distinct edges. Two titles are frequently
-        // joined by more than one row — AniList states the same fact from both
-        // ends, and a pair can carry more than one type — and counting rows would
-        // put a "3" on a chevron that opens to one relative.
-        var pairs = await Edges(context, profileId, animeIds)
-            .Select(e => new { e.OwnerAnimeId, e.RelatedAnimeId })
-            .Distinct()
-            .ToListAsync(cancellationToken);
-
-        // Grouped here rather than in SQL, and only here. The set is bounded by
-        // what one page of fifty rows is related to, so it is small by
-        // construction — unlike the library itself, which §6 requires be filtered
-        // in the database. Pushing a GROUP BY through a UNION of two joins buys
-        // nothing on a few hundred rows and is the kind of query that stops
-        // translating when something upstream changes shape.
-        return pairs
-            .GroupBy(p => p.OwnerAnimeId)
-            .ToDictionary(g => g.Key, g => g.Count());
-    }
+    /// <summary>
+    /// The relation types that mean "the same work", and so make up a set (D55).
+    /// </summary>
+    /// <remarks>
+    /// An array rather than a switch because it has to translate: it is used inside a
+    /// query, where EF turns <c>Contains</c> over a local collection into an
+    /// <c>IN</c> clause.
+    /// </remarks>
+    private static readonly RelationType[] SameWork =
+    [
+        RelationType.Prequel,
+        RelationType.Sequel,
+        RelationType.Parent,
+        RelationType.SideStory
+    ];
 
     public async Task<IReadOnlyList<RelatedTitle>> GetRelatedAsync(
         int profileId,
@@ -87,73 +69,24 @@ public sealed class RelationService(
     {
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
 
-        var edges = await Edges(context, profileId, [animeId])
-            .Select(e => new { e.RelatedAnimeId, e.RelationType, e.Inverted })
-            .Distinct()
-            .ToListAsync(cancellationToken);
+        // The title itself is in its own set — QueueSetAsync needs it there — and is
+        // the one thing this list must not repeat back at the dialog it is open in.
+        var others = (await SetAsync(context, profileId, animeId, cancellationToken))
+            .Where(e => e.AnimeId != animeId)
+            .ToList();
 
-        if (edges.Count == 0)
+        if (others.Count == 0)
         {
             return [];
         }
 
-        // Inverted in memory because it has to be: the mapping is a switch over an
-        // enum (D24), and translating it would mean writing the same table twice in
-        // two languages. The set is one title's relatives, so there is nothing to
-        // gain by trying.
-        var relationByAnime = edges
-            .GroupBy(e => e.RelatedAnimeId)
-            .ToDictionary(
-                g => g.Key,
-                g =>
-                {
-                    var types = g
-                        .Select(e => e.Inverted ? RelationTypes.Invert(e.RelationType) : e.RelationType)
-                        .Distinct()
-                        .Take(2)
-                        .ToList();
+        var relationByAnime = await DirectRelationsAsync(context, profileId, animeId, cancellationToken);
 
-                    // One agreed type is a label; anything else is "Related". The
-                    // disagreement is routine rather than exotic — AniList uses
-                    // PARENT as the counterpart of both SIDE_STORY and SPIN_OFF —
-                    // and naming one of them would state something the source did
-                    // not.
-                    return types.Count == 1 ? types[0] : (RelationType?)null;
-                });
-
-        var relatedIds = relationByAnime.Keys.ToList();
-
-        var titles = await context.LibraryEntries
-            .AsNoTracking()
-            .Where(e => e.ProfileId == profileId && relatedIds.Contains(e.AnimeId))
-            .OrderBy(e => e.Anime!.StartDate == null)
-            .ThenBy(e => e.Anime!.StartDate)
-
-            // The year is a tiebreak rather than the key. A start date is written by
-            // the relation pass and a year by the list sync, so a relative nothing
-            // has fetched yet has one and not the other — and leaving the dateless
-            // group alphabetical would read as a mistake beside a list that is
-            // otherwise chronological.
-            .ThenBy(e => e.Anime!.ReleaseYear == null)
-            .ThenBy(e => e.Anime!.ReleaseYear)
-            .ThenBy(e => e.Anime!.Title)
-            .Select(e => new
-            {
-                e.AnimeId,
-                e.Anime!.Title,
-                e.Anime.MediaType,
-                e.Anime.EpisodeCount,
-                e.Anime.EpisodeDurationMinutes,
-                e.Anime.ReleaseYear,
-                e.Anime.StartDate,
-                e.Status,
-                e.EpisodesWatched
-            })
-            .ToListAsync(cancellationToken);
+        var ids = others.Select(e => e.AnimeId).ToList();
 
         var queued = await context.QueueItems
             .AsNoTracking()
-            .Where(q => q.ProfileId == profileId && relatedIds.Contains(q.AnimeId))
+            .Where(q => q.ProfileId == profileId && ids.Contains(q.AnimeId))
             .Select(q => q.AnimeId)
             .ToListAsync(cancellationToken);
 
@@ -161,7 +94,7 @@ public sealed class RelationService(
 
         return
         [
-            .. titles.Select(t => new RelatedTitle
+            .. others.Select(t => new RelatedTitle
             {
                 AnimeId = t.AnimeId,
                 Title = t.Title,
@@ -173,47 +106,50 @@ public sealed class RelationService(
                 Status = t.Status,
                 EpisodesWatched = t.EpisodesWatched,
                 IsQueued = queuedIds.Contains(t.AnimeId),
-                Relation = relationByAnime[t.AnimeId]
+
+                // Absent means "further than one edge away", which is most of a long
+                // run and is why this is a lookup rather than a required field.
+                Relation = relationByAnime.GetValueOrDefault(t.AnimeId)
             })
         ];
     }
 
-    public async Task<int> CountSequelsToQueueAsync(
+    public async Task<int> CountToQueueAsync(
         int profileId,
         int animeId,
         CancellationToken cancellationToken = default)
     {
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
 
-        var chain = await SequelChainAsync(context, profileId, animeId, cancellationToken);
+        var set = await SetAsync(context, profileId, animeId, cancellationToken);
 
-        if (chain.Count == 0)
+        if (set.Count == 0)
         {
             return 0;
         }
 
-        // Counted as what would actually be appended, not as the length of the
-        // chain. The action names its own size — "queue this and two sequels" — and a
-        // number that included seasons already queued or already watched would be a
-        // promise the press could not keep.
+        // Counted as what would actually be appended, not as the size of the set.
+        // The action names its own size — "queue five titles" — and a number that
+        // included seasons already queued or already watched would be a promise the
+        // press could not keep.
         var queued = await queue.GetQueuedAnimeIdsAsync(profileId, cancellationToken);
 
-        return chain.Count(c => c.Status == LibraryStatus.Planning && !queued.Contains(c.AnimeId));
+        return set.Count(c => c.Status == LibraryStatus.Planning && !queued.Contains(c.AnimeId));
     }
 
-    public async Task<QueueAddResult> AddWithSequelsAsync(
+    public async Task<QueueAddResult> QueueSetAsync(
         int profileId,
         int animeId,
         CancellationToken cancellationToken = default)
     {
-        List<ChainEntry> chain;
+        List<SetEntry> set;
 
         await using (var context = await contextFactory.CreateDbContextAsync(cancellationToken))
         {
-            chain = await SequelChainAsync(context, profileId, animeId, cancellationToken);
+            set = await SetAsync(context, profileId, animeId, cancellationToken);
         }
 
-        if (chain.Count == 0)
+        if (set.Count == 0)
         {
             return new QueueAddResult { Added = 0 };
         }
@@ -225,21 +161,33 @@ public sealed class RelationService(
         // have already seen".
         return await queue.AddAnimeAsync(
             profileId,
-            [.. chain.Select(c => c.AnimeId)],
+            [.. set.Select(c => c.AnimeId)],
             cancellationToken: cancellationToken);
     }
 
     /// <summary>
-    /// The title and everything that follows it, owned, in release order.
+    /// The set one title belongs to, owned, in release order, including the title.
     /// </summary>
     /// <remarks>
+    /// <b>The four edges a box set is assembled along.</b> Prequel and sequel give
+    /// the main seasons; parent and side story give the specials hanging off them and
+    /// the main work a special hangs off. Spin-off, alternative, summary, compilation
+    /// and contains are not followed at all: a separate work in the same world is a
+    /// different purchase, and a remake or a recap is the same story told again
+    /// (D55).
+    ///
+    /// <b>Membership is symmetric, so direction is not consulted.</b> An edge is
+    /// stored exactly as fetched (D24), so "this has sequel X" and "X has prequel
+    /// this" are the same fact written from opposite ends — and a season whose own
+    /// relations have never been fetched is reachable only through the second form.
+    /// Either endpoint being in the frontier puts the other in the set.
+    ///
     /// The walk happens in <b>external identifiers</b> and resolves to library rows
     /// only at the end, which is what lets it pass through a season the user does not
     /// own: an unowned middle season has edges but no <c>Anime</c> row, so resolving
-    /// as it went would end the chain at exactly the gap the feature exists to
-    /// bridge.
+    /// as it went would end the walk at exactly the gap this exists to bridge.
     /// </remarks>
-    private static async Task<List<ChainEntry>> SequelChainAsync(
+    private static async Task<List<SetEntry>> SetAsync(
         AniQueueDbContext context,
         int profileId,
         int animeId,
@@ -253,32 +201,27 @@ public sealed class RelationService(
 
         if (start.Count == 0)
         {
-            // Nothing AniList identifies has nothing AniList can say follows it. The
-            // caller offers no action rather than one that would queue only the row
-            // the user was already looking at.
+            // Nothing AniList identifies has nothing AniList can say belongs with it.
+            // The caller offers no action rather than one that would queue only the
+            // row the user was already looking at.
             return [];
         }
 
         var reached = start.ToHashSet(StringComparer.Ordinal);
         var frontier = start;
 
-        for (var step = 0; step < MaxSequelSteps && frontier.Count > 0; step++)
+        for (var step = 0; step < MaxWalkSteps && frontier.Count > 0; step++)
         {
             cancellationToken.ThrowIfCancellationRequested();
 
             var current = frontier;
 
-            // Both directions of the same statement. An edge is stored exactly as
-            // fetched (D24), so "this has sequel X" and "X has prequel this" are the
-            // same fact written from opposite ends — and a season whose own relations
-            // have never been fetched is only ever reachable through the second form.
             var next = await context.AnimeRelations
                 .AsNoTracking()
                 .Where(r => r.Source == Source)
-                .Where(r =>
-                    (r.RelationType == RelationType.Sequel && current.Contains(r.ExternalId))
-                    || (r.RelationType == RelationType.Prequel && current.Contains(r.RelatedExternalId)))
-                .Select(r => r.RelationType == RelationType.Sequel ? r.RelatedExternalId : r.ExternalId)
+                .Where(r => SameWork.Contains(r.RelationType))
+                .Where(r => current.Contains(r.ExternalId) || current.Contains(r.RelatedExternalId))
+                .Select(r => current.Contains(r.ExternalId) ? r.RelatedExternalId : r.ExternalId)
                 .Distinct()
                 .ToListAsync(cancellationToken);
 
@@ -306,7 +249,16 @@ public sealed class RelationService(
             .ThenBy(e => e.Anime!.ReleaseYear == null)
             .ThenBy(e => e.Anime!.ReleaseYear)
             .ThenBy(e => e.Anime!.Title)
-            .Select(e => new ChainEntry(e.AnimeId, e.Status))
+            .Select(e => new SetEntry(
+                e.AnimeId,
+                e.Anime!.Title,
+                e.Anime.MediaType,
+                e.Anime.EpisodeCount,
+                e.Anime.EpisodeDurationMinutes,
+                e.Anime.ReleaseYear,
+                e.Anime.StartDate,
+                e.Status,
+                e.EpisodesWatched))
             .ToListAsync(cancellationToken);
     }
 
@@ -349,23 +301,83 @@ public sealed class RelationService(
         return named.ToHashSet(StringComparer.Ordinal);
     }
 
-    /// <summary>One owned title in a sequel chain, and whether it can be queued.</summary>
-    private sealed record ChainEntry(int AnimeId, LibraryStatus Status);
+    /// <summary>One owned title in a set, with everything either caller needs.</summary>
+    /// <remarks>
+    /// The queue actions want the id and the status; the dialog wants the rest. One
+    /// record for both, because a set is a dozen rows at most and reading two shapes
+    /// of it would mean walking the graph twice.
+    /// </remarks>
+    private sealed record SetEntry(
+        int AnimeId,
+        string Title,
+        MediaType MediaType,
+        int? EpisodeCount,
+        int? EpisodeDurationMinutes,
+        int? ReleaseYear,
+        DateOnly? StartDate,
+        LibraryStatus Status,
+        int EpisodesWatched);
+
+    /// <summary>
+    /// How the source labels the titles exactly one edge from this one.
+    /// </summary>
+    /// <remarks>
+    /// Only the direct neighbours get a label, and only where the two ends agree.
+    /// Anything further into the set has no edge to read, so it has no name for why
+    /// it is there — which the dialog renders as no badge rather than as a guess
+    /// (D55).
+    ///
+    /// Inverted in memory because it has to be: the mapping is a switch over an enum
+    /// (D24), and translating it would mean writing the same table twice in two
+    /// languages. The set is one title's neighbours, so there is nothing to gain by
+    /// trying.
+    /// </remarks>
+    private static async Task<Dictionary<int, RelationType?>> DirectRelationsAsync(
+        AniQueueDbContext context,
+        int profileId,
+        int animeId,
+        CancellationToken cancellationToken)
+    {
+        var edges = await Edges(context, profileId, [animeId])
+            .Select(e => new { e.RelatedAnimeId, e.RelationType, e.Inverted })
+            .Distinct()
+            .ToListAsync(cancellationToken);
+
+        return edges
+            .GroupBy(e => e.RelatedAnimeId)
+            .ToDictionary(
+                g => g.Key,
+                g =>
+                {
+                    var types = g
+                        .Select(e => e.Inverted ? RelationTypes.Invert(e.RelationType) : e.RelationType)
+                        .Distinct()
+                        .Take(2)
+                        .ToList();
+
+                    // One agreed type is a label; anything else is "Related". The
+                    // disagreement is routine rather than exotic — AniList uses
+                    // PARENT as the counterpart of both SIDE_STORY and SPIN_OFF —
+                    // and naming one of them would state something the source did
+                    // not.
+                    return types.Count == 1 ? types[0] : (RelationType?)null;
+                });
+    }
 
     /// <summary>
     /// Every edge one step out from the given titles, in both directions, narrowed
     /// to relatives the profile owns.
     /// </summary>
     /// <remarks>
-    /// One step, and the count and the detail share this method so neither can
-    /// drift into promising what the other does not show.
+    /// This is now only what labels a neighbour, not what decides membership — the
+    /// walk in <see cref="SetAsync"/> does that, and goes further (D55). It stays a
+    /// query over both directions because an edge is stored exactly as fetched.
     ///
-    /// No status is excluded. An expansion is context rather than results — a
-    /// completed prequel is frequently the most useful thing it can say — so
-    /// filtering it the way the listing above it is filtered would empty it of
-    /// exactly what it exists for. Hidden used to be the one exception, on the
-    /// grounds that it was the user saying they did not want to see that title
-    /// anywhere; Phase 18b deleted hiding.
+    /// No status is excluded. A set is context rather than results — a completed
+    /// prequel is frequently the most useful thing it can say — so filtering it the
+    /// way the listing above it is filtered would empty it of exactly what it exists
+    /// for. Hidden used to be the one exception, on the grounds that it was the user
+    /// saying they did not want to see that title anywhere; Phase 18b deleted hiding.
     /// </remarks>
     private static IQueryable<Edge> Edges(
         AniQueueDbContext context,
