@@ -1,4 +1,8 @@
-@page "/up-next"
+@* The application's front door since Phase 18a. The Dashboard that used to hold "/"
+   was six counters and nothing to do; this is the page the whole thing is for, so it
+   is the one you land on — and, being first, it is also where a fresh install has to
+   say how to get a library in (D27). *@
+@page "/"
 @using AniQueue.Core.Queue
 @implements IAsyncDisposable
 @inject ILibraryService LibraryService
@@ -43,8 +47,22 @@ else if (Queue.Count == 0)
 {
     <div class="card">
         <div class="empty-state">
-            <p>Nothing queued yet.</p>
-            <a class="button primary" href="backlog">Pick something from the backlog</a>
+            @* An empty queue and an empty library are different states, and offering
+               the backlog to somebody who has no library sends them to a second empty
+               page. One destination either way: Sources owns every way in, because
+               AniQueue assumes the library already exists somewhere (D11). *@
+            @if (_libraryIsEmpty)
+            {
+                <p>Nothing here yet. Bring your library in from wherever it already lives.</p>
+                <div class="toolbar">
+                    <a class="button primary" href="sources">Bring in your library</a>
+                </div>
+            }
+            else
+            {
+                <p>Nothing queued yet.</p>
+                <a class="button primary" href="backlog">Pick something from the backlog</a>
+            }
         </div>
     </div>
 }
@@ -84,7 +102,9 @@ else
                                control that cannot be operated by keyboard would be
                                worse than one that is not announced at all. *@
                             <td class="handle-col">
-                                <span class="drag-handle" aria-hidden="true" title="Drag to reorder">⠿</span>
+                                <span class="drag-handle" aria-hidden="true" title="Drag to reorder">
+                                    <Icon Name="grip-vertical" />
+                                </span>
                             </td>
                             <td class="numeric position-col">@(index + 1)</td>
                             <td class="cover-col">
@@ -129,23 +149,23 @@ else
                                     <button class="icon" disabled="@(index == 0)"
                                             title="Move to top"
                                             aria-label="@($"Move {item.Title} to the top")"
-                                            @onclick="() => MoveAsync(item, QueueMove.Top)">⤒</button>
+                                            @onclick="() => MoveAsync(item, QueueMove.Top)"><Icon Name="chevrons-up" /></button>
                                     <button class="icon" disabled="@(index == 0)"
                                             title="Move up"
                                             aria-label="@($"Move {item.Title} up")"
-                                            @onclick="() => MoveAsync(item, QueueMove.Up)">↑</button>
+                                            @onclick="() => MoveAsync(item, QueueMove.Up)"><Icon Name="chevron-up" /></button>
                                     <button class="icon" disabled="@(index == Queue.Count - 1)"
                                             title="Move down"
                                             aria-label="@($"Move {item.Title} down")"
-                                            @onclick="() => MoveAsync(item, QueueMove.Down)">↓</button>
+                                            @onclick="() => MoveAsync(item, QueueMove.Down)"><Icon Name="chevron-down" /></button>
                                     <button class="icon" disabled="@(index == Queue.Count - 1)"
                                             title="Move to bottom"
                                             aria-label="@($"Move {item.Title} to the bottom")"
-                                            @onclick="() => MoveAsync(item, QueueMove.Bottom)">⤓</button>
+                                            @onclick="() => MoveAsync(item, QueueMove.Bottom)"><Icon Name="chevrons-down" /></button>
                                     <button class="icon remove"
                                             title="Remove from Up Next"
                                             aria-label="@($"Remove {item.Title} from Up Next")"
-                                            @onclick="() => RemoveAsync(item)">✕</button>
+                                            @onclick="() => RemoveAsync(item)"><Icon Name="x" /></button>
                                 </div>
                             </td>
                         </tr>
@@ -187,6 +207,10 @@ else
     // default 32KB receive limit — which fails the circuit rather than the read it
     // was avoiding.
     private IReadOnlyList<QueueListItem>? Queue { get; set; }
+
+    // Whether this is a fresh install rather than an emptied queue. Only meaningful
+    // once the queue has been read and found empty.
+    private bool _libraryIsEmpty;
 
     private string? _actionMessage;
     private BusyScope _busy = null!;
@@ -429,6 +453,12 @@ else
     private async Task RefreshAsync()
     {
         Queue = await QueueService.GetQueueAsync(Profile.DefaultProfileId);
+
+        // Only when there is nothing to show. The two empty states differ, so the
+        // count has to be read to tell them apart — but a queue with rows in it has
+        // already answered the question, and this is the page every visit starts on.
+        _libraryIsEmpty = Queue.Count == 0
+            && (await LibraryService.GetSummaryAsync(Profile.DefaultProfileId)).Total == 0;
     }
 
     /// <summary>

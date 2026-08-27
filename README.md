@@ -138,7 +138,7 @@ against the scores you have already given — so the answer is your taste rather
 reputation. It writes a score, a confidence and a sentence of reasoning, and it never touches
 your Up Next order.
 
-Two ways to get one, on the **Recommendations** page. Both send the same request and accept the
+Two ways to get one, on the **Scoring** page. Both send the same request and accept the
 same reply; only the carrying differs.
 
 - **By hand.** Build the request, paste it into any model you like, bring the answer back. No

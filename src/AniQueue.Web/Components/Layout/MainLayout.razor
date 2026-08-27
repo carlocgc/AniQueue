@@ -6,16 +6,20 @@
     <header class="sidebar">
         <a class="brand" href="">AniQueue</a>
 
-        @* Navigation grows as phases land. Links to pages that do not exist yet are
-           deliberately omitted rather than shown disabled — a dead link is worse
-           than an absent one. *@
+        @* Five destinations, which is what fits across a phone as a bottom bar with
+           a readable label under each glyph (Phase 18a). Getting there cost the
+           Dashboard: it was six counters and no work, and the counters are a health
+           check that belongs where the question is asked, on the backlog.
+
+           A bar of links rather than a button opening a sheet. It needs no open
+           state, no overlay and no focus trap, and five destinations do not earn
+           that machinery. *@
         <nav aria-label="Main">
-            <NavLink href="" Match="NavLinkMatch.All">Dashboard</NavLink>
-            <NavLink href="up-next">Up Next</NavLink>
-            <NavLink href="backlog">Backlog</NavLink>
-            <NavLink href="recommendations">Recommendations</NavLink>
-            <NavLink href="sources">Sources</NavLink>
-            <NavLink href="tasks">Tasks</NavLink>
+            <NavLink href="" Match="NavLinkMatch.All"><Icon Name="list-video" /><span>Up Next</span></NavLink>
+            <NavLink href="backlog"><Icon Name="layers" /><span>Backlog</span></NavLink>
+            <NavLink href="scoring"><Icon Name="sparkles" /><span>Scoring</span></NavLink>
+            <NavLink href="sources"><Icon Name="plug" /><span>Sources</span></NavLink>
+            <NavLink href="settings"><Icon Name="settings" /><span>Settings</span></NavLink>
         </nav>
     </header>
 
@@ -30,7 +34,7 @@
         {
             <div class="notice error dismissible" role="alert">
                 <button class="dismiss" @onclick="() => _configWarningDismissed = true"
-                        aria-label="Dismiss the settings file warning">&times;</button>
+                        aria-label="Dismiss the settings file warning"><Icon Name="x" /></button>
 
                 <strong>Your settings file could not be read, so AniQueue started without it.</strong>
                 Anything configured in <code>@UserConfig.Path</code> is being ignored — everything

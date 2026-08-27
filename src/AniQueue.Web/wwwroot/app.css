@@ -97,7 +97,9 @@ a { color: var(--accent); }
 .sidebar nav { display: flex; flex-direction: column; gap: 2px; }
 
 .sidebar nav a {
-    display: block;
+    display: flex;
+    align-items: center;
+    gap: 0.55rem;
     padding: 0.45rem 0.6rem;
     border-radius: var(--radius);
     color: var(--text-muted);
@@ -120,16 +122,75 @@ a { color: var(--accent); }
    table on every page depends on this line. */
 main { padding: 1.5rem; max-width: 1100px; min-width: 0; }
 
+/* Almost every <code> here is a file path, and a path is one long word with nothing
+   in it a browser is willing to break. On a phone that single word set the width of
+   the page: Sources and Scoring both print where userconfig.json lives, and on a
+   Windows checkout that is 486px of unbreakable text in a 375px window. The page
+   scrolled sideways and took the fixed navigation bar with it. */
+code { overflow-wrap: anywhere; }
+
 .page-header { margin-bottom: 1.25rem; }
 .page-header p { color: var(--text-muted); margin: 0.25rem 0 0; }
 
-/* Small screens: the sidebar becomes a horizontal bar. */
+/* Small screens: the sidebar becomes a bottom tab bar (Phase 18a).
+
+   Bottom rather than top because the complaint was reach and not room — a phone is
+   held at its bottom. Fixed rather than scrolling away with the page for the same
+   reason: a bar you have to scroll back up to is not thumb-reachable either.
+
+   Fixing it also settles a bug that looked like a spacing decision. The grid has
+   min-height: 100vh, and the narrow rule leaves it one column — so the header and
+   <main> became two implicit auto rows splitting the leftover height under the
+   default align-content: stretch, and on any short page the navigation took half a
+   phone screen. Out of flow, it is no longer one of the rows. */
 @media (max-width: 720px) {
     .app { grid-template-columns: 1fr; }
 
-    .sidebar { border-right: none; border-bottom: 1px solid var(--border); }
-    .sidebar nav { flex-direction: row; flex-wrap: wrap; }
-    main { padding: 1rem; }
+    .sidebar {
+        position: fixed;
+        inset: auto 0 0 0;
+        z-index: 20;
+        padding: 0;
+        border-right: none;
+        border-top: 1px solid var(--border);
+        /* Above the home indicator on a phone, flush to the edge everywhere else. */
+        padding-bottom: env(safe-area-inset-bottom);
+    }
+
+    /* Every page opens with an <h1> naming where you are, so a wordmark above it
+       would spend a line of a small screen saying nothing new. */
+    .sidebar .brand { display: none; }
+
+    .sidebar nav { flex-direction: row; gap: 0; }
+
+    .sidebar nav a {
+        flex: 1;
+        flex-direction: column;
+        justify-content: center;
+        gap: 3px;
+        /* 44px is the tap target both Apple and Google publish; the rest of the
+           height is the label under the glyph. */
+        min-height: 3.5rem;
+        padding: 0.4rem 0.2rem;
+        border-radius: 0;
+        font-size: 0.7rem;
+        text-align: center;
+    }
+
+    /* The filled block that marks the page in the sidebar is too heavy for a bar of
+       five, so the current tab takes a rule along its top instead. Shape as well as
+       colour, because colour alone is not a state everyone can see. */
+    .sidebar nav a.active {
+        background: none;
+        color: var(--accent);
+        box-shadow: inset 0 2px 0 var(--accent);
+    }
+
+    .sidebar nav a .icon-glyph { width: 1.35rem; height: 1.35rem; }
+
+    /* Clears the bar, which is out of flow and would otherwise sit over the last
+       row of every list. */
+    main { padding: 1rem; padding-bottom: calc(3.5rem + 1.5rem + env(safe-area-inset-bottom)); }
 }
 
 /* Surfaces ---------------------------------------------------------------- */
@@ -234,7 +295,15 @@ input[type="number"] { width: 12rem; }
 
 /* Tables ------------------------------------------------------------------ */
 
-.table-wrap { overflow-x: auto; }
+/* position: relative is the load-bearing half, and it is not about placing
+   anything. A table wide enough to scroll here holds visually-hidden column
+   headings, which are position: absolute with no offsets — so a static wrap left
+   their containing block as the page itself, they escaped the scroller instead of
+   being clipped by it, and one 1px span sitting 506px into a 640px table made the
+   whole document 506px wide on a 375px phone. The page then scrolled sideways, and
+   the fixed navigation bar went with it. */
+.table-wrap { position: relative; overflow-x: auto; }
+
 
 table { width: 100%; border-collapse: collapse; font-size: 0.92rem; }
 
@@ -369,8 +438,6 @@ h2 > .badge { font-size: 0.7rem; vertical-align: middle; margin-left: 0.5rem; fo
 /* Adding is the one action on this page anybody does repeatedly, so it is the one
    that answers on hover. Disabled it stays put and stays quiet — the tooltip is
    carrying the reason. */
-button.icon.add { font-size: 1.05rem; line-height: 1.2; }
-
 button.icon.add:hover:not(:disabled) { color: var(--accent); border-color: var(--accent); }
 
 /* Already queued, so the same button now offers to undo it. It stays a state
@@ -428,6 +495,63 @@ tbody tr.row-hidden > td { opacity: 0.55; }
     /* Optically centres against the cap height; the glyph's mass sits high. */
     margin-top: -0.05em;
 }
+
+/* Icons ------------------------------------------------------------------- */
+
+/* In em, so a glyph tracks whatever text it sits beside; shrink-proof, so a long
+   label cannot squash it. */
+.icon-glyph {
+    width: 1.15em;
+    height: 1.15em;
+    flex: none;
+}
+
+/* A worded button with a glyph beside it. Run now and Save keep their words — a
+   symbol on its own is a guess at what a button does — so all this has to do is
+   line the two up. */
+button:has(> .icon-glyph), .button:has(> .icon-glyph) {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+}
+
+/* On or off and nothing in between, which is what a power symbol says and a tick
+   box does not: a tick box says "include this". Filled green for on, outlined red
+   for off, and the state is written into the accessible name as well — roughly one
+   man in twelve cannot reliably tell that red from that green, so the colour
+   reinforces and never carries (Phase 18a). */
+.power {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    /* The published thumb target. The switch this replaced was a 13px tick box.
+       flex: none because these sit in flex rows that were happy to shave 3px off
+       one, which is the whole point of the size. */
+    flex: none;
+    width: 2.75rem;
+    height: 2.75rem;
+    padding: 0;
+    border-radius: 999px;
+    border: 1px solid var(--danger);
+    background: none;
+    color: var(--danger);
+}
+
+.power .icon-glyph { width: 1.25rem; height: 1.25rem; }
+
+.power[aria-checked="true"] {
+    background: var(--success);
+    border-color: var(--success);
+    /* The page background rather than white, so the symbol keeps its contrast
+       against the lighter green the dark palette uses. */
+    color: var(--bg);
+}
+
+.power:hover:not(:disabled) { filter: brightness(1.08); }
+
+/* Button and words on one line, where a power button replaced a labelled tick box
+   and the label has to stay. */
+.power-field { display: flex; align-items: center; gap: 0.6rem; }
 
 .badge.queued { background: var(--accent); color: var(--accent-text); border-color: transparent; }
 
@@ -591,7 +715,8 @@ tbody tr.row-hidden > td { opacity: 0.55; }
 /* Mouse and touch only. The move buttons are the keyboard path and always will
    be (§39), so the grip is aria-hidden and never takes focus. */
 .drag-handle {
-    display: inline-block;
+    display: inline-flex;
+    align-items: center;
     padding: 0 0.15rem;
     color: var(--text-muted);
     cursor: grab;
@@ -602,6 +727,12 @@ tbody tr.row-hidden > td { opacity: 0.55; }
 }
 
 .drag-handle:active { cursor: grabbing; }
+
+/* The glyph is not the target; the span around it is. touch-action does not
+   inherit, so once the grip became an <svg> a touch landing on the icon itself had
+   touch-action: auto and scrolled the page instead of starting a drag — on exactly
+   the device this was drawn for. */
+.drag-handle .icon-glyph { pointer-events: none; }
 
 /* The gap the row will drop into. Outlined rather than filled: a solid block
    reads as the row itself having moved, when it has not yet. */
@@ -629,6 +760,10 @@ tbody tr.row-hidden > td { opacity: 0.55; }
    aria-label naming both the action and the title, because an arrow announced on
    its own tells a screen-reader user nothing about what it will move. */
 button.icon {
+    /* Centres the glyph the way text used to centre itself. */
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
     padding: 0.2rem 0;
     width: 1.9rem;
     line-height: 1.4;
@@ -1057,8 +1192,6 @@ table.runs th:nth-child(3), table.runs td:nth-child(3) { white-space: nowrap; }
 
 /* Wraps under the row it explains rather than widening the column. */
 p.failure { margin: 0.25rem 0 0; font-size: 0.85rem; }
-
-.switch { display: inline-flex; align-items: center; }
 
 /* Sources: the one destructive action, and the one inline wait (Phase 15e).
 

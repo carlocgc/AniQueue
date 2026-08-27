@@ -1,0 +1,27 @@
+@* One glyph from the vendored Lucide sprite (Phase 18a).
+
+   Decoration by default: every icon here sits inside something that already has an
+   accessible name — a link with its label beside it, or a button with an aria-label —
+   so announcing the picture as well would say everything twice.
+
+   The presentation attributes live on this element rather than in the sprite on
+   purpose. They are inherited properties, so they reach the shapes that <use> clones
+   into a shadow tree; a stylesheet rule would not. See lib/lucide/README.md. *@
+
+<svg class="@ClassName" viewBox="0 0 24 24" aria-hidden="true" focusable="false"
+     fill="none" stroke="currentColor" stroke-width="2"
+     stroke-linecap="round" stroke-linejoin="round">
+    <use href="@($"{Assets["lib/lucide/lucide.svg"]}#{Name}")" />
+</svg>
+
+@code {
+    /// <summary>The symbol id, which is the Lucide icon name — <c>power</c>, <c>chevron-up</c>.</summary>
+    [Parameter, EditorRequired]
+    public string Name { get; set; } = string.Empty;
+
+    /// <summary>Extra classes, for the few places that size a glyph differently.</summary>
+    [Parameter]
+    public string? Class { get; set; }
+
+    private string ClassName => Class is null ? "icon-glyph" : $"icon-glyph {Class}";
+}

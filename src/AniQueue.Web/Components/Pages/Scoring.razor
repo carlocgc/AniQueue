@@ -1,4 +1,7 @@
-@page "/recommendations"
+@* Named for what it does rather than for what it returns (Phase 18a). It scores a
+   backlog; "Recommendations" promised a shortlist, which D32 declined, and it was
+   also two characters too long to sit in a bar of five tabs on a phone. *@
+@page "/scoring"
 @using System.Globalization
 @using AniQueue.Core.Domain
 @using AniQueue.Core.Jobs
@@ -6,7 +9,7 @@
 @using AniQueue.Core.Settings
 @using Microsoft.Extensions.Options
 @implements IAsyncDisposable
-@inject IRecommendationService Scoring
+@inject IRecommendationService Recommender
 @* The sizes in effect, and where they are written. Two injections rather than one
    because reading and writing are genuinely different: the monitor reports what any
    configuration source currently says, while the store is the only thing that
@@ -21,12 +24,12 @@
    scoring task is running rather than queueing behind it (D42). *@
 @inject ITaskRegistry Tasks
 @inject IJSRuntime JS
-@inject ILogger<Recommendations> Logger
+@inject ILogger<Scoring> Logger
 
-<PageTitle>Recommendations — AniQueue</PageTitle>
+<PageTitle>Scoring — AniQueue</PageTitle>
 
 <div class="page-header">
-    <h1>Recommendations</h1>
+    <h1>Scoring</h1>
     @* Says up front that this ranks and does not reorder. The queue shortening by
        itself already surprises people (D12); a second thing writing to the backlog
        is easier to accept when its limits were stated before it ran, not after. *@
@@ -280,7 +283,7 @@
             <p class="muted">
                 Ranking with <strong>@(Endpoint.Model ?? "the configured model")</strong>
                 at <strong>@Endpoint.Endpoint</strong>. Ranking happens on the
-                <a href="tasks">Tasks</a> page, with nobody waiting.
+                <a href="settings">Settings</a> page, with nobody waiting.
             </p>
 
             @if (_waitingCount > 0)
@@ -390,7 +393,7 @@
 
             <div class="toolbar">
                 <button class="primary" disabled="@_busy.IsRunning" @onclick="SaveConnectionAsync">
-                    Save
+                    <Icon Name="save" />Save
                 </button>
             </div>
 
@@ -408,10 +411,10 @@
                     ratings have overtaken.
                 </p>
 
-                @* How often is set on the Tasks page now, once for every background
+                @* How often is set on the Settings page now, once for every background
                    task (D40). What stays here is what a run may do when it happens. *@
                 <p class="muted">
-                    How often it looks is set on the <a href="tasks">Tasks</a> page, along
+                    How often it looks is set on the <a href="settings">Settings</a> page, along
                     with every other kind of background work. A run stops as soon as there
                     is nothing out of date, so leaving it on costs nothing on a backlog
                     that is already ranked.
@@ -454,7 +457,7 @@
 
                 <div class="toolbar">
                     <button class="primary" disabled="@_busy.IsRunning" @onclick="SaveScheduleAsync">
-                        Save
+                        <Icon Name="save" />Save
                     </button>
                 </div>
             </details>
@@ -538,7 +541,7 @@
 
             <div class="toolbar">
                 <button class="primary" disabled="@_busy.IsRunning" @onclick="SaveSizesAsync">
-                    Save
+                    <Icon Name="save" />Save
                 </button>
             </div>
         </details>
@@ -1065,7 +1068,7 @@ else
         // The notes flag travels with it, which the old pair did not carry: a request
         // built with personal notes is bigger than one without, so leaving it out
         // under-reported the size for exactly the person who had opted in.
-        _estimate = await Scoring.MeasureAsync(
+        _estimate = await Recommender.MeasureAsync(
             Profile.DefaultProfileId,
             ScoringRequestOptions.From(
                 _historySize,
@@ -1076,7 +1079,7 @@ else
         _scoredCount = _estimate.HistoryAvailable;
 
         _staleAfterRatings = ScoringOptions.CurrentValue.StaleAfterRatings;
-        _coverage = await Scoring.GetCoverageAsync(Profile.DefaultProfileId, _staleAfterRatings);
+        _coverage = await Recommender.GetCoverageAsync(Profile.DefaultProfileId, _staleAfterRatings);
     }
 
     private async Task BuildAsync()
@@ -1091,7 +1094,7 @@ else
 
         _request = await _busy.RunAsync(
             "Building the request",
-            _ => Scoring.BuildRequestAsync(Profile.DefaultProfileId, options));
+            _ => Recommender.BuildRequestAsync(Profile.DefaultProfileId, options));
 
         _waiting = _request.CandidatesAvailable;
 
@@ -1323,7 +1326,7 @@ else
             // Pasted, for both ways in: the upload route reads the file into the textarea
             // and comes through here, so what is checked is always a document a person
             // carried. That is the route D50 requires a reply to name its database on.
-            _ => Scoring.PreviewAsync(Profile.DefaultProfileId, ScoringRoute.Pasted, json, request));
+            _ => Recommender.PreviewAsync(Profile.DefaultProfileId, ScoringRoute.Pasted, json, request));
 
         // A new ranking starts at its own beginning. Left alone, checking a second
         // reply while on page four opens it four pages in, or on nothing at all when
@@ -1340,7 +1343,7 @@ else
 
         var result = await _busy.RunAsync(
             "Applying the ranking",
-            progress => Scoring.ApplyAsync(
+            progress => Recommender.ApplyAsync(
                 Profile.DefaultProfileId,
                 _preview!,
                 ProviderName,
@@ -1385,7 +1388,7 @@ else
     }
 
     private async Task LoadRunsAsync() =>
-        _runs = await Scoring.GetRunsAsync(Profile.DefaultProfileId, RunsShown);
+        _runs = await Recommender.GetRunsAsync(Profile.DefaultProfileId, RunsShown);
 
     // This briefly carried the previous run's model forward, on the grounds that
     // almost nobody changes model between rankings. It is not there any more, and the
@@ -1423,7 +1426,7 @@ else
         try
         {
             _module ??= await JS.InvokeAsync<IJSObjectReference>(
-                "import", "./Components/Pages/Recommendations.razor.js");
+                "import", "./Components/Pages/Scoring.razor.js");
 
             return await _module.InvokeAsync<T>(name, args);
         }
