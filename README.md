@@ -79,6 +79,32 @@ database:** the sample titles carry identifiers AniList does not issue, so the f
 that comes back without them reports them as no longer on AniList — which is correct, and is
 why the sample data leaves AniList sync switched off in the database it creates.
 
+### Opening it from a phone
+
+The listings have a narrow layout, and a browser made narrow is only an approximation of one.
+To reach the development server from a device on the same network, use the *http (lan)* launch
+profile, or:
+
+```bash
+dotnet run --project src/AniQueue.Web --urls http://0.0.0.0:5048
+```
+
+The ordinary profiles bind to `localhost`, which nothing else on the network can reach. This one
+binds to every interface, so Windows will also want an inbound rule for the port — once, from an
+elevated prompt:
+
+```powershell
+New-NetFirewallRule -DisplayName "AniQueue dev 5048" -Direction Inbound -Protocol TCP -LocalPort 5048 -Profile Private -Action Allow
+```
+
+Then browse to `http://<your machine's LAN address>:5048`. Two things differ from localhost:
+`navigator.clipboard` does not exist over plain http, so *Copy the whole prompt* falls back to
+`execCommand` and may be refused outright — the text is on the page either way — and the device
+has to be on the same network rather than on mobile data.
+
+**Development only.** It is a plain-http server with no authentication, so it is for a network
+you trust. Deployment is a container behind whatever the operator puts in front of it.
+
 ## Importing a MyAnimeList export
 
 1. On MyAnimeList, go to **List → Export** and download your anime list. The file arrives
