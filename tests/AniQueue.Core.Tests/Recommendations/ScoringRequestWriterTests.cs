@@ -51,8 +51,6 @@ public class ScoringRequestWriterTests
             Title = "Steins;Gate",
             Titles = new ScoringCandidateTitles { Romaji = "Steins;Gate", English = "Steins Gate" },
             MediaType = MediaType.Tv,
-            Episodes = 24,
-            EpisodeMinutes = 24,
             Year = 2011,
             ExternalIds = new ScoringCandidateIds { AniList = "9253", MyAnimeList = "9253" }
         }));
@@ -62,9 +60,13 @@ public class ScoringRequestWriterTests
         Assert.Equal(412, candidate.GetProperty("id").GetInt32());
         Assert.Equal("Steins;Gate", candidate.GetProperty("title").GetString());
         Assert.Equal("Tv", candidate.GetProperty("mediaType").GetString());
-        Assert.Equal(24, candidate.GetProperty("episodes").GetInt32());
-        Assert.Equal(24, candidate.GetProperty("episodeMinutes").GetInt32());
         Assert.Equal(2011, candidate.GetProperty("year").GetInt32());
+
+        // Never, whatever the catalogue knows (D52). A model that recognises the title
+        // already knows how long it is, and one that does not is told to answer with low
+        // confidence rather than infer.
+        Assert.False(candidate.TryGetProperty("episodes", out _));
+        Assert.False(candidate.TryGetProperty("episodeMinutes", out _));
         Assert.Equal("Steins Gate", candidate.GetProperty("titles").GetProperty("english").GetString());
         Assert.Equal("9253", candidate.GetProperty("externalIds").GetProperty("anilist").GetString());
     }
@@ -80,8 +82,6 @@ public class ScoringRequestWriterTests
             Title = "A film nobody catalogued"
         })).GetProperty("candidates")[0];
 
-        Assert.False(candidate.TryGetProperty("episodes", out _));
-        Assert.False(candidate.TryGetProperty("episodeMinutes", out _));
         Assert.False(candidate.TryGetProperty("year", out _));
         Assert.False(candidate.TryGetProperty("titles", out _));
         Assert.False(candidate.TryGetProperty("externalIds", out _));

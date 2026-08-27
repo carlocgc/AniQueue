@@ -730,8 +730,6 @@ public sealed class RecommendationService(
                 e.Anime.TitleEnglish,
                 e.Anime.TitleNative,
                 e.Anime.MediaType,
-                e.Anime.EpisodeCount,
-                e.Anime.EpisodeDurationMinutes,
                 e.Anime.ReleaseYear,
                 Notes = includeNotes ? e.PersonalNotes : null,
 
@@ -758,8 +756,6 @@ public sealed class RecommendationService(
                 Native = Distinct(row.TitleNative, row.Title)
             },
             MediaType = row.MediaType,
-            Episodes = row.EpisodeCount,
-            EpisodeMinutes = row.EpisodeDurationMinutes,
             Year = row.ReleaseYear,
             ExternalIds = new ScoringCandidateIds
             {

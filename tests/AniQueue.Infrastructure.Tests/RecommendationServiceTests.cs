@@ -217,8 +217,8 @@ public class RecommendationServiceTests
         Assert.Equal("Sousou no Frieren", candidate.Title);
         Assert.Equal("Frieren: Beyond Journey's End", candidate.Titles.English);
         Assert.Equal("154587", candidate.ExternalIds.AniList);
-        Assert.Equal(28, candidate.Episodes);
         Assert.Equal(2023, candidate.Year);
+        Assert.Equal(MediaType.Tv, candidate.MediaType);
     }
 
     [Fact]

@@ -2775,6 +2775,49 @@ three controls that all mean everything when left alone should not need three re
 establish it. None of them accepts zero any more: it was never reachable on two of them, and the
 third is what this decision retired.
 
+### D52 — A candidate says what history says, and nothing more
+
+*Removes `episodes` and `episodeMinutes` from the scoring request. Amends Phase 7's export
+payload.*
+
+Every candidate carried an episode count and an episode duration. The question that removed them
+is the one nobody had asked: **does this field change a predicted score?**
+
+- **A model that recognises the title already knows how long it is.** The ids and the title
+  variants are what identify it, and they were already there.
+- **A model that does not recognise it is told not to guess.** The prompt says "If you do not
+  recognise a title, give it a low confidence rather than a guessed score" — so the case these
+  fields were supposedly for is a case the design already answers differently.
+
+`ScoringHistoryEntry` had reached the same conclusion from the other end and said so in its own
+documentation: a history entry carries a title, a score, a media type and a year, because episode
+counts "would treble the size of the largest part of the payload to say nothing about taste".
+What was true of a title somebody has watched is true of one they have not.
+
+**What it costs and what it buys.** Measured rather than estimated: removing them took a request
+from 4,462 bytes to 4,077 over eight candidates, which is **48 bytes each**. Against the real
+237-title request that is 11.4 KB of 103 KB — a tenth of the payload, near enough three thousand
+tokens. On a frontier model that is nothing. On the self-hosted path it is not: §7 records a real
+refusal at 13,782 tokens against an 8,192-token window, and this is the half of the payload a
+candidate limit cannot shrink without also shrinking the question.
+
+**What is left is exactly what history carries**, and that is the better reason than the size.
+The two halves of the payload now describe titles the same way — id, names, media type, year — so
+a model comparing a candidate against the ratings is comparing like with like rather than reading
+richer rows on one side of the question.
+
+**One thing is genuinely lost, and it is worth naming.** `episodeMinutes` was the only field
+separating a twelve-episode series from a twelve-episode short; `mediaType` calls both of them
+`Tv`. That is a real format distinction and a real taste signal. It is being given up because it
+is one distinction at a tenth of the payload, and because nothing measured it — which is the
+honest state of this decision. **The way to settle it is the method D43 used for `rank`:** run a
+sweep with and without against the same library and compare the scores. If short-form titles move
+in a way nothing else explains, `episodeMinutes` comes back on its own.
+
+**No version bump.** The interchange version describes what a reply must satisfy, and a reply is
+unaffected: nothing read these fields back, and a model that saw them in an older request is not
+holding anything a new request contradicts.
+
 ---
 
 ## 3. Solution structure
@@ -3730,12 +3773,14 @@ leave Phase 8 reaching into the UI for it, and would let the two drift with noth
 A test asserts that the example the prompt asks for is one the parser accepts.
 
 **The export payload.** One candidate per Planning title: the AniQueue anime id, the displayed
-title and whichever romaji/english/native variants the source published, media type, episode
-count, episode duration, release year, and every external identifier the title carries (D17) so
-a model can recognise a show it knows under another service's name. Alongside the candidates,
-the *history* that makes a ranking personal — completed titles with the user's own score.
-Without it a model ranks by general reputation, which is exactly the prioritisation this
-application exists to avoid.
+title and whichever romaji/english/native variants the source published, media type, release
+year, and every external identifier the title carries (D17) so a model can recognise a show it
+knows under another service's name. *Episode count and episode duration were here too until D52
+asked what they changed about a predicted score.*
+
+Alongside the candidates, the *history* that makes a ranking personal — completed titles with
+the user's own score. Without it a model ranks by general reputation, which is exactly the
+prioritisation this application exists to avoid.
 
 **`PersonalNotes` is excluded unless opted in.** `ProfileSettings.IncludePersonalNotesInAiExport`
 already exists and already defaults to false. §6's rule is unchanged: export only what ranking
