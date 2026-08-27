@@ -275,27 +275,38 @@
                                              Status="relative.Status" IsQueued="relative.IsQueued"
                                              OnToggle="ToggleQueuedAsync" />
 
-                                @* Only where the source said something. Anything more
-                                   than one edge away has no edge to read, so it gets
-                                   no badge rather than a guessed one (D55). *@
-                                @if (relative.Relation is not null)
-                                {
-                                    <span class="badge relation">@relative.Label</span>
-                                }
+                                @* The title on its own line and everything about it on
+                                   the next. They shared a wrapping line until a real
+                                   library arrived: an eighty-character light-novel title
+                                   pushed the badges onto a third line and the add button
+                                   onto a line of its own above the title it belonged to,
+                                   so a run of seasons read as rubble. *@
+                                <div class="detail-set-line">
+                                    <button type="button"
+                                            class="title-button relation-title"
+                                            aria-label="Details for @relative.Title"
+                                            @onclick="() => ShowAsync(relative.AnimeId)">@relative.Title</button>
 
-                                <button type="button"
-                                        class="title-button relation-title"
-                                        aria-label="Details for @relative.Title"
-                                        @onclick="() => ShowAsync(relative.AnimeId)">@relative.Title</button>
+                                    <div class="detail-set-meta">
+                                        <span class="badge @relative.Status.ToString().ToLowerInvariant()">@relative.Status</span>
 
-                                <span class="badge @relative.Status.ToString().ToLowerInvariant()">@relative.Status</span>
+                                        @if (relative.IsQueued)
+                                        {
+                                            <span class="badge queued" title="Already in Up Next">Queued</span>
+                                        }
 
-                                @if (relative.IsQueued)
-                                {
-                                    <span class="badge queued" title="Already in Up Next">Queued</span>
-                                }
+                                        @* Only where the source said something. Anything
+                                           more than one edge away has no edge to read, so
+                                           it gets no badge rather than a guessed one
+                                           (D55). *@
+                                        @if (relative.Relation is not null)
+                                        {
+                                            <span class="badge relation">@relative.Label</span>
+                                        }
 
-                                <span class="muted">@RelativeMeta(relative)</span>
+                                        <span class="muted">@RelativeMeta(relative)</span>
+                                    </div>
+                                </div>
                             </li>
                         }
                     </ul>

@@ -590,24 +590,43 @@ button:has(> .icon-glyph), .button:has(> .icon-glyph) {
     border-color: transparent;
 }
 
-.detail-set-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.35rem; }
+.detail-set-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.6rem; }
 
+/* The add button holds its column and the title takes the rest. It used to be one
+   wrapping line of button, title and badges, which held up until a real library
+   arrived: an eighty-character light-novel title wrapped, took the badges to a third
+   line, and pushed the button onto a line of its own *above* the title it acted on. */
 .detail-set-list li {
     display: flex;
-    align-items: center;
-    gap: 0.45rem;
-    flex-wrap: wrap;
+    align-items: flex-start;
+    gap: 0.5rem;
     font-size: 0.9rem;
 }
 
-/* The relation is what the row is being read for, so it gets the accent and a
-   fixed width — the labels line up and the eye can run down them. */
-.badge.relation {
-    background: var(--surface);
-    color: var(--text);
-    min-width: 6.5rem;
-    text-align: center;
+/* min-width: 0 because a flex item refuses to be narrower than its content by
+   default, and the content here is a title with no line break in it. Without this
+   the long ones widen the dialog instead of wrapping inside it. */
+.detail-set-line {
+    flex: 1;
+    min-width: 0;
+    display: grid;
+    gap: 0.15rem;
 }
+
+/* The title reads first and the facts about it read second, which is the order
+   somebody scanning a run of seasons wants them in. On one line they competed. */
+.detail-set-meta {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    flex-wrap: wrap;
+    font-size: 0.85rem;
+}
+
+/* No min-width any more. It was 6.5rem so that a column of labels lined up down a
+   table; in the dialog the badge sits among other badges on a wrapping line, where
+   a fixed width is just a gap in the middle of one. */
+.badge.relation { background: var(--surface); color: var(--text); }
 
 .relation-title { font-weight: 500; }
 
