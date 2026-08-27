@@ -122,6 +122,13 @@ a { color: var(--accent); }
    table on every page depends on this line. */
 main { padding: 1.5rem; max-width: 1100px; min-width: 0; }
 
+/* Almost every <code> here is a file path, and a path is one long word with nothing
+   in it a browser is willing to break. On a phone that single word set the width of
+   the page: Sources and Scoring both print where userconfig.json lives, and on a
+   Windows checkout that is 486px of unbreakable text in a 375px window. The page
+   scrolled sideways and took the fixed navigation bar with it. */
+code { overflow-wrap: anywhere; }
+
 .page-header { margin-bottom: 1.25rem; }
 .page-header p { color: var(--text-muted); margin: 0.25rem 0 0; }
 
@@ -288,7 +295,15 @@ input[type="number"] { width: 12rem; }
 
 /* Tables ------------------------------------------------------------------ */
 
-.table-wrap { overflow-x: auto; }
+/* position: relative is the load-bearing half, and it is not about placing
+   anything. A table wide enough to scroll here holds visually-hidden column
+   headings, which are position: absolute with no offsets — so a static wrap left
+   their containing block as the page itself, they escaped the scroller instead of
+   being clipped by it, and one 1px span sitting 506px into a 640px table made the
+   whole document 506px wide on a 375px phone. The page then scrolled sideways, and
+   the fixed navigation bar went with it. */
+.table-wrap { position: relative; overflow-x: auto; }
+
 
 table { width: 100%; border-collapse: collapse; font-size: 0.92rem; }
 
