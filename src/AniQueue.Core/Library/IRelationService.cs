@@ -83,12 +83,15 @@ public sealed record RelatedTitle
 /// rather than a thing stored anywhere (D23).
 /// </summary>
 /// <remarks>
-/// <b>The set is the same work, followed as far as it goes.</b> Prequel, sequel,
-/// parent and side-story edges are the ones a box set is assembled along — main
-/// seasons and their specials — so the walk follows those transitively and stops at
-/// nothing else. Spin-offs, alternative versions, recaps and compilations are not in
-/// the box: a separate work set in the same world is a different purchase, and a
-/// remake or a recap is the same story told again.
+/// <b>The set is the same work, followed as far as it goes.</b> Prequel and sequel
+/// give the main run and side story hangs the specials off it, so the walk follows
+/// those transitively and stops at nothing else. Spin-offs, alternative versions,
+/// recaps and compilations are not in the box: a separate work set in the same world
+/// is a different purchase, and a remake or a recap is the same story told again.
+///
+/// <b>A parent edge is not followed</b>, which is what stops a spin-off dragging in
+/// the work it branches from — AniList spells both with <c>PARENT</c> (D24), so the
+/// edge cannot tell them apart. See the note on <c>SameWork</c> in the implementation.
 ///
 /// <b>This reverses D24's "one edge out, never transitive" for this surface, and
 /// deliberately.</b> One edge out was right for a panel injected into a list, where

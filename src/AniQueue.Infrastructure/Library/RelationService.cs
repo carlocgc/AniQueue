@@ -50,6 +50,22 @@ public sealed class RelationService(
     /// The relation types that mean "the same work", and so make up a set (D55).
     /// </summary>
     /// <remarks>
+    /// Prequel and sequel give the main run; side story hangs the specials off it.
+    ///
+    /// <b><c>Parent</c> is deliberately absent, and its absence is the whole reason a
+    /// spin-off cannot drag a franchise in.</b> AniList publishes <c>PARENT</c> as the
+    /// counterpart of both <c>SIDE_STORY</c> and <c>SPIN_OFF</c> (D24), so a parent
+    /// edge cannot tell a special from a spin-off — and it points the wrong way for a
+    /// set in any case. A main work contains its side stories; a side story does not
+    /// contain the work it branches from. Measured on a real library: Prisma Illya
+    /// states <c>PARENT</c> to Unlimited Blade Works, which states <c>SPIN_OFF</c>
+    /// back, and following the parent edge put Fate/Zero in Illya's box set.
+    ///
+    /// A special is still found, because the work it belongs to states
+    /// <c>SIDE_STORY</c> from its own side and an edge is traversable from either end.
+    /// What is lost is a special whose only stored edge is its own <c>PARENT</c> — and
+    /// that is exactly the row that cannot be told from a spin-off.
+    ///
     /// An array rather than a switch because it has to translate: it is used inside a
     /// query, where EF turns <c>Contains</c> over a local collection into an
     /// <c>IN</c> clause.
@@ -58,7 +74,6 @@ public sealed class RelationService(
     [
         RelationType.Prequel,
         RelationType.Sequel,
-        RelationType.Parent,
         RelationType.SideStory
     ];
 
@@ -169,12 +184,11 @@ public sealed class RelationService(
     /// The set one title belongs to, owned, in release order, including the title.
     /// </summary>
     /// <remarks>
-    /// <b>The four edges a box set is assembled along.</b> Prequel and sequel give
-    /// the main seasons; parent and side story give the specials hanging off them and
-    /// the main work a special hangs off. Spin-off, alternative, summary, compilation
-    /// and contains are not followed at all: a separate work in the same world is a
-    /// different purchase, and a remake or a recap is the same story told again
-    /// (D55).
+    /// <b>The edges a box set is assembled along</b>, which is <see cref="SameWork"/>
+    /// and the note on why <c>Parent</c> is not among them. Spin-off, alternative,
+    /// summary, compilation and contains are not followed at all: a separate work in
+    /// the same world is a different purchase, and a remake or a recap is the same
+    /// story told again (D55).
     ///
     /// <b>Membership is symmetric, so direction is not consulted.</b> An edge is
     /// stored exactly as fetched (D24), so "this has sequel X" and "X has prequel

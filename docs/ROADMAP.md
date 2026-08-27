@@ -2960,12 +2960,29 @@ that lived only in the row's panel, and which come across with it. Losing them q
 been the easy version of this change and the wrong one: which model produced a score is the one
 fact that tells somebody whether running it again is worth doing.
 
-**A set is the same work, followed as far as it goes.** Prequel, sequel, parent and side story
-are the edges a complete box set is assembled along — main seasons, and the specials hanging off
-them. The walk follows those transitively and nothing else. A spin-off is a separate work set in
-the same world, an alternative is a remake, and a summary or compilation is the same story told
-again; none of them is in the box, and none of them is walked *through* to reach anything else
-either, or excluding the edge would only hide one row of a franchise it had already let in.
+**A set is the same work, followed as far as it goes.** Prequel and sequel give the main run, and
+side story hangs the specials off it. The walk follows those transitively and nothing else. A
+spin-off is a separate work set in the same world, an alternative is a remake, and a summary or
+compilation is the same story told again; none of them is in the box, and none of them is walked
+*through* to reach anything else either, or excluding the edge would only hide one row of a
+franchise it had already let in.
+
+**`Parent` is not one of the four, and that omission is load-bearing.** It looks like the obvious
+fifth — a special's own statement of what it belongs to — and it is the hole every spin-off climbs
+through. AniList publishes `PARENT` as the counterpart of both `SIDE_STORY` and `SPIN_OFF`, which
+this file already recorded under D24, so a parent edge cannot tell a special from a spin-off. It
+also points the wrong way: a main work contains its side stories, and a side story does not
+contain the work it branches from.
+
+*Found by running it on a real library rather than by arguing about it.* Prisma Illya states
+`PARENT` to Unlimited Blade Works, which states `SPIN_OFF` back; following the parent edge put
+Fate/Zero — two further edges away, through a series Illya is not part of — into Illya's box set.
+With the edge dropped, Illya's set is the nine Illya titles and nothing else.
+
+**What that costs, stated rather than discovered.** A special whose *only* stored edge is its own
+`PARENT` is not in any set. Ordinarily the work it belongs to states `SIDE_STORY` from its own
+side and the edge is traversable from either end, so the special is found anyway. The row that is
+lost is precisely the row that cannot be told from a spin-off.
 
 **This reverses D24 for this surface, and D24's reasoning is what settles it.** "One edge out,
 never transitive" was right for a panel wedged into a table row, where the question was *how is
@@ -5074,6 +5091,12 @@ complete box set would hold, which is main seasons and their specials. A spin-of
 work in the same world and a remake is the same story told again; neither is in the box, and
 neither is walked through to reach anything else.
 
+*A third, found on a real library after it shipped to review.* The walk followed `PARENT` as well,
+which reads as a special naming what it belongs to and is equally how AniList spells a spin-off
+naming what it branches from — so Prisma Illya reached Unlimited Blade Works and, through it,
+Fate/Zero. `PARENT` is dropped; the specials are found from the other end, where the work states
+`SIDE_STORY` itself.
+
 **The bulk action moves with them and widens.** *Queue the rest* currently follows the sequel
 walk. In the dialog it queues **every unwatched relation** — main seasons and specials both.
 *It queues the title itself too, because a title is part of its own set, and the count says so
@@ -5243,9 +5266,12 @@ Phase 6 adds:
 - **What the set holds** (rewritten by D55). Every status; owned titles only; ordering is by
   release date with unknowns last; a relation read from the far end is inverted; the same pair
   stated from both ends appears once; two ends that disagree are labelled "Related" rather than
-  arbitrated; a title is never in its own set. The set is transitive along the four same-work
+  arbitrated; a title is never in its own set. The set is transitive along the same-work
   edges — a season two edges away is in it — while a spin-off and a remake are neither in it nor
-  walked through to reach anything beyond them, and only a direct neighbour carries a label.
+  walked through to reach anything beyond them, and only a direct neighbour carries a label. **A
+  spin-off does not reach the work it branches from**, stated from both ends the way AniList
+  states it, and the special that costs — one whose only edge is its own `PARENT` — is asserted
+  too, so the price is a failing test rather than a surprise if anyone puts `PARENT` back.
 - **Queueing a set.** It traverses *through* a Completed middle season without queueing it,
   and through a season the library does not own at all; an unwatched prequel is queued and a
   watched one is refused; it appends in release order rather than the order it found things; a

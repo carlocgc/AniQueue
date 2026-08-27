@@ -227,6 +227,13 @@ public class RelationServiceTests
     /// <c>SPIN_OFF</c>, so the two ends of one connection routinely describe it
     /// differently. Choosing a winner would state something the source did not.
     /// </summary>
+    /// <remarks>
+    /// Both ends here call the other their side story, which inverts to "parent" read
+    /// from the far end — so the two descriptions disagree while the pair is still
+    /// plainly the same work. The spin-off version of this disagreement is no longer
+    /// expressible in a set at all: D55 stopped following parent edges, so a pair
+    /// joined only by <c>SPIN_OFF</c> and <c>PARENT</c> is not in one.
+    /// </remarks>
     [Fact]
     public async Task Edges_that_disagree_about_the_connection_are_labelled_related()
     {
@@ -235,8 +242,8 @@ public class RelationServiceTests
         var main = await fixture.OwnAsync("100");
         await fixture.OwnAsync("200");
 
-        await fixture.RelateAsync("100", RelationType.SpinOff, "200");
-        await fixture.RelateAsync("200", RelationType.Parent, "100");
+        await fixture.RelateAsync("100", RelationType.SideStory, "200");
+        await fixture.RelateAsync("200", RelationType.SideStory, "100");
 
         var related = Assert.Single(await fixture.RelatedAsync(main));
 
@@ -352,22 +359,70 @@ public class RelationServiceTests
     }
 
     /// <summary>
-    /// A special hangs off the season it belongs to, and both directions of that are
-    /// the same fact — so it is in the set whichever end published the edge (D55).
+    /// A special hangs off the work it belongs to, and the edge is traversable from
+    /// either end — so it is in the set read from the special as well as from the
+    /// show (D55).
     /// </summary>
-    [Theory]
-    [InlineData(RelationType.SideStory)]
-    [InlineData(RelationType.Parent)]
-    public async Task A_special_is_in_the_set(RelationType type)
+    [Fact]
+    public async Task A_special_is_in_the_set_from_either_end()
     {
         await using var fixture = await Fixture.CreateAsync();
 
-        var owned = await fixture.OwnAsync("100", "The show");
+        var show = await fixture.OwnAsync("100", "The show");
+        var ova = await fixture.OwnAsync("200", "The OVA");
+
+        await fixture.RelateAsync("100", RelationType.SideStory, "200");
+
+        Assert.Equal("The OVA", await fixture.SetOrderAsync(show));
+        Assert.Equal("The show", await fixture.SetOrderAsync(ova));
+    }
+
+    /// <summary>
+    /// A spin-off does not drag in the work it branches from, and this is the case
+    /// that made the rule: <c>PARENT</c> is AniList's counterpart to both
+    /// <c>SIDE_STORY</c> and <c>SPIN_OFF</c> (D24), so following it cannot tell a
+    /// special from a spin-off.
+    /// </summary>
+    /// <remarks>
+    /// Measured on a real library before it was written. Prisma Illya states
+    /// <c>PARENT</c> to Unlimited Blade Works, which states <c>SPIN_OFF</c> back, and
+    /// following the parent edge put Fate/Zero — two further edges away, through a
+    /// series Illya is not part of — into Illya's box set.
+    /// </remarks>
+    [Fact]
+    public async Task A_spin_off_does_not_reach_the_work_it_branches_from()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+
+        var spinOff = await fixture.OwnAsync("300", "The spin-off");
+        await fixture.OwnAsync("100", "The main work");
+        await fixture.OwnAsync("050", "Its prequel");
+
+        // Both halves, as AniList publishes them: the spin-off calls the main work its
+        // parent, and the main work calls the spin-off a spin-off.
+        await fixture.RelateAsync("300", RelationType.Parent, "100");
+        await fixture.RelateAsync("100", RelationType.SpinOff, "300");
+        await fixture.RelateAsync("050", RelationType.Sequel, "100");
+
+        Assert.Empty(await fixture.RelatedAsync(spinOff));
+    }
+
+    /// <summary>
+    /// The cost of the rule above, stated rather than discovered: a special whose only
+    /// stored edge is its own <c>PARENT</c> is not in the set, because that row is
+    /// exactly the one that cannot be told from a spin-off (D55).
+    /// </summary>
+    [Fact]
+    public async Task A_special_that_only_names_its_parent_is_left_out()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+
+        var show = await fixture.OwnAsync("100", "The show");
         await fixture.OwnAsync("200", "The OVA");
 
-        await fixture.RelateAsync("100", type, "200");
+        await fixture.RelateAsync("200", RelationType.Parent, "100");
 
-        Assert.Equal("The OVA", await fixture.SetOrderAsync(owned));
+        Assert.Empty(await fixture.RelatedAsync(show));
     }
 
     /// <summary>
