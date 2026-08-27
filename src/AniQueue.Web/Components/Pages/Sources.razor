@@ -103,7 +103,7 @@
             <div class="toolbar">
                 <button class="primary" @onclick="SaveAccountAsync"
                         disabled="@(_busy.IsRunning || string.IsNullOrWhiteSpace(_aniListAccount))">
-                    Save
+                    <Icon Name="save" />Save
                 </button>
             </div>
 
@@ -134,7 +134,7 @@
             <p class="muted">
                 Reading the public list of <strong>@status.Account</strong> &middot;
                 @LastRunText(status.LastSuccess) &middot; run from the
-                <a href="tasks">Tasks</a> page
+                <a href="settings">Settings</a> page
             </p>
 
             @* Only when a run held something. Sync now used to live here and start a
@@ -283,7 +283,7 @@
                     <div class="notice success" role="status">
                         Deleted @forgot @(forgot == 1 ? "relation" : "relations"). They will be
                         fetched again when the related-titles task next runs — start it now from
-                        the <a href="tasks">Tasks</a> page.
+                        the <a href="settings">Settings</a> page.
                     </div>
                 }
             }
@@ -324,7 +324,7 @@
                     <div class="toolbar">
                         <button @onclick="SaveAccountAsync"
                                 disabled="@(_busy.IsRunning || _aniListAccount == status.Account)">
-                            Save username
+                            <Icon Name="save" />Save username
                         </button>
                     </div>
 
@@ -337,13 +337,14 @@
 
             @if (status.CanFetch)
             {
-                <div class="field">
-                    <label for="@($"enabled-{status.Source}")">
-                        <input type="checkbox" id="@($"enabled-{status.Source}")"
-                               checked="@status.Settings.IsEnabled"
-                               @onchange="e => Update(status, s => s with { IsEnabled = (bool)(e.Value ?? false) })" />
-                        Sync this source
-                    </label>
+                @* A power button rather than a tick box, because this is a state the
+                   source is in rather than something being included (Phase 18a). The
+                   preferences below it stay tick boxes for the same reason. *@
+                <div class="field power-field">
+                    <PowerToggle On="status.Settings.IsEnabled"
+                                 Label="@($"Sync {status.Source}")"
+                                 OnChange="on => Update(status, s => s with { IsEnabled = on })" />
+                    <span>Sync this source</span>
                 </div>
             }
 
@@ -382,11 +383,11 @@
                 <legend>When syncing runs on its own</legend>
                 <p class="muted">
                     AniQueue can read this source with nobody watching. How often is set
-                    on the <a href="tasks">Tasks</a> page; these decide what such a run
+                    on the <a href="settings">Settings</a> page; these decide what such a run
                     may do.
                 </p>
 
-                @* How often this runs is set on the Tasks page now, once for every
+                @* How often this runs is set on the Settings page now, once for every
                    background task (D40). What stays here is what a run may *do*,
                    which is the part that differs per source. *@
 
@@ -488,7 +489,7 @@
     {
         <div class="notice info" role="status">
             @advancement
-            <a href="up-next">See what is next</a>.
+            <a href="">See what is next</a>.
         </div>
     }
 

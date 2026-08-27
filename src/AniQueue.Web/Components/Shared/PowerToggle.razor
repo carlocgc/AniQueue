@@ -1,0 +1,55 @@
+@* One thing switched on or off, drawn as a power button (Phase 18a).
+
+   A tick box was the wrong shape for it. A tick box means "include this", and every
+   control this replaced means "let this run" — a state the thing itself is in, which
+   is what a power symbol says everywhere else.
+
+   Green filled for on, red outlined for off, and the state is also spelled out in the
+   accessible name: roughly one man in twelve cannot reliably tell that red from that
+   green, so the colour reinforces and never carries. Preference tick boxes are left
+   as tick boxes, because a power symbol would lie about them.
+
+   A button with role="switch" rather than a styled checkbox. The role is what tells a
+   screen reader this is on or off rather than pressed or not, and a button is what
+   lets the target be the published 44px without the label having to be part of it. *@
+
+@* aria-checked is spelled out rather than bound to the bool. Blazor renders a true
+   bool attribute as a bare attribute and drops a false one, so the two states came
+   out as aria-checked="" and no attribute at all — neither of which a screen reader
+   reads as a switch position, and neither of which the stylesheet's
+   [aria-checked="true"] matches. It showed up as the on state never turning green.
+
+   The comment sits here rather than among the attributes, which is where it was: a
+   Razor comment inside a tag is parsed as an attribute name, and the renderer threw
+   InvalidCharacterError on it and took the circuit down. *@
+<button type="button"
+        class="power"
+        role="switch"
+        aria-checked="@(On ? "true" : "false")"
+        disabled="@Disabled"
+        title="@Description"
+        aria-label="@Description"
+        @onclick="() => OnChange.InvokeAsync(!On)">
+    <Icon Name="power" />
+</button>
+
+@code {
+    [Parameter]
+    public bool On { get; set; }
+
+    /// <summary>What is being switched, named — "Sync AniList", not "this".</summary>
+    /// <remarks>
+    /// Named rather than generic because these sit in lists: a row of switches all
+    /// announced as "on" tells a screen-reader user nothing about which is which.
+    /// </remarks>
+    [Parameter, EditorRequired]
+    public string Label { get; set; } = string.Empty;
+
+    [Parameter]
+    public bool Disabled { get; set; }
+
+    [Parameter]
+    public EventCallback<bool> OnChange { get; set; }
+
+    private string Description => $"{Label} — currently {(On ? "on" : "off")}";
+}

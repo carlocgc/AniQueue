@@ -1774,6 +1774,11 @@ design that has failed regardless of what its timer says.*
 
 **Decision:** `/tasks` is where background work is seen and operated.
 
+*Amended by Phase 18a: the route is `/settings` and the page is titled Settings. Five tabs is what
+fits across a phone, so the sixth destination had to be a place other settings can move to rather
+than a page about one feature. What the page holds is unchanged — background work is still all
+that is on it.*
+
 **A row is a schedulable unit, not a job.** `UnattendedSyncJob` loops over sources that have their
 own enabled state and their own failure history, so one row for it would aggregate two of
 everything and *Run now* would mean "whichever of these are due". The runner therefore iterates
@@ -3359,10 +3364,11 @@ numbering. What is finished is a column; what happens next is the first row with
 | 15e | Sources reshape | ✅ | Sources is configuration, one review button and a file import |
 | 16 | Scoring without a rank | ✅ | The model returns scores and no ordering; nothing asks for, stores or shows a rank |
 | 17 | Improve remote model scoring | ▢ *held* | A sweep gets past a batch it cannot score, reports itself as one run, and cannot be defeated by a history that outgrew the context |
-| 18 | Mobile first | ▢ *next* | Every page usable at 375px with no sideways scroll and no control under 44px; five thumb-reachable tabs; the lists show a poster, a title, one score and one action |
+| 18 | Mobile first | ◐ *18a landed* | Every page usable at 375px with no sideways scroll and no control under 44px; five thumb-reachable tabs; the lists show a poster, a title, one score and one action |
 
-**✅ done · ▢ not started.** *next* is what the running order reaches first; *held* waits on
-something outside the repository — for 17, a wider sample of models to characterise (D45).
+**✅ done · ◐ part landed · ▢ not started.** *next* is what the running order reaches first;
+*held* waits on something outside the repository — for 17, a wider sample of models to
+characterise (D45).
 
 ### Phase 0 — Foundation
 Repo hygiene (`.gitignore`, `.gitattributes`, `.editorconfig`), solution and five projects,
@@ -4891,6 +4897,10 @@ between them and the navigation takes half a phone screen on any page with short
 one line — `grid-template-rows: auto 1fr` — and it is worth stating separately because every
 screenshot of the problem looks like a spacing decision.
 
+*As built, that line is not there and is not needed. The bar is `position: fixed` to hold it at
+the bottom of the screen while a long list scrolls, which takes it out of the grid — leaving one
+item, one row, and nothing to split. `main` pays for it with a bottom padding that clears the bar.*
+
 **A bottom bar rather than a wrapping list of links.** Overseerr's is the model: it is
 thumb-reachable, which is the actual complaint, and it is a list of links, so it needs no open
 state, no overlay and no focus trap. An AniList-style button opening a sheet scales further and
@@ -4905,7 +4915,9 @@ was declined for that machinery — six destinations do not need it.
   different states, so Up Next distinguishes them: *nothing queued yet* for the first, the import
   offer for the second.
 - **The six counters move to the top of Backlog.** They are a health check — *did the sync bring
-  everything in* — and the backlog is where that question gets asked.
+  everything in* — and the backlog is where that question gets asked. *They land there in 18e,
+  which means 18a deletes them with the Dashboard and the backlog goes without them in between.
+  Said here rather than found later: it is a gap inside one phase, not a lost feature.*
 - **Recommendations is renamed *Scoring*.** It is what the page does and it fits a tab. *Settings*
   is a new page holding Tasks, named for what it will hold rather than for what it holds today.
 
@@ -5331,11 +5343,11 @@ coming; each needs its own interview and its own `D`-numbers before it is built.
   alongside the ones Phase 10 introduces. Two things are already known about it: a banner view has
   no banners to render after D48 declined tier 3, and poster view is questionable on Up Next,
   where the queue is manually ordered and a grid makes position harder to see rather than easier.
-- **Dashboard and Up Next consolidation.** `/` is a dashboard with no purpose; Up Next is the
-  ordered queue and is what somebody opening AniQueue actually wants. Making Up Next the front
-  page is mostly deletion, which is the argument for it — but it moves the application's entry
-  point, so it is a redirect, a navigation change and a decision about what the empty-library
-  state (D27) looks like when it is the first thing seen.
+- **Dashboard and Up Next consolidation — done in Phase 18a, and not by choosing to.** It was
+  parked here because moving the entry point costs a navigation change and a decision about what
+  the empty-library state (D27) looks like when it is the first thing seen. A phone-sized bar
+  holds five tabs and there were six, so the cost had to be paid anyway; the Dashboard was the
+  destination worth the least, being six counters and no work.
 
 **Further art enrichment stays post-MVP and stays unplanned** (D48). Backlog, Up Next and the
 detail dialog could all use more than a poster, and after D48 there is no legitimate source for it

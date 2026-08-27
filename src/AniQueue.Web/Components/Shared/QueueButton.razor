@@ -19,7 +19,7 @@
         disabled="@(!Enabled)"
         title="@Label"
         aria-label="@Label"
-        @onclick="ToggleAsync">@(IsQueued ? "−" : "+")</button>
+        @onclick="ToggleAsync"><Icon Name="@(IsQueued ? "minus" : "plus")" /></button>
 
 @code {
     [Parameter, EditorRequired]

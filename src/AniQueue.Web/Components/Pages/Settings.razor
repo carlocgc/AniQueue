@@ -1,4 +1,8 @@
-@page "/tasks"
+@* Named for what it will hold rather than for what it holds today (Phase 18a). Five
+   tabs is what fits across a phone, so the sixth destination had to be a place other
+   settings can move to rather than a page about one feature. Background work is all
+   that lives here so far. *@
+@page "/settings"
 @rendermode InteractiveServer
 
 @using AniQueue.Core.Domain
@@ -9,19 +13,19 @@
 
 @inject ITaskRegistry Registry
 @inject IJobRunStore Runs
-@inject IUserSettingsStore Settings
+@inject IUserSettingsStore UserSettings
 @inject IOptionsMonitor<TaskOptions> TaskConfiguration
 @inject IWebHostEnvironment Environment
 
 @implements IDisposable
 
-<PageTitle>Tasks — AniQueue</PageTitle>
+<PageTitle>Settings — AniQueue</PageTitle>
 
 <div class="page-header">
-    <h1>Tasks</h1>
+    <h1>Settings</h1>
     <p class="muted">
-        Everything AniQueue does on its own. Each one decides for itself whether there is
-        anything to do, so a task that is switched on and idle is costing you nothing.
+        Everything AniQueue does on its own. Each task decides for itself whether there is
+        anything to do, so one that is switched on and idle is costing you nothing.
     </p>
 </div>
 
@@ -141,15 +145,13 @@
                                        change no row, and give no reason. *@
                                     <button class="primary" disabled="@(!IsEnabled(row.State))"
                                             @onclick="() => RunNow(row.State)">
-                                        Run now
+                                        <Icon Name="play" />Run now
                                     </button>
                                 }
 
-                                <label class="switch">
-                                    <input type="checkbox" checked="@IsEnabled(row.State)"
-                                           @onchange="e => ToggleAsync(row.State, (bool)(e.Value ?? false))" />
-                                    <span class="visually-hidden">Let @row.State.Name run on its own</span>
-                                </label>
+                                <PowerToggle On="IsEnabled(row.State)"
+                                             Label="@($"Let {row.State.Name} run on its own")"
+                                             OnChange="on => ToggleAsync(row.State, on)" />
                             </div>
                         </td>
                     </tr>
@@ -357,7 +359,7 @@
 
         // The whole file is rewritten on every save, so everything this page is not
         // editing is read back and passed through.
-        var saved = await Settings.SaveAsync(Settings.Read() with { TasksSchedule = chosen });
+        var saved = await UserSettings.SaveAsync(UserSettings.Read() with { TasksSchedule = chosen });
 
         if (!saved.Saved)
         {
@@ -378,7 +380,7 @@
     /// </remarks>
     private bool IsEnabled(TaskState state)
     {
-        var settings = Settings.Read();
+        var settings = UserSettings.Read();
 
         return state.TaskKey switch
         {
@@ -393,7 +395,7 @@
     {
         _error = null;
 
-        var current = Settings.Read();
+        var current = UserSettings.Read();
 
         var updated = state.TaskKey switch
         {
@@ -403,7 +405,7 @@
             _ => current
         };
 
-        var saved = await Settings.SaveAsync(updated);
+        var saved = await UserSettings.SaveAsync(updated);
 
         if (!saved.Saved)
         {
