@@ -987,6 +987,13 @@ anywhere, which makes it exactly the kind of thing this application has decided 
 
 *Settles what replaces the franchise, and declines acceptance criterion 9's stated form.*
 
+*Amended by D55, which moved the expansion into the detail dialog and let it walk the same work
+as far as it goes. "One edge out, never transitive" was a rule about a panel inside a table row,
+and it survives where it is still true: only a direct neighbour carries a relation label, because
+only a direct neighbour has an edge stating one. Everything else below stands — there are still no
+groups, release order is still a fact rather than an opinion, and a set is still a property of the
+title you asked about.*
+
 Having deleted curated grouping (D23), the obvious next move is to derive groups from AniList
 relation edges — connected components over a chosen set of relation types, each collapsed to
 one backlog row. **That was designed and then rejected.** There are no groups, derived or
@@ -2498,6 +2505,11 @@ against a running integration, because none was built.
 *Reverses §10's outright decline of `description`, pulls genres and studios out of post-MVP, and
 gives the artwork work a page one phase after it lands.*
 
+*Amended by D55. The dialog is no longer only the case for one title: it holds the set the title
+comes with, and where its score came from, because a phone-width row cannot hold either. It also
+stopped being a renderer handed a record and reads its own data, which is what lets two pages
+share both additions without either of them learning how.*
+
 **D48 left 9b holding a bigger cover and nothing to put it on.** The surface that wants it is a
 show detail dialog, opened from a backlog or Up Next row: genres, synopsis, studio, the large
 poster, and the score, confidence and reason already sitting on `LibraryEntry`. Its purpose is
@@ -2899,8 +2911,9 @@ Three details that were not obvious:
   flex item: a zero-height item that fills the line is a line break spelled the only way this
   layout can spell one.
 - **`:empty` does not match a cell holding whitespace**, and Razor renders whitespace. The
-  spacer cell of an expansion row and an expander with nothing to expand are hidden by what they
-  are rather than by being empty.
+  spacer cell of an expansion row and an expander with nothing to expand were hidden by what they
+  are rather than by being empty. *Both rules went with the expansions themselves in 18c (D55);
+  the lesson is left because the next `:empty` selector written here will be wrong the same way.*
 - **The narrow rules are more specific than the rule that hid the cover column**, so they put
   the thumbnail back. It is hidden again inside them. A `@media` block sets a width at which a
   rule applies, not a priority.
@@ -2927,6 +2940,83 @@ along with the inbound rule Windows wants and the two things that differ over pl
 `navigator.clipboard` does not exist outside a secure context, and the device has to be on the
 network rather than on mobile data. Development only, and it says so: no authentication and no
 TLS, on a network the developer trusts.
+
+---
+
+### D55 — A title comes with a box set, and the dialog is where it lives
+
+*Amends D24's "one edge out, never transitive" for this surface, reverses the placement half of
+D26, and ends the split that kept the detail dialog free of services (D49).*
+
+The backlog row carried two expandable panels. One listed a title's relatives, one edge out in
+both directions; the other opened the model's reasoning for its score. Both worked, and neither
+could survive 18d, which takes the row down to a poster, a title, one score and one action —
+there is nowhere on a phone-width row to put a chevron that opens a paragraph.
+
+**They move into the detail dialog, which already held most of what they said.** The dialog has
+carried the AI score, its confidence and the model's reasoning since D49. What it did not carry
+was *when* the score was decided, *how* it was carried and *which model* said it — three facts
+that lived only in the row's panel, and which come across with it. Losing them quietly would have
+been the easy version of this change and the wrong one: which model produced a score is the one
+fact that tells somebody whether running it again is worth doing.
+
+**A set is the same work, followed as far as it goes.** Prequel and sequel give the main run, and
+side story hangs the specials off it. The walk follows those transitively and nothing else. A
+spin-off is a separate work set in the same world, an alternative is a remake, and a summary or
+compilation is the same story told again; none of them is in the box, and none of them is walked
+*through* to reach anything else either, or excluding the edge would only hide one row of a
+franchise it had already let in.
+
+**`Parent` is not one of the four, and that omission is load-bearing.** It looks like the obvious
+fifth — a special's own statement of what it belongs to — and it is the hole every spin-off climbs
+through. AniList publishes `PARENT` as the counterpart of both `SIDE_STORY` and `SPIN_OFF`, which
+this file already recorded under D24, so a parent edge cannot tell a special from a spin-off. It
+also points the wrong way: a main work contains its side stories, and a side story does not
+contain the work it branches from.
+
+*Found by running it on a real library rather than by arguing about it.* Prisma Illya states
+`PARENT` to Unlimited Blade Works, which states `SPIN_OFF` back; following the parent edge put
+Fate/Zero — two further edges away, through a series Illya is not part of — into Illya's box set.
+With the edge dropped, Illya's set is the nine Illya titles and nothing else.
+
+**What that costs, stated rather than discovered.** A special whose *only* stored edge is its own
+`PARENT` is not in any set. Ordinarily the work it belongs to states `SIDE_STORY` from its own
+side and the edge is traversable from either end, so the special is found anyway. The row that is
+lost is precisely the row that cannot be told from a spin-off.
+
+**This reverses D24 for this surface, and D24's reasoning is what settles it.** "One edge out,
+never transitive" was right for a panel wedged into a table row, where the question was *how is
+this connected* and a whole franchise would have buried it. The dialog asks a different question
+— *what am I taking on if I start here* — and season one is the answer to that from season three,
+whether the graph puts one edge between them or three. **The one-edge rule survives where it is
+still true**: only a direct neighbour carries a relation label, because only a direct neighbour
+has an edge stating one. Anything further in shows no badge rather than a guessed one.
+
+**Queueing the set replaces the sequel walk, and goes backwards.** *Queue this and what follows*
+walked forward only, on the stated grounds that prequels are seasons already watched. They are not
+always — an unwatched prequel is the single best reason not to start here — and status was doing
+that work anyway: a Completed season is refused by the queue whichever direction it was reached
+from. Direction was a proxy for a question the queue already answers, so it is gone, and the
+button now offers the whole set in release order. Recaps and compilations are still skipped even
+when the walk runs through them, which is unchanged and for D24's original reason.
+
+**The action moved but did not change sides.** D26 put it beside the panel because queueing
+several titles belongs next to the list of what they are. That still holds; the list moved, and
+the button went with it.
+
+**The dialog reads its own data now.** It was deliberately a renderer with no service of its own,
+handed a record by whichever page opened it — a split that made sense while it only rendered. It
+now has an action, and three things to load, and two pages open it. Both pages learning the same
+four calls is the cost of keeping the old split, so the dialog takes the services and announces
+`OnChanged` when it has queued something; the page re-reads.
+
+**Up Next gains relations for the first time**, and gained them by deleting code rather than by
+adding any: it shares the dialog, and it stopped handing it a record.
+
+**Re-reading the whole page after the dialog acts is the opposite of what a row press does, and
+deliberately.** D26 forbids re-querying on a row action because rows moving under the cursor lose
+the reader's place. Nobody is reading the list while a modal covers it, and what comes back may
+have queued six titles rather than one.
 
 ---
 
@@ -3167,7 +3257,7 @@ would invalidate every reply a user is holding.
 | `ILibraryService` | Infrastructure | CRUD, status transitions, progress, scoring, filter/page |
 | `IQueueService` | Infrastructure | add/remove/reorder, normalise positions, transactional |
 | `IRelationBackfill` | Infrastructure | fills the relation graph in, and reports how much of it is known |
-| `IRelationService` | Infrastructure | a title's relations, tagged and ordered; the sequel walk (D24) |
+| `IRelationService` | Infrastructure | the set a title comes with, ordered, and queueing it (D24, D55) |
 | `IImportService` | Infrastructure | orchestrates the import pipeline |
 | `IRecommendationService` | Infrastructure | Phase 7 — build the export, measure what one would cost (D53), validate a response, apply it, keep run history |
 | `IAnimeListParser` | **Core** (incl. impls) | `MyAnimeListXmlParser`, `AniListJsonParser` — pure, no database |
@@ -3376,7 +3466,7 @@ numbering. What is finished is a column; what happens next is the first row with
 | 15e | Sources reshape | ✅ | Sources is configuration, one review button and a file import |
 | 16 | Scoring without a rank | ✅ | The model returns scores and no ordering; nothing asks for, stores or shows a rank |
 | 17 | Improve remote model scoring | ▢ *held* | A sweep gets past a batch it cannot score, reports itself as one run, and cannot be defeated by a history that outgrew the context |
-| 18 | Mobile first | ◐ *18a, 18b landed* | Every page usable at 375px with no sideways scroll and no control under 44px; five thumb-reachable tabs; the lists show a poster, a title, one score and one action |
+| 18 | Mobile first | ◐ *18a–18c landed* | Every page usable at 375px with no sideways scroll and no control under 44px; five thumb-reachable tabs; the lists show a poster, a title, one score and one action |
 
 **✅ done · ◐ part landed · ▢ not started.** *next* is what the running order reaches first;
 *held* waits on something outside the repository — for 17, a wider sample of models to
@@ -3420,6 +3510,10 @@ it were the rare one.
 "show hidden" quick filter into the status picker as a view. Both are deleted, along with the
 column behind them — a title nobody wants offered comes off the source list it arrived on (D11),
 which is the only answer that survives a sync.
+
+*Amended a third time by D55: the row's two expandable panels are gone.* Related titles and the
+model's reasoning both live in the detail dialog now, which is where the reasoning already was and
+where a phone can read either.
 
 No priority filter, sort or bulk action: manual priority does not exist (D14).
 
@@ -4989,18 +5083,41 @@ rather than the forward chain: opening a sequel should show the prequels, becaus
 prequel is the reason not to start here. Up Next gains relations for the first time, since it
 shares the dialog.
 
+*Two corrections, made when it was built and settled in D55.* The panel was already every relation
+one edge out in both directions, so the immediate prequel was already there — what it was not was
+**transitive**, and season one is the reason not to start season three whether the graph puts one
+edge between them or three. And "every relation the graph holds" is too wide: the set is what a
+complete box set would hold, which is main seasons and their specials. A spin-off is a separate
+work in the same world and a remake is the same story told again; neither is in the box, and
+neither is walked through to reach anything else.
+
+*A third, found on a real library after it shipped to review.* The walk followed `PARENT` as well,
+which reads as a special naming what it belongs to and is equally how AniList spells a spin-off
+naming what it branches from — so Prisma Illya reached Unlimited Blade Works and, through it,
+Fate/Zero. `PARENT` is dropped; the specials are found from the other end, where the work states
+`SIDE_STORY` itself.
+
 **The bulk action moves with them and widens.** *Queue the rest* currently follows the sequel
 walk. In the dialog it queues **every unwatched relation** — main seasons and specials both.
+*It queues the title itself too, because a title is part of its own set, and the count says so
+before the press.*
 
 **This reverses part of D26**, which put the action beside the panel on the grounds that queueing
 several titles belongs next to the list of what they are. That still holds; the list of what they
-are has simply moved. It needs its own decision recorded when it lands.
+are has simply moved. It needs its own decision recorded when it lands. *Recorded as D55.*
 
 **The AI-score expander goes with them.** The row's score currently opens an inline panel with the
 model's confidence and reasoning. The dialog has held both since D49.
 
+*It had not held all of it.* When the score was decided, how it was carried and which model said
+it lived only in that panel, and all three come across with it — which model produced a score is
+the one fact that tells somebody whether running it again is worth doing.
+
 **One small gap to close:** the dialog states an episode *count* but not progress. It carries
-`EpisodesWatched` already, so this is a rendering change rather than a data one.
+`EpisodesWatched` already, so this is a rendering change rather than a data one. *Already closed:
+the dialog has printed "watched 4 of 12" since the facts line was written, and only for a
+part-watched title — "12 / 12" beside "12 episodes" repeats itself, and "0 / 12" says nothing the
+status badge has not.*
 
 #### 18d — The row is a card, not a table row
 
@@ -5146,19 +5263,24 @@ Phase 6 adds:
   trusted and one a day past it is not; an edge the source no longer publishes is removed; an
   edge belonging to a title the response never mentioned is kept; a failed re-read deletes
   nothing at all. The clock is moved by a stub rather than waited on.
-- **What an expansion shows.** Counts include every status;
-  only owned relatives are counted, so the badge never promises more than it opens; ordering is
-  by release date with unknowns last; a relation read from the far end is inverted; the same
-  pair stated from both ends counts once; two ends that disagree are labelled "Related" rather
-  than arbitrated; nothing is ever transitive beyond one edge.
-- **The sequel walk.** It traverses *through* a Completed middle season without queueing it,
-  and through a season the library does not own at all; it never goes backwards; it appends in
-  release order rather than the order it found things; a recap or compilation in the middle of
-  the chain is passed through rather than queued; a cycle terminates; it reports `QueueAddResult` categories correctly, is a no-op
-  when re-run, and leaves positions contiguous. The count behind the button reports what the
-  press would actually append, and a title with no AniList identifier has no chain at all.
-  Tested against the real `QueueService` rather than a stub, because the hand-off to
-  `AddAnimeAsync` is the seam the design turns on.
+- **What the set holds** (rewritten by D55). Every status; owned titles only; ordering is by
+  release date with unknowns last; a relation read from the far end is inverted; the same pair
+  stated from both ends appears once; two ends that disagree are labelled "Related" rather than
+  arbitrated; a title is never in its own set. The set is transitive along the same-work
+  edges — a season two edges away is in it — while a spin-off and a remake are neither in it nor
+  walked through to reach anything beyond them, and only a direct neighbour carries a label. **A
+  spin-off does not reach the work it branches from**, stated from both ends the way AniList
+  states it, and the special that costs — one whose only edge is its own `PARENT` — is asserted
+  too, so the price is a failing test rather than a surprise if anyone puts `PARENT` back.
+- **Queueing a set.** It traverses *through* a Completed middle season without queueing it,
+  and through a season the library does not own at all; an unwatched prequel is queued and a
+  watched one is refused; it appends in release order rather than the order it found things; a
+  recap or compilation in the middle of the chain is passed through rather than queued; a cycle
+  terminates; it reports `QueueAddResult` categories correctly, is a no-op when re-run, and
+  leaves positions contiguous. The count behind the button reports what the press would actually
+  append, and a title with no AniList identifier has no set at all. Tested against the real
+  `QueueService` rather than a stub, because the hand-off to `AddAnimeAsync` is the seam the
+  design turns on.
 
 Phase 9a adds:
 

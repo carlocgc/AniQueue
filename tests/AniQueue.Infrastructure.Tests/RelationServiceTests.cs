@@ -28,7 +28,7 @@ public class RelationServiceTests
         public required IRelationService Relations { get; init; }
 
         /// <summary>
-        /// The real queue service, not a stub. The sequel walk hands its ordered set
+        /// The real queue service, not a stub. The set walk hands its ordered set
         /// to <c>AddAnimeAsync</c> precisely so that queue eligibility and the
         /// contiguity invariant stay in one place — replacing it here would leave
         /// that hand-off untested at the only seam where it can go wrong.
@@ -132,8 +132,9 @@ public class RelationServiceTests
         public Task<IReadOnlyList<RelatedTitle>> RelatedAsync(int animeId) =>
             Relations.GetRelatedAsync(ProfileId, animeId);
 
-        public Task<IReadOnlyDictionary<int, int>> CountsAsync(params int[] animeIds) =>
-            Relations.GetRelatedCountsAsync(ProfileId, animeIds);
+        /// <summary>The titles in the set, as one string, in the order they come back.</summary>
+        public async Task<string> SetOrderAsync(int animeId) =>
+            string.Join(" ", (await RelatedAsync(animeId)).Select(r => r.Title));
 
         /// <summary>The queue's titles in order, as one string for readable assertions.</summary>
         public async Task<string> QueueOrderAsync()
@@ -204,12 +205,11 @@ public class RelationServiceTests
     }
 
     /// <summary>
-    /// The same fact stated from both ends is one relative, not two. AniList
-    /// publishes both halves, and the backfill stores both, so a count of rows
-    /// would put a 2 on a chevron that opens onto one title.
+    /// The same fact stated from both ends is one title in the set, not two.
+    /// AniList publishes both halves and the backfill stores both.
     /// </summary>
     [Fact]
-    public async Task The_same_pair_stated_twice_counts_once()
+    public async Task The_same_pair_stated_twice_appears_once()
     {
         await using var fixture = await Fixture.CreateAsync();
 
@@ -220,9 +220,6 @@ public class RelationServiceTests
         await fixture.RelateAsync("200", RelationType.Prequel, "100");
 
         Assert.Single(await fixture.RelatedAsync(first));
-
-        var counts = await fixture.CountsAsync(first);
-        Assert.Equal(1, counts[first]);
     }
 
     /// <summary>
@@ -230,6 +227,13 @@ public class RelationServiceTests
     /// <c>SPIN_OFF</c>, so the two ends of one connection routinely describe it
     /// differently. Choosing a winner would state something the source did not.
     /// </summary>
+    /// <remarks>
+    /// Both ends here call the other their side story, which inverts to "parent" read
+    /// from the far end — so the two descriptions disagree while the pair is still
+    /// plainly the same work. The spin-off version of this disagreement is no longer
+    /// expressible in a set at all: D55 stopped following parent edges, so a pair
+    /// joined only by <c>SPIN_OFF</c> and <c>PARENT</c> is not in one.
+    /// </remarks>
     [Fact]
     public async Task Edges_that_disagree_about_the_connection_are_labelled_related()
     {
@@ -238,8 +242,8 @@ public class RelationServiceTests
         var main = await fixture.OwnAsync("100");
         await fixture.OwnAsync("200");
 
-        await fixture.RelateAsync("100", RelationType.SpinOff, "200");
-        await fixture.RelateAsync("200", RelationType.Parent, "100");
+        await fixture.RelateAsync("100", RelationType.SideStory, "200");
+        await fixture.RelateAsync("200", RelationType.SideStory, "100");
 
         var related = Assert.Single(await fixture.RelatedAsync(main));
 
@@ -248,7 +252,7 @@ public class RelationServiceTests
     }
 
     [Fact]
-    public async Task A_relative_the_library_does_not_own_is_neither_counted_nor_shown()
+    public async Task A_relative_the_library_does_not_own_is_not_in_the_set()
     {
         await using var fixture = await Fixture.CreateAsync();
 
@@ -260,7 +264,6 @@ public class RelationServiceTests
         await fixture.RelateAsync("100", RelationType.Sequel, "999");
 
         Assert.Empty(await fixture.RelatedAsync(owned));
-        Assert.Empty(await fixture.CountsAsync(owned));
     }
 
     /// <summary>
@@ -286,27 +289,140 @@ public class RelationServiceTests
     }
 
     /// <summary>
-    /// One edge out, never transitive. Season five is not the sequel of season one,
-    /// and a walk that kept going would pull a whole franchise into a panel opened
-    /// to answer a much smaller question.
+    /// The set follows the same work as far as it goes, so season three is in season
+    /// one's set with a season between them (D55). This is the rule D24 wrote the
+    /// other way round, and the surface changed underneath it: one edge out was right
+    /// for a panel wedged into a table row, and wrong for a dialog answering "what am
+    /// I taking on if I start here".
     /// </summary>
     [Fact]
-    public async Task Nothing_is_transitive_beyond_one_edge()
+    public async Task A_season_two_edges_away_is_still_in_the_set()
     {
         await using var fixture = await Fixture.CreateAsync();
 
-        var first = await fixture.OwnAsync("100");
-        var second = await fixture.OwnAsync("200");
-        await fixture.OwnAsync("300");
+        var first = await fixture.OwnAsync("100", "Season one", startDate: new DateOnly(2015, 1, 8));
+        await fixture.OwnAsync("200", "Season two", startDate: new DateOnly(2016, 4, 5));
+        await fixture.OwnAsync("300", "Season three", startDate: new DateOnly(2017, 10, 3));
 
         await fixture.RelateAsync("100", RelationType.Sequel, "200");
         await fixture.RelateAsync("200", RelationType.Sequel, "300");
 
-        var related = Assert.Single(await fixture.RelatedAsync(first));
-        Assert.Equal(second, related.AnimeId);
+        Assert.Equal("Season two Season three", await fixture.SetOrderAsync(first));
+    }
 
-        var counts = await fixture.CountsAsync(first);
-        Assert.Equal(1, counts[first]);
+    /// <summary>
+    /// Only the neighbour carries a label. Nothing states how season one relates to
+    /// season three, so naming it would be inventing a relationship the source did
+    /// not publish (D55).
+    /// </summary>
+    [Fact]
+    public async Task Only_a_title_one_edge_away_is_labelled()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+
+        var first = await fixture.OwnAsync("100", "Season one", startDate: new DateOnly(2015, 1, 8));
+        await fixture.OwnAsync("200", "Season two", startDate: new DateOnly(2016, 4, 5));
+        await fixture.OwnAsync("300", "Season three", startDate: new DateOnly(2017, 10, 3));
+
+        await fixture.RelateAsync("100", RelationType.Sequel, "200");
+        await fixture.RelateAsync("200", RelationType.Sequel, "300");
+
+        var set = await fixture.RelatedAsync(first);
+
+        Assert.Equal(RelationType.Sequel, set.Single(r => r.Title == "Season two").Relation);
+        Assert.Null(set.Single(r => r.Title == "Season three").Relation);
+    }
+
+    /// <summary>
+    /// What a box set does not hold. A spin-off is a separate work set in the same
+    /// world and an alternative is the same story told again — neither is a season of
+    /// the show you opened, and neither is walked through to reach anything else
+    /// (D55).
+    /// </summary>
+    [Theory]
+    [InlineData(RelationType.SpinOff)]
+    [InlineData(RelationType.Alternative)]
+    public async Task A_spin_off_or_a_remake_is_not_in_the_set(RelationType type)
+    {
+        await using var fixture = await Fixture.CreateAsync();
+
+        var owned = await fixture.OwnAsync("100", "The show");
+        await fixture.OwnAsync("200", "Something else");
+        await fixture.OwnAsync("300", "Its sequel");
+
+        await fixture.RelateAsync("100", type, "200");
+        await fixture.RelateAsync("200", RelationType.Sequel, "300");
+
+        // Not the far title either: excluding the edge has to stop the walk rather
+        // than merely hide one row of it.
+        Assert.Empty(await fixture.RelatedAsync(owned));
+    }
+
+    /// <summary>
+    /// A special hangs off the work it belongs to, and the edge is traversable from
+    /// either end — so it is in the set read from the special as well as from the
+    /// show (D55).
+    /// </summary>
+    [Fact]
+    public async Task A_special_is_in_the_set_from_either_end()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+
+        var show = await fixture.OwnAsync("100", "The show");
+        var ova = await fixture.OwnAsync("200", "The OVA");
+
+        await fixture.RelateAsync("100", RelationType.SideStory, "200");
+
+        Assert.Equal("The OVA", await fixture.SetOrderAsync(show));
+        Assert.Equal("The show", await fixture.SetOrderAsync(ova));
+    }
+
+    /// <summary>
+    /// A spin-off does not drag in the work it branches from, and this is the case
+    /// that made the rule: <c>PARENT</c> is AniList's counterpart to both
+    /// <c>SIDE_STORY</c> and <c>SPIN_OFF</c> (D24), so following it cannot tell a
+    /// special from a spin-off.
+    /// </summary>
+    /// <remarks>
+    /// Measured on a real library before it was written. Prisma Illya states
+    /// <c>PARENT</c> to Unlimited Blade Works, which states <c>SPIN_OFF</c> back, and
+    /// following the parent edge put Fate/Zero — two further edges away, through a
+    /// series Illya is not part of — into Illya's box set.
+    /// </remarks>
+    [Fact]
+    public async Task A_spin_off_does_not_reach_the_work_it_branches_from()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+
+        var spinOff = await fixture.OwnAsync("300", "The spin-off");
+        await fixture.OwnAsync("100", "The main work");
+        await fixture.OwnAsync("050", "Its prequel");
+
+        // Both halves, as AniList publishes them: the spin-off calls the main work its
+        // parent, and the main work calls the spin-off a spin-off.
+        await fixture.RelateAsync("300", RelationType.Parent, "100");
+        await fixture.RelateAsync("100", RelationType.SpinOff, "300");
+        await fixture.RelateAsync("050", RelationType.Sequel, "100");
+
+        Assert.Empty(await fixture.RelatedAsync(spinOff));
+    }
+
+    /// <summary>
+    /// The cost of the rule above, stated rather than discovered: a special whose only
+    /// stored edge is its own <c>PARENT</c> is not in the set, because that row is
+    /// exactly the one that cannot be told from a spin-off (D55).
+    /// </summary>
+    [Fact]
+    public async Task A_special_that_only_names_its_parent_is_left_out()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+
+        var show = await fixture.OwnAsync("100", "The show");
+        await fixture.OwnAsync("200", "The OVA");
+
+        await fixture.RelateAsync("200", RelationType.Parent, "100");
+
+        Assert.Empty(await fixture.RelatedAsync(show));
     }
 
     /// <summary>
@@ -350,85 +466,53 @@ public class RelationServiceTests
     }
 
     /// <summary>
-    /// A title is not its own relative. Reachable in practice through a
-    /// self-referential edge, and the result would be a row that expands to itself.
+    /// A title is not in its own set. It is in the walk — QueueSetAsync needs it
+    /// there — and it is removed before the list is handed over, or the dialog would
+    /// list the title it is open on.
     /// </summary>
     [Fact]
-    public async Task A_title_is_never_related_to_itself()
+    public async Task A_title_is_never_in_its_own_set()
     {
         await using var fixture = await Fixture.CreateAsync();
 
-        var owned = await fixture.OwnAsync("100");
-        await fixture.RelateAsync("100", RelationType.Alternative, "100");
+        var owned = await fixture.OwnAsync("100", "Only");
+        await fixture.RelateAsync("100", RelationType.Sequel, "100");
 
         Assert.Empty(await fixture.RelatedAsync(owned));
-        Assert.Empty(await fixture.CountsAsync(owned));
     }
 
     /// <summary>
-    /// Absent rather than zero, because the page reads absence as "draw no
-    /// chevron". A control that sometimes does nothing teaches people to stop
-    /// pressing it.
+    /// The one place a spin-off and a set meet: the spin-off is excluded, everything
+    /// the same work reaches is not, and an unowned title is a gap rather than a row.
     /// </summary>
     [Fact]
-    public async Task Titles_with_no_relatives_are_absent_from_the_counts()
+    public async Task The_set_holds_the_same_work_and_nothing_else()
     {
         await using var fixture = await Fixture.CreateAsync();
 
-        var withRelative = await fixture.OwnAsync("100");
-        await fixture.OwnAsync("200");
-        var standalone = await fixture.OwnAsync("300");
-
-        await fixture.RelateAsync("100", RelationType.Sequel, "200");
-
-        var counts = await fixture.CountsAsync(withRelative, standalone);
-
-        Assert.Equal(1, counts[withRelative]);
-        Assert.False(counts.ContainsKey(standalone));
-    }
-
-    [Fact]
-    public async Task Counting_nothing_asks_the_database_nothing()
-    {
-        await using var fixture = await Fixture.CreateAsync();
-
-        Assert.Empty(await fixture.CountsAsync());
-    }
-
-    /// <summary>
-    /// The count and the expansion share one definition of a relative, which is the
-    /// only thing stopping a badge promising more than the panel opens.
-    /// </summary>
-    [Fact]
-    public async Task The_count_matches_what_the_expansion_lists()
-    {
-        await using var fixture = await Fixture.CreateAsync();
-
-        var owned = await fixture.OwnAsync("100");
-        await fixture.OwnAsync("200", status: LibraryStatus.Completed);
-        await fixture.OwnAsync("300");
-        await fixture.OwnAsync("400");
+        var owned = await fixture.OwnAsync("100", "The show");
+        await fixture.OwnAsync("200", "Its prequel", status: LibraryStatus.Completed);
+        await fixture.OwnAsync("300", "Its sequel");
+        await fixture.OwnAsync("400", "A spin-off");
 
         await fixture.RelateAsync("100", RelationType.Prequel, "200");
         await fixture.RelateAsync("300", RelationType.Sequel, "100");
         await fixture.RelateAsync("400", RelationType.SpinOff, "100");
         await fixture.RelateAsync("100", RelationType.Sequel, "999");
 
-        var counts = await fixture.CountsAsync(owned);
-        var related = await fixture.RelatedAsync(owned);
+        var set = await fixture.RelatedAsync(owned);
 
-        Assert.Equal(related.Count, counts[owned]);
-        Assert.Equal(3, related.Count);
+        Assert.Equal(["Its prequel", "Its sequel"], set.Select(r => r.Title).Order());
     }
 
-    // --- The sequel walk -------------------------------------------------
+    // --- Queueing a set ---------------------------------------------------
     //
-    // The one transitive read in this service, and the only one: an expansion
-    // answers "how is this connected" and stops at one edge, while this answers
-    // "what am I signing up for" and does not (D24).
+    // The same walk the list above is built from, handed to the queue instead of to
+    // the dialog. What differs is only what happens to each title once it is found:
+    // the list shows every status, and the queue takes the ones still planned (D55).
 
     [Fact]
-    public async Task The_walk_queues_a_title_and_everything_that_follows_it()
+    public async Task The_set_queues_a_title_and_everything_that_follows_it()
     {
         await using var fixture = await Fixture.CreateAsync();
 
@@ -439,7 +523,7 @@ public class RelationServiceTests
         await fixture.RelateAsync("100", RelationType.Sequel, "200");
         await fixture.RelateAsync("200", RelationType.Sequel, "300");
 
-        var result = await fixture.Relations.AddWithSequelsAsync(fixture.ProfileId, one);
+        var result = await fixture.Relations.QueueSetAsync(fixture.ProfileId, one);
 
         Assert.Equal(3, result.Added);
         Assert.Equal("Season one Season two Season three", await fixture.QueueOrderAsync());
@@ -447,24 +531,31 @@ public class RelationServiceTests
     }
 
     /// <summary>
-    /// Forward only. This is what makes the walk better than the franchise
-    /// expansion it replaces, which proposed the seasons already watched every time.
+    /// It goes backwards now, and status is what stops the walk proposing what has
+    /// already been watched (D55). The old rule was "forward only", which was the
+    /// same protection spelled as a direction — and it also hid the unwatched prequel
+    /// that is the best reason not to start here.
     /// </summary>
     [Fact]
-    public async Task The_walk_does_not_go_backwards()
+    public async Task An_unwatched_prequel_is_queued_and_a_watched_one_is_not()
     {
         await using var fixture = await Fixture.CreateAsync();
 
-        await fixture.OwnAsync("100", "Season one", startDate: new DateOnly(2015, 1, 8));
+        await fixture.OwnAsync("100", "Season one", status: LibraryStatus.Completed,
+            startDate: new DateOnly(2015, 1, 8));
         var two = await fixture.OwnAsync("200", "Season two", startDate: new DateOnly(2016, 4, 5));
         await fixture.OwnAsync("300", "Season three", startDate: new DateOnly(2017, 10, 3));
+        await fixture.OwnAsync("050", "The pilot", startDate: new DateOnly(2014, 7, 2));
 
+        await fixture.RelateAsync("050", RelationType.Sequel, "100");
         await fixture.RelateAsync("100", RelationType.Sequel, "200");
         await fixture.RelateAsync("200", RelationType.Sequel, "300");
 
-        await fixture.Relations.AddWithSequelsAsync(fixture.ProfileId, two);
+        var result = await fixture.Relations.QueueSetAsync(fixture.ProfileId, two);
 
-        Assert.Equal("Season two Season three", await fixture.QueueOrderAsync());
+        // The pilot leads because it aired first; season one is reached and refused.
+        Assert.Equal("The pilot Season two Season three", await fixture.QueueOrderAsync());
+        Assert.Equal(1, result.NoLongerPlanned);
     }
 
     /// <summary>
@@ -473,7 +564,7 @@ public class RelationServiceTests
     /// library rows only at the end.
     /// </summary>
     [Fact]
-    public async Task The_walk_passes_through_a_season_the_library_does_not_own()
+    public async Task The_set_passes_through_a_season_the_library_does_not_own()
     {
         await using var fixture = await Fixture.CreateAsync();
 
@@ -484,7 +575,7 @@ public class RelationServiceTests
         await fixture.RelateAsync("100", RelationType.Sequel, "200");
         await fixture.RelateAsync("200", RelationType.Sequel, "300");
 
-        var result = await fixture.Relations.AddWithSequelsAsync(fixture.ProfileId, one);
+        var result = await fixture.Relations.QueueSetAsync(fixture.ProfileId, one);
 
         Assert.Equal(2, result.Added);
         Assert.Equal("Season one Season three", await fixture.QueueOrderAsync());
@@ -495,7 +586,7 @@ public class RelationServiceTests
     /// must be accounted for rather than silently dropped.
     /// </summary>
     [Fact]
-    public async Task The_walk_traverses_through_a_watched_season_and_counts_it_as_skipped()
+    public async Task The_set_traverses_through_a_watched_season_and_counts_it_as_skipped()
     {
         await using var fixture = await Fixture.CreateAsync();
 
@@ -506,7 +597,7 @@ public class RelationServiceTests
         await fixture.RelateAsync("300", RelationType.Sequel, "400");
         await fixture.RelateAsync("400", RelationType.Sequel, "500");
 
-        var result = await fixture.Relations.AddWithSequelsAsync(fixture.ProfileId, three);
+        var result = await fixture.Relations.QueueSetAsync(fixture.ProfileId, three);
 
         Assert.Equal(2, result.Added);
         Assert.Equal(1, result.NoLongerPlanned);
@@ -518,7 +609,7 @@ public class RelationServiceTests
     /// edges alone would give story order — frequently the wrong watch order (D24).
     /// </summary>
     [Fact]
-    public async Task The_walk_appends_in_release_order_rather_than_the_order_it_found_them()
+    public async Task The_set_appends_in_release_order_rather_than_the_order_it_found_them()
     {
         await using var fixture = await Fixture.CreateAsync();
 
@@ -532,7 +623,7 @@ public class RelationServiceTests
         await fixture.RelateAsync("100", RelationType.Sequel, "300");
         await fixture.RelateAsync("100", RelationType.Sequel, "200");
 
-        await fixture.Relations.AddWithSequelsAsync(fixture.ProfileId, one);
+        await fixture.Relations.QueueSetAsync(fixture.ProfileId, one);
 
         Assert.Equal("First Sooner Later", await fixture.QueueOrderAsync());
     }
@@ -557,7 +648,7 @@ public class RelationServiceTests
         // What makes it a recap, stated the way the source states it.
         await fixture.RelateAsync("100", RelationType.Summary, "150");
 
-        var result = await fixture.Relations.AddWithSequelsAsync(fixture.ProfileId, one);
+        var result = await fixture.Relations.QueueSetAsync(fixture.ProfileId, one);
 
         Assert.Equal(2, result.Added);
         Assert.Equal("Season one Season two", await fixture.QueueOrderAsync());
@@ -579,7 +670,7 @@ public class RelationServiceTests
         // which is the other of the two forms that identify one.
         await fixture.RelateAsync("150", RelationType.Contains, "100");
 
-        await fixture.Relations.AddWithSequelsAsync(fixture.ProfileId, one);
+        await fixture.Relations.QueueSetAsync(fixture.ProfileId, one);
 
         Assert.Equal("Season one Season two", await fixture.QueueOrderAsync());
     }
@@ -599,7 +690,7 @@ public class RelationServiceTests
         await fixture.RelateAsync("100", RelationType.Sequel, "200");
         await fixture.RelateAsync("200", RelationType.Sequel, "100");
 
-        var result = await fixture.Relations.AddWithSequelsAsync(fixture.ProfileId, one);
+        var result = await fixture.Relations.QueueSetAsync(fixture.ProfileId, one);
 
         Assert.Equal(2, result.Added);
         Assert.Equal("A B", await fixture.QueueOrderAsync());
@@ -614,8 +705,8 @@ public class RelationServiceTests
         await fixture.OwnAsync("200", "Season two", startDate: new DateOnly(2016, 4, 5));
         await fixture.RelateAsync("100", RelationType.Sequel, "200");
 
-        await fixture.Relations.AddWithSequelsAsync(fixture.ProfileId, one);
-        var again = await fixture.Relations.AddWithSequelsAsync(fixture.ProfileId, one);
+        await fixture.Relations.QueueSetAsync(fixture.ProfileId, one);
+        var again = await fixture.Relations.QueueSetAsync(fixture.ProfileId, one);
 
         Assert.Equal(0, again.Added);
         Assert.Equal(2, again.AlreadyQueued);
@@ -642,12 +733,12 @@ public class RelationServiceTests
         await fixture.RelateAsync("300", RelationType.Sequel, "400");
 
         // Four titles in the chain, but season four was watched, so three would go.
-        Assert.Equal(3, await fixture.Relations.CountSequelsToQueueAsync(fixture.ProfileId, one));
+        Assert.Equal(3, await fixture.Relations.CountToQueueAsync(fixture.ProfileId, one));
 
         await fixture.QueueAsync(three);
 
         // Season three is now spoken for as well, leaving one and two.
-        Assert.Equal(2, await fixture.Relations.CountSequelsToQueueAsync(fixture.ProfileId, one));
+        Assert.Equal(2, await fixture.Relations.CountToQueueAsync(fixture.ProfileId, one));
     }
 
     [Fact]
@@ -657,9 +748,9 @@ public class RelationServiceTests
 
         var only = await fixture.OwnAsync("100", "Standalone");
 
-        Assert.Equal(1, await fixture.Relations.CountSequelsToQueueAsync(fixture.ProfileId, only));
+        Assert.Equal(1, await fixture.Relations.CountToQueueAsync(fixture.ProfileId, only));
 
-        var result = await fixture.Relations.AddWithSequelsAsync(fixture.ProfileId, only);
+        var result = await fixture.Relations.QueueSetAsync(fixture.ProfileId, only);
 
         Assert.Equal(1, result.Added);
     }
@@ -687,9 +778,9 @@ public class RelationServiceTests
             animeId = anime.Id;
         }
 
-        Assert.Equal(0, await fixture.Relations.CountSequelsToQueueAsync(fixture.ProfileId, animeId));
+        Assert.Equal(0, await fixture.Relations.CountToQueueAsync(fixture.ProfileId, animeId));
 
-        var result = await fixture.Relations.AddWithSequelsAsync(fixture.ProfileId, animeId);
+        var result = await fixture.Relations.QueueSetAsync(fixture.ProfileId, animeId);
 
         Assert.Equal(0, result.Added);
         Assert.Empty(await fixture.QueueOrderAsync());

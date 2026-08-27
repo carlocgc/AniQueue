@@ -109,12 +109,12 @@ public class SampleDataSeederTests
     }
 
     /// <summary>
-    /// The seed has to contain a graph, or the backlog's expansion cannot be looked
+    /// The seed has to contain a graph, or the detail dialog's set cannot be looked
     /// at without syncing a real account first — and the inner loop is F5, not a
     /// network round trip (§13).
     /// </summary>
     [Fact]
-    public async Task Seeding_produces_a_relation_graph_the_backlog_can_expand()
+    public async Task Seeding_produces_a_relation_graph_the_dialog_can_show()
     {
         await using var database = await SeededDatabaseAsync();
 
@@ -131,8 +131,18 @@ public class SampleDataSeederTests
         // Season one is stated from season one's side and season three from season
         // three's, so finding both proves the reverse index and the inversion that
         // goes with it — the half of the graph a tidier seed would never exercise.
+        //
+        // The film and the special hang off season one rather than off this title, so
+        // they are here because the set follows the same work as far as it goes (D55)
+        // — and they carry no label, because nothing in the graph states how they
+        // relate to season two.
         Assert.Equal(
-            [("Slayers", RelationType.Prequel), ("Slayers Try", RelationType.Sequel)],
+            [
+                ("Slayers", RelationType.Prequel),
+                ("Slayers: The Motion Picture", null),
+                ("Slayers Special", null),
+                ("Slayers Try", RelationType.Sequel)
+            ],
             related.Select(r => (r.Title, r.Relation)));
     }
 

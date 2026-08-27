@@ -115,8 +115,14 @@ public sealed class SampleDataSeeder(
             context.LibraryEntries.Add(Planning(entry));
         }
 
-        // The graph the relation backfill would have written, seeded so the backlog
-        // has something to expand without anyone having to sync a real account.
+        // The graph the relation backfill would have written, seeded so the detail
+        // dialog has a set to show without anyone having to sync a real account.
+        //
+        // The OVA is stated as the film is — from the main work's side, as a side
+        // story. It was a Parent edge from the OVA's own side until D55 stopped
+        // following those, and then the OVA quietly left the set. Real data carries
+        // both halves; a seed with only the half that is no longer read is a seed
+        // that hides a surface rather than exercising one.
         //
         // Written the way the source states them rather than tidied into one
         // direction (D24), and the untidiness is the point: the edge from Try is
@@ -127,7 +133,7 @@ public sealed class SampleDataSeeder(
             Edge("900001", RelationType.Sequel, "900002"),
             Edge("900003", RelationType.Prequel, "900002"),
             Edge("900001", RelationType.SideStory, "900004"),
-            Edge("900005", RelationType.Parent, "900001"));
+            Edge("900001", RelationType.SideStory, "900005"));
 
         // Sample data and a real account are still alternatives rather than
         // complements (D27): a library holding both reports the sample titles as
