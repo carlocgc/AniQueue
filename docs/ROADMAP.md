@@ -2901,6 +2901,11 @@ to keep true.
 below the metadata, which is also the reading order: this is the row, this is what it is, this
 is where you can send it. Drag still works wherever a pointer does.
 
+**Superseded by Phase 18, and it is worth saying which half.** The overflow this fixed stays
+fixed — nothing scrolls sideways and the queue can be reordered. What it did not fix is that
+the row still carried twelve fields, which is what running it on an actual phone made obvious.
+Phase 18 empties the row rather than rearranging it, and replaces the table underneath.
+
 **A browser made narrow is an approximation, so there is a way to open the real thing.** The
 *http (lan)* launch profile binds to every interface rather than to `localhost`, which is the
 only reason a phone on the same network cannot reach the ordinary one. The README carries it,
@@ -3303,6 +3308,11 @@ most of it cannot be settled without a wider sample of models to settle it again
 it waits *written*, because the alternative is finding the same things twice. The remote route is
 opt-in as of D45, so nothing in it is costing a user anything today.
 
+**Phase 18 is next because 17 is held and because the complaint is not hypothetical.** It was
+found by opening the application on a phone over the LAN rather than by narrowing a browser, and
+it is the first phase whose exit criteria are about a device rather than a feature. It supersedes
+D54, which fixed the overflow and left the crowding.
+
 **Phase 9 splits, and one half of it stops waiting** (D46, D47). The licence that blocked it has
 been read: the dataset this file named has none at all, and an MIT-licensed one takes its place at
 the cost of a TMDB column. That unblocks both halves — but only `9b` ever needed a dataset, and
@@ -3349,6 +3359,7 @@ numbering. What is finished is a column; what happens next is the first row with
 | 15e | Sources reshape | ✅ | Sources is configuration, one review button and a file import |
 | 16 | Scoring without a rank | ✅ | The model returns scores and no ordering; nothing asks for, stores or shows a rank |
 | 17 | Improve remote model scoring | ▢ *held* | A sweep gets past a batch it cannot score, reports itself as one run, and cannot be defeated by a history that outgrew the context |
+| 18 | Mobile first | ▢ *next* | Every page usable at 375px with no sideways scroll and no control under 44px; five thumb-reachable tabs; the lists show a poster, a title, one score and one action |
 
 **✅ done · ▢ not started.** *next* is what the running order reaches first; *held* waits on
 something outside the repository — for 17, a wider sample of models to characterise (D45).
@@ -4832,6 +4843,195 @@ against the same sample.
 *Exit:* a sweep gets past a batch it cannot score rather than re-asking it; one sweep is one row
 in *Past rankings*; and no setting a user can reach makes the sweep fail in a way it cannot
 recover from.
+
+---
+
+### Phase 18 — Mobile first
+
+**Prompted by running it on a phone rather than by making a browser narrow.** Phase 10d's narrow
+layout (D54) does what it claimed: nothing overflows, nothing scrolls sideways, and the queue can
+be reordered at 320px. It is still unpleasant to use, and the screenshots say why — **it kept all
+twelve fields and merely wrapped them.** A row on a phone was a title, two link pills, a status
+badge, six facts and two scores, stacked into three lines of small grey text with a 20px button at
+each end.
+
+**The mistake was treating the problem as layout when it is contents.** The details dialog (D49)
+already holds the media type, year, episode count, studio, genres, both scores with the model's
+reasoning, the synopsis and both source links. The row was not short of room. It was repeating a
+dialog that opens from its own title.
+
+So this phase is mostly subtraction, and the parts below are ordered by what must exist before
+something else can be taken away.
+
+**D54 is amended rather than reverted.** Reverting restores a 710px table in a 309px window where
+the queue's reorder controls could not be reached at all — strictly worse than what is there now,
+and worse for the whole time a replacement is being built.
+
+**What a row becomes**, agreed against AniList, Overseerr and CrossWatch as references:
+
+```
+mobile                                     desktop (>= 720px)
++------+-----------------+-----+----+      +------+----------+--------------+-----+----+
+|      | Title           |     |    |      |      | Title    | TV - 2017    |     |    |
+|poster| [Planning]      | 7.2 | +  |      |poster|[Planning]| 5h12m - 0/13 | 7.2 | +  |
++------+-----------------+-----+----+      +------+----------+--------------+-----+----+
+  art     what it is      score  act         art   what it is     facts      score  act
+```
+
+One grid, one extra area at the wider breakpoint. That is what "mobile first with desktop
+expansion" means here, and it is why the table has to go: a table cannot gain a column at a
+breakpoint without the cell already existing in every row.
+
+#### 18a — Five tabs, and no dashboard
+
+**The navigation bar has a bug that reads as a design flaw.** `.app` is a grid with
+`min-height: 100vh`, and the narrow rule replaces its two columns with one. That leaves two
+implicit `auto` rows under the default `align-content: stretch`, so the leftover height is split
+between them and the navigation takes half a phone screen on any page with short content. It is
+one line — `grid-template-rows: auto 1fr` — and it is worth stating separately because every
+screenshot of the problem looks like a spacing decision.
+
+**A bottom bar rather than a wrapping list of links.** Overseerr's is the model: it is
+thumb-reachable, which is the actual complaint, and it is a list of links, so it needs no open
+state, no overlay and no focus trap. An AniList-style button opening a sheet scales further and
+was declined for that machinery — six destinations do not need it.
+
+**Five tabs, which needs the Dashboard to go.** *Up Next*, *Backlog*, *Scoring*, *Sources*,
+*Settings*. Three consequences, and the first is the one that could quietly break something:
+
+- **Up Next becomes `/`, and carries the first-run screen.** `Home.razor` is not only six
+  counters; it is the empty-library screen D27 requires — the first thing a new install shows,
+  offering an AniList sync or a MyAnimeList import. An empty queue and an empty library are
+  different states, so Up Next distinguishes them: *nothing queued yet* for the first, the import
+  offer for the second.
+- **The six counters move to the top of Backlog.** They are a health check — *did the sync bring
+  everything in* — and the backlog is where that question gets asked.
+- **Recommendations is renamed *Scoring*.** It is what the page does and it fits a tab. *Settings*
+  is a new page holding Tasks, named for what it will hold rather than for what it holds today.
+
+**Icons are vendored, not packaged.** Around twenty Lucide glyphs as a single SVG sprite
+referenced by `use`. ISC licensed, so redistribution is settled on D46's test; no package, so no
+§12 approval; no build step, no version drift, and `currentColor` means they take the theme. The
+precedent is already here — SortableJS sits in `wwwroot/lib` rather than in a package. A CSS
+framework was considered and declined: it would put a Node toolchain into a .NET repository and
+its Docker build, to replace 1,350 lines of documented, themed CSS whose problems are layout
+decisions rather than a missing framework.
+
+**Icons replace text only where an accessible label already exists.** Plus, minus, the close
+cross and the drag grip are icon-only in rows, which they already are. *Run now* and *Save* keep
+their words with an icon beside them — they are wide buttons with room, and a floppy disc alone is
+a guess at what a button does. **The enable toggles become power buttons**, green filled for on
+and red outlined for off, with the state in the label: colour reinforces and never carries,
+because roughly one man in twelve cannot reliably tell that red from that green. **Preference
+checkboxes stay checkboxes** — *Ask the server for JSON only* and *Include personal notes* are not
+on/off states, and a power symbol would lie about them.
+
+#### 18b — Hidden is deleted
+
+`LibraryEntry.IsHidden` goes: the column, its index, the filter chip, the hide button, and the
+branches in `LibraryService` and `RelationService` that read it.
+
+**The argument is D11's, applied where it was not.** List membership lives outside AniQueue.
+Hiding was a second, local way to say *stop offering me this*, which the source list already says
+by not containing the title — so the honest answer to "I do not want this ranked" is to take it
+off the AniList or MyAnimeList list it came from, and let the next sync agree.
+
+**What it costs, stated rather than discovered.** Anything currently hidden returns to the backlog
+and to the scoring candidate set on the migration that drops the column. That is the correct
+outcome under the rule above, and it is still a visible change to somebody's list, so it belongs
+in a release note rather than only in a migration.
+
+It lands before the row is redesigned, so the new row is designed around what is actually left
+rather than around a control that is about to disappear.
+
+#### 18c — The dialog takes what the row is losing
+
+The row is about to lose two things that live nowhere else, so the dialog gains them first.
+Nothing is unreachable at any point.
+
+**Relations move into the dialog, and get larger in the process.** Today they are an expandable
+panel injected into the backlog listing, and they are the sequel walk — what supersedes this
+title. In the dialog they become a section, and they become **every** relation the graph holds
+rather than the forward chain: opening a sequel should show the prequels, because an unwatched
+prequel is the reason not to start here. Up Next gains relations for the first time, since it
+shares the dialog.
+
+**The bulk action moves with them and widens.** *Queue the rest* currently follows the sequel
+walk. In the dialog it queues **every unwatched relation** — main seasons and specials both.
+
+**This reverses part of D26**, which put the action beside the panel on the grounds that queueing
+several titles belongs next to the list of what they are. That still holds; the list of what they
+are has simply moved. It needs its own decision recorded when it lands.
+
+**The AI-score expander goes with them.** The row's score currently opens an inline panel with the
+model's confidence and reasoning. The dialog has held both since D49.
+
+**One small gap to close:** the dialog states an episode *count* but not progress. It carries
+`EpisodesWatched` already, so this is a rendering change rather than a data one.
+
+#### 18d — The row is a card, not a table row
+
+**The table goes.** It earns nothing that would be lost: sorting is a `select` rather than
+sortable headers, and SortableJS attaches to a container with a `handle` selector, so a list
+element serves as well as a `tbody`. What the table costs is every rule in D54 — a zero-height
+`::after` to force a line break, `order` on every cell, the cover column re-hidden because a media
+block sets a width and not a priority. All of it exists to make a table behave like something it
+is not.
+
+Each row becomes a **separated card**, roughly 8px apart, laid out with CSS Grid. Cards rather
+than hairline-divided rows because a card is a larger and more obvious tap target, and because a
+divided row still reads as a table after the table is gone. The gap is tighter than CrossWatch's:
+at 237 rows, every 20px of row height is another 4,700px of scrolling.
+
+**What a row holds, in order:**
+
+- **The poster, always, leftmost.** At the *poster* rendition rather than the thumbnail, and
+  lazy-loaded. A 64px slot on a 3x phone screen wants around 192px of image, and the cached
+  thumbnail is AniList's `medium` at about 100px — visibly soft at exactly the element being
+  promoted. Both renditions are already on disk under `data/art`, the posters average 30 KB, and
+  this is a self-hosted application served over a LAN.
+- **Title and status badge.** The badge stays because it is the one fact that changes what the row
+  means, and because the backlog filters on it — seeing it is how somebody confirms the filter did
+  what they asked.
+- **One score, large.** *Your score if there is one, otherwise the AI's.* A rating somebody gave is
+  a fact and a predicted score is a guess, and a fact outranks a guess whatever the status. A
+  status rule was considered — AI for Planning and Watching, yours for the rest — and loses on the
+  edge it gets wrong: a title rated years ago and re-planned would show the model's guess in place
+  of a real number.
+- **The action, right, and thumb-sized.** At least 44px, the figure both Apple's and Google's
+  guidance publishes, against the roughly 20px icon buttons in the screenshots. On the backlog it
+  is add-to-queue or remove-from-queue. On Up Next it is the drag grip and remove.
+
+**What leaves the row entirely:** the MyAnimeList and AniList pills, media type, year, runtime,
+progress, the second score, the relations expander, the AI-score expander and the hide button.
+Every one of them is in the dialog, which opens from the poster or the title.
+
+**Up Next keeps its position number**, small, over the poster's corner rather than as a leading
+column: position is the whole meaning of the list, and after a drag the number is the confirmation
+that the move landed. As a column it would cost 30px of every row at the width where there is
+least.
+
+**The four move buttons survive at desktop width only.** `UpNext.razor` records that they are "the
+keyboard and screen-reader path" — SortableJS offers no keyboard equivalent — so deleting them
+everywhere would make the queue mouse-and-touch only. Touch reorders by dragging a handle sized
+for a thumb; keyboard and assistive-technology users reorder with the buttons, at the width where
+those users are.
+
+#### 18e — What is left over
+
+**The Tasks table gets the same treatment**, by the same rule and not as a special case: it is
+`table-layout: fixed; min-width: 40rem` in a 309px window, and it holds *Run now* and an enable
+toggle. A table that scrolls sideways is the right answer for something read and the wrong answer
+for something acted on — the test is whether a control and the thing it acts on can be on screen
+together. The ranking preview and *Past rankings* are read, and keep their scroll.
+
+The six counters land at the top of Backlog here rather than in 18a, so that part stays a change
+to the shell alone.
+
+*Exit:* every page is usable on a 375px screen with no sideways scrolling and no control under
+44px; the backlog and the queue show a poster, a title, one score and one thumb-sized action, with
+the facts one tap away in the dialog; navigation is five thumb-reachable tabs; `IsHidden` appears
+nowhere in the codebase; and the desktop layout has lost nothing it had before.
 
 ---
 
