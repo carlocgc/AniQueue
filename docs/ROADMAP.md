@@ -2855,6 +2855,52 @@ one they would actually send — on the one card whose number exists to warn abo
 context limit. The measurement now takes the same options a request takes, and ignores only the
 candidate limit, because it always probes with two and the caller multiplies.
 
+### D54 — A list you act on stops being a table before it stops fitting
+
+*Amends Phase 3's backlog listing and Phase 4's queue. Adds a narrow layout for both.*
+
+Measured at 375px before any of this existed: **the backlog was a 710px table in a 309px
+window, and the queue a 499px one.** Both sat inside `.table-wrap`, which scrolls sideways, so
+nothing was broken in the sense of overlapping or clipped. It was unusable in a way that is
+worse than broken, because it looked fine.
+
+- The backlog showed two icon buttons and a title squeezed to **98px**. Type, year, runtime,
+  status, progress and both scores were off the right edge.
+- The queue's five reorder controls began **42px past the edge** and ran to 532px in a 309px
+  window. **The page whose entire job is ordering a queue could not order it on a phone**, and
+  its only other route is a drag handle, which is the least reliable gesture on a touch screen.
+
+**A table that scrolls sideways is the right answer for something read and the wrong answer for
+something acted on.** The distinction is whether a control and the thing it acts on have to be
+on screen together. The task list and the ranking preview are read — they keep the scroll. The
+backlog and the queue are acted on, so below 720px they stop being tables: `display: block`
+through the table parts, the header row hidden, and each row a wrapping flex line.
+
+Three details that were not obvious:
+
+- **The line break has to be an item of its own.** Flex wraps where a line runs out, so with
+  nothing full-width the metadata crowds onto the title's line and the auto margin holding the
+  actions at the right edge has no space left to push into. Making the *first field* full-width
+  instead put that one field alone on a line. A row is a flex container, so its `::after` is a
+  flex item: a zero-height item that fills the line is a line break spelled the only way this
+  layout can spell one.
+- **`:empty` does not match a cell holding whitespace**, and Razor renders whitespace. The
+  spacer cell of an expansion row and an expander with nothing to expand are hidden by what they
+  are rather than by being empty.
+- **The narrow rules are more specific than the rule that hid the cover column**, so they put
+  the thumbnail back. It is hidden again inside them. A `@media` block sets a width at which a
+  rule applies, not a priority.
+
+**What the wide layout keeps, and why the split is at the row rather than the page.** Above
+720px nothing changes: the same twelve columns, the same header, the same alignment. Two
+layouts for one list is a cost, and it is smaller than the alternatives — a column-hiding scheme
+decides for the user which facts do not matter, and a separate mobile page is a second listing
+to keep true.
+
+**Ordering is by hand on a phone, not by drag.** The reorder buttons take a line of their own
+below the metadata, which is also the reading order: this is the row, this is what it is, this
+is where you can send it. Drag still works wherever a pointer does.
+
 ---
 
 ## 3. Solution structure

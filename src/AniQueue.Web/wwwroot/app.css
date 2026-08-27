@@ -1350,3 +1350,112 @@ button.danger:hover:not(:disabled) { filter: brightness(0.95); }
         margin: 0 0 var(--gap);
     }
 }
+
+/* Narrow screens: the two lists stop being tables -------------------------- */
+
+/* Measured at 375px before any of this existed (D54). The backlog was a 710px
+   table in a 309px window and the queue a 499px one — so on a phone the backlog
+   showed two icon buttons and a title squeezed to 98px, and the queue's five
+   reorder controls started 42px past the right edge and were unreachable. The page
+   whose whole job is ordering a queue could not order it.
+
+   A table that scrolls sideways is the right answer for something read — the task
+   list and the ranking preview keep it. It is the wrong answer for a row somebody
+   acts on, because the control and the thing it acts on cannot be on screen at the
+   same time. So these two become stacked rows instead: the title and the controls
+   on the first line, the metadata wrapped underneath. */
+@media (max-width: 720px) {
+    table.library, table.library tbody, table.library tr, table.library td,
+    table.queue, table.queue tbody, table.queue tr, table.queue td { display: block; }
+
+    /* The header row goes with the columns it labelled. What is still ambiguous
+       without it carries a data-label below. */
+    table.library thead, table.queue thead { display: none; }
+
+    table.library tbody tr, table.queue tbody tr {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 0.3rem 0.75rem;
+        padding: 0.65rem 0;
+        border-bottom: 1px solid var(--border);
+    }
+
+    /* Metadata by default: quieter than the title, and ordered after it. The four
+       cells that lead a row override this below. */
+    table.library tbody td, table.queue tbody td {
+        order: 6;
+        display: inline-flex;
+        align-items: center;
+        gap: 0.3rem;
+        padding: 0;
+        border: none;
+        color: var(--text-muted);
+        font-size: 0.85rem;
+    }
+
+    /* Art is an aid to scanning a long list, which is not what this viewport is
+       doing — the same call the wide rule above makes, restated because the block
+       above it is more specific and would otherwise put the thumbnail back. */
+    table.library td.cover-col, table.queue td.cover-col { display: none; }
+
+    /* The spacer column of an expansion row, and an expander with nothing to expand.
+       Left as blocks they each take a gap of nothing. Not :empty, which a cell
+       holding only the whitespace Razor renders does not match. */
+    table.library tr.relations-row td:first-child,
+    table.library tr.scoring-row td:first-child,
+    table.library td.expand-col:not(:has(*)) { display: none; }
+
+    table.library tbody td[data-label]::before,
+    table.queue tbody td[data-label]::before {
+        content: attr(data-label);
+        opacity: 0.7;
+    }
+
+    /* Line one, in the order a hand reaches for it: what acts on the row, then
+       what the row is, then what removes it. */
+    table.library td.add-col, table.queue td.handle-col { order: 1; }
+    table.library td.expand-col, table.queue td.position-col { order: 2; }
+
+    table.library td.title-col, table.queue td.title-col {
+        order: 3;
+        flex: 1 1 8rem;
+        min-width: 0;
+        color: var(--text);
+        font-size: 0.95rem;
+    }
+
+    /* Pushed to the right edge, where it is furthest from the add button — the
+       same separation the wide layout buys by putting the whole table between
+       them. */
+    table.library td.actions-col { order: 4; margin-left: auto; }
+
+    /* The break between the row and its metadata, and it has to be an item of its
+       own. Flex wraps where a line runs out, so with nothing full-width the metadata
+       crowds onto the title's line and the auto margin above has no space left to
+       push into — and making the first field full-width instead puts that one field
+       alone on a line of its own. A row is a flex container, so its ::after is a flex
+       item, and an item of no height that fills the line is a line break spelled the
+       only way this layout can spell one. */
+    table.library tbody tr::after, table.queue tbody tr::after {
+        content: "";
+        order: 5;
+        flex: 0 0 100%;
+        height: 0;
+    }
+
+    /* The queue's reorder controls are five buttons and will not share a line with
+       a title at this width. They take one of their own, below the metadata, which
+       is also the reading order: this is the row, this is what it is, this is where
+       you can send it. Drag still works where a pointer exists; these are what a
+       touch screen has instead. */
+    table.queue td.actions-col { order: 7; flex-basis: 100%; justify-content: flex-start; }
+
+    /* An expansion panel is prose and a list, not a cell. */
+    table.library tr.relations-row td, table.library tr.scoring-row td {
+        flex-basis: 100%;
+        display: block;
+        color: var(--text);
+        font-size: 0.92rem;
+    }
+}

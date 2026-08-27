@@ -198,7 +198,11 @@ else
     {
         <div class="card">
             <div class="table-wrap">
-                <table>
+                @* Named so the narrow layout can find it (D54). Below 720px this and
+                   the queue stop being tables and become stacked rows; the ranking
+                   preview and the task list keep scrolling sideways, because they are
+                   read rather than acted on. *@
+                <table class="library">
                     <thead>
                         <tr>
                             @* No header text on any control column: each holds a
@@ -275,7 +279,7 @@ else
                                 <td class="cover-col">
                                     <CoverThumb Cover="item.Cover" OnActivate="() => ShowDetailAsync(item.AnimeId)" />
                                 </td>
-                                <td>
+                                <td class="title-col">
                                     <div class="title-cell">
                                         @* The row's one real control for opening the dialog. The
                                            poster beside it is a pointer shortcut to the same
@@ -330,10 +334,14 @@ else
                                 <td class="numeric">@(RuntimeCalculator.Format(item.EstimatedRuntimeMinutes) ?? "—")</td>
                                 <td><span class="badge @item.Status.ToString().ToLowerInvariant()">@item.Status</span></td>
                                 <td>@ProgressText(item)</td>
-                                <td class="numeric">@(item.UserScore?.ToString() ?? "—")</td>
+                                @* Labelled for the narrow layout, where the header row is
+                                   gone and this sits in a wrapped line beside the AI score.
+                                   Two bare numbers a few millimetres apart is the one place
+                                   here a person cannot work out which is which (D54). *@
+                                <td class="numeric" data-label="You">@(item.UserScore?.ToString() ?? "—")</td>
                                 @if (Facets.HasRecommendations)
                                 {
-                                    <td class="numeric">
+                                    <td class="numeric" data-label="AI">
                                         @* The score stays legible in the row: it is the
                                            column's whole job, and a listing sorted by it
                                            that made you open something to read it would
