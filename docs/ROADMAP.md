@@ -2705,6 +2705,70 @@ This is presentation, not validation — an id naming nothing is exactly as fata
 skipped title is still only a warning — but a panel the user has to scroll past to reach the
 button is a validation pass that has stopped communicating.
 
+### D51 — One thing to carry, and one spelling for "everything"
+
+*Amends Phase 7b's manual card and retires `HistorySize = 0`.*
+
+Three small things the paste route got wrong, found by using it against a real backlog.
+
+**The card offered four buttons where the answer was always the same two, in the same order.**
+Copy the request, copy the instructions, download the request, rebuild. The instructions are
+useless without the request and the request is unreadable without the instructions, so the first
+decision on the page was a false one: *which of these do I need, and in what order do they go
+into the box?* They are now one document — instructions first, then the request — offered twice,
+as a copy and as a file. Instructions first because a model reads the whole message either way
+and the person pasting it reads the top, and what they need to see is that this is a set of
+instructions rather than a wall of JSON beginning nowhere.
+
+The file is `.txt` rather than `.json`, because it is no longer only JSON: a `.json` file opening
+with a paragraph of English lies about itself, and some upload boxes decide what they accept from
+the extension. *Rebuild* is now *Regenerate*, which is what it does.
+
+**Copy size is not a risk worth designing around, and this was checked rather than assumed.**
+A 237-title request is about 103 KB. `navigator.clipboard.writeText` has no size limit worth the
+name, the `execCommand` fallback is a textarea and has none either, and the download is already a
+blob URL rather than a `data:` URI for exactly this reason. In the other direction the reply
+arrives through a Blazor circuit, where the default 32 KB receive cap *would* have been a real
+ceiling — `Program.cs` already raises it to `ScoringLimits.Default.MaxBytes`, 4 MB. What is left
+is the destination's problem rather than AniQueue's: a chat box that refuses a long paste, or a
+context window that will not hold it. The file exists for the first, and the size on the card for
+the second.
+
+**`HistorySize = 0` is retired, and an empty field now means all of them.** Zero meant "send no
+history", producing a ranking that is a general opinion about anime rather than a prediction about
+this person — which is the one thing this feature exists not to be. It was also what an empty
+field produced, so "I have not set a limit" and "send no evidence of my taste" were the same
+keystroke, while the two sizes beside it read an empty field as *everything*. One spelling for
+"everything" across all three.
+
+Null is now that spelling, which forces a distinction the settings store did not previously need:
+
+- **Absent** — nobody has said. 200, the default.
+- **Present and null** — somebody cleared it. All of them.
+- **Present and unparseable** — a typo. 200, because falling back to *all* would turn a mistyped
+  number into the largest request the page can build.
+
+The first two cannot be collapsed. `EnsureExistsAsync` seeds `userconfig.json` from the settings
+currently in effect rather than from `UserSettings.Defaults` — deliberately, so a first boot
+cannot write an empty AniList account over one supplied through the environment — and on a first
+boot that chain is empty. Reading an absent key as "all" would make a fresh installation write
+null and then send every rated title it has. Presence is therefore asked of the configuration
+rather than of the value, because the JSON provider keeps a key whose value is null and
+`configuration[key]` cannot tell that from a key nobody wrote.
+
+A stored `0` clamps to `1` rather than to null. It is the upgrade path for a file written when
+zero meant something, and the direction matters: reading it as "all of them" would silently turn
+the smallest request somebody chose into the largest one there is.
+
+**Past rankings shows ten, down from twenty.** A scheduled sweep writes one run per batch rather
+than one per sweep, so an evening against a real backlog fills the table with its own batches and
+pushes out everything a person came to compare against. Ten is what fits beside the card above it.
+Not paginated: this is an audit list read from the top, and paging controls for rows nobody
+navigates to is scaffolding for a use that has not appeared.
+
+Its two count columns are right-aligned in the header as well as the body. They were `numeric`
+cells under plain headers, so each label sat over the far edge of the numbers it names.
+
 ---
 
 ## 3. Solution structure
@@ -3729,11 +3793,12 @@ explain itself. Any future surface taking a large pasted payload inherits this.
 worth stating because it is a property of the deployment rather than of one page.
 `navigator.clipboard` exists only in a secure context, and a self-hosted AniQueue is reached
 over plain http at a LAN address far more often than over https — so on the target deployment
-the modern API is simply absent. Copy therefore falls back to `execCommand`, and **both the
-request and the instructions are rendered on the page** rather than only offered through a
-button: text a person can select by hand is the one route that always works, and the copy
-buttons are a convenience over it rather than the way in. Anything later that offers to put
-something on the clipboard inherits the same constraint.
+the modern API is simply absent. Copy therefore falls back to `execCommand`, and **what would be
+copied is rendered on the page** rather than only offered through a button: text a person can
+select by hand is the one route that always works, and the copy button is a convenience over it
+rather than the way in. Anything later that offers to put something on the clipboard inherits the
+same constraint. *D51 has since made the request and the instructions one document, so this is one
+panel and one copy button rather than two of each.*
 
 *Also from 7b:* the request is built once and held, so the file, the clipboard and the text on
 screen are three views of one string. Rebuilding it per action would let a sync land between

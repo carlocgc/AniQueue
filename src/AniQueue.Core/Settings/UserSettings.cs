@@ -100,13 +100,13 @@ public sealed record UserSettings
     // does, and nothing runs on a file source — the Sources page has always gated
     // these controls on CanFetch, and this is the same rule expressed in the store.
 
-    /// <summary>The most scored titles a scoring request carries as history.</summary>
+    /// <summary>The most scored titles a request carries as history, or null for all.</summary>
     /// <remarks>
     /// Moved off <c>ProfileSettings</c> by D36: it describes somebody else's model
     /// — how much history fits its context — rather than how a page looks, and it
     /// is the file's side of that line.
     /// </remarks>
-    public int ScoringHistorySize { get; init; } = 200;
+    public int? ScoringHistorySize { get; init; } = 200;
 
     /// <summary>The most titles to offer for ranking at once, or null for all.</summary>
     /// <remarks>

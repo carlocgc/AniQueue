@@ -574,23 +574,42 @@ public class RecommendationServiceTests
     }
 
     [Fact]
-    public async Task Sending_no_history_at_all_is_a_choice_that_survives()
+    public async Task An_unset_history_size_sends_every_rated_title()
     {
-        // Zero is a real setting, not an absence: the ranking becomes general rather
-        // than personal, and the user said so. It must not be read as "unset" and
-        // quietly replaced by the default.
+        // Null is a real setting rather than an absence, and it means all of them. This
+        // replaced a test asserting that zero sends none: zero used to be what an empty
+        // field on the page meant, which made "I have not set a limit" and "send no
+        // evidence of my taste" the same keystroke. Nobody wants the second one, and the
+        // two sizes beside it already read an empty field as everything.
         await using var fixture = await Fixture.CreateAsync();
         await using var context = fixture.Database.CreateContext();
 
-        await AddAsync(context, fixture.ProfileId, "Rated", LibraryStatus.Completed, userScore: 8);
+        for (var i = 0; i < 3; i++)
+        {
+            await AddAsync(
+                context, fixture.ProfileId, $"Rated {i}", LibraryStatus.Completed, userScore: 8);
+        }
+
         await AddAsync(context, fixture.ProfileId, "Waiting");
 
         var request = await fixture.Recommendations.BuildRequestAsync(
             fixture.ProfileId,
-            new ScoringRequestOptions { MaxHistory = 0 });
+            new ScoringRequestOptions { MaxHistory = null });
 
-        Assert.Empty(request.History);
-        Assert.Equal(1, request.HistoryAvailable);
+        Assert.Equal(3, request.History.Count);
+        Assert.Equal(3, request.HistoryAvailable);
+        Assert.False(request.IsHistoryCapped);
+    }
+
+    [Fact]
+    public void A_stored_history_size_of_zero_becomes_one_rather_than_all()
+    {
+        // The upgrade path for a configuration file written when zero meant "send none".
+        // It cannot keep meaning that, because the field that produced it now spells the
+        // same intention by being empty — and reading it as all of them would silently
+        // turn the smallest request somebody chose into the largest one there is.
+        Assert.Equal(1, ScoringRequestOptions.From(0, candidateLimit: null).MaxHistory);
+        Assert.Null(ScoringRequestOptions.From(null, candidateLimit: null).MaxHistory);
     }
 
     [Fact]

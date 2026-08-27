@@ -89,6 +89,50 @@ public class UserSettingsStoreTests : IDisposable
     }
 
     [Fact]
+    public async Task Clearing_the_history_size_sends_all_of_them()
+    {
+        // The three states this setting has, and the one that is new. Empty on the page
+        // saves null, and null means every rated title — the same thing an empty field
+        // means for the two sizes beside it.
+        var (store, configuration) = Create();
+
+        await store.SaveAsync(UserSettings.Defaults with { ScoringHistorySize = null });
+
+        configuration.Reload();
+
+        Assert.Null(store.Read().ScoringHistorySize);
+    }
+
+    [Fact]
+    public async Task A_history_size_nobody_has_written_is_the_default_rather_than_all()
+    {
+        // Why the setting cannot simply read null as all: this file is seeded from the
+        // settings currently in effect, and on a first boot that chain is empty. Reading
+        // an absent key as "all of them" would make a fresh installation write null and
+        // then send every rated title it has.
+        var (store, _) = Create();
+
+        Assert.Equal(200, store.Read().ScoringHistorySize);
+        Assert.True(await store.EnsureExistsAsync());
+        Assert.Contains("\"Scoring:HistorySize\": 200", await File.ReadAllTextAsync(SettingsPath));
+    }
+
+    [Fact]
+    public async Task A_history_size_that_will_not_parse_is_the_default_rather_than_all()
+    {
+        // Present and not null, so it is a typo rather than an intention. Falling back to
+        // all of them would turn a mistyped number into the largest request the page can
+        // build, which is the opposite of what someone fixing a typo needs.
+        var (store, configuration) = Create();
+
+        await File.WriteAllTextAsync(SettingsPath, """{ "Scoring:HistorySize": "lots" }""");
+
+        configuration.Reload();
+
+        Assert.Equal(200, store.Read().ScoringHistorySize);
+    }
+
+    [Fact]
     public async Task A_first_boot_cannot_override_what_the_environment_supplied()
     {
         // The reason a first boot writes what is in effect rather than the defaults.

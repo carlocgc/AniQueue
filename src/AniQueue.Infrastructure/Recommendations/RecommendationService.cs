@@ -20,7 +20,7 @@ public sealed class RecommendationService(
 
     public async Task<ScoringHistorySnapshot> BuildHistoryAsync(
         int profileId,
-        int maxHistory,
+        int? maxHistory,
         CancellationToken cancellationToken = default)
     {
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
@@ -87,7 +87,7 @@ public sealed class RecommendationService(
     private static async Task<ScoringHistorySnapshot> ReadHistoryAsync(
         AniQueueDbContext context,
         int profileId,
-        int maxHistory,
+        int? maxHistory,
         CancellationToken cancellationToken)
     {
         var scored = context.LibraryEntries
@@ -98,7 +98,7 @@ public sealed class RecommendationService(
 
         var available = await scored.CountAsync(cancellationToken);
 
-        var history = await scored
+        var ordered = scored
             // Most recent first, and completion date is what "recent" means for a
             // finished title. Nulls sort last rather than first: an entry with no
             // date is usually an old import, and letting those crowd out dated rows
@@ -109,8 +109,12 @@ public sealed class RecommendationService(
             // tiebreak that means the same thing here as "most recently added".
             .OrderByDescending(e => e.DateCompleted != null)
             .ThenByDescending(e => e.DateCompleted)
-            .ThenByDescending(e => e.Id)
-            .Take(maxHistory)
+            .ThenByDescending(e => e.Id);
+
+        // Taken only when there is a cap. Null means every rated title, which is what an
+        // empty field on the page now means — and the ordering above still matters there,
+        // because it is the order the payload is written in.
+        var history = await (maxHistory is { } take ? ordered.Take(take) : ordered)
             .Select(e => new ScoringHistoryEntry
             {
                 Title = e.Anime!.Title,

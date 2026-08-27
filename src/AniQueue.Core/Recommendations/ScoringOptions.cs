@@ -22,8 +22,8 @@ public class ScoringOptions
     /// <summary>Configuration section name, e.g. <c>Scoring:HistorySize</c>.</summary>
     public const string SectionName = "Scoring";
 
-    /// <summary>The most scored titles to send as history. Zero sends none.</summary>
-    public int HistorySize { get; set; } = 200;
+    /// <summary>The most scored titles to send as history, or null for all of them.</summary>
+    public int? HistorySize { get; set; } = 200;
 
     /// <summary>The most titles to offer for ranking, or null for all of them.</summary>
     public int? CandidateLimit { get; set; }

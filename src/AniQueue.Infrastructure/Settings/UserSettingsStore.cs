@@ -69,8 +69,9 @@ public sealed class UserSettingsStore(
             AniListKey(nameof(AniListSyncOptions.AbsencePolicy)),
             UserSettings.Defaults.AniListAbsencePolicy),
 
-        ScoringHistorySize = Number(
-            ScoringKey(nameof(ScoringOptions.HistorySize))) ?? UserSettings.Defaults.ScoringHistorySize,
+        ScoringHistorySize = NumberOrAll(
+            ScoringKey(nameof(ScoringOptions.HistorySize)),
+            UserSettings.Defaults.ScoringHistorySize),
 
         ScoringCandidateLimit = Number(ScoringKey(nameof(ScoringOptions.CandidateLimit))),
 
@@ -133,6 +134,37 @@ public sealed class UserSettingsStore(
         int.TryParse(configuration[key], NumberStyles.Integer, CultureInfo.InvariantCulture, out var value)
             ? value
             : null;
+
+    /// <summary>
+    /// A number, or null where the file says the key is deliberately empty.
+    /// </summary>
+    /// <remarks>
+    /// The only setting that needs three states rather than two. <c>HistorySize</c> reads
+    /// null as <i>all of them</i>, so "nobody has said" and "somebody said none in
+    /// particular" stop meaning the same thing — and they cannot, because a first boot
+    /// writes this file from the settings currently in effect, which on an empty chain is
+    /// nothing at all. Without the distinction a fresh installation would write null and
+    /// start by sending every rated title it has.
+    ///
+    /// Presence is asked of the configuration rather than of the value, because the JSON
+    /// provider keeps a key whose value is null and <c>configuration[key]</c> cannot tell
+    /// that from a key nobody wrote.
+    ///
+    /// A value that will not parse still falls back, as <see cref="Number"/> explains: it
+    /// is present and it is not null, so it is a typo rather than an intention.
+    /// </remarks>
+    private int? NumberOrAll(string key, int? fallback)
+    {
+        if (Number(key) is { } number)
+        {
+            return number;
+        }
+
+        var stated = configuration.AsEnumerable().Any(
+            pair => string.Equals(pair.Key, key, StringComparison.OrdinalIgnoreCase));
+
+        return stated && configuration[key] is null ? null : fallback;
+    }
 
     private bool Bool(string key, bool fallback) =>
         bool.TryParse(configuration[key], out var value) ? value : fallback;

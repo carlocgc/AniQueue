@@ -15,14 +15,21 @@ public sealed record ScoringRequestOptions
 {
     public static ScoringRequestOptions Default { get; } = new();
 
-    /// <summary>The most scored titles to send as history. Zero sends none.</summary>
+    /// <summary>The most scored titles to send as history, or null for all of them.</summary>
     /// <remarks>
     /// Most recent first, because a rating from twelve years ago describes a person
     /// who no longer exists as reliably as it describes this one. What is dropped is
     /// stated in the payload rather than silently omitted, so a sample is visible as
     /// a sample.
+    ///
+    /// <b>Null means all of them, and zero is no longer a value this accepts.</b> It
+    /// used to, and it meant "send none" — a ranking with no evidence of anyone's
+    /// taste, which is a general opinion about anime rather than the thing this feature
+    /// exists to produce. Nobody wants it, an empty field is what a person types when
+    /// they mean "no limit", and the two sibling options beside it already read an
+    /// empty field that way. One spelling for "everything" across the three.
     /// </remarks>
-    public int MaxHistory { get; init; } = 200;
+    public int? MaxHistory { get; init; } = 200;
 
     /// <summary>The most titles to offer for ranking, or null for all of them.</summary>
     /// <remarks>
@@ -76,12 +83,12 @@ public sealed record ScoringRequestOptions
     /// to second-guess someone who really does want everything.
     /// </remarks>
     public static ScoringRequestOptions From(
-        int historySize,
+        int? historySize,
         int? candidateLimit,
         int? returnTop = null,
         bool includePersonalNotes = false) => new()
     {
-        MaxHistory = Math.Clamp(historySize, 0, 5_000),
+        MaxHistory = historySize is { } history ? Math.Clamp(history, 1, 5_000) : null,
         MaxCandidates = candidateLimit is { } limit ? Math.Clamp(limit, 1, 5_000) : null,
         ReturnTop = returnTop is { } top ? Math.Clamp(top, 1, 5_000) : null,
         IncludePersonalNotes = includePersonalNotes
@@ -316,7 +323,7 @@ public interface IRecommendationService
     /// </summary>
     Task<ScoringHistorySnapshot> BuildHistoryAsync(
         int profileId,
-        int maxHistory,
+        int? maxHistory,
         CancellationToken cancellationToken = default);
 
     /// <summary>
