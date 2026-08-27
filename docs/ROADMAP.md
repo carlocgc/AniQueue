@@ -2901,6 +2901,14 @@ to keep true.
 below the metadata, which is also the reading order: this is the row, this is what it is, this
 is where you can send it. Drag still works wherever a pointer does.
 
+**A browser made narrow is an approximation, so there is a way to open the real thing.** The
+*http (lan)* launch profile binds to every interface rather than to `localhost`, which is the
+only reason a phone on the same network cannot reach the ordinary one. The README carries it,
+along with the inbound rule Windows wants and the two things that differ over plain http —
+`navigator.clipboard` does not exist outside a secure context, and the device has to be on the
+network rather than on mobile data. Development only, and it says so: no authentication and no
+TLS, on a network the developer trusts.
+
 ---
 
 ## 3. Solution structure
