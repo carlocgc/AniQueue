@@ -71,10 +71,11 @@ export async function copyText(text) {
  *
  * @param {string} filename
  * @param {string} text
+ * @param {string} [type] MIME type; defaults to JSON, which is what the raw request is.
  * @returns {boolean}
  */
-export function downloadText(filename, text) {
-    const url = URL.createObjectURL(new Blob([text], { type: 'application/json' }));
+export function downloadText(filename, text, type) {
+    const url = URL.createObjectURL(new Blob([text], { type: type ?? 'application/json' }));
     const link = document.createElement('a');
 
     link.href = url;

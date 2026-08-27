@@ -169,8 +169,8 @@ public static class ScoringRequestWriter
         }
 
         WriteMediaType(writer, candidate.MediaType);
-        WriteOptionalNumber(writer, "episodes", candidate.Episodes);
-        WriteOptionalNumber(writer, "episodeMinutes", candidate.EpisodeMinutes);
+        // No "episodes" and no "episodeMinutes" (D52). They were about a tenth of a real
+        // request and changed no score anyone could measure.
         WriteOptionalNumber(writer, "year", candidate.Year);
 
         if (candidate.ExternalIds.Any)

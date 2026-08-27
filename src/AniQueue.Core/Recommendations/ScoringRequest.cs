@@ -124,11 +124,21 @@ public sealed record ScoringCandidate
     /// </summary>
     public ScoringCandidateTitles Titles { get; init; } = new();
 
+    /// <summary>The format, which is a coarse statement about taste.</summary>
+    /// <remarks>
+    /// <b>Episode count and episode duration stood beside this and were removed (D52).</b>
+    /// Neither survived the question they were asked: does this change a predicted score?
+    /// A model that recognises the title already knows how long it is, and one that does
+    /// not is told by the prompt to answer with low confidence rather than infer — so
+    /// neither case reached for them. <see cref="ScoringHistoryEntry"/> had already made
+    /// the same finding from the other end, where episode counts "say nothing about
+    /// taste".
+    ///
+    /// What is left is what history also carries, which is the point: the model compares
+    /// like with like across the two halves of the payload rather than reading richer
+    /// rows on one side.
+    /// </remarks>
     public MediaType MediaType { get; init; }
-
-    public int? Episodes { get; init; }
-
-    public int? EpisodeMinutes { get; init; }
 
     public int? Year { get; init; }
 

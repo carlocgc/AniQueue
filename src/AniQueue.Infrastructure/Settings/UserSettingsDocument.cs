@@ -110,7 +110,10 @@ internal static class UserSettingsDocument
 
         new(
             "Scoring:HistorySize",
-            ["Your scored titles sent with a ranking request, newest first. 0 sends none."],
+            [
+                "Your scored titles sent with a ranking request, newest first.",
+                "null sends all of them, which is the larger half of a big request."
+            ],
             s => s.ScoringHistorySize),
 
         new(

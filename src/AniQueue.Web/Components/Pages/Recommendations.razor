@@ -188,11 +188,16 @@
                 </p>
             }
 
+            @* One thing to carry, offered two ways. There were four buttons here — copy
+               the request, copy the instructions, download the request, rebuild — which
+               made the first decision on this card "which two of these do I need, and in
+               what order do they go into the box?" when the answer was always both, in
+               one order. The instructions are useless without the request and the request
+               is unreadable without the instructions, so they travel together. *@
             <div class="toolbar">
-                <button class="primary" @onclick="DownloadRequestAsync">Download the file</button>
-                <button @onclick="CopyRequestAsync">Copy the request</button>
-                <button @onclick="CopyPromptAsync">Copy the instructions</button>
-                <button @onclick="BuildAsync" disabled="@_busy.IsRunning">Rebuild</button>
+                <button class="primary" @onclick="CopyDocumentAsync">Copy the whole prompt</button>
+                <button @onclick="DownloadDocumentAsync">Download it as a file</button>
+                <button @onclick="BuildAsync" disabled="@_busy.IsRunning">Regenerate</button>
             </div>
 
             @if (_copied is not null)
@@ -201,22 +206,18 @@
             }
 
             <p class="muted">
-                Paste the instructions into your model, then the request below them. The
-                instructions tell it exactly what to send back.
+                Paste it into your model as one message. It opens with what to do and ends
+                with your backlog. If your model will not take a message this long, send the
+                file instead — most will read an attachment they will not read as text.
             </p>
 
-            @* Both are shown rather than only offered, because on a self-hosted install
-               over plain http the clipboard API does not exist and the fallback can be
-               refused too. Text on the page can always be selected by hand, so the copy
-               buttons are a convenience over a route that already works. *@
+            @* Shown rather than only offered, because on a self-hosted install over plain
+               http the clipboard API does not exist and the fallback can be refused too.
+               Text on the page can always be selected by hand, so the copy button is a
+               convenience over a route that already works. *@
             <details>
-                <summary>Read the instructions</summary>
-                <pre class="payload">@_prompt</pre>
-            </details>
-
-            <details>
-                <summary>Read the request</summary>
-                <pre class="payload">@_payload</pre>
+                <summary>Read the whole prompt</summary>
+                <pre class="payload">@_document</pre>
             </details>
         }
 
@@ -290,8 +291,8 @@
                    travels with every one of them and is by far the larger half. A
                    number nobody can see is one nobody can act on. *@
                 <p class="muted">
-                    A request sends @_historySize scored
-                    @Plural(_historySize, "title", "titles") as history — roughly
+                    A request sends @HistorySent scored
+                    @Plural(HistorySent, "title", "titles") as history — roughly
                     @Tokens(EstimatedRequestTokens) to read. Your model needs a context
                     window at least that large.
                 </p>
@@ -501,29 +502,37 @@
 
             <div class="field">
                 <label for="return-top">Rankings to ask for back</label>
+                @* "All N of them", the same sentence the two fields either side of it use
+                   when empty (D51). It read "One for every title", which is the same fact
+                   said a different way — and three controls that all mean everything when
+                   left alone should not need three readings to establish that. The number
+                   is what a limit here is measured against, so saying it is also what makes
+                   a typed value obviously smaller or obviously pointless. *@
                 <input id="return-top" type="number" min="1" max="@MaxReturnTop"
-                       placeholder="One for every title" disabled="@_busy.IsRunning"
+                       placeholder="All @MaxReturnTop of them" disabled="@_busy.IsRunning"
                        @bind="_returnTop" @bind:event="oninput" />
                 <p class="muted">
-                    The model still weighs every title you send; this asks it to return only
-                    the best of them. At most @MaxReturnTop, because nothing can come back
-                    that was not offered. Worth setting when the reply is the slow part — a
-                    ranking with a sentence of reasoning per title is generated a word at a
-                    time, and a long one can run out of room halfway down the list.
+                    Leave this empty to get a ranking for every title you send — all
+                    @MaxReturnTop of them, because nothing can come back that was not offered.
+                    Set a number and the model still weighs every title; it just returns the
+                    best of them. Worth setting when the reply is the slow part: a ranking
+                    with a sentence of reasoning per title is generated a word at a time, and
+                    a long one can run out of room halfway down the list.
                 </p>
             </div>
 
             <div class="field">
                 <label for="history-size">Scored titles to send as history</label>
-                <input id="history-size" type="number" min="0" max="@_scoredCount"
-                       disabled="@_busy.IsRunning"
+                <input id="history-size" type="number" min="1" max="@_scoredCount"
+                       placeholder="All @_scoredCount of them" disabled="@_busy.IsRunning"
                        @bind="_historySize" @bind:event="oninput" />
                 <p class="muted">
                     Most recently finished first, out of the @_scoredCount titles you have
-                    scored. More history means a ranking that fits your taste more closely,
-                    up to the point where it crowds out the backlog in your model's context —
-                    it is the larger half of a request, and the usual reason one is too big to
-                    read. Zero sends none, and the ranking is then general rather than yours.
+                    scored. More history means a ranking that fits your taste more closely, up
+                    to the point where it crowds out the backlog in your model's context — it
+                    is the larger half of a request, and the usual reason one is too big to
+                    read. Leave it empty to send all @_scoredCount, which is the biggest a
+                    request gets.
                 </p>
             </div>
 
@@ -707,6 +716,12 @@ else
     <div class="card">
         <h2>Past rankings</h2>
 
+        @* Ten, down from twenty. A scheduled sweep writes one run per batch rather than
+           one per sweep, so an evening against a real backlog fills this table with its
+           own batches and pushes out everything a person came here to compare against.
+           Ten is what fits on screen beside the card above it. *@
+        <p class="muted">The last @RunsShown, newest first.</p>
+
         @* Kept because a ranking is the one thing here written by something that is
            not the user, and "when did this score arrive, and from what" is the
            question asked when one looks wrong (D4). *@
@@ -721,8 +736,12 @@ else
                            is what makes two runs worth comparing. *@
                         <th scope="col">Type</th>
                         <th scope="col">Model</th>
-                        <th scope="col">Ranked</th>
-                        <th scope="col">History</th>
+                        @* Right-aligned to match their cells. Left as plain headers they
+                           sat over the far edge of the numbers they label, which on a
+                           two-column pair of counts reads as a column boundary in the
+                           wrong place. *@
+                        <th scope="col" class="numeric">Ranked</th>
+                        <th scope="col" class="numeric">History</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -931,15 +950,28 @@ else
     private IJSObjectReference? _module;
 
     private ScoringRequest? _request;
+    /// <summary>The request as JSON, which is what the size on the card measures.</summary>
     private string? _payload;
-    private string? _prompt;
+
+    /// <summary>Instructions and request as the single thing a person carries.</summary>
+    private string? _document;
 
     private string? _response;
     private ScoringPreview? _preview;
 
+    /// <summary>How many past runs the table shows. See the note beside it.</summary>
+    private const int RunsShown = 10;
+
     private IReadOnlyList<RecommendationRunSummary> _runs = [];
 
-    private int _historySize = ScoringRequestOptions.Default.MaxHistory;
+    private int? _historySize = ScoringRequestOptions.Default.MaxHistory;
+
+    /// <summary>How many scored titles a request would actually carry.</summary>
+    /// <remarks>
+    /// The setting says how many at most; this says how many there are. They differ only
+    /// when the field is empty, which now means all of them rather than none of them.
+    /// </remarks>
+    private int HistorySent => Math.Min(_historySize ?? _scoredCount, _scoredCount);
     private int? _candidateLimit;
     private int? _returnTop;
 
@@ -1070,7 +1102,14 @@ else
         // Rendered once and held, so the file, the clipboard and the text on screen
         // are three views of one string rather than three builds of it.
         _payload = ScoringRequestWriter.Write(_request);
-        _prompt = ScoringPromptBuilder.Build(_request);
+
+        // Instructions first, then the request. A model reads the whole message either
+        // way, but the person pasting it reads the top — and what they need to see is
+        // that this is a set of instructions, not a wall of JSON that begins nowhere.
+        _document = ScoringPromptBuilder.Build(_request)
+            + Environment.NewLine
+            + Environment.NewLine
+            + _payload;
     }
 
     /// <summary>
@@ -1161,7 +1200,10 @@ else
         // simply carries what there is. What it was, was a number on screen that did not
         // describe anything, on the one page where a number too large is how a request
         // stops fitting in a model.
-        _historySize = Math.Clamp(_historySize, 0, Math.Max(_scoredCount, 0));
+        if (_historySize is { } history)
+        {
+            _historySize = Math.Clamp(history, 1, Math.Max(_scoredCount, 1));
+        }
 
         if (_candidateLimit is { } candidates)
         {
@@ -1203,19 +1245,20 @@ else
         await CountWaitingAsync();
     }
 
-    private async Task DownloadRequestAsync()
+    private async Task DownloadDocumentAsync()
     {
-        var name = $"aniqueue-request-{DateTime.Now:yyyy-MM-dd}.json";
+        // Plain text rather than .json, because it is no longer only JSON: a file named
+        // .json that opens with a paragraph of English is a file that lies about itself,
+        // and some upload boxes decide what they will accept from the extension.
+        var name = $"aniqueue-prompt-{DateTime.Now:yyyy-MM-dd}.txt";
 
-        if (!await InvokeModuleAsync<bool>("downloadText", name, _payload!))
+        if (!await InvokeModuleAsync<bool>("downloadText", name, _document!, "text/plain"))
         {
-            _error = "The file could not be saved. The request is below and can be copied by hand.";
+            _error = "The file could not be saved. The prompt is below and can be copied by hand.";
         }
     }
 
-    private Task CopyRequestAsync() => CopyAsync(_payload!, "Request");
-
-    private Task CopyPromptAsync() => CopyAsync(_prompt!, "Instructions");
+    private Task CopyDocumentAsync() => CopyAsync(_document!, "Prompt");
 
     private async Task CopyAsync(string text, string what)
     {
@@ -1346,7 +1389,7 @@ else
     }
 
     private async Task LoadRunsAsync() =>
-        _runs = await Scoring.GetRunsAsync(Profile.DefaultProfileId);
+        _runs = await Scoring.GetRunsAsync(Profile.DefaultProfileId, RunsShown);
 
     // This briefly carried the previous run's model forward, on the grounds that
     // almost nobody changes model between rankings. It is not there any more, and the

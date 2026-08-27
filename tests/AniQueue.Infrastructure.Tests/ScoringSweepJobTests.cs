@@ -54,7 +54,7 @@ public class ScoringSweepJobTests
         public Task<ScoringCoverage> GetCoverageAsync(int profileId, int staleAfterRatings, CancellationToken ct = default) =>
             Task.FromResult(new ScoringCoverage { Waiting = 100, Ranked = 100 - Unranked, Stale = 0 });
 
-        public Task<ScoringHistorySnapshot> BuildHistoryAsync(int profileId, int maxHistory, CancellationToken ct = default)
+        public Task<ScoringHistorySnapshot> BuildHistoryAsync(int profileId, int? maxHistory, CancellationToken ct = default)
         {
             HistoryReads++;
 
