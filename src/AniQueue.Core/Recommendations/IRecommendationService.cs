@@ -333,9 +333,10 @@ public interface IRecommendationService
     /// Assembles everything a model needs to rank this profile's backlog.
     /// </summary>
     /// <remarks>
-    /// Candidates are the visible Planning entries — hidden ones are excluded,
-    /// because the user has already said they do not want to see them and a ranking
-    /// is a reason to see something.
+    /// Candidates are the Planning entries. Hidden ones used to be excluded on the
+    /// grounds that the user had said they did not want to see them; Phase 18b
+    /// deleted hiding, and a title nobody wants ranked comes off the source list it
+    /// arrived on (D11).
     ///
     /// Personal notes travel only when
     /// <see cref="ProfileSettings.IncludePersonalNotesInAiExport"/> is set (§6).

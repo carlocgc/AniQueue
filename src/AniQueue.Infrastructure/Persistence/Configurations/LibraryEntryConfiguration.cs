@@ -21,7 +21,6 @@ public class LibraryEntryConfiguration : IEntityTypeConfiguration<LibraryEntry>
             .HasDatabaseName("IX_LibraryEntries_ProfileId_AnimeId");
 
         builder.HasIndex(e => new { e.ProfileId, e.Status });
-        builder.HasIndex(e => new { e.ProfileId, e.IsHidden });
 
         // Backlog views sort by AI score; without this the sort is a full scan.
         builder.HasIndex(e => new { e.ProfileId, e.RecommendationScore });

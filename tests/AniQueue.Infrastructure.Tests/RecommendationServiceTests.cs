@@ -90,7 +90,6 @@ public class RecommendationServiceTests
         LibraryStatus status = LibraryStatus.Planning,
         int? userScore = null,
         DateOnly? completed = null,
-        bool hidden = false,
         string? notes = null,
         string? aniListId = null,
         string? englishTitle = null,
@@ -127,7 +126,6 @@ public class RecommendationServiceTests
             Status = status,
             UserScore = userScore,
             DateCompleted = completed,
-            IsHidden = hidden,
             PersonalNotes = notes,
             DateAdded = now,
             LastUpdated = now
@@ -186,10 +184,6 @@ public class RecommendationServiceTests
         var waiting = await AddAsync(context, fixture.ProfileId, "Waiting");
         await AddAsync(context, fixture.ProfileId, "Watching", LibraryStatus.Watching);
         await AddAsync(context, fixture.ProfileId, "Finished", LibraryStatus.Completed, userScore: 8);
-
-        // Hidden means the user has already said they do not want to see it, and a
-        // ranking is a reason to see something.
-        await AddAsync(context, fixture.ProfileId, "Set aside", hidden: true);
 
         var request = await fixture.Recommendations.BuildRequestAsync(fixture.ProfileId);
 
@@ -1005,15 +999,14 @@ public class RecommendationServiceTests
 
         var ranked = await AddAsync(context, fixture.ProfileId, "Ranked");
         await AddAsync(context, fixture.ProfileId, "Never ranked");
-        await AddAsync(context, fixture.ProfileId, "Set aside", hidden: true);
         await AddAsync(context, fixture.ProfileId, "Watching", LibraryStatus.Watching);
 
         await ScoreAsync(context, ranked.Id, Now);
 
         var coverage = await fixture.Recommendations.GetCoverageAsync(fixture.ProfileId, staleAfterRatings: 5);
 
-        // Hidden and non-Planning titles are not waiting, so they are not this card's
-        // business — the same set a request is built from.
+        // Non-Planning titles are not waiting, so they are not this card's business
+        // — the same set a request is built from.
         Assert.Equal(2, coverage.Waiting);
         Assert.Equal(1, coverage.Ranked);
         Assert.Equal(1, coverage.Unranked);

@@ -8,7 +8,7 @@ namespace AniQueue.Core.Library;
 /// </summary>
 /// <remarks>
 /// Deliberately not a <see cref="LibraryListItem"/>. An expansion is context
-/// rather than a result: nothing is selected, queued, hidden or sorted from it,
+/// rather than a result: nothing is selected, queued or sorted from it,
 /// and the AI columns have no meaning beside a relative. Reusing the row type
 /// would carry every one of those fields into a query that has no use for them,
 /// and would invite the expansion to grow a copy of the toolbar above it.
@@ -92,7 +92,7 @@ public interface IRelationService
     /// </summary>
     /// <remarks>
     /// One query for the whole page, and it counts exactly what an expansion would
-    /// list: owned, not hidden, one edge out, the title itself excluded. A badge
+    /// list: owned, one edge out, the title itself excluded. A badge
     /// that promised more than the panel below it opened would be worse than no
     /// badge, so the two share their definition rather than their nerve.
     ///
@@ -115,10 +115,10 @@ public interface IRelationService
     /// never expressed an interest in, and the only action AniQueue could offer for
     /// one of those is "go and add this somewhere else yourself" (D11).
     ///
-    /// <b>Every status except hidden.</b> A completed prequel is the most useful
-    /// thing an expansion can say — it is why the title in front of you makes sense
-    /// — so an expansion is not filtered the way results are. Hidden is the one
-    /// exception, because hiding is the user saying they do not want to see it.
+    /// <b>Every status.</b> A completed prequel is the most useful thing an
+    /// expansion can say — it is why the title in front of you makes sense — so an
+    /// expansion is not filtered the way results are. Hidden used to be the one
+    /// exception; Phase 18b deleted hiding, so there is no exception left.
     ///
     /// <b>Release order, and nothing else.</b> AniList publishes no viewing
     /// sequence, and a topological sort along prequel edges produces *story* order,
