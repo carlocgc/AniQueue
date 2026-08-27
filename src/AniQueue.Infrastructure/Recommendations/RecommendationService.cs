@@ -125,6 +125,7 @@ public sealed class RecommendationService(
 
     public async Task<ScoringPreview> PreviewAsync(
         int profileId,
+        ScoringRoute route,
         string json,
         ScoringRequest? request = null,
         CancellationToken cancellationToken = default)
@@ -144,26 +145,61 @@ public sealed class RecommendationService(
         // database names whatever this one happens to have put at that number — so a
         // reply from elsewhere does not fail loudly, it fails by applying a stranger's
         // scores to titles that were never ranked.
-        //
-        // Both sides must be present to disagree. A reply that echoed no key is read
-        // exactly as replies were read before this existed: the parser tolerates a
-        // missing envelope on purpose, and a model that dropped it has still answered
-        // the question.
         var libraryKey = await ReadLibraryKeyAsync(context, profileId, cancellationToken);
+        var named = parsed.Response.Library;
 
-        if (!string.IsNullOrEmpty(libraryKey)
-            && !string.IsNullOrEmpty(parsed.Response.Library)
-            && !string.Equals(libraryKey, parsed.Response.Library, StringComparison.OrdinalIgnoreCase))
+        if (!string.IsNullOrEmpty(libraryKey))
         {
-            // Whole-reply, and one message. Naming the results individually would be
-            // both wrong and cruel: they are not individually wrong, they are wholly
-            // about something else, and there may be hundreds of them.
-            problems.Add(ScoringProblem.Error(
-                $"This reply was built for a different library — it names \"{parsed.Response.Library}\", "
-                + $"and this one is \"{libraryKey}\". Every id in it belongs to that library, so none "
-                + "of them are read here. Score this library's own request instead."));
+            // A named database that is not this one, on either route. The endpoint is
+            // not expected to say, but a wrong answer to a question nobody asked is
+            // still a wrong answer, and refusing it costs nothing.
+            if (!string.IsNullOrEmpty(named)
+                && !string.Equals(libraryKey, named, StringComparison.OrdinalIgnoreCase))
+            {
+                // Whole-reply, and one message. Naming the results individually would
+                // be both wrong and cruel: they are not individually wrong, they are
+                // wholly about something else, and there may be hundreds of them.
+                //
+                // "AniQueue database" rather than "library", here and below. This
+                // codebase already uses "library" for the user's collection — the
+                // message right above says "there is no title 815 in your library" —
+                // so a second meaning for the same word lands as a claim about their
+                // AniList account rather than about a file on disk.
+                problems.Add(ScoringProblem.Error(
+                    "This reply was built against a different AniQueue database. Every id in it "
+                    + "belongs to that one, so none of them are read here. Ask the model again "
+                    + "using this installation's own request."));
 
-            return new ScoringPreview { Problems = problems };
+                return new ScoringPreview { Problems = problems };
+            }
+
+            // Silence is refused on the route where a person carried the document.
+            //
+            // D50 first made this lenient everywhere, reasoning that models drop the
+            // envelope and that refusing a correct ranking over a field carrying no
+            // ranking costs the user everything and protects nothing. That lost, and
+            // the argument that beat it is about who is being protected: leniency is a
+            // permanent silent path for every future user of every future version, and
+            // "some user will eventually do this" is the right standard for a rule
+            // whose whole job is to stop a wrong reply. A refusal costs one retry.
+            // Accepting a wrong reply costs a library of scores nobody can tell apart
+            // from correct ones afterwards, which is D31's own reasoning one level up.
+            //
+            // An explicit "yes, this is the right database" confirmation was considered
+            // in its place and declined. It asks the user to assert what only the
+            // request can establish, the honest expectation is that they would tick it
+            // every time, and the question cannot even be phrased without the word
+            // "library" meaning two things at once.
+            if (string.IsNullOrEmpty(named) && route == ScoringRoute.Pasted)
+            {
+                problems.Add(ScoringProblem.Error(
+                    "This reply does not say which AniQueue database it was built against, so "
+                    + "nothing here can tell whether its ids belong to this one. Ask the model "
+                    + "again and keep the \"aniqueue\" block at the top of its answer, or add "
+                    + $"this line to that block yourself: \"library\": \"{libraryKey}\""));
+
+                return new ScoringPreview { Problems = problems };
+            }
         }
 
         var ranked = parsed.Response.Results;
@@ -199,6 +235,8 @@ public sealed class RecommendationService(
 
         var items = new List<ScoringPreviewItem>(ranked.Count);
         var unmatched = new List<string>();
+        var leftBacklog = new List<string>();
+        var unasked = new List<string>();
         var position = 0;
 
         foreach (var result in ranked)
@@ -236,8 +274,13 @@ public sealed class RecommendationService(
                 // a row that has left it.
                 skipped = "no longer waiting to be watched";
 
-                problems.Add(ScoringProblem.Warning(
-                    $"\"{entry.Title}\" is no longer waiting to be watched, so its score is skipped."));
+                // Gathered and capped for the same reason the unmatched ids are, and
+                // found the same way (D50). A reply built against a replaced database
+                // lands most of its ids on rows that were never candidates, so this
+                // was seen twenty-four deep, burying the errors above it. Three of
+                // these is news. Twenty-four is a wall.
+                leftBacklog.Add(
+                    $"\"{entry.Title}\" is no longer waiting to be watched, so its score is skipped.");
             }
             else if (offered is not null && !offered.Contains(result.Id))
             {
@@ -249,8 +292,7 @@ public sealed class RecommendationService(
                 // was not computed against the same set as the rest.
                 skipped = "was not part of this request";
 
-                problems.Add(ScoringProblem.Warning(
-                    $"\"{entry.Title}\" was not in the request, so its score is skipped."));
+                unasked.Add($"\"{entry.Title}\" was not in the request, so its score is skipped.");
             }
 
             items.Add(new ScoringPreviewItem
@@ -264,6 +306,18 @@ public sealed class RecommendationService(
         }
 
         ReportUnmatched(unmatched, ranked.Count, problems);
+
+        ReportCapped(
+            leftBacklog,
+            problems,
+            rest => $"{rest} further title(s) are no longer waiting to be watched, so their "
+                + "scores are skipped too.");
+
+        ReportCapped(
+            unasked,
+            problems,
+            rest => $"{rest} further title(s) were not in the request, so their scores are "
+                + "skipped too.");
 
         var preview = new ScoringPreview
         {
@@ -296,14 +350,16 @@ public sealed class RecommendationService(
     }
 
     /// <summary>
-    /// How many unmatched ids are named one by one before the rest are counted (D50).
+    /// How many problems of one kind are named one by one before the rest are counted
+    /// (D50).
     /// </summary>
     /// <remarks>
-    /// Five is enough to see the shape of the problem — which positions, which ids —
-    /// and few enough that the panel stays readable. The rest are counted rather than
-    /// dropped: the number is the useful part once the examples have made the point.
+    /// Five is enough to see the shape of the problem — which positions, which ids,
+    /// which titles — and few enough that the panel stays readable. The rest are counted
+    /// rather than dropped: the number is the useful part once the examples have made
+    /// the point.
     /// </remarks>
-    private const int UnmatchedShown = 5;
+    private const int ProblemsShown = 5;
 
     /// <summary>
     /// Reports ids that named nothing, as few problems as will carry the information.
@@ -333,23 +389,52 @@ public sealed class RecommendationService(
         if (unmatched.Count == rankedCount)
         {
             problems.Add(ScoringProblem.Error(
-                $"None of the {rankedCount} rankings name a title in this library. The reply is "
-                + "about a different one — most likely an older library, or one built before the "
-                + "database was replaced."));
+                $"None of the {rankedCount} rankings name a title in your library. The reply was "
+                + "built against a different AniQueue database, most likely one that has since "
+                + "been replaced."));
 
             return;
         }
 
-        foreach (var message in unmatched.Take(UnmatchedShown))
+        foreach (var message in unmatched.Take(ProblemsShown))
         {
             problems.Add(ScoringProblem.Error(message));
         }
 
-        if (unmatched.Count > UnmatchedShown)
+        if (unmatched.Count > ProblemsShown)
         {
             problems.Add(ScoringProblem.Error(
-                $"{unmatched.Count - UnmatchedShown} further result(s) named titles that are not in "
+                $"{unmatched.Count - ProblemsShown} further result(s) named titles that are not in "
                 + "your library."));
+        }
+    }
+
+    /// <summary>
+    /// Reports one kind of skipped title, naming a few and counting the rest (D50).
+    /// </summary>
+    /// <remarks>
+    /// A warning per skipped title is right when a handful of things have moved on since
+    /// the ranking was made, which is the case this was written for. It is wrong at the
+    /// volume a mismatched database produces, where the same sentence repeats far enough
+    /// down the panel to hide the errors above it.
+    ///
+    /// One kind at a time, rather than one summary over both: a title that has left the
+    /// backlog and a title that was never asked about are different facts, and a count
+    /// that merged them would answer neither question.
+    /// </remarks>
+    private static void ReportCapped(
+        List<string> messages,
+        List<ScoringProblem> problems,
+        Func<int, string> summarise)
+    {
+        foreach (var message in messages.Take(ProblemsShown))
+        {
+            problems.Add(ScoringProblem.Warning(message));
+        }
+
+        if (messages.Count > ProblemsShown)
+        {
+            problems.Add(ScoringProblem.Warning(summarise(messages.Count - ProblemsShown)));
         }
     }
 

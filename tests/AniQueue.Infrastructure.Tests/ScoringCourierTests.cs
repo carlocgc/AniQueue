@@ -126,7 +126,10 @@ public class ScoringCourierTests : IAsyncDisposable
 
         // The same method the paste box calls, given the same kind of string. Nothing
         // about this preview knows which courier produced it, and that is the point.
-        var preview = await service.PreviewAsync(profileId, answer.Reply!, request);
+        //
+        // It is told the route, which is not the same thing (D50): what differs is
+        // whether a person carried the document, not which server answered.
+        var preview = await service.PreviewAsync(profileId, ScoringRoute.Endpoint, answer.Reply!, request);
 
         Assert.False(preview.HasErrors);
         Assert.True(preview.CanApply);
@@ -168,7 +171,7 @@ public class ScoringCourierTests : IAsyncDisposable
             """);
 
         var answer = await endpoint.AskAsync(request);
-        var preview = await service.PreviewAsync(profileId, answer.Reply!, request);
+        var preview = await service.PreviewAsync(profileId, ScoringRoute.Endpoint, answer.Reply!, request);
 
         Assert.True(preview.CanApply);
 
@@ -190,7 +193,7 @@ public class ScoringCourierTests : IAsyncDisposable
             """{ "results": [{ "id": 9999, "predictedScore": 8.0, "confidence": 0.7 }] }""");
 
         var answer = await endpoint.AskAsync(request);
-        var preview = await service.PreviewAsync(profileId, answer.Reply!, request);
+        var preview = await service.PreviewAsync(profileId, ScoringRoute.Endpoint, answer.Reply!, request);
 
         Assert.True(preview.HasErrors);
         Assert.False(preview.CanApply);

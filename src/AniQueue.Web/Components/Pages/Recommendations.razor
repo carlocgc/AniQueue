@@ -1281,7 +1281,10 @@ else
 
         _preview = await _busy.RunAsync(
             "Checking the reply",
-            _ => Scoring.PreviewAsync(Profile.DefaultProfileId, json, request));
+            // Pasted, for both ways in: the upload route reads the file into the textarea
+            // and comes through here, so what is checked is always a document a person
+            // carried. That is the route D50 requires a reply to name its database on.
+            _ => Scoring.PreviewAsync(Profile.DefaultProfileId, ScoringRoute.Pasted, json, request));
 
         // A new ranking starts at its own beginning. Left alone, checking a second
         // reply while on page four opens it four pages in, or on nothing at all when

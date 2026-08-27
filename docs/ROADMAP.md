@@ -2623,17 +2623,13 @@ reply portable rescues one artifact from a set that were all lost together. That
 story, and D33 already declined restore: the database file is the backup.
 
 **Decision:** a profile carries a `LibraryKey` — twelve hexadecimal characters, minted once when
-the row is created and never changed. The request states it in the envelope; the prompt asks for
-it back; a reply that names a *different* library is refused whole, with one sentence, before any
-id is matched.
+the row is created and never changed. The request states it in the envelope, the prompt asks for it
+back, and a reply that fails to name this database is refused whole, with one sentence, before any
+id is matched. What "fails to name" means depends on how the reply arrived, and the section after
+next is the argument about that.
 
 Four properties this deliberately has:
 
-- **A reply that names no library is read exactly as replies were read before.** The parser
-  tolerates a missing envelope on purpose — models return the array reliably and the wrapper
-  unreliably — and making the key mandatory would refuse correct rankings over a field that
-  carries no ranking. This check can only ever fire on a reply that answered the question and
-  answered it about something else.
 - **No version bump.** The field is additive in both directions. Raising the version would refuse
   every reply a user is currently holding, which is precisely the harm this exists to report.
 - **The key is not validated for shape.** Whatever it is, it either matches or it does not, and
@@ -2646,25 +2642,68 @@ Four properties this deliberately has:
   sample profile's separate configuration directory shows how easily configuration and database
   can come apart.
 
-**Where it works, and where it does not.** The manual path is where it matters: a person carries a
-document out of the application and back, and can carry the wrong one. A frontier model copies
-twelve characters from the request envelope reliably. The remote path barely needs it — the
-application knows what it sent, the reply never leaves the process — and will rarely carry the key
-at all, because `ScoringResponseSchema` deliberately does not require the envelope and a server
-converting that schema to a grammar will not produce one. That is the right way round: the path
-that cannot check is the path that does not need to.
+**A missing key was lenient for about an hour, and the reversal is the more interesting half of
+this decision.** The original rule was that a reply naming *no* database is read exactly as
+replies were read before: the parser tolerates a missing envelope on purpose, because models
+return the array reliably and the wrapper unreliably, so requiring the key would refuse correct
+rankings over a field that carries no ranking. Every clause of that is still true. It lost anyway,
+on the population it was reasoning about.
 
-**What remains uncovered, stated plainly.** A pre-D50 reply carries no key, so the reply that
-caused this decision would still not be caught by it. Nothing can fix that retroactively — the
-evidence was never written down. What is caught from now on is every reply generated after this
-lands, which is the whole future population.
+The argument for leniency scoped the gap as *transitional* — replies written before the key
+existed, a set that only shrinks. That is wrong twice over. The gap is permanent, because a model
+that drops the envelope drops it in every future version too; and it belongs to every future user
+of this application rather than to whoever is holding a stale reply this week. **If a user can do
+a thing, eventually one of them does.** Against that population the costs are not close: refusing
+a good reply costs one retry, and accepting a wrong one costs a library of scores that cannot be
+told apart from correct ones afterwards. That is D31's own reasoning one level up, and D31 is
+already the rule that nothing is applied in part for exactly this reason.
 
-**Unmatched ids are now summarised rather than listed.** Five are named, then the rest are
-counted; a reply where *nothing* matches gets a single sentence saying so instead of one error per
-result. This is presentation, not validation — an id naming nothing is exactly as fatal as it was,
-and D31 still applies nothing in part. But two hundred and fifty identical sentences in a panel
-the user has to scroll past is a validation pass that has stopped communicating, and "none of
-these ids are in this library" is a different statement from "this one is not".
+**So strictness is route-aware, and the routes differ structurally rather than by degree.**
+
+- **Pasted** — a person carried the document, which is the only way a reply from the wrong
+  database ever arrives. A missing or mismatched key is one error, and nothing is read.
+- **Endpoint** — the request was built and the answer received inside one process. There is no
+  document to mix up, and nothing a key could establish that the call stack does not. It is also
+  the route that *cannot* supply one: `ScoringResponseSchema` deliberately declares no envelope,
+  because requiring it on the wire made servers refuse replies AniQueue would have accepted, so a
+  model constrained to that schema returns the results array and nothing around it. Requiring the
+  key here would refuse every scheduled ranking.
+
+A mismatched key is refused on both. The endpoint is not asked to name a database, but one that
+names the wrong database is telling us something, and there is no reading of it that leaves the
+reply safe.
+
+`ScoringRoute` has **no default value**, and that is the point of it being a parameter rather than
+a setting. A defaulted route is a silent answer to the only question in the method that decides
+whether a wrong reply is refused, and every caller knows which it is.
+
+**The refusal has to be actionable, or it is just a wall.** A pasted reply with no key is told
+which line to add and the exact value to put in it. Copying a real value out of the request is
+mechanical, and unlike a confirmation it produces evidence rather than an assertion.
+
+**An explicit "this reply is for this library" confirmation was considered in place of the refusal
+and declined, for two reasons.** It asks the user to assert precisely what only the request can
+establish, and the honest expectation is that they would tick it every time — a checkbox between a
+person and the thing they are trying to do is a checkbox that gets ticked. And it cannot even be
+phrased: this codebase already uses "library" for the user's collection — the message beside it
+says "there is no title 815 in your library" — so "is this reply for this library?" reads as a
+question about their AniList account rather than about a file on disk. Every user-facing message
+here says **"AniQueue database"** for that reason, while the wire field stays `library`, which is
+what it is.
+
+**What remains uncovered, stated plainly.** A pre-D50 reply carries no key. On the pasted route it
+is now refused rather than half-applied, which is the right outcome but not a rescue: the reply
+that caused this decision cannot be applied at all, and nothing can fix that retroactively because
+the evidence was never written down.
+
+**Unmatched ids and skipped titles are now summarised rather than listed.** Five are named, then
+the rest are counted; a reply where *nothing* matches gets a single sentence saying so instead of
+one error per result. The same cap covers the two skip warnings, which is where it was actually
+needed: the reply that prompted all this produced twenty-five unmatched ids and twenty-four
+"no longer waiting to be watched" warnings beneath them, and the second group buried the first.
+This is presentation, not validation — an id naming nothing is exactly as fatal as it was, and a
+skipped title is still only a warning — but a panel the user has to scroll past to reach the
+button is a validation pass that has stopped communicating.
 
 ---
 

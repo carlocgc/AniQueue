@@ -342,8 +342,14 @@ public interface IRecommendationService
     /// a reply is only short or complete relative to what was requested. When it is
     /// null the whole visible backlog is assumed, ranked in full.
     /// </remarks>
+    /// <param name="route">
+    /// How the reply arrived, which decides whether it must name the database it was
+    /// built against (D50). No default: a caller that did not say would get the
+    /// lenient answer to the one question that stops a wrong reply being applied.
+    /// </param>
     Task<ScoringPreview> PreviewAsync(
         int profileId,
+        ScoringRoute route,
         string json,
         ScoringRequest? request = null,
         CancellationToken cancellationToken = default);
