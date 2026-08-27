@@ -249,4 +249,39 @@ public class ScoringRequestWriterTests
             + $"(it ends around byte {endOfHistory}). Something that varies per batch has "
             + "been written above it, and the server will reprocess the history every time.");
     }
+
+    [Fact]
+    public void Names_the_library_it_is_about()
+    {
+        // D50. It sits in the envelope beside the format, which is the part of the
+        // document a reply is asked to copy back.
+        var request = Minimal() with { Library = "a1b2c3d4e5f6" };
+
+        var envelope = WriteAndRead(request).GetProperty("aniqueue");
+
+        Assert.Equal("a1b2c3d4e5f6", envelope.GetProperty("library").GetString());
+    }
+
+    [Fact]
+    public void Says_nothing_about_a_library_it_was_not_given()
+    {
+        // Absent means absent here as everywhere else in this document, and a request
+        // built without a key has to keep producing replies the checker reads.
+        var envelope = WriteAndRead(Minimal()).GetProperty("aniqueue");
+
+        Assert.False(envelope.TryGetProperty("library", out _));
+    }
+
+    [Fact]
+    public void The_library_key_stays_inside_the_cacheable_prefix()
+    {
+        // Field order is load-bearing for the prompt cache, and this field is
+        // invariant for the life of a database — so a sweep must never pay for it
+        // more than once. Above "history" is what "never" means here.
+        var json = ScoringRequestWriter.Write(Minimal() with { Library = "a1b2c3d4e5f6" });
+
+        Assert.True(
+            json.IndexOf("\"library\"", StringComparison.Ordinal)
+            < json.IndexOf("\"history\"", StringComparison.Ordinal));
+    }
 }

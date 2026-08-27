@@ -29,6 +29,7 @@ public sealed class DatabaseInitializer(
         await ApplyMigrationsAsync(context, cancellationToken);
         await EnableWriteAheadLoggingAsync(context, cancellationToken);
         await EnsureDefaultProfileAsync(context, cancellationToken);
+        await EnsureLibraryKeysAsync(context, cancellationToken);
     }
 
     /// <summary>
@@ -126,6 +127,7 @@ public sealed class DatabaseInitializer(
             Id = Profile.DefaultProfileId,
             Name = "Default",
             CreatedAt = now,
+            LibraryKey = Profile.NewLibraryKey(),
             Settings = new ProfileSettings { DisplayName = "Default" }
         };
 
@@ -133,5 +135,43 @@ public sealed class DatabaseInitializer(
         await context.SaveChangesAsync(cancellationToken);
 
         logger.LogInformation("Created default profile {ProfileId}", profile.Id);
+    }
+
+    /// <summary>
+    /// Gives every profile a library key, which is what lets a scoring reply say
+    /// which library it was generated against (D50).
+    /// </summary>
+    /// <remarks>
+    /// Separate from the profile creation above because it has to reach rows that
+    /// creation never touches: a database that predates the column has a profile with
+    /// no key, and it is the same database whose replies most need naming. Running
+    /// unconditionally on every start also means a row inserted by a future path that
+    /// forgets the key is repaired rather than left to produce replies nothing can
+    /// check.
+    ///
+    /// A key is never regenerated. Doing so would invalidate every reply a user is
+    /// holding, which is the failure this exists to report rather than to cause.
+    /// </remarks>
+    private async Task EnsureLibraryKeysAsync(AniQueueDbContext context, CancellationToken cancellationToken)
+    {
+        var unnamed = await context.Profiles
+            .Where(p => p.LibraryKey == null || p.LibraryKey == "")
+            .ToListAsync(cancellationToken);
+
+        if (unnamed.Count == 0)
+        {
+            return;
+        }
+
+        foreach (var profile in unnamed)
+        {
+            profile.LibraryKey = Profile.NewLibraryKey();
+        }
+
+        await context.SaveChangesAsync(cancellationToken);
+
+        logger.LogInformation(
+            "Assigned a library key to {ProfileCount} profile(s) that had none",
+            unnamed.Count);
     }
 }

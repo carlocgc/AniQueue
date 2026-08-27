@@ -22,6 +22,16 @@ public class RecommendationServiceTests
     private static readonly DateTimeOffset Now = new(2026, 8, 20, 9, 0, 0, TimeSpan.Zero);
 
     /// <summary>
+    /// The library key every fixture is forced to, so a reply naming it can be written
+    /// as a literal (D50).
+    /// </summary>
+    /// <remarks>
+    /// Overwritten rather than read back, because the real one is random and a test that
+    /// interpolated it could not show what a valid reply looks like.
+    /// </remarks>
+    private const string TestLibraryKey = "abcdef012345";
+
+    /// <summary>
     /// A clock that does not move, so "when was this scored" is an assertion rather
     /// than a tolerance.
     /// </summary>
@@ -54,6 +64,9 @@ public class RecommendationServiceTests
 
             await using var context = database.CreateContext();
             var profile = await context.Profiles.FirstAsync();
+
+            profile.LibraryKey = TestLibraryKey;
+            await context.SaveChangesAsync();
 
             return new Fixture
             {
@@ -145,16 +158,24 @@ public class RecommendationServiceTests
         Candidates = animeIds.Select(id => new ScoringCandidate { Id = id, Title = $"#{id}" }).ToList()
     };
 
+    /// <summary>A reply naming the fixture's own library, which is the ordinary case.</summary>
     private static string Ranking(params (int Id, double Score)[] results) =>
+        RankingFrom(TestLibraryKey, results);
+
+    /// <summary>A reply naming some other library, or none at all (D50).</summary>
+    private static string RankingFrom(string? library, params (int Id, double Score)[] results) =>
         $$"""
           {
-            "aniqueue": { "format": "aniqueue-scoring-response", "version": 1 },
+            "aniqueue": { "format": "aniqueue-scoring-response", "version": 1{{Names(library)}} },
             "results": [
               {{string.Join(",\n    ", results.Select(r =>
                   $$"""{ "id": {{r.Id}}, "predictedScore": {{r.Score}}, "confidence": 0.8, "reason": "Because." }"""))}}
             ]
           }
           """;
+
+    private static string Names(string? library) =>
+        library is null ? string.Empty : $", \"library\": \"{library}\"";
 
     [Fact]
     public async Task A_request_offers_the_visible_backlog_and_nothing_else()
@@ -321,7 +342,7 @@ public class RecommendationServiceTests
             seen.AddRange(ids);
 
             var ranking = Ranking([.. ids.Select(id => (id, 7.0))]);
-            var preview = await fixture.Recommendations.PreviewAsync(fixture.ProfileId, ranking, request);
+            var preview = await fixture.Recommendations.PreviewAsync(fixture.ProfileId, ScoringRoute.Pasted, ranking, request);
 
             await fixture.Recommendations.ApplyAsync(fixture.ProfileId, preview, "Manual");
         }
@@ -355,6 +376,7 @@ public class RecommendationServiceTests
 
         var preview = await fixture.Recommendations.PreviewAsync(
             fixture.ProfileId,
+            ScoringRoute.Pasted,
             Ranking((offered.Id, 8.0), (notOffered.Id, 7.0)),
             Asked(offered.Id));
 
@@ -386,6 +408,7 @@ public class RecommendationServiceTests
 
         var preview = await fixture.Recommendations.PreviewAsync(
             fixture.ProfileId,
+            ScoringRoute.Pasted,
             Ranking((offered.Id, 8.0)),
             Asked(offered.Id));
 
@@ -436,6 +459,7 @@ public class RecommendationServiceTests
 
         var preview = await fixture.Recommendations.PreviewAsync(
             fixture.ProfileId,
+            ScoringRoute.Pasted,
             Ranking((first.Id, 8.0)),
             request);
 
@@ -468,6 +492,7 @@ public class RecommendationServiceTests
         // never worked.
         var preview = await fixture.Recommendations.PreviewAsync(
             fixture.ProfileId,
+            ScoringRoute.Pasted,
             Ranking((first.Id, 9.0), (second.Id, 8.0), (third.Id, 7.0)),
             request);
 
@@ -495,6 +520,7 @@ public class RecommendationServiceTests
 
         var preview = await fixture.Recommendations.PreviewAsync(
             fixture.ProfileId,
+            ScoringRoute.Pasted,
             Ranking((first.Id, 8.0)),
             request);
 
@@ -602,6 +628,7 @@ public class RecommendationServiceTests
 
         var preview = await fixture.Recommendations.PreviewAsync(
             fixture.ProfileId,
+            ScoringRoute.Pasted,
             Ranking((known.Id, 8.0), (9999, 7.0)));
 
         Assert.True(preview.HasErrors);
@@ -622,6 +649,7 @@ public class RecommendationServiceTests
 
         var preview = await fixture.Recommendations.PreviewAsync(
             fixture.ProfileId,
+            ScoringRoute.Pasted,
             Ranking((waiting.Id, 8.0), (started.Id, 7.0)));
 
         Assert.False(preview.HasErrors);
@@ -647,6 +675,7 @@ public class RecommendationServiceTests
 
         var preview = await fixture.Recommendations.PreviewAsync(
             fixture.ProfileId,
+            ScoringRoute.Pasted,
             Ranking((ranked.Id, 8.0)));
 
         // The case a small model produces constantly. Discarding a valid ranking of
@@ -673,6 +702,7 @@ public class RecommendationServiceTests
 
         var preview = await fixture.Recommendations.PreviewAsync(
             fixture.ProfileId,
+            ScoringRoute.Pasted,
             Ranking((anime.Id, 8.0)));
 
         await fixture.Recommendations.ApplyAsync(
@@ -701,6 +731,7 @@ public class RecommendationServiceTests
 
         var preview = await fixture.Recommendations.PreviewAsync(
             fixture.ProfileId,
+            ScoringRoute.Pasted,
             Ranking((anime.Id, 8.0)));
 
         await fixture.Recommendations.ApplyAsync(fixture.ProfileId, preview, "Manual");
@@ -722,6 +753,7 @@ public class RecommendationServiceTests
 
         var preview = await fixture.Recommendations.PreviewAsync(
             fixture.ProfileId,
+            ScoringRoute.Pasted,
             Ranking((first.Id, 8.6), (second.Id, 7.1)));
 
         var applied = await fixture.Recommendations.ApplyAsync(
@@ -781,6 +813,7 @@ public class RecommendationServiceTests
 
         var preview = await fixture.Recommendations.PreviewAsync(
             fixture.ProfileId,
+            ScoringRoute.Pasted,
             Ranking((first.Id, 9.0), (second.Id, 5.0)));
 
         await fixture.Recommendations.ApplyAsync(fixture.ProfileId, preview, "Manual");
@@ -812,10 +845,10 @@ public class RecommendationServiceTests
 
         var anime = await AddAsync(context, fixture.ProfileId, "Reconsidered");
 
-        var first = await fixture.Recommendations.PreviewAsync(fixture.ProfileId, Ranking((anime.Id, 4.0)));
+        var first = await fixture.Recommendations.PreviewAsync(fixture.ProfileId, ScoringRoute.Pasted, Ranking((anime.Id, 4.0)));
         await fixture.Recommendations.ApplyAsync(fixture.ProfileId, first, "Manual");
 
-        var second = await fixture.Recommendations.PreviewAsync(fixture.ProfileId, Ranking((anime.Id, 9.0)));
+        var second = await fixture.Recommendations.PreviewAsync(fixture.ProfileId, ScoringRoute.Pasted, Ranking((anime.Id, 9.0)));
 
         // The preview shows what would be replaced, so the change is visible before
         // it happens rather than after.
@@ -840,7 +873,7 @@ public class RecommendationServiceTests
         var anime = await AddAsync(context, fixture.ProfileId, "Explained");
         await AddAsync(context, fixture.ProfileId, "Also waiting");
 
-        var preview = await fixture.Recommendations.PreviewAsync(fixture.ProfileId, Ranking((anime.Id, 8.6)));
+        var preview = await fixture.Recommendations.PreviewAsync(fixture.ProfileId, ScoringRoute.Pasted, Ranking((anime.Id, 8.6)));
         await fixture.Recommendations.ApplyAsync(fixture.ProfileId, preview, "Manual", "some-local-model");
 
         var detail = await fixture.Recommendations.GetDetailAsync(fixture.ProfileId, anime.Id);
@@ -869,7 +902,7 @@ public class RecommendationServiceTests
 
         foreach (var score in new[] { 4.0, 9.0 })
         {
-            var preview = await fixture.Recommendations.PreviewAsync(fixture.ProfileId, Ranking((anime.Id, score)));
+            var preview = await fixture.Recommendations.PreviewAsync(fixture.ProfileId, ScoringRoute.Pasted, Ranking((anime.Id, score)));
             await fixture.Recommendations.ApplyAsync(fixture.ProfileId, preview, "Manual");
         }
 
@@ -914,7 +947,7 @@ public class RecommendationServiceTests
 
         foreach (var score in new[] { 4.0, 9.0 })
         {
-            var preview = await fixture.Recommendations.PreviewAsync(fixture.ProfileId, Ranking((anime.Id, score)));
+            var preview = await fixture.Recommendations.PreviewAsync(fixture.ProfileId, ScoringRoute.Pasted, Ranking((anime.Id, score)));
             await fixture.Recommendations.ApplyAsync(fixture.ProfileId, preview, "Manual");
         }
 
@@ -936,7 +969,7 @@ public class RecommendationServiceTests
         var other = await SeedData.CreateProfileAsync(context, "Someone else");
         var theirs = await AddAsync(context, other.Id, "Their backlog");
 
-        var preview = await fixture.Recommendations.PreviewAsync(fixture.ProfileId, Ranking((theirs.Id, 8.0)));
+        var preview = await fixture.Recommendations.PreviewAsync(fixture.ProfileId, ScoringRoute.Pasted, Ranking((theirs.Id, 8.0)));
 
         Assert.True(preview.HasErrors);
     }
@@ -1097,4 +1130,178 @@ public class RecommendationServiceTests
 
         await context.SaveChangesAsync();
     }
+    [Fact]
+    public async Task A_request_says_which_database_it_is_about()
+    {
+        // Without this in the envelope there is nothing for a reply to echo, and the
+        // check D50 adds can never fire.
+        await using var fixture = await Fixture.CreateAsync();
+
+        var request = await fixture.Recommendations.BuildRequestAsync(fixture.ProfileId);
+
+        Assert.Equal(TestLibraryKey, request.Library);
+    }
+
+    [Theory]
+    [InlineData(ScoringRoute.Pasted)]
+    [InlineData(ScoringRoute.Endpoint)]
+    public async Task A_reply_naming_another_database_is_refused_whole(ScoringRoute route)
+    {
+        // The failure D50 exists for, and the reason matching cannot catch it: every id
+        // here names a real title in a real backlog. Only the envelope knows the reply
+        // is about somewhere else.
+        //
+        // Refused on both routes. The endpoint is not asked to name a database, but an
+        // endpoint that names the wrong one is telling us something, and there is no
+        // reading of it that leaves the reply safe.
+        await using var fixture = await Fixture.CreateAsync();
+        await using var context = fixture.Database.CreateContext();
+
+        var anime = await AddAsync(context, fixture.ProfileId, "Waiting");
+
+        var preview = await fixture.Recommendations.PreviewAsync(
+            fixture.ProfileId,
+            route,
+            RankingFrom("000000000000", (anime.Id, 8.0)));
+
+        Assert.True(preview.HasErrors);
+        Assert.Empty(preview.Items);
+
+        // One problem, not one per result. A reply from elsewhere carries hundreds.
+        var problem = Assert.Single(preview.Problems);
+        Assert.Contains("different AniQueue database", problem.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task A_pasted_reply_naming_no_database_is_refused()
+    {
+        // The rule that replaced D50's original leniency. A person carried this file, so
+        // nothing here can establish that it belongs to this database, and every id in
+        // it will name something whether it belongs or not.
+        await using var fixture = await Fixture.CreateAsync();
+        await using var context = fixture.Database.CreateContext();
+
+        var anime = await AddAsync(context, fixture.ProfileId, "Waiting");
+
+        var preview = await fixture.Recommendations.PreviewAsync(
+            fixture.ProfileId,
+            ScoringRoute.Pasted,
+            RankingFrom(null, (anime.Id, 8.0)));
+
+        Assert.True(preview.HasErrors);
+        Assert.Empty(preview.Items);
+
+        var problem = Assert.Single(preview.Problems);
+
+        // The refusal has to be actionable, so it carries the line to add and the value
+        // to put in it. A dead end would send the user back to the model with nothing
+        // to change.
+        Assert.Contains(TestLibraryKey, problem.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task An_endpoint_reply_naming_no_database_is_read_normally()
+    {
+        // The exemption, structural rather than a concession: this reply came back from
+        // a request sent moments earlier in the same process, and the schema a
+        // constrained server is given declares no envelope for it to answer in.
+        await using var fixture = await Fixture.CreateAsync();
+        await using var context = fixture.Database.CreateContext();
+
+        var anime = await AddAsync(context, fixture.ProfileId, "Waiting");
+
+        var preview = await fixture.Recommendations.PreviewAsync(
+            fixture.ProfileId,
+            ScoringRoute.Endpoint,
+            RankingFrom(null, (anime.Id, 8.0)));
+
+        Assert.False(preview.HasErrors);
+        Assert.Equal(anime.Id, Assert.Single(preview.Items).Result.Id);
+    }
+
+    [Fact]
+    public async Task A_reply_where_nothing_matches_is_reported_once()
+    {
+        // A reply that names this database and still matches none of it. Not the
+        // provenance case, which is caught above, but a model inventing ids — which
+        // produces the same wall of identical sentences and deserves the same summary.
+        await using var fixture = await Fixture.CreateAsync();
+        await using var context = fixture.Database.CreateContext();
+
+        await AddAsync(context, fixture.ProfileId, "Waiting");
+
+        var preview = await fixture.Recommendations.PreviewAsync(
+            fixture.ProfileId,
+            ScoringRoute.Pasted,
+            Ranking((9001, 8.0), (9002, 7.0), (9003, 6.0)));
+
+        Assert.True(preview.HasErrors);
+
+        var problem = Assert.Single(preview.Problems);
+        Assert.Contains("None of the 3 rankings", problem.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Unmatched_ids_are_summarised_once_there_are_too_many_to_read()
+    {
+        // What the user actually saw: a panel of identical red sentences, one per
+        // result, with the button below it. The information is all still here — five
+        // examples and a count — in six lines rather than eleven.
+        await using var fixture = await Fixture.CreateAsync();
+        await using var context = fixture.Database.CreateContext();
+
+        var anime = await AddAsync(context, fixture.ProfileId, "Waiting");
+
+        var results = Enumerable.Range(9001, 10)
+            .Select(id => (Id: id, Score: 7.0))
+            .Append((anime.Id, 8.0))
+            .ToArray();
+
+        var preview = await fixture.Recommendations.PreviewAsync(
+            fixture.ProfileId, ScoringRoute.Pasted, Ranking(results));
+
+        Assert.True(preview.HasErrors);
+
+        Assert.Equal(6, preview.Problems.Count);
+        Assert.Equal(
+            5,
+            preview.Problems.Count(p => p.Message.Contains("there is no title", StringComparison.Ordinal)));
+        Assert.Contains(
+            preview.Problems,
+            p => p.Message.Contains("5 further result(s)", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task Titles_that_have_left_the_backlog_are_summarised_the_same_way()
+    {
+        // Found in the wild at twenty-four, burying the errors above it: a reply built
+        // against a replaced database lands most of its ids on rows that were never
+        // candidates, and most of those are not waiting to be watched.
+        await using var fixture = await Fixture.CreateAsync();
+        await using var context = fixture.Database.CreateContext();
+
+        var moved = new List<int>();
+
+        for (var i = 0; i < 8; i++)
+        {
+            var watched = await AddAsync(
+                context, fixture.ProfileId, $"Started {i}", LibraryStatus.Watching);
+
+            moved.Add(watched.Id);
+        }
+
+        var preview = await fixture.Recommendations.PreviewAsync(
+            fixture.ProfileId,
+            ScoringRoute.Pasted,
+            Ranking([.. moved.Select(id => (id, 7.0))]));
+
+        // Warnings, still: the ranking was right when it was made, and a title that has
+        // left the backlog is news rather than a fault (D31).
+        Assert.False(preview.HasErrors);
+        Assert.Equal(6, preview.Problems.Count);
+        Assert.Contains(
+            preview.Problems,
+            p => p.Message.Contains("3 further title(s) are no longer waiting", StringComparison.Ordinal));
+    }
+
 }

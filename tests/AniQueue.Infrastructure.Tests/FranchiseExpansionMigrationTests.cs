@@ -162,6 +162,35 @@ public class FranchiseExpansionMigrationTests
             return Convert.ToInt32(await command.ExecuteScalarAsync(), System.Globalization.CultureInfo.InvariantCulture);
         }
 
+        /// <summary>
+        /// Writes the profile as SQL, for the third time the same assumption has
+        /// broken.
+        /// </summary>
+        /// <remarks>
+        /// It broke for the library entry when D18 added LastWrittenBySource, for the
+        /// catalogue row when the title variants replaced AlternativeTitle, and here
+        /// when D50 added LibraryKey to Profiles. The lesson is the one already stated
+        /// twice above and evidently worth stating a third time: EF names every column
+        /// the <i>current</i> model maps, so nothing seeded into an old schema may go
+        /// through it. The remaining EF writes in this file all target tables the
+        /// migrations under test create, and would fail the same way if those gained a
+        /// column.
+        /// </remarks>
+        public async Task<int> InsertProfileAsync(string name)
+        {
+            await using var command = _connection.CreateCommand();
+            command.CommandText =
+                """
+                INSERT INTO "Profiles" ("Name", "CreatedAt")
+                VALUES ($name, '2026-01-01 00:00:00+00:00');
+                SELECT last_insert_rowid();
+                """;
+
+            command.Parameters.AddWithValue("$name", name);
+
+            return Convert.ToInt32(await command.ExecuteScalarAsync(), System.Globalization.CultureInfo.InvariantCulture);
+        }
+
         public ValueTask DisposeAsync() => _connection.DisposeAsync();
     }
 
@@ -171,9 +200,7 @@ public class FranchiseExpansionMigrationTests
         LegacyDatabase database,
         params (string Title, int? Order, bool Optional, LibraryStatus Status)[] members)
     {
-        await using var context = database.CreateContext();
-
-        var profile = await SeedData.CreateProfileAsync(context);
+        var profileId = await database.InsertProfileAsync("Test");
         var franchiseId = await database.InsertFranchiseAsync("Slayers");
         var ids = new Dictionary<string, int>();
 
@@ -186,10 +213,10 @@ public class FranchiseExpansionMigrationTests
         // and go in outside the change tracker.
         foreach (var (title, _, _, status) in members)
         {
-            await database.InsertLibraryEntryAsync(profile.Id, ids[title], status);
+            await database.InsertLibraryEntryAsync(profileId, ids[title], status);
         }
 
-        return new Seeded(profile.Id, franchiseId, ids);
+        return new Seeded(profileId, franchiseId, ids);
     }
 
     /// <summary>The queue in display order, which is all the ordering has to preserve.</summary>

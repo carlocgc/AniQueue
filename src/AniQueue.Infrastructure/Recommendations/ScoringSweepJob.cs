@@ -355,8 +355,12 @@ public sealed class ScoringSweepJob(
             return (0, answer.Failure == ScoringEndpointFailure.TooLarge, answer.Message);
         }
 
+        // Endpoint rather than Pasted (D50): this reply came back from the request built
+        // a few lines above, in this process, so there is no document that could have
+        // been the wrong one. It also could not name the database if it wanted to — the
+        // schema a constrained server is given declares no envelope.
         var preview = await recommendations.PreviewAsync(
-            Profile.DefaultProfileId, answer.Reply!, request, cancellationToken);
+            Profile.DefaultProfileId, ScoringRoute.Endpoint, answer.Reply!, request, cancellationToken);
 
         if (!preview.CanApply)
         {

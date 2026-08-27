@@ -265,7 +265,7 @@ public sealed class ScoringResponseParser(ScoringLimits? limits = null)
 
         var problems = new List<ScoringProblem>();
 
-        ReadEnvelope(root, problems);
+        var library = ReadEnvelope(root, problems);
 
         if (!root.TryGetProperty("results", out var results))
         {
@@ -338,6 +338,7 @@ public sealed class ScoringResponseParser(ScoringLimits? limits = null)
             // model's own numbering, which is exactly the field that went.
             Response = new ScoringResponse
             {
+                Library = library,
                 Results = parsed.OrderByDescending(r => r.PredictedScore).ToList()
             },
             Problems = problems
@@ -355,12 +356,12 @@ public sealed class ScoringResponseParser(ScoringLimits? limits = null)
     /// from some other document, or a version this build does not know how to read,
     /// both mean the reply is not an answer to this request.
     /// </remarks>
-    private static void ReadEnvelope(JsonElement root, List<ScoringProblem> problems)
+    private static string? ReadEnvelope(JsonElement root, List<ScoringProblem> problems)
     {
         if (!root.TryGetProperty("aniqueue", out var envelope) ||
             envelope.ValueKind != JsonValueKind.Object)
         {
-            return;
+            return null;
         }
 
         if (envelope.TryGetProperty("format", out var format) &&
@@ -382,6 +383,16 @@ public sealed class ScoringResponseParser(ScoringLimits? limits = null)
             problems.Add(ScoringProblem.Error(
                 $"The response is version {number}; this build reads version {ScoringRequest.CurrentVersion}."));
         }
+
+        // Returned rather than judged (D50). A key that is present and belongs to
+        // another library is the one thing here that cannot be decided without the
+        // database, so this reads it and stops. A key of the wrong *shape* is not
+        // rejected either: whatever it is, it either matches this library's key or it
+        // does not, and "does not" is already the answer.
+        return envelope.TryGetProperty("library", out var library) &&
+            library.ValueKind == JsonValueKind.String
+                ? library.GetString()
+                : null;
     }
 
     private ScoringResult? ReadResult(JsonElement element, int position, List<ScoringProblem> problems)

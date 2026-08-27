@@ -57,6 +57,74 @@ public class DatabaseInitializerTests
         Assert.Equal(RecommendationMode.Manual, settings.DefaultRecommendationMode);
     }
 
+    [Fact]
+    public async Task A_new_database_names_its_library()
+    {
+        // The name is what lets a scoring reply say which library it came from (D50),
+        // and a reply generated before the database existed cannot have it.
+        await using var database = await SqliteTestDatabase.CreateAsync();
+
+        await CreateInitializer(database).InitialiseAsync();
+
+        await using var context = database.CreateContext();
+        var profile = await context.Profiles.SingleAsync();
+
+        Assert.False(string.IsNullOrWhiteSpace(profile.LibraryKey));
+    }
+
+    [Fact]
+    public async Task A_library_keeps_the_name_it_was_given()
+    {
+        // Regenerating on start would invalidate every reply the user is holding —
+        // which is the failure D50 exists to report, not to cause.
+        await using var database = await SqliteTestDatabase.CreateAsync();
+        var initializer = CreateInitializer(database);
+
+        await initializer.InitialiseAsync();
+        var before = await ReadLibraryKeyAsync(database);
+
+        await initializer.InitialiseAsync();
+
+        Assert.Equal(before, await ReadLibraryKeyAsync(database));
+    }
+
+    [Fact]
+    public async Task A_profile_that_predates_the_column_is_named_on_the_next_start()
+    {
+        // The upgrade path, and the one that matters most: an existing database is
+        // exactly the one whose replies are worth checking, and its profile row was
+        // written before there was a key to write.
+        await using var database = await SqliteTestDatabase.CreateAsync();
+        var initializer = CreateInitializer(database);
+
+        await initializer.InitialiseAsync();
+
+        await using (var context = database.CreateContext())
+        {
+            var profile = await context.Profiles.SingleAsync();
+            profile.LibraryKey = null;
+            await context.SaveChangesAsync();
+        }
+
+        await initializer.InitialiseAsync();
+
+        Assert.False(string.IsNullOrWhiteSpace(await ReadLibraryKeyAsync(database)));
+    }
+
+    private static async Task<string?> ReadLibraryKeyAsync(SqliteTestDatabase database)
+    {
+        await using var context = database.CreateContext();
+        return await context.Profiles.Select(p => p.LibraryKey).SingleAsync();
+    }
+
+    [Fact]
+    public void Two_libraries_do_not_share_a_name()
+    {
+        // Not a strong uniqueness claim — 48 bits and no index — but a key derived
+        // from something two databases could share would defeat the check entirely.
+        Assert.NotEqual(Profile.NewLibraryKey(), Profile.NewLibraryKey());
+    }
+
     private static DatabaseInitializer CreateInitializer(SqliteTestDatabase database) =>
         new(
             database.ContextFactory,

@@ -2573,6 +2573,138 @@ rather than widened into: the honest reading is that D47's sentence claims somet
 the code does, and which of the two should move is a question about churn that this phase has no
 evidence to settle.
 
+### D50 — A reply names the library it was built for
+
+*Adds `Profile.LibraryKey`, one field to each side of the scoring interchange, and a refusal.
+Changes nothing about how a title is identified.*
+
+A real incident, and worth stating exactly because the visible half of it was the harmless half.
+A development database was deleted, the library synced again from scratch, and a scoring reply
+generated before the rebuild was pasted into the new one. Twenty-five of roughly two hundred and
+fifty results named ids the new database does not have, and those were reported — a wall of
+identical red sentences, one per result, which is what made the problem noticeable at all.
+
+**The other two hundred and twenty-five matched.** `ScoringCandidate.Id` is the `Anime` row key,
+and a row key from a deleted database names whatever the rebuilt one happens to have put at that
+number. Nothing in the interchange establishes that those are the same titles. Whether they were
+depends entirely on whether both syncs inserted in the same order, which is not a property
+anything guarantees, tests, or could reasonably promise: one title added or removed upstream
+between the two runs shifts every id after it. Had the rebuild produced a smaller id space with
+no gap at the top, the reply would have applied a couple of hundred predicted scores to titles
+that were never ranked, silently, with the preview showing plausible names throughout.
+
+So the failure mode is not "an id names nothing". It is "an id names something else", and the
+existing validation cannot see it, because it is not a fact about any individual result.
+
+**AniList ids as the row key were proposed and declined.** The argument is a good one — external
+ids are stable across a rebuild, AniList publishes `idMal`, and a MyAnimeList-only title could be
+bridged to an AniList id with an `idMal_in` lookup. Four things sink it, and none of them are
+about scoring:
+
+- **It is not total.** A MyAnimeList-only row has no AniList id until something fetches one. D24
+  has since removed user-created titles, so the *manual* half of this objection is dead, but the
+  MyAnimeList half is not.
+- **It is not ours to keep stable.** AniList merges and retires entries. The key is referenced by
+  `LibraryEntry`, `QueueItem`, `AnimeImage`, `AnimeRelation` and `RecommendationRunItem`; a
+  primary key a third party can invalidate is the worst kind to put in five foreign keys.
+- **It re-couples identity to one service**, which is D17 run backwards. D17 declined typed
+  per-platform columns as the arity-fixed denormalisation of a relation; making one platform the
+  row key is that mistake with the general shape removed entirely.
+- **The bridge it depends on has a cost in a different feature.** Giving MyAnimeList-only titles
+  AniList identifiers removes what D19 calls protection that is "structural rather than
+  configured": absence handling is scoped to rows carrying the syncing source's identifier, so
+  eight hundred bridged titles against an AniList account holding fifty become seven hundred and
+  fifty rows that "were listed and are not now".
+
+**And it would not have helped anyway**, which is the argument that actually settles it.
+`RecommendationRunItem` keys on `AnimeId` too, so every previous ranking — the whole basis for
+comparing one run to the last — died with the database in the same instant. Making the pasted
+reply portable rescues one artifact from a set that were all lost together. That is a restore
+story, and D33 already declined restore: the database file is the backup.
+
+**Decision:** a profile carries a `LibraryKey` — twelve hexadecimal characters, minted once when
+the row is created and never changed. The request states it in the envelope, the prompt asks for it
+back, and a reply that fails to name this database is refused whole, with one sentence, before any
+id is matched. What "fails to name" means depends on how the reply arrived, and the section after
+next is the argument about that.
+
+Four properties this deliberately has:
+
+- **No version bump.** The field is additive in both directions. Raising the version would refuse
+  every reply a user is currently holding, which is precisely the harm this exists to report.
+- **The key is not validated for shape.** Whatever it is, it either matches or it does not, and
+  "does not" is already the answer.
+- **The worked example in the prompt carries the request's own key, not a placeholder.** D37
+  accepts the last object holding a `results` array, and that example is one — so a model copying
+  the envelope out of the example rather than the request still names the right library.
+- **It lives in the database, not in `userconfig.json`.** It has to be reborn exactly when the row
+  space is. A key kept in configuration would survive the deletion it exists to detect — and the
+  sample profile's separate configuration directory shows how easily configuration and database
+  can come apart.
+
+**A missing key was lenient for about an hour, and the reversal is the more interesting half of
+this decision.** The original rule was that a reply naming *no* database is read exactly as
+replies were read before: the parser tolerates a missing envelope on purpose, because models
+return the array reliably and the wrapper unreliably, so requiring the key would refuse correct
+rankings over a field that carries no ranking. Every clause of that is still true. It lost anyway,
+on the population it was reasoning about.
+
+The argument for leniency scoped the gap as *transitional* — replies written before the key
+existed, a set that only shrinks. That is wrong twice over. The gap is permanent, because a model
+that drops the envelope drops it in every future version too; and it belongs to every future user
+of this application rather than to whoever is holding a stale reply this week. **If a user can do
+a thing, eventually one of them does.** Against that population the costs are not close: refusing
+a good reply costs one retry, and accepting a wrong one costs a library of scores that cannot be
+told apart from correct ones afterwards. That is D31's own reasoning one level up, and D31 is
+already the rule that nothing is applied in part for exactly this reason.
+
+**So strictness is route-aware, and the routes differ structurally rather than by degree.**
+
+- **Pasted** — a person carried the document, which is the only way a reply from the wrong
+  database ever arrives. A missing or mismatched key is one error, and nothing is read.
+- **Endpoint** — the request was built and the answer received inside one process. There is no
+  document to mix up, and nothing a key could establish that the call stack does not. It is also
+  the route that *cannot* supply one: `ScoringResponseSchema` deliberately declares no envelope,
+  because requiring it on the wire made servers refuse replies AniQueue would have accepted, so a
+  model constrained to that schema returns the results array and nothing around it. Requiring the
+  key here would refuse every scheduled ranking.
+
+A mismatched key is refused on both. The endpoint is not asked to name a database, but one that
+names the wrong database is telling us something, and there is no reading of it that leaves the
+reply safe.
+
+`ScoringRoute` has **no default value**, and that is the point of it being a parameter rather than
+a setting. A defaulted route is a silent answer to the only question in the method that decides
+whether a wrong reply is refused, and every caller knows which it is.
+
+**The refusal has to be actionable, or it is just a wall.** A pasted reply with no key is told
+which line to add and the exact value to put in it. Copying a real value out of the request is
+mechanical, and unlike a confirmation it produces evidence rather than an assertion.
+
+**An explicit "this reply is for this library" confirmation was considered in place of the refusal
+and declined, for two reasons.** It asks the user to assert precisely what only the request can
+establish, and the honest expectation is that they would tick it every time — a checkbox between a
+person and the thing they are trying to do is a checkbox that gets ticked. And it cannot even be
+phrased: this codebase already uses "library" for the user's collection — the message beside it
+says "there is no title 815 in your library" — so "is this reply for this library?" reads as a
+question about their AniList account rather than about a file on disk. Every user-facing message
+here says **"AniQueue database"** for that reason, while the wire field stays `library`, which is
+what it is.
+
+**What remains uncovered, stated plainly.** A pre-D50 reply carries no key. On the pasted route it
+is now refused rather than half-applied, which is the right outcome but not a rescue: the reply
+that caused this decision cannot be applied at all, and nothing can fix that retroactively because
+the evidence was never written down.
+
+**Unmatched ids and skipped titles are now summarised rather than listed.** Five are named, then
+the rest are counted; a reply where *nothing* matches gets a single sentence saying so instead of
+one error per result. The same cap covers the two skip warnings, which is where it was actually
+needed: the reply that prompted all this produced twenty-five unmatched ids and twenty-four
+"no longer waiting to be watched" warnings beneath them, and the second group buried the first.
+This is presentation, not validation — an id naming nothing is exactly as fatal as it was, and a
+skipped title is still only a warning — but a panel the user has to scroll past to reach the
+button is a validation pass that has stopped communicating.
+
 ---
 
 ## 3. Solution structure
@@ -2794,6 +2926,11 @@ within 0.0–1.0, because these values arrive from an external model.
 
 Single default local profile; no registration, no OAuth, no auth in MVP. All library data
 carries `ProfileId` so multi-user — post-MVP per §10 — stays possible. Settings per D7 and D20.
+
+`LibraryKey` names this profile's library so a scoring reply can say which one it was built
+for (D50). Twelve hex characters, minted by `DatabaseInitializer` when the row is created and
+backfilled on the next start for a database that predates the column. Never regenerated: doing so
+would invalidate every reply a user is holding.
 
 ---
 

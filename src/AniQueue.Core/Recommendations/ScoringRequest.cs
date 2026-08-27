@@ -169,6 +169,17 @@ public sealed record ScoringRequest
 
     public required DateTimeOffset GeneratedAt { get; init; }
 
+    /// <summary>
+    /// Which library this request is about — <see cref="Domain.Profile.LibraryKey"/>,
+    /// written into the envelope and asked for back (D50).
+    /// </summary>
+    /// <remarks>
+    /// Null only when a caller builds a request without one, which in practice means
+    /// a test. A request with no key produces a reply with no key, and a reply with
+    /// no key is checked exactly as replies were before this existed.
+    /// </remarks>
+    public string? Library { get; init; }
+
     public ScoringScale Scale { get; init; } = ScoringScale.Default;
 
     /// <summary>Scored, completed titles. Capped; see <see cref="HistoryAvailable"/>.</summary>

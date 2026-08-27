@@ -90,8 +90,14 @@ public class ScoringSweepJobTests
             });
         }
 
-        public Task<ScoringPreview> PreviewAsync(int profileId, string json, ScoringRequest? request = null, CancellationToken ct = default) =>
-            Task.FromResult(new ScoringPreview
+        public ScoringRoute? Route { get; private set; }
+
+        /// <summary>The route the job asked for, so a test can assert it (D50).</summary>
+        public Task<ScoringPreview> PreviewAsync(int profileId, ScoringRoute route, string json, ScoringRequest? request = null, CancellationToken ct = default)
+        {
+            Route = route;
+
+            return Task.FromResult(new ScoringPreview
             {
                 Items = PreviewApplicable
                     ? [.. (request?.Candidates ?? []).Select(c => new ScoringPreviewItem
@@ -103,6 +109,7 @@ public class ScoringSweepJobTests
                     : [],
                 Problems = PreviewApplicable ? [] : [ScoringProblem.Error("Nope.")]
             });
+        }
 
         public Task<ScoringApplyResult> ApplyAsync(
             int profileId,
@@ -538,6 +545,20 @@ public class ScoringSweepJobTests
         await job.RunAsync(new JobRunContext(JobTrigger.Timer), CancellationToken.None);
 
         Assert.Equal(3, endpoint.Calls);
+    }
+
+    [Fact]
+    public async Task A_sweep_checks_its_reply_as_an_endpoint_answer()
+    {
+        // D50's exemption, asserted where it is claimed. The sweep must not ask a reply
+        // to name the database: it built the request itself moments earlier, and the
+        // schema a constrained server is given declares no envelope to answer in — so
+        // requiring one would refuse every scheduled ranking.
+        var (job, library, _, _, _) = Create(unranked: 10);
+
+        await job.RunAsync(new JobRunContext(JobTrigger.Timer), CancellationToken.None);
+
+        Assert.Equal(ScoringRoute.Endpoint, library.Route);
     }
 
     [Fact]

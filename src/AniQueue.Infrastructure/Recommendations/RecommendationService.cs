@@ -75,6 +75,7 @@ public sealed class RecommendationService(
         return new ScoringRequest
         {
             GeneratedAt = _time.GetUtcNow(),
+            Library = await ReadLibraryKeyAsync(context, profileId, cancellationToken),
             Candidates = candidates,
             History = snapshot.Entries,
             HistoryAvailable = snapshot.Available,
@@ -124,6 +125,7 @@ public sealed class RecommendationService(
 
     public async Task<ScoringPreview> PreviewAsync(
         int profileId,
+        ScoringRoute route,
         string json,
         ScoringRequest? request = null,
         CancellationToken cancellationToken = default)
@@ -137,6 +139,68 @@ public sealed class RecommendationService(
         }
 
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
+
+        // Asked before anything is matched, because the answer decides whether matching
+        // means anything at all (D50). An id is a row key, and a row key from another
+        // database names whatever this one happens to have put at that number — so a
+        // reply from elsewhere does not fail loudly, it fails by applying a stranger's
+        // scores to titles that were never ranked.
+        var libraryKey = await ReadLibraryKeyAsync(context, profileId, cancellationToken);
+        var named = parsed.Response.Library;
+
+        if (!string.IsNullOrEmpty(libraryKey))
+        {
+            // A named database that is not this one, on either route. The endpoint is
+            // not expected to say, but a wrong answer to a question nobody asked is
+            // still a wrong answer, and refusing it costs nothing.
+            if (!string.IsNullOrEmpty(named)
+                && !string.Equals(libraryKey, named, StringComparison.OrdinalIgnoreCase))
+            {
+                // Whole-reply, and one message. Naming the results individually would
+                // be both wrong and cruel: they are not individually wrong, they are
+                // wholly about something else, and there may be hundreds of them.
+                //
+                // "AniQueue database" rather than "library", here and below. This
+                // codebase already uses "library" for the user's collection — the
+                // message right above says "there is no title 815 in your library" —
+                // so a second meaning for the same word lands as a claim about their
+                // AniList account rather than about a file on disk.
+                problems.Add(ScoringProblem.Error(
+                    "This reply was built against a different AniQueue database. Every id in it "
+                    + "belongs to that one, so none of them are read here. Ask the model again "
+                    + "using this installation's own request."));
+
+                return new ScoringPreview { Problems = problems };
+            }
+
+            // Silence is refused on the route where a person carried the document.
+            //
+            // D50 first made this lenient everywhere, reasoning that models drop the
+            // envelope and that refusing a correct ranking over a field carrying no
+            // ranking costs the user everything and protects nothing. That lost, and
+            // the argument that beat it is about who is being protected: leniency is a
+            // permanent silent path for every future user of every future version, and
+            // "some user will eventually do this" is the right standard for a rule
+            // whose whole job is to stop a wrong reply. A refusal costs one retry.
+            // Accepting a wrong reply costs a library of scores nobody can tell apart
+            // from correct ones afterwards, which is D31's own reasoning one level up.
+            //
+            // An explicit "yes, this is the right database" confirmation was considered
+            // in its place and declined. It asks the user to assert what only the
+            // request can establish, the honest expectation is that they would tick it
+            // every time, and the question cannot even be phrased without the word
+            // "library" meaning two things at once.
+            if (string.IsNullOrEmpty(named) && route == ScoringRoute.Pasted)
+            {
+                problems.Add(ScoringProblem.Error(
+                    "This reply does not say which AniQueue database it was built against, so "
+                    + "nothing here can tell whether its ids belong to this one. Ask the model "
+                    + "again and keep the \"aniqueue\" block at the top of its answer, or add "
+                    + $"this line to that block yourself: \"library\": \"{libraryKey}\""));
+
+                return new ScoringPreview { Problems = problems };
+            }
+        }
 
         var ranked = parsed.Response.Results;
         var rankedIds = ranked.Select(r => r.Id).ToList();
@@ -170,6 +234,9 @@ public sealed class RecommendationService(
         var expectedCount = request?.ExpectedResults ?? candidateCount;
 
         var items = new List<ScoringPreviewItem>(ranked.Count);
+        var unmatched = new List<string>();
+        var leftBacklog = new List<string>();
+        var unasked = new List<string>();
         var position = 0;
 
         foreach (var result in ranked)
@@ -187,8 +254,13 @@ public sealed class RecommendationService(
                 // the rank never was, and no longer exists. The same wording the
                 // parser uses for its own per-result problems, so two halves of one
                 // validation pass do not count differently.
-                problems.Add(ScoringProblem.Error(
-                    $"Result {position}: there is no title {result.Id} in your library."));
+                //
+                // Gathered rather than reported one by one (D50). Every one of these
+                // has the same cause, and a reply generated against a different library
+                // produces one per result — two hundred and fifty identical sentences
+                // that say a single thing, in a panel the user has to scroll to reach
+                // the button. Summarised below instead.
+                unmatched.Add($"Result {position}: there is no title {result.Id} in your library.");
                 continue;
             }
 
@@ -202,8 +274,13 @@ public sealed class RecommendationService(
                 // a row that has left it.
                 skipped = "no longer waiting to be watched";
 
-                problems.Add(ScoringProblem.Warning(
-                    $"\"{entry.Title}\" is no longer waiting to be watched, so its score is skipped."));
+                // Gathered and capped for the same reason the unmatched ids are, and
+                // found the same way (D50). A reply built against a replaced database
+                // lands most of its ids on rows that were never candidates, so this
+                // was seen twenty-four deep, burying the errors above it. Three of
+                // these is news. Twenty-four is a wall.
+                leftBacklog.Add(
+                    $"\"{entry.Title}\" is no longer waiting to be watched, so its score is skipped.");
             }
             else if (offered is not null && !offered.Contains(result.Id))
             {
@@ -215,8 +292,7 @@ public sealed class RecommendationService(
                 // was not computed against the same set as the rest.
                 skipped = "was not part of this request";
 
-                problems.Add(ScoringProblem.Warning(
-                    $"\"{entry.Title}\" was not in the request, so its score is skipped."));
+                unasked.Add($"\"{entry.Title}\" was not in the request, so its score is skipped.");
             }
 
             items.Add(new ScoringPreviewItem
@@ -228,6 +304,20 @@ public sealed class RecommendationService(
                 SkippedBecause = skipped
             });
         }
+
+        ReportUnmatched(unmatched, ranked.Count, problems);
+
+        ReportCapped(
+            leftBacklog,
+            problems,
+            rest => $"{rest} further title(s) are no longer waiting to be watched, so their "
+                + "scores are skipped too.");
+
+        ReportCapped(
+            unasked,
+            problems,
+            rest => $"{rest} further title(s) were not in the request, so their scores are "
+                + "skipped too.");
 
         var preview = new ScoringPreview
         {
@@ -258,6 +348,115 @@ public sealed class RecommendationService(
 
         return preview with { Problems = problems };
     }
+
+    /// <summary>
+    /// How many problems of one kind are named one by one before the rest are counted
+    /// (D50).
+    /// </summary>
+    /// <remarks>
+    /// Five is enough to see the shape of the problem — which positions, which ids,
+    /// which titles — and few enough that the panel stays readable. The rest are counted
+    /// rather than dropped: the number is the useful part once the examples have made
+    /// the point.
+    /// </remarks>
+    private const int ProblemsShown = 5;
+
+    /// <summary>
+    /// Reports ids that named nothing, as few problems as will carry the information.
+    /// </summary>
+    /// <remarks>
+    /// These were one error each until D50, which is correct per result and unusable in
+    /// aggregate: the case that produces them is a reply built against a library that
+    /// no longer exists, and it produces one for every result in the reply.
+    ///
+    /// <b>All of them unmatched is a different statement from some of them.</b> A reply
+    /// where nothing matches is not a reply with many bad ids; it is a reply about
+    /// another library, said without an envelope to say it with — so it gets one
+    /// sentence that says that, rather than a truncated list of a fact that was never
+    /// about individual results. It stays an error either way: D31 applies nothing in
+    /// part, and an id naming nothing is exactly as unsafe as it was before.
+    /// </remarks>
+    private static void ReportUnmatched(
+        List<string> unmatched,
+        int rankedCount,
+        List<ScoringProblem> problems)
+    {
+        if (unmatched.Count == 0)
+        {
+            return;
+        }
+
+        if (unmatched.Count == rankedCount)
+        {
+            problems.Add(ScoringProblem.Error(
+                $"None of the {rankedCount} rankings name a title in your library. The reply was "
+                + "built against a different AniQueue database, most likely one that has since "
+                + "been replaced."));
+
+            return;
+        }
+
+        foreach (var message in unmatched.Take(ProblemsShown))
+        {
+            problems.Add(ScoringProblem.Error(message));
+        }
+
+        if (unmatched.Count > ProblemsShown)
+        {
+            problems.Add(ScoringProblem.Error(
+                $"{unmatched.Count - ProblemsShown} further result(s) named titles that are not in "
+                + "your library."));
+        }
+    }
+
+    /// <summary>
+    /// Reports one kind of skipped title, naming a few and counting the rest (D50).
+    /// </summary>
+    /// <remarks>
+    /// A warning per skipped title is right when a handful of things have moved on since
+    /// the ranking was made, which is the case this was written for. It is wrong at the
+    /// volume a mismatched database produces, where the same sentence repeats far enough
+    /// down the panel to hide the errors above it.
+    ///
+    /// One kind at a time, rather than one summary over both: a title that has left the
+    /// backlog and a title that was never asked about are different facts, and a count
+    /// that merged them would answer neither question.
+    /// </remarks>
+    private static void ReportCapped(
+        List<string> messages,
+        List<ScoringProblem> problems,
+        Func<int, string> summarise)
+    {
+        foreach (var message in messages.Take(ProblemsShown))
+        {
+            problems.Add(ScoringProblem.Warning(message));
+        }
+
+        if (messages.Count > ProblemsShown)
+        {
+            problems.Add(ScoringProblem.Warning(summarise(messages.Count - ProblemsShown)));
+        }
+    }
+
+    /// <summary>
+    /// The key naming this profile's library, or null on a database old enough not to
+    /// have been given one yet (D50).
+    /// </summary>
+    /// <remarks>
+    /// Read from the database on every use rather than cached or taken from the request
+    /// in hand. It changes once, at the moment the row is created, and a request is
+    /// exactly the document whose provenance is in question — trusting it to say which
+    /// library it belongs to would be asking the suspect for an alibi.
+    /// </remarks>
+    private static async Task<string?> ReadLibraryKeyAsync(
+        AniQueueDbContext context,
+        int profileId,
+        CancellationToken cancellationToken) =>
+        await context.Profiles
+            .AsNoTracking()
+            .Where(p => p.Id == profileId)
+            .Select(p => p.LibraryKey)
+            .FirstOrDefaultAsync(cancellationToken);
 
     public async Task<ScoringApplyResult> ApplyAsync(
         int profileId,

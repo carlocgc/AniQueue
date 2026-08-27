@@ -51,5 +51,16 @@ public sealed record ScoringResponse
     /// <summary>The format name a response must declare.</summary>
     public const string ResponseFormat = "aniqueue-scoring-response";
 
+    /// <summary>
+    /// The library key the reply echoed, or null when it echoed none (D50).
+    /// </summary>
+    /// <remarks>
+    /// Read here and judged elsewhere, which is the same split the rest of this type
+    /// keeps: whether a key is <i>present and well formed</i> is a fact about the
+    /// document, and whether it names <i>this</i> library is a question only something
+    /// holding the database can answer. <c>IRecommendationService</c> answers it.
+    /// </remarks>
+    public string? Library { get; init; }
+
     public IReadOnlyList<ScoringResult> Results { get; init; } = [];
 }
