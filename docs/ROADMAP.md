@@ -5194,6 +5194,11 @@ those users are.
   gives four columns on a phone and five or six above 720px.
 - **The title is a 44px target too.** It is a control — it is what opens the dialog everything
   else moved into (D55) — and at 20px of text inside a 114px card the height was free.
+- **A 44px box is not a 44px target unless the glyph is in the middle of it.** The grip showed
+  it: its span is `inline-flex`, which a grid item blockifies to `flex`, and with no
+  `justify-content` the icon sat against the left edge of its own target. The glyphs were also
+  sized for sitting beside text — 1.15em, which is small in the middle of a thumb-sized button and
+  smallest on the grip, whose six dots carry less ink than an arrow at the same size.
 - **Up Next's list is no longer inside a card.** It was, and a card of cards reads as a panel of
   rows: the table again, wearing a border.
 

@@ -640,6 +640,14 @@ button:has(> .icon-glyph), .button:has(> .icon-glyph) {
 
 .drag-handle:active { cursor: grabbing; }
 
+/* It reads as something to press, which a bare glyph did not. Colour on hover and a
+   filled surface while it is held, so a touch that lands is visibly a touch that
+   landed — the drag itself does not start until the 150ms delay that separates it
+   from a scroll, and that is a long time to look like nothing happened. */
+.drag-handle:hover { color: var(--text); }
+
+.drag-handle:active { background: var(--surface-alt); border-radius: var(--radius); }
+
 /* The glyph is not the target; the span around it is. touch-action does not
    inherit, so once the grip became an <svg> a touch landing on the icon itself had
    touch-action: auto and scrolled the page instead of starting a drag — on exactly
@@ -1539,12 +1547,28 @@ button.danger:hover:not(:disabled) { filter: brightness(0.95); }
 .entry-score.predicted { color: var(--text-muted); font-weight: 500; }
 
 /* The published thumb target, which the 1.9rem icon button is not. It applies to the
-   add button, the remove and the grip alike — every control a phone has to hit. */
+   add button, the remove and the grip alike — every control a phone has to hit.
+
+   Centring is half of what makes the number true. A 44px box with its glyph against
+   one edge is a 44px box somebody aims at the middle of and misses, and the grip was
+   the one that showed it: the span is display: inline-flex, which a grid item
+   blockifies to flex, and without justify-content the icon sat at the left of its
+   own target. */
 .entry-card button.icon,
 .entry-card .drag-handle {
+    display: flex;
+    align-items: center;
+    justify-content: center;
     min-width: 44px;
     min-height: 44px;
 }
+
+/* And a glyph big enough to look like the thing being pressed. 1.15em is right beside
+   text and small in the middle of a thumb-sized target — the grip especially, whose
+   six dots carry less ink than an arrow at the same size. */
+.entry-card button.icon .icon-glyph { width: 1.35rem; height: 1.35rem; }
+
+.entry-card .drag-handle .icon-glyph { width: 1.6rem; height: 1.6rem; }
 
 /* The keyboard path, and only where a keyboard is (§39, 18d). A thumb drags the grip
    instead; four 20px arrows on a phone would be four things too small to hit. */
