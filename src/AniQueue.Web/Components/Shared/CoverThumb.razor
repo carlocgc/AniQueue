@@ -26,8 +26,9 @@
        both would make a screen reader read every row twice. So this stays hidden and
        unreachable by keyboard, and the title carries the real, named button.
 
-       It also cannot be the only trigger: .cover-col is display:none below 720px,
-       so on a narrow window this element does not exist at all. *@
+       It is on every card at every width since 18d, where the picture became the
+       leading element rather than a column that vanished below 720px. That does not
+       promote it: it is still a shortcut to what the title does, and still silent. *@
     <button type="button"
             class="cover-thumb cover-thumb-button @(Cover.IsEmpty ? "cover-thumb-empty" : null)"
             style="@ColourStyle()"
@@ -36,7 +37,11 @@
             @onclick="OnActivate">
         @if (Cover.HasImage)
         {
-            <img src="@Cover.Url" alt="" width="40" height="60" loading="lazy" decoding="async" />
+            @* The attributes state the shape rather than the size. CSS sets how big
+               the slot is; these give the browser the 2:3 of a poster to reserve
+               before the picture lands, which is what stops a page of fifty cards
+               shuffling under itself as they arrive. *@
+            <img src="@Cover.Url" alt="" width="2" height="3" loading="lazy" decoding="async" />
         }
     </button>
 }
@@ -47,7 +52,7 @@ else
           aria-hidden="true">
         @if (Cover.HasImage)
         {
-            <img src="@Cover.Url" alt="" width="40" height="60" loading="lazy" decoding="async" />
+            <img src="@Cover.Url" alt="" width="2" height="3" loading="lazy" decoding="async" />
         }
     </span>
 }

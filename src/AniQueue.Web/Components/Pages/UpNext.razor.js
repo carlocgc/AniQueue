@@ -53,7 +53,7 @@ function loadSortable(url) {
 /**
  * Makes the queue's rows draggable.
  *
- * @param {HTMLElement} list The tbody holding the rows.
+ * @param {HTMLElement} list The list holding the cards.
  * @param {object} dotNet Reference to the component, for the drop callback.
  * @param {string} sortableUrl Where to load SortableJS from.
  * @returns The Sortable instance, held by .NET so it can be destroyed.
@@ -66,9 +66,9 @@ export async function attach(list, dotNet, sortableUrl) {
     const reducedMotion = globalThis.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
     return Sortable.create(list, {
-        // Dragging is confined to the grip. Rows carry five buttons and a link,
-        // and making the whole row draggable turns every one of them into a
-        // gamble about whether a click was really a very short drag.
+        // Dragging is confined to the grip. A card carries a poster, a title and
+        // up to five buttons, and making the whole card draggable turns every one
+        // of them into a gamble about whether a click was really a very short drag.
         handle: ".drag-handle",
 
         animation: reducedMotion ? 0 : 150,
@@ -103,7 +103,7 @@ export async function attach(list, dotNet, sortableUrl) {
  * Tears the instance down.
  *
  * Called when the queue empties and when the circuit ends. Sortable attaches
- * document-level listeners, so an instance left behind after its tbody is gone
+ * document-level listeners, so an instance left behind after its list is gone
  * keeps them — and on a long-lived Blazor Server circuit that accumulates.
  */
 export function detach(sortable) {
