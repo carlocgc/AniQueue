@@ -3479,8 +3479,8 @@ numbering. What is finished is a column; what happens next is the first row with
 | 15d | Scoring demolition | ✅ | No outbound scoring request has anybody waiting on it |
 | 15e | Sources reshape | ✅ | Sources is configuration, one review button and a file import |
 | 16 | Scoring without a rank | ✅ | The model returns scores and no ordering; nothing asks for, stores or shows a rank |
-| 17 | Improve remote model scoring | ▢ *held* | A sweep gets past a batch it cannot score, reports itself as one run, and cannot be defeated by a history that outgrew the context |
-| 18 | Mobile first | ◐ *18a–18d landed* | Every page usable at 375px with no sideways scroll and no control under 44px; five thumb-reachable tabs; the lists show a poster, a title, one score and one action |
+| 17 | Improve remote model scoring | ▢ *held, next* | A sweep gets past a batch it cannot score, reports itself as one run, and cannot be defeated by a history that outgrew the context |
+| 18 | Mobile first | ✅ | Every page usable at 375px with no sideways scroll and no control under 44px; five thumb-reachable tabs; the lists show a poster, a title, one score and one action |
 
 **✅ done · ◐ part landed · ▢ not started.** *next* is what the running order reaches first;
 *held* waits on something outside the repository — for 17, a wider sample of models to
@@ -5062,6 +5062,16 @@ because roughly one man in twelve cannot reliably tell that red from that green.
 checkboxes stay checkboxes** — *Ask the server for JSON only* and *Include personal notes* are not
 on/off states, and a power symbol would lie about them.
 
+*Run now lost its words after 18e, and the rule above is what allowed it rather than what it
+broke.* The test was never "keep the words" but "a symbol alone must not be a guess", and the two
+glyphs that replaced them are not guesses: a circling arrow means run this again and a cross means
+stop. *Save* keeps its word, because a floppy disc still is one. **The power buttons became
+square** at the same time, so that a task's two controls read as a pair — same size, same corners —
+where a disc beside a rectangle read as two unrelated controls that happened to be adjacent. **And
+one button now does both halves of a run**: pressing the arrow starts the task, and while it runs
+the same button is the cross that stops it. Two buttons swapping in and out had been moving the
+power button under the cursor every time a task started.
+
 #### 18b — Hidden is deleted
 
 `LibraryEntry.IsHidden` goes: the column, its index, the filter chip, the hide button, and the
@@ -5213,10 +5223,30 @@ together. The ranking preview and *Past rankings* are read, and keep their scrol
 The six counters land at the top of Backlog here rather than in 18a, so that part stays a change
 to the shell alone.
 
+*As built, they are read from the facets the filter bar already loads rather than from
+`GetSummaryAsync`.* They are the same numbers the status picker's own options carry, and a row of
+counts disagreeing with the picker below it would be worse than either alone. Absent statuses read
+as zero rather than being left out: a count of nothing answers "did it all come in", and a row that
+changed shape with the library would be harder to read at a glance than one that does not.
+
+**"No control under 44px" turned out to be the largest thing left over**, and it was not on either
+list. 18d met it a card at a time, which left every worded button at 39px, every filter chip at 30
+and every icon button outside a card at 30 — and a page of a dozen chips is a dozen things to miss.
+They are raised at the narrow breakpoint only, because 44px is a figure about fingers: a mouse hits
+39px exactly as well, and growing every button on a desktop page would spend vertical space on a
+problem that is not there. Height for the worded controls, height and width for the glyphs and for
+the shortest chip, which is "TV".
+
 *Exit:* every page is usable on a 375px screen with no sideways scrolling and no control under
 44px; the backlog and the queue show a poster, a title, one score and one thumb-sized action, with
 the facts one tap away in the dialog; navigation is five thumb-reachable tabs; `IsHidden` appears
 nowhere in the codebase; and the desktop layout has lost nothing it had before.
+
+*Met, with one precise exception.* `IsHidden` survives in the migration history — the initial
+create, every designer snapshot after it, and the migration that drops the column — because those
+record schemas as they were and rewriting them would make a record of the past disagree with the
+past. The live model, the services, the pages and the stylesheet have none. The one test that names
+it inserts against a pre-D15 schema on purpose.
 
 ---
 

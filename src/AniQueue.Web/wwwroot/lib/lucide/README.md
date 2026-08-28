@@ -6,12 +6,13 @@
 | Licence | ISC |
 | Source | <https://cdn.jsdelivr.net/npm/lucide-static@1.34.0/icons/> |
 | Upstream | <https://github.com/lucide-icons/lucide> |
-| Size | 3,400 bytes |
+| Size | 3,651 bytes |
 
-Sixteen glyphs, assembled by hand into one `<symbol>` sprite. Chosen in Phase 18a,
-where a phone-sized navigation bar and thumb-sized row controls both needed icons.
+Seventeen glyphs, assembled by hand into one `<symbol>` sprite. Sixteen were chosen in
+Phase 18a, where a phone-sized navigation bar and thumb-sized row controls both needed
+icons; `refresh-cw` arrived with the square Run now button on Settings.
 
-## Why a sprite of sixteen rather than a package
+## Why a sprite of seventeen rather than a package
 
 There is no Node.js and no frontend build system here, by decision (ROADMAP.md §1),
 so an icon package would arrive with a toolchain to unpack it. ISC permits

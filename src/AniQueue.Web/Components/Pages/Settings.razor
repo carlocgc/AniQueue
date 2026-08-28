@@ -56,7 +56,7 @@
             One setting for every task below. Times are approximate — a task is asked
             whether it is due rather than woken on the minute. <strong>Only when I ask</strong>
             stops the clock and nothing else: a task still runs when the library changes
-            underneath it, and whenever you press <em>Run now</em>.
+            underneath it, and whenever you run one by hand.
         </p>
     </div>
 </div>
@@ -70,100 +70,97 @@
     }
     else
     {
-        <div class="table-wrap">
-        <table class="tasks">
-            <thead>
-                <tr>
-                    <th scope="col">Task</th>
-                    <th scope="col">State</th>
-                    <th scope="col">Last run</th>
-                    <th scope="col" class="actions-col"><span class="visually-hidden">Actions</span></th>
-                </tr>
-            </thead>
-            <tbody>
-                @foreach (var row in _rows)
-                {
-                    <tr>
-                        <th scope="row">
-                            @row.State.Name
-                            @if (!IsEnabled(row.State))
-                            {
-                                <span class="badge muted">off</span>
-                            }
-                        </th>
+        @* Cards, by the same rule that took the two lists out of tables in 18d and
+           not as a special case: a table that scrolls sideways is the right answer
+           for something read and the wrong answer for something acted on, and the
+           test is whether a control and the thing it acts on fit on screen together.
+           This one was table-layout: fixed with a 40rem minimum in a 309px window,
+           holding Run now and a power button.
 
-                        <td>
+           The ranking preview and Past rankings keep their scroll. They are read. *@
+        <ul class="task-list">
+            @foreach (var row in _rows)
+            {
+                <li class="task-card">
+                    <div class="task-main">
+                        <h3 class="task-name">@row.State.Name</h3>
+
+                        <p class="task-state">
                             @if (row.State.IsRunning)
                             {
                                 <span class="running" aria-live="polite">
                                     Running &middot; @Elapsed(row.State.StartedAt!.Value)
                                 </span>
                             }
-                            else
-                            {
-                                <span class="muted">Idle</span>
-                            }
-                        </td>
-
-                        <td>
-                            @if (row.LastRun is { } last)
+                            else if (row.LastRun is { } last)
                             {
                                 <span class="@OutcomeClass(last.Outcome)">@OutcomeText(last)</span>
                                 <span class="muted"> &middot; @Ago(last.StartedAt)</span>
-
-                                @if (last.FailureReason is { } reason)
-                                {
-                                    @* In words, on the row. The log has the rest, and a
-                                       user should not have to open it to learn that an
-                                       account went private (D40). *@
-                                    <p class="muted failure">@reason</p>
-                                }
                             }
                             else
                             {
-                                <span class="muted">Never</span>
+                                <span class="muted">Never run</span>
                             }
-                        </td>
+                        </p>
 
-                        @* The flex lives on a div inside the cell rather than on the
-                           cell, which is how every other table here does it. A td made
-                           into a flex container stops drawing its own bottom border,
-                           so the rule under each row broke where the buttons were. *@
-                        <td class="actions-col">
-                            <div class="row-actions">
-                                @if (row.State.IsRunning)
-                                {
-                                    <button @onclick="() => Cancel(row.State)" disabled="@row.Cancelling">
-                                        @(row.Cancelling ? "Stopping…" : "Cancel")
-                                    </button>
-                                }
-                                else
-                                {
-                                    @* Disabled rather than allowed to do nothing. Every job
-                                       checks its switch before it checks anything else, so a
-                                       live button on a switched-off row would record no run,
-                                       change no row, and give no reason. *@
-                                    <button class="primary" disabled="@(!IsEnabled(row.State))"
-                                            @onclick="() => RunNow(row.State)">
-                                        <Icon Name="play" />Run now
-                                    </button>
-                                }
+                        @* In words, under the task it belongs to. The log has the rest,
+                           and a user should not have to open it to learn that an account
+                           went private (D40). *@
+                        @if (row.LastRun?.FailureReason is { } reason)
+                        {
+                            <p class="muted failure">@reason</p>
+                        }
+                    </div>
 
-                                <PowerToggle On="IsEnabled(row.State)"
-                                             Label="@($"Let {row.State.Name} run on its own")"
-                                             OnChange="on => ToggleAsync(row.State, on)" />
-                            </div>
-                        </td>
-                    </tr>
-                }
-            </tbody>
-        </table>
-        </div>
+                    <div class="task-actions">
+                        @* One square button in one place, which starts the run and then
+                           stops it. Two buttons swapping in and out moved the power
+                           button under the cursor every time a task started, and the
+                           pair reads better as a pair: same size, same shape, side by
+                           side.
 
+                           The glyph carries the whole meaning here, which 18a said a
+                           word had to. That held for Save, where a floppy disc is a
+                           guess; a circling arrow for "run this again" and a cross for
+                           "stop" are not guesses, and the accessible name says both in
+                           full either way. *@
+                        @if (row.State.IsRunning)
+                        {
+                            <button class="task-run running"
+                                    disabled="@row.Cancelling"
+                                    title="@(row.Cancelling ? $"Stopping {row.State.Name}" : $"Stop {row.State.Name}")"
+                                    aria-label="@(row.Cancelling ? $"Stopping {row.State.Name}" : $"Stop the {row.State.Name} run")"
+                                    @onclick="() => Cancel(row.State)"><Icon Name="x" /></button>
+                        }
+                        else
+                        {
+                            @* Disabled rather than allowed to do nothing. Every job checks
+                               its switch before it checks anything else, so a live button
+                               on a switched-off task would record no run, change no row,
+                               and give no reason. *@
+                            <button class="task-run primary"
+                                    disabled="@(!IsEnabled(row.State))"
+                                    title="@RunLabel(row.State)"
+                                    aria-label="@RunLabel(row.State)"
+                                    @onclick="() => RunNow(row.State)"><Icon Name="refresh-cw" /></button>
+                        }
+
+                        @* The "off" badge beside the name went with the table. The power
+                           button says the same thing in the same place it is changed
+                           from, and says it in a label a screen reader reads (18a). *@
+                        <PowerToggle On="IsEnabled(row.State)"
+                                     Label="@($"Let {row.State.Name} run on its own")"
+                                     OnChange="on => ToggleAsync(row.State, on)" />
+                    </div>
+                </li>
+            }
+        </ul>
         <p class="muted">
-            <em>Run now</em> is the same work a scheduled run would do, brought forward — it
-            starts as soon as that task is free, which is immediately unless it is already
-            running. Switching one off stops it altogether, by hand as well as on its own.
+            The circling arrow runs a task now: the same work a scheduled run would do,
+            brought forward. It starts as soon as that task is free, which is immediately
+            unless it is already running — and while it runs, the same button becomes a
+            cross that stops it. The power button switches a task off altogether, by hand
+            as well as on its own.
         </p>
     }
 </div>
@@ -325,6 +322,19 @@
             _ticker = null;
         }
     }
+
+    /// <summary>
+    /// What the run button says, including why it cannot be pressed.
+    /// </summary>
+    /// <remarks>
+    /// A disabled icon-only button carries nothing at all unless its name does, and
+    /// "greyed out" is not a reason. The tooltip and the accessible name are the same
+    /// string for that reason.
+    /// </remarks>
+    private string RunLabel(TaskState state) =>
+        IsEnabled(state)
+            ? $"Run {state.Name} now"
+            : $"{state.Name} is switched off, so it cannot be run";
 
     private void RunNow(TaskState state)
     {
