@@ -22,8 +22,68 @@
  */
 export function showModal(dialog) {
     if (dialog && !dialog.open) {
+        closeOnBackdropClick(dialog);
         dialog.showModal();
     }
+}
+
+/**
+ * Makes a click on the backdrop dismiss the dialog.
+ *
+ * The comment on close() below has always said a click on the backdrop was one of
+ * the three ways out. It was not: a native <dialog> gives Escape and nothing else,
+ * and clicking the dark area around this one did nothing at all.
+ *
+ * Attached once per element rather than per open. The dialog outlives every title
+ * shown in it — one instance per page (D49) — so adding a listener on each showModal
+ * would stack them.
+ */
+function closeOnBackdropClick(dialog) {
+    if (dialog.dataset.backdropClose) {
+        return;
+    }
+
+    dialog.dataset.backdropClose = "true";
+
+    // Both ends of the gesture have to be outside, or a drag that starts on a
+    // selection inside the dialog and finishes past its edge closes it — which is
+    // how you lose a paragraph you were halfway through highlighting.
+    let startedOutside = false;
+
+    dialog.addEventListener("pointerdown", (event) => {
+        startedOutside = isOutside(dialog, event);
+    });
+
+    dialog.addEventListener("click", (event) => {
+        if (startedOutside && isOutside(dialog, event)) {
+            dialog.close();
+        }
+    });
+}
+
+/**
+ * Whether a pointer event landed on the backdrop rather than on the dialog.
+ *
+ * Measured against the dialog's own box rather than by comparing event.target,
+ * which is the usual trick and wrong here: this dialog scrolls, so a click on its
+ * scrollbar also targets the dialog element and would dismiss it mid-scroll.
+ *
+ * detail is the click count, and it is zero for a click the keyboard synthesised —
+ * pressing Enter on a button reports coordinates of 0,0, which is outside every
+ * dialog on screen. Without this, operating the close button by keyboard would take
+ * this path instead of its own.
+ */
+function isOutside(dialog, event) {
+    if (event.detail === 0) {
+        return false;
+    }
+
+    const box = dialog.getBoundingClientRect();
+
+    return event.clientX < box.left
+        || event.clientX > box.right
+        || event.clientY < box.top
+        || event.clientY > box.bottom;
 }
 
 /**
