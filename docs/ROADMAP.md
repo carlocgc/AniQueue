@@ -5062,6 +5062,16 @@ because roughly one man in twelve cannot reliably tell that red from that green.
 checkboxes stay checkboxes** — *Ask the server for JSON only* and *Include personal notes* are not
 on/off states, and a power symbol would lie about them.
 
+*Run now lost its words after 18e, and the rule above is what allowed it rather than what it
+broke.* The test was never "keep the words" but "a symbol alone must not be a guess", and the two
+glyphs that replaced them are not guesses: a circling arrow means run this again and a cross means
+stop. *Save* keeps its word, because a floppy disc still is one. **The power buttons became
+square** at the same time, so that a task's two controls read as a pair — same size, same corners —
+where a disc beside a rectangle read as two unrelated controls that happened to be adjacent. **And
+one button now does both halves of a run**: pressing the arrow starts the task, and while it runs
+the same button is the cross that stops it. Two buttons swapping in and out had been moving the
+power button under the cursor every time a task started.
+
 #### 18b — Hidden is deleted
 
 `LibraryEntry.IsHidden` goes: the column, its index, the filter chip, the hide button, and the

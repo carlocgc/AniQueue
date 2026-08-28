@@ -56,7 +56,7 @@
             One setting for every task below. Times are approximate — a task is asked
             whether it is due rather than woken on the minute. <strong>Only when I ask</strong>
             stops the clock and nothing else: a task still runs when the library changes
-            underneath it, and whenever you press <em>Run now</em>.
+            underneath it, and whenever you run one by hand.
         </p>
     </div>
 </div>
@@ -113,11 +113,24 @@
                     </div>
 
                     <div class="task-actions">
+                        @* One square button in one place, which starts the run and then
+                           stops it. Two buttons swapping in and out moved the power
+                           button under the cursor every time a task started, and the
+                           pair reads better as a pair: same size, same shape, side by
+                           side.
+
+                           The glyph carries the whole meaning here, which 18a said a
+                           word had to. That held for Save, where a floppy disc is a
+                           guess; a circling arrow for "run this again" and a cross for
+                           "stop" are not guesses, and the accessible name says both in
+                           full either way. *@
                         @if (row.State.IsRunning)
                         {
-                            <button @onclick="() => Cancel(row.State)" disabled="@row.Cancelling">
-                                @(row.Cancelling ? "Stopping…" : "Cancel")
-                            </button>
+                            <button class="task-run running"
+                                    disabled="@row.Cancelling"
+                                    title="@(row.Cancelling ? $"Stopping {row.State.Name}" : $"Stop {row.State.Name}")"
+                                    aria-label="@(row.Cancelling ? $"Stopping {row.State.Name}" : $"Stop the {row.State.Name} run")"
+                                    @onclick="() => Cancel(row.State)"><Icon Name="x" /></button>
                         }
                         else
                         {
@@ -125,10 +138,11 @@
                                its switch before it checks anything else, so a live button
                                on a switched-off task would record no run, change no row,
                                and give no reason. *@
-                            <button class="primary" disabled="@(!IsEnabled(row.State))"
-                                    @onclick="() => RunNow(row.State)">
-                                <Icon Name="play" />Run now
-                            </button>
+                            <button class="task-run primary"
+                                    disabled="@(!IsEnabled(row.State))"
+                                    title="@RunLabel(row.State)"
+                                    aria-label="@RunLabel(row.State)"
+                                    @onclick="() => RunNow(row.State)"><Icon Name="refresh-cw" /></button>
                         }
 
                         @* The "off" badge beside the name went with the table. The power
@@ -142,9 +156,11 @@
             }
         </ul>
         <p class="muted">
-            <em>Run now</em> is the same work a scheduled run would do, brought forward — it
-            starts as soon as that task is free, which is immediately unless it is already
-            running. Switching one off stops it altogether, by hand as well as on its own.
+            The circling arrow runs a task now: the same work a scheduled run would do,
+            brought forward. It starts as soon as that task is free, which is immediately
+            unless it is already running — and while it runs, the same button becomes a
+            cross that stops it. The power button switches a task off altogether, by hand
+            as well as on its own.
         </p>
     }
 </div>
@@ -306,6 +322,19 @@
             _ticker = null;
         }
     }
+
+    /// <summary>
+    /// What the run button says, including why it cannot be pressed.
+    /// </summary>
+    /// <remarks>
+    /// A disabled icon-only button carries nothing at all unless its name does, and
+    /// "greyed out" is not a reason. The tooltip and the accessible name are the same
+    /// string for that reason.
+    /// </remarks>
+    private string RunLabel(TaskState state) =>
+        IsEnabled(state)
+            ? $"Run {state.Name} now"
+            : $"{state.Name} is switched off, so it cannot be run";
 
     private void RunNow(TaskState state)
     {

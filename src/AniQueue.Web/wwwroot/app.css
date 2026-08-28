@@ -512,7 +512,11 @@ button:has(> .icon-glyph), .button:has(> .icon-glyph) {
     width: 2.75rem;
     height: 2.75rem;
     padding: 0;
-    border-radius: 999px;
+
+    /* Square rather than round. It sits beside the run button on a task and the two
+       read as a pair — same size, same corners — where a disc next to a rectangle
+       read as two unrelated controls that happened to be adjacent. */
+    border-radius: var(--radius);
     border: 1px solid var(--danger);
     background: none;
     color: var(--danger);
@@ -1652,3 +1656,34 @@ button.danger:hover:not(:disabled) { filter: brightness(0.95); }
         min-height: 44px;
     }
 }
+
+/* One square button that starts a task and then stops it. It was a worded "Run now"
+   with a play glyph beside it, which 18a argued for on the grounds that a symbol
+   alone is a guess at what a button does — true of a floppy disc, and not of a
+   circling arrow for "run this again" or a cross for "stop". Both carry a full name
+   for a pointer and a screen reader either way.
+
+   Two buttons swapping in and out was the other cost: the power button moved under
+   the cursor every time a task started. One button in one place does not. */
+.task-run {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: none;
+    width: 2.75rem;
+    height: 2.75rem;
+    padding: 0;
+}
+
+.task-run .icon-glyph { width: 1.25rem; height: 1.25rem; }
+
+/* Stopping is the one thing here that ends something already underway, so it takes
+   the same red the power button's off state does rather than the accent a primary
+   button would carry into a state that is not the affirmative action any more. */
+.task-run.running {
+    background: none;
+    border-color: var(--danger);
+    color: var(--danger);
+}
+
+.task-run.running:hover:not(:disabled) { background: var(--danger-bg); }
