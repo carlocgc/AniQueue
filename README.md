@@ -34,7 +34,7 @@ to keep data in.
 | 8 | Hosted model scoring — settings store, endpoint, surface, scheduled sweep | **complete** |
 | 9 | Artwork, AniList enrichment, show detail dialog | **complete** |
 | 18 | Mobile first | **complete** |
-| 11 | Docker image, compose, health check | **mostly** — see the roadmap |
+| 11 | Docker image, compose, health check, one migration baseline | **complete** |
 | 13 | CI: build, test, publish | **complete** |
 | 10, 12, 14 | Settings page → optional auth → security pass | planned |
 

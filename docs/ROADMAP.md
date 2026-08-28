@@ -3063,9 +3063,9 @@ building them.
 ours exists, and a published image is how somebody else's comes to exist. `dev` moves that
 deadline from "the first release" to "the first time a `dev` image is deployed against a volume
 anybody minds losing" — including the author's own. **So the squash is now a decision to take
-before `dev` is deployed, not before `v1.0.0` is tagged.** It has not been taken here; the
-migration folder still reads as a diary, and that remains a tidiness cost rather than a
-correctness one.
+before `dev` is deployed, not before `v1.0.0` is tagged.** It was taken in the same change, so the
+migration folder holds one baseline and no database anywhere records a migration that no longer
+exists.
 
 **Registry credentials are `DOCKERHUB_USERNAME` and `DOCKERHUB_TOKEN` in repository secrets**, and
 appear in no committed file. The workflows log in only after the test step, so a red suite cannot
@@ -3483,8 +3483,9 @@ API terms are still unverified.
 work: a workflow that builds an image needs the image to exist, and a Dockerfile that nothing
 builds on every merge is a Dockerfile that quietly stops working between releases. Taking them
 together also forces the question of what CI may publish before the security pass has run, which
-is D56. Phase 11 keeps a `◐` rather than a tick — its migration squash has not been taken, and
-D56 explains why that deadline moved rather than passed.
+is D56 — and that decision then forced Phase 11's migration squash, because a `dev` image
+published on every merge is how a database other than ours comes to exist, and the squash is free
+only until one does. It was taken here.
 
 **So the table is in number order and the `Done` column carries the running order**, because those
 are two different questions and one table answering both by sorting would have to give up the
@@ -3515,7 +3516,7 @@ numbering. What is finished is a column; what happens next is the first row with
 | 9c | Show detail dialog | ✅ | A row opens a dialog that argues for the title: poster, synopsis, genres, studio, and the score with its reason |
 | 10 | Settings page | ▢ **next** | One page for preferences; operator configuration shown and not editable |
 | 10a | Per-source settings to the file | ✅ | `SourceSyncSettings` deleted; every sync setting read from `userconfig.json` |
-| 11 | Docker + README | ◐ | Migrations squashed to one baseline; compose up, health check, container recreated without data loss |
+| 11 | Docker + README | ✅ | Migrations squashed to one baseline; compose up, health check, container recreated without data loss |
 | 12 | Optional auth | ▢ | A single-user login can be turned on; off by default, and off is still a supported deployment |
 | 13 | CI | ✅ | Build and tests on every push and PR; `dev` published on every merge, a version and `latest` only from a tag on `main` (D56) |
 | 14 | Security pass | ▢ | §6's high-risk surfaces reviewed against the finished application; release gate opens |
@@ -4614,17 +4615,24 @@ Skipping it costs almost nothing — a slightly longer history and one redundant
 create-and-drop. It is a tidiness measure, not a correctness one. But it can only be done
 here, so it is listed as a gate rather than left to judgement.
 
+**Taken, and it cost one test file rather than nothing.** Twenty migrations became one
+`InitialCreate`, and the regenerated model snapshot came out byte-identical to the one it
+replaced — which is the check worth doing here, because an identical snapshot proves the squash
+changed no part of the schema. What it did change is what can be *tested*.
+`FranchiseExpansionMigrationTests` migrated a database to `DropManualPriority`, wrote franchise
+rows as SQL because the current model cannot express them, and migrated up through both the D15
+expansion and the D23 drop. Neither migration exists now, so the class no longer runs, and its
+subject — an upgrade path out of a schema no database is in — went with them. Deleted rather than
+ported, per §12's rule against a test that cannot fail. The Infrastructure suite lost those five
+tests and about twenty seconds with them, because each one applied every migration in turn.
+
 Final gate: Release build, full test run, image build, `docker compose up -d`, health check
 verified, **container recreated and the database confirmed intact**.
 
-**What landed, and what is still open.** The image, the compose file, `/health` and the README
-section are in. Two things named above are not:
-
-- **The migration squash.** Not taken. D56 moves its deadline from the first release to the
-  first `dev` image deployed against a volume anybody minds losing, which makes it a decision to
-  take deliberately rather than a step that was missed.
-- **Optional single-user auth** (Phase 12), which will put a login in front of everything except
-  `/health` — the compose health check reaches it before anybody has logged in.
+**What landed.** The image, the compose file, `/health`, the README section and the squash. The
+one thing named above still ahead of this phase is **optional single-user auth** (Phase 12),
+which will put a login in front of everything except `/health` — the compose health check reaches
+it before anybody has logged in.
 
 **The final gate was run and passed.** Release build, 845 tests, `docker compose up -d --build`,
 `docker ps` reporting `healthy` rather than merely `Up`, and the container brought down and up
@@ -5333,11 +5341,12 @@ the shortest chip, which is "TV".
 the facts one tap away in the dialog; navigation is five thumb-reachable tabs; `IsHidden` appears
 nowhere in the codebase; and the desktop layout has lost nothing it had before.
 
-*Met, with one precise exception.* `IsHidden` survives in the migration history — the initial
-create, every designer snapshot after it, and the migration that drops the column — because those
-record schemas as they were and rewriting them would make a record of the past disagree with the
-past. The live model, the services, the pages and the stylesheet have none. The one test that names
-it inserts against a pre-D15 schema on purpose.
+*Met, and the one exception it had has since closed.* `IsHidden` survived in the migration
+history — the initial create, every designer snapshot after it, and the migration that dropped the
+column — because those recorded schemas as they were, and rewriting them would have made a record
+of the past disagree with the past. Phase 11's squash replaced that history with a single baseline
+describing the shipping schema, in which the column never existed. The only mention left in the
+codebase is the comment in `LibraryEntry` saying why there is none.
 
 ---
 
@@ -5405,10 +5414,11 @@ Phase 5 adds, and these are load-bearing rather than decorative:
 Phase 6 adds:
 
 - **6a proves a subtraction.** Nothing new is asserted; the franchise tests are deleted with
-  their subjects rather than ported. What must stay green is the migration applying to a fresh
-  database and to a pre-D15 one — `FranchiseExpansionMigrationTests` now upgrades through both
-  the expansion and the drop in one run, seeding entirely in SQL because the current model can
-  express none of it.
+  their subjects rather than ported. What had to stay green was the migration applying to a fresh
+  database and to a pre-D15 one — `FranchiseExpansionMigrationTests` upgraded through both the
+  expansion and the drop in one run, seeding entirely in SQL because the current model can express
+  none of it. *Deleted by Phase 11's squash, which removed both migrations it named and with them
+  the upgrade path it existed to prove.*
 - **Parsing relations**, in Core against a committed fixture that is structurally faithful and
   fictional per §0: relation types mapped, unknown types dropped rather than stored as `Other`,
   manga nodes filtered out, a missing `startDate`, and **edge direction preserved as fetched**.
