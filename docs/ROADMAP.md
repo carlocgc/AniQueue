@@ -4629,7 +4629,8 @@ tests and about twenty seconds with them, because each one applied every migrati
 Final gate: Release build, full test run, image build, `docker compose up -d`, health check
 verified, **container recreated and the database confirmed intact**.
 
-**What landed.** The image, the compose file, `/health`, the README section and the squash. The
+**What landed.** The image, the compose file, `/health`, the README section, the squash, and a
+`Docker` launch profile that runs and debugs the production image from Visual Studio (§13). The
 one thing named above still ahead of this phase is **optional single-user auth** (Phase 12),
 which will put a login in front of everything except `/health` — the compose health check reaches
 it before anybody has logged in.
@@ -5976,6 +5977,14 @@ has every one of them.
 - Rebase onto `development` and resolve conflicts locally before opening a PR.
 - No new third-party dependency without explicit approval. SortableJS is the only one
   pre-approved, and only for Phase 4.
+- **Phase 11 takes the second approved dependency**, and it is worth stating what it buys.
+  `Microsoft.VisualStudio.Azure.Containers.Tools.Targets` is what makes Visual Studio's `Docker`
+  launch profile work against this repository's own Dockerfile. It is build-time only and ships
+  nothing into the published output, which was verified rather than assumed: the package name
+  appears nowhere in the container's `AniQueue.Web.deps.json`. What it buys that `docker compose
+  up` cannot is a breakpoint inside the container, which is where the deployment-only failures
+  live — volume permissions, the non-root user, forwarded headers. Version matched to the sibling
+  project already using it.
 - **Phase 6 needs no new dependency either.** Pacing the relation backfill is tested against
   `TimeProvider`, which is in the box, so nothing was needed to avoid sleeping in tests.
 - **Phase 8 needs no new dependency either.** A chat-completions call is an HTTP POST with a JSON
@@ -6005,9 +6014,23 @@ has every one of them.
 - **The inner loop is `F5` on `AniQueue.Web`, not Docker.** Container debugging in
   Blazor Server adds a rebuild cycle per change for no diagnostic benefit. Docker is a
   Phase 11 deliverable and a pre-release gate, not the daily loop.
-- **Do not accept Visual Studio's generated Dockerfile.** Container Tools writes a
-  debug-oriented file tuned for its fast-mode volume mount. Phase 11 writes a production
-  multi-stage one (SDK build → `aspnet` runtime, non-root, no SDK in the final layer).
+- **Do not accept Visual Studio's generated Dockerfile**, and that is not the same as declining
+  Visual Studio's Docker integration. Container Tools offers to *write* a Dockerfile tuned for
+  its own fast-mode volume mount; Phase 11 writes the production one (SDK build → `aspnet`
+  runtime, non-root, no SDK in the final layer) and VS is pointed at that instead, through
+  `DockerfileFile` and `DockerfileContext` in `AniQueue.Web.csproj` and a `Docker` launch profile.
+
+  **Fast mode targets the first stage in the file**, which is why the production Dockerfile leads
+  with `base` — the runtime image — rather than with `build`. Put the SDK stage first and pressing
+  F5 on the Docker profile debugs inside a compiler image.
+
+  **The profile deliberately does not set `ASPNETCORE_ENVIRONMENT`.** Development would apply
+  `appsettings.Development.json`, whose `Database:Path` is `./data/aniqueue.db` — a path that
+  means the repository on this machine and means nothing useful inside a container. Left unset,
+  the container reads `/data/aniqueue.db` as a deployment does.
+
+  `DockerfileRunArguments` mounts `aniqueue-vs-data`, a volume of its own, so a debugging session
+  cannot write into the one a real deployment is using.
 - `AniQueue.Web` is the single startup project; no multi-project startup is needed.
 - **EF tooling is a pinned local tool**, not a global install: `.config/dotnet-tools.json`
   fixes `dotnet-ef` at the same version as the EF packages. Run `dotnet tool restore` once

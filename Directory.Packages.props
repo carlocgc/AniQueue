@@ -18,6 +18,21 @@
     <PackageVersion Include="Microsoft.EntityFrameworkCore.Design" Version="10.0.11" />
   </ItemGroup>
 
+  <!--
+    Visual Studio Container Tools. Build-time only: it contributes the targets that
+    let VS build, run and attach to the Dockerfile from the Docker launch profile,
+    and ships nothing into the published output.
+
+    Approved as an exception to §12 rather than smuggled in, and it buys the one
+    thing `docker compose up` cannot: a breakpoint inside the container, which is
+    where the deployment-only failures live — volume permissions, the non-root
+    user, forwarded headers. Version matched to the sibling project that already
+    uses it.
+  -->
+  <ItemGroup>
+    <PackageVersion Include="Microsoft.VisualStudio.Azure.Containers.Tools.Targets" Version="1.20.1" />
+  </ItemGroup>
+
   <!-- Testing. The .NET 10 xunit template emits xUnit v2, not v3. -->
   <ItemGroup>
     <PackageVersion Include="coverlet.collector" Version="6.0.4" />

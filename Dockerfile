@@ -2,12 +2,47 @@
 # nearly ten times the size of the runtime and carries a compiler, so it builds
 # and is then left behind (§13).
 #
-# Visual Studio's Container Tools will offer to write this file. Do not accept it
-# — its version is tuned for fast-mode debugging with a volume mount, which is a
-# different job from shipping.
+# **Written here, not generated.** §13 says not to accept the Dockerfile Visual
+# Studio's Container Tools offers to write, and that still holds — this file is
+# the production one and VS points at it rather than replacing it. What VS does
+# need is the stage order below: its fast-mode debugging targets the *first*
+# stage in the file, so `base` comes first and is the runtime image. Put `build`
+# first and pressing F5 on the Docker profile would debug inside the SDK image.
 
 # ---------------------------------------------------------------------------
-# Build
+# base — the runtime, and what Visual Studio attaches to
+# ---------------------------------------------------------------------------
+FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS base
+
+# curl is here for one reason: the health check below runs *inside* the
+# container, and the aspnet image ships neither curl nor wget. A few megabytes
+# buys a container that reports itself unhealthy rather than merely running, and
+# gives an operator something to debug a reverse proxy with.
+RUN apt-get update \
+    && apt-get install --yes --no-install-recommends curl \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+# 8080 rather than 80, because a non-root process cannot bind a privileged port.
+ENV ASPNETCORE_HTTP_PORTS=8080
+EXPOSE 8080
+
+# The volume holding everything that must outlive the container: the SQLite
+# database, the userconfig.json written beside it (D20), the cached cover art
+# under /data/art (D47) and the signing keys under /data/keys. Created and owned
+# here so that a *named* volume inherits the ownership from the image — a bind
+# mount does not, and its host directory has to be chowned to this UID by hand
+# (§9). That is the Unraid case, and the README says so.
+#
+# APP_UID is defined by the base image as 1654. Named explicitly rather than
+# assumed, so the number the README tells people to chown to comes from the same
+# place the container actually uses.
+RUN mkdir -p /data && chown -R $APP_UID:$APP_UID /data
+USER $APP_UID
+
+# ---------------------------------------------------------------------------
+# build
 # ---------------------------------------------------------------------------
 FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
 WORKDIR /src
@@ -33,37 +68,11 @@ RUN dotnet publish src/AniQueue.Web/AniQueue.Web.csproj \
     -p:UseAppHost=false
 
 # ---------------------------------------------------------------------------
-# Runtime
+# final — what is published and what compose runs
 # ---------------------------------------------------------------------------
-FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS final
-
-# curl is here for one reason: the health check below runs *inside* the
-# container, and the aspnet image ships neither curl nor wget. A few megabytes
-# buys a container that reports itself unhealthy rather than merely running, and
-# gives an operator something to debug a reverse proxy with.
-RUN apt-get update \
-    && apt-get install --yes --no-install-recommends curl \
-    && rm -rf /var/lib/apt/lists/*
-
+FROM base AS final
 WORKDIR /app
 COPY --from=build /app/publish ./
-
-# 8080 rather than 80, because a non-root process cannot bind a privileged port.
-ENV ASPNETCORE_HTTP_PORTS=8080
-EXPOSE 8080
-
-# The volume holding everything that must outlive the container: the SQLite
-# database, the userconfig.json written beside it (D20), and the cached cover art
-# under /data/art (D47). Created and owned here so that a *named* volume inherits
-# the ownership from the image — a bind mount does not, and its host directory
-# has to be chowned to this UID by hand (§9). That is the Unraid case, and the
-# README says so.
-#
-# APP_UID is defined by the base image as 1654. Named explicitly rather than
-# assumed, so the number the README tells people to chown to comes from the same
-# place the container actually uses.
-RUN mkdir -p /data && chown -R $APP_UID:$APP_UID /data
-USER $APP_UID
 
 # --start-period covers migrate-on-boot: a first run against an empty volume
 # applies every migration before anything serves, and a container reported

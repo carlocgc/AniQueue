@@ -70,6 +70,16 @@ To build the image from a checkout instead of pulling it:
 docker compose up -d --build
 ```
 
+### From Visual Studio
+
+There is a **Docker** profile in the run dropdown. It builds and runs this same Dockerfile — not
+one Container Tools writes for you — and attaches the debugger, so a breakpoint can be hit inside
+the container. It needs the *Container development tools* component installed with Visual Studio.
+
+It uses a volume of its own, so a debugging session cannot write into the data a real deployment
+is using. The ordinary inner loop is still `F5` on `AniQueue.Web` without a container; this is for
+the failures that only happen inside one.
+
 ### What is in the volume
 
 Everything that must survive the container: `aniqueue.db`, the `userconfig.json` you edit when

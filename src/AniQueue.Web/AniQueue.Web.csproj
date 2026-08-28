@@ -11,6 +11,29 @@
     <BlazorDisableThrowNavigationException>true</BlazorDisableThrowNavigationException>
   </PropertyGroup>
 
+  <!--
+    Visual Studio's Docker launch profile. It points at the repository's own
+    Dockerfile rather than one Container Tools writes (§13), which is why both a
+    file and a context are given: the Dockerfile lives at the repository root
+    because restore needs the two Directory.*.props beside the projects.
+
+    DockerfileRunArguments gives a VS run the same persistent volume compose
+    gives, on its own name so a debugging session cannot write into the volume a
+    real deployment is using.
+  -->
+  <PropertyGroup>
+    <DockerDefaultTargetOS>Linux</DockerDefaultTargetOS>
+    <DockerfileFile>..\..\Dockerfile</DockerfileFile>
+    <DockerfileContext>..\..</DockerfileContext>
+    <DockerfileRunArguments>-v aniqueue-vs-data:/data</DockerfileRunArguments>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Build-time only: it contributes the targets VS uses to build, run and
+         attach to the container, and ships nothing into the published output. -->
+    <PackageReference Include="Microsoft.VisualStudio.Azure.Containers.Tools.Targets" />
+  </ItemGroup>
+
   <ItemGroup>
     <!-- Design-time only. `dotnet ef` builds the migration model through the
          startup project's DI, so the tooling package has to be referenced here
