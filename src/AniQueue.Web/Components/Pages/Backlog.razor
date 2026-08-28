@@ -43,6 +43,32 @@ else if (Facets.IsEmpty)
 }
 else
 {
+    @* The six counters, which were the whole of the Dashboard until 18a deleted it.
+       They are a health check — did the sync bring everything in — and this is where
+       that question gets asked, above the list the answer is about.
+
+       Read from the facets the filter bar below is already using rather than from a
+       second query. They are the same numbers: the status picker's options carry
+       these counts, and a picker whose numbers disagreed with the row above it would
+       be worse than either alone. *@
+    <div class="stat-row">
+        <div class="stat">
+            <div class="value">@Facets.CountByStatus.Values.Sum()</div>
+            <div class="label">In library</div>
+        </div>
+        @foreach (var (status, label) in Counters)
+        {
+            <div class="stat">
+                @* Absent statuses read as zero rather than being left out. A count of
+                   nothing is an answer to "did it all come in", and a row that changed
+                   shape with the library would be harder to read at a glance than one
+                   that does not. *@
+                <div class="value">@Facets.CountByStatus.GetValueOrDefault(status)</div>
+                <div class="label">@label</div>
+            </div>
+        }
+    </div>
+
     <div class="card filters">
         <div class="toolbar">
             <input type="search" placeholder="Search titles" value="@_query.Search"
@@ -476,6 +502,24 @@ else
         decade < 2000
             ? $"{decade % 100:00}s"
             : $"{decade}s";
+
+    /// <summary>
+    /// The five statuses the counter row names, in the order it names them.
+    /// </summary>
+    /// <remarks>
+    /// Written out rather than taken from <c>Enum.GetValues</c>, because the order is
+    /// a reading order — what you are watching, then what is waiting, then what is
+    /// done — and the enum's is a storage order that D22 fixed for a different reason.
+    /// "Backlog" rather than "Planning" for the same word the page's own heading uses.
+    /// </remarks>
+    private static readonly (LibraryStatus Status, string Label)[] Counters =
+    [
+        (LibraryStatus.Watching, "Watching"),
+        (LibraryStatus.Planning, "Backlog"),
+        (LibraryStatus.Completed, "Completed"),
+        (LibraryStatus.OnHold, "On hold"),
+        (LibraryStatus.Dropped, "Dropped")
+    ];
 
     private static string MediaTypeLabel(MediaType mediaType) => mediaType switch
     {

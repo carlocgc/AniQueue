@@ -1070,26 +1070,38 @@ tr.muted td { opacity: 0.6; }
    row needs: a state that reads as live, an outcome that reads as good or bad,
    and a switch that is a checkbox with its label off-screen. */
 
-/* Fixed layout, and the reason is the "off" badge. With automatic layout the
-   columns are sized from their content, so switching a task off widened the task
-   column by the badge and shoved State and Last run to the right — every row
-   moving because one checkbox changed. Only the longest name did it, which made it
-   look like a bug in that row rather than in the table.
+/* A task is a card, by the rule 18d applied to the two lists: a table that scrolls
+   sideways is right for something read and wrong for something acted on, and this
+   one held Run now and a power button at a 40rem minimum in a 309px window.
 
-   Same treatment as .ranking, and the same caveat: fixed layout divides the width
-   it is given, so below the min-width the wrap scrolls instead. */
-table.tasks { table-layout: fixed; min-width: 40rem; }
+   It also ends the problem the fixed layout existed for. Switching a task off used
+   to widen the first column by the "off" badge and shove every other column right —
+   every row moving because one control changed, and only on the longest name, which
+   made it look like a bug in that row. The badge is gone: the power button says the
+   same thing, in the place it is changed from. */
+.task-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
 
-table.tasks th:nth-child(1), table.tasks td:nth-child(1) { width: 14rem; }
-table.tasks th:nth-child(2), table.tasks td:nth-child(2) { width: 8rem; }
-table.tasks th:nth-child(4), table.tasks td:nth-child(4) { width: 11rem; }
+.task-card {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    padding: 0.6rem 0.75rem;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+}
 
-table.tasks th[scope="row"] { text-transform: none; font-size: 0.92rem; color: var(--text); }
+/* min-width so the two halves stay side by side until the words genuinely will not
+   fit, and wrap together rather than a character at a time when they do not. */
+.task-main { flex: 1 1 14rem; min-width: 0; }
 
-/* Middle-aligned, unlike the tables of text elsewhere: a row here is one line of
-   status against a control that is two lines tall, and top alignment left the
-   buttons floating above the words they act on. */
-table.tasks td { vertical-align: middle; }
+.task-name { margin: 0; font-size: 0.95rem; }
+
+.task-state { margin: 0.15rem 0 0; font-size: 0.9rem; }
+
+.task-actions { display: flex; align-items: center; gap: 0.5rem; }
 
 table.runs th:nth-child(2), table.runs td:nth-child(2),
 table.runs th:nth-child(3), table.runs td:nth-child(3) { white-space: nowrap; }
@@ -1100,7 +1112,7 @@ table.runs th:nth-child(3), table.runs td:nth-child(3) { white-space: nowrap; }
 
 .outcome.stopped { color: var(--text-muted); }
 
-/* Wraps under the row it explains rather than widening the column. */
+/* Wraps under the task it explains rather than widening anything. */
 p.failure { margin: 0.25rem 0 0; font-size: 0.85rem; }
 
 /* Sources: the one destructive action, and the one inline wait (Phase 15e).
@@ -1600,3 +1612,43 @@ button.danger:hover:not(:disabled) { filter: brightness(0.95); }
 }
 
 .entry-card.drag-chosen { background: var(--surface-alt); }
+
+/* Every control is a thumb target on a phone ------------------------------- */
+
+/* Phase 18's exit says no control under 44px on a 375px screen, and 18d met it a
+   card at a time. What was left over is everything else: a worded button is 39px,
+   a filter chip 30px and an icon button 30px, and on a page of a dozen chips that
+   is a dozen things to miss.
+
+   Raised at the narrow breakpoint rather than everywhere, because 44px is a figure
+   about fingers. A mouse hits 39px exactly as well as 44, and growing every button
+   on a desktop page would cost vertical space to solve a problem that is not there.
+
+   Height only. Widths are already set by content or by a grid, and forcing a
+   minimum width would turn a row of chips into a row of gaps. */
+@media (max-width: 720px) {
+    button,
+    .button,
+    .chip,
+    select,
+    input[type="search"],
+    input[type="text"],
+    input[type="number"] {
+        min-height: 44px;
+    }
+
+    /* Square, because these are glyphs rather than words: a 44px-tall close cross
+       11px wide is a target that is only half there. The shortest chip is "TV",
+       which came out 40px wide for the same reason. */
+    button.icon, .chip { min-width: 44px; }
+
+    /* The tick boxes and radios a browser draws itself. The label beside one is part
+       of the target, so the row is what has to be big enough. */
+    .field label:has(> input[type="checkbox"]),
+    .field label:has(> input[type="radio"]) {
+        display: flex;
+        align-items: center;
+        gap: 0.4rem;
+        min-height: 44px;
+    }
+}
