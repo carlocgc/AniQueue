@@ -38,11 +38,17 @@ public sealed record LibraryListItem
     /// <summary>Whether this title already occupies a slot in the Up Next queue.</summary>
     public bool IsQueued { get; init; }
 
-    /// <summary>The hash of the cached poster, or null while there is not one.</summary>
+    /// <summary>The hash of the cached thumbnail, or null while there is not one.</summary>
     public string? CoverContentHash { get; init; }
 
-    /// <summary>The cached poster's extension, which travels in its served URL.</summary>
+    /// <summary>The cached thumbnail's extension, which travels in its served URL.</summary>
     public string? CoverFileExtension { get; init; }
+
+    /// <summary>The hash of the full-size poster, or null while there is not one.</summary>
+    public string? PosterContentHash { get; init; }
+
+    /// <summary>The full-size poster's extension, which travels in its served URL.</summary>
+    public string? PosterFileExtension { get; init; }
 
     /// <summary>The dominant colour of the cover, as the source published it.</summary>
     public string? CoverImageColor { get; init; }
@@ -52,13 +58,29 @@ public sealed record LibraryListItem
     /// </summary>
     /// <remarks>
     /// Computed here rather than in markup for the reason §3 gives about components —
-    /// no logic in a <c>.razor</c> file — and the three columns above are what the
-    /// query carries so that the page needs no second lookup per row. Nothing here
-    /// reaches the filesystem: the endpoint answers a miss with a 404 and the job
-    /// repairs the row, which keeps I/O out of a render that happens on every paint.
+    /// no logic in a <c>.razor</c> file — and the columns above are what the query
+    /// carries so that the page needs no second lookup per row. Nothing here reaches
+    /// the filesystem: the endpoint answers a miss with a 404 and the job repairs the
+    /// row, which keeps I/O out of a render that happens on every paint.
+    ///
+    /// <b>The full-size poster first, the thumbnail while it has not arrived.</b>
+    /// D47 chose the thumbnail for a list and was right about the list it was
+    /// looking at: fifty rows of a wide table, each showing a 40px sliver. 18d made
+    /// the picture the leading element of a card, and a 64px slot on a three-times
+    /// phone screen wants around 192px of image against the thumbnail's 100 —
+    /// visibly soft at exactly the element being promoted. Both renditions are
+    /// already on disk, and this is served over a LAN.
+    ///
+    /// The fallback is the same four steps the dialog takes, and the second one
+    /// matters as much here: a fresh install has thumbnails for minutes before it
+    /// has posters, and a page of colour blocks during that window would look broken
+    /// rather than pending (D48).
     /// </remarks>
-    public CoverArt Cover => CoverImageResolver.ForAnime(
-        AnimeId, CoverContentHash, CoverFileExtension, CoverImageColor);
+    public CoverArt Cover => PosterContentHash is { Length: > 0 }
+        ? CoverImageResolver.ForAnime(
+            AnimeId, PosterContentHash, PosterFileExtension, CoverImageColor, ImageKind.Poster, ImageRendition.Full)
+        : CoverImageResolver.ForAnime(
+            AnimeId, CoverContentHash, CoverFileExtension, CoverImageColor);
 
     /// <summary>Estimated minutes to watch, or null when it cannot be known.</summary>
     public int? EstimatedRuntimeMinutes => RuntimeCalculator.Estimate(EpisodeCount, EpisodeDurationMinutes);

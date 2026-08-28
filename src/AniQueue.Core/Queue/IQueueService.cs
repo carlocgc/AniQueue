@@ -76,15 +76,28 @@ public sealed record QueueListItem
     /// <summary>The hash of the cached poster, or null while there is not one.</summary>
     public string? CoverContentHash { get; init; }
 
-    /// <summary>The cached poster's extension, which travels in its served URL.</summary>
+    /// <summary>The cached thumbnail's extension, which travels in its served URL.</summary>
     public string? CoverFileExtension { get; init; }
+
+    /// <summary>The hash of the full-size poster, or null while there is not one.</summary>
+    public string? PosterContentHash { get; init; }
+
+    /// <summary>The full-size poster's extension, which travels in its served URL.</summary>
+    public string? PosterFileExtension { get; init; }
 
     /// <summary>The dominant colour of the cover, as the source published it.</summary>
     public string? CoverImageColor { get; init; }
 
-    /// <summary>What this row should render for art (D47). See LibraryListItem.Cover.</summary>
-    public CoverArt Cover => CoverImageResolver.ForAnime(
-        AnimeId, CoverContentHash, CoverFileExtension, CoverImageColor);
+    /// <summary>
+    /// What this row should render for art (D47). See LibraryListItem.Cover, which
+    /// carries the argument for the full-size poster and for falling back to the
+    /// thumbnail while it has not arrived.
+    /// </summary>
+    public CoverArt Cover => PosterContentHash is { Length: > 0 }
+        ? CoverImageResolver.ForAnime(
+            AnimeId, PosterContentHash, PosterFileExtension, CoverImageColor, ImageKind.Poster, ImageRendition.Full)
+        : CoverImageResolver.ForAnime(
+            AnimeId, CoverContentHash, CoverFileExtension, CoverImageColor);
 
     /// <summary>Links out to every site that knows this title, in a stable order.</summary>
     public IReadOnlyList<SourceLink> SourceLinks => SourceLinkBuilder.ForAnime(ExternalIds);

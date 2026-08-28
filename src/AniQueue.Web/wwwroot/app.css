@@ -426,13 +426,6 @@ h2 > .badge { font-size: 0.7rem; vertical-align: middle; margin-left: 0.5rem; fo
 .actions-col { width: 1%; white-space: nowrap; }
 
 .row-actions { display: flex; gap: 0.15rem; justify-content: flex-end; }
-
-/* Adding used to lead the row while hiding ended it, with the whole table between
-   them: they had been neighbours, two icon buttons of the same size with nothing
-   but aim separating the action done constantly from the one that took a title out
-   of the list. Phase 18b deleted hiding and adding kept the lead. */
-.add-col { width: 1%; padding-right: 0.2rem; }
-
 /* Adding is the one action on this page anybody does repeatedly, so it is the one
    that answers on hover. Disabled it stays put and stays quiet — the tooltip is
    carrying the reason. */
@@ -632,18 +625,6 @@ button:has(> .icon-glyph), .button:has(> .icon-glyph) {
 
 /* Up Next ----------------------------------------------------------------- */
 
-/* The queue is read as an ordered list, so the number is what the eye lands on
-   first. Tabular figures stop the column jittering between 9 and 10. */
-.queue .position-col {
-    width: 1%;
-    padding-right: 1rem;
-    font-variant-numeric: tabular-nums;
-    color: var(--text-muted);
-}
-
-.queue .handle-col { width: 1%; padding-right: 0; }
-
-/* Mouse and touch only. The move buttons are the keyboard path and always will
    be (§39), so the grip is aria-hidden and never takes focus. */
 .drag-handle {
     display: inline-flex;
@@ -664,16 +645,6 @@ button:has(> .icon-glyph), .button:has(> .icon-glyph) {
    touch-action: auto and scrolled the page instead of starting a drag — on exactly
    the device this was drawn for. */
 .drag-handle .icon-glyph { pointer-events: none; }
-
-/* The gap the row will drop into. Outlined rather than filled: a solid block
-   reads as the row itself having moved, when it has not yet. */
-.queue tr.drag-ghost {
-    opacity: 0.4;
-    outline: 2px dashed var(--accent);
-    outline-offset: -2px;
-}
-
-.queue tr.drag-chosen { background: var(--surface-alt); }
 
 /* Checkbox and its label as one target, aligned with the controls beside it. */
 .inline-check {
@@ -1148,11 +1119,10 @@ button.danger:hover:not(:disabled) { filter: brightness(0.95); }
     vertical-align: middle;
 }
 
-/* Cover art (D47). A fixed 40×60 box on every row whether or not there is a picture
-   in it, because a column that changes width as pictures arrive would reflow the
-   table under the cursor for the whole of a first pass. */
-.cover-col { width: 1%; padding-right: 0.4rem; }
-
+/* Cover art (D47). A box of a fixed size whether or not there is a picture in it,
+   because one that changed size as pictures arrive would reflow the list under the
+   cursor for the whole of a first pass. The 40×60 here is what the relations list
+   in the dialog uses; a card overrides it to 64×96. */
 .cover-thumb {
     display: block;
     width: 40px;
@@ -1181,13 +1151,6 @@ button.danger:hover:not(:disabled) { filter: brightness(0.95); }
 /* A colour block is a filled rectangle and reads as one; an empty one reads as a
    missing image, so it is quieter than the border alone would make it. */
 .cover-thumb-empty { opacity: 0.55; }
-
-@media (max-width: 720px) {
-    /* The narrow layout is already fighting for width and the title is the thing
-       being read. Art is an aid to scanning a long list, which is not what this
-       viewport is doing. */
-    .cover-col { display: none; }
-}
 
 /* Show detail dialog ------------------------------------------------------ */
 
@@ -1444,101 +1407,172 @@ button.danger:hover:not(:disabled) { filter: brightness(0.95); }
     /* The float comes off entirely and the poster stacks above everything. Wrapping
        text around a picture needs a channel wide enough to hold a line; at 375px the
        remainder would be four or five words per line, which is worse than no wrap at
-       all. Deliberately unlike .cover-col, which is hidden outright at this width: a
-       list thumbnail is an aid to scanning that the narrow layout is not doing, while
-       this poster is most of what the dialog is for. */
+       all. The list thumbnail used to be hidden outright at this width; 18d made it
+       the leading element of a card instead, and this poster is still bigger again
+       because it is most of what the dialog is for. */
     .detail-poster {
         float: none;
         width: min(230px, 60vw);
         margin: 0 0 var(--gap);
     }
 }
+/* The two lists are cards, not tables ------------------------------------- */
 
-/* Narrow screens: the two lists stop being tables -------------------------- */
+/* Measured at 375px before any of this existed (D54). The backlog was a 710px table
+   in a 309px window and the queue a 499px one, so a phone showed two icon buttons
+   and a title squeezed to 98px, and the queue's reorder controls started 42px past
+   the right edge. D54 answered it by making a table behave like something it is not:
+   display: block on every part, a zero-height ::after to force a line break, an
+   order on every cell, and the cover column hidden at exactly the width where the
+   picture is the most useful thing on the row.
 
-/* Measured at 375px before any of this existed (D54). The backlog was a 710px
-   table in a 309px window and the queue a 499px one — so on a phone the backlog
-   showed two icon buttons and a title squeezed to 98px, and the queue's five
-   reorder controls started 42px past the right edge and were unreachable. The page
-   whose whole job is ordering a queue could not order it.
+   18d deleted all of that by deleting the table. What is left is one grid that gains
+   a column at the wider breakpoint, which is what "mobile first with desktop
+   expansion" means here — and it is why the table had to go, because a table cannot
+   gain a column at a breakpoint without the cell already existing in every row. */
 
-   A table that scrolls sideways is the right answer for something read — the task
-   list and the ranking preview keep it. It is the wrong answer for a row somebody
-   acts on, because the control and the thing it acts on cannot be on screen at the
-   same time. So these two become stacked rows instead: the title and the controls
-   on the first line, the metadata wrapped underneath. */
-@media (max-width: 720px) {
-    table.library, table.library tbody, table.library tr, table.library td,
-    table.queue, table.queue tbody, table.queue tr, table.queue td { display: block; }
+.entry-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: grid;
 
-    /* The header row goes with the columns it labelled. What is still ambiguous
-       without it carries a data-label below. */
-    table.library thead, table.queue thead { display: none; }
+    /* Tighter than it looks like it wants to be. At 237 rows every 20px of card
+       height is another 4,700px of scrolling. */
+    gap: 8px;
+}
 
-    table.library tbody tr, table.queue tbody tr {
-        display: flex;
-        flex-wrap: wrap;
-        align-items: center;
-        gap: 0.3rem 0.75rem;
-        padding: 0.65rem 0;
-        border-bottom: 1px solid var(--border);
-    }
+/* A card, not a hairline-divided row: a divided row still reads as a table after the
+   table has gone, and a card is a larger and more obvious thing to tap. */
+.entry-card {
+    display: grid;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.5rem 0.6rem;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+}
 
-    /* Metadata by default: quieter than the title, and ordered after it. The four
-       cells that lead a row override this below. */
-    table.library tbody td, table.queue tbody td {
-        order: 6;
-        display: inline-flex;
-        align-items: center;
-        gap: 0.3rem;
-        padding: 0;
-        border: none;
+/* The tracks are written per list and per width rather than derived, because the two
+   lists genuinely differ: the queue leads with a grip and ends with two controls, and
+   the backlog has one of each. Four templates is more honest than one template with
+   empty cells in it — which is the table this phase deleted.
+
+   Backlog: poster, title, [facts], score, add.
+   Queue:   grip, poster, title, [facts], [reorder], remove. */
+.entry-list:not(.queue) .entry-card { grid-template-columns: auto 1fr auto auto; }
+
+.entry-list.queue .entry-card { grid-template-columns: auto auto 1fr auto; }
+
+/* The poster, and whatever sits over it. */
+.entry-art { position: relative; display: block; }
+
+/* Big enough to recognise art by, which is the whole reason it leads the card. The
+   thumbnail rendition is 100px and looked soft here, so the row reads the full-size
+   poster and falls back (D47, 18d). */
+.entry-card .cover-thumb {
+    width: 64px;
+    height: 96px;
+    border-radius: 4px;
+}
+
+.entry-card .cover-thumb img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+    border-radius: inherit;
+}
+
+/* Over the corner rather than in a column of its own: position is the whole meaning
+   of Up Next, and a column would cost 30px of every card at the width where there is
+   least. Its own background because it sits on artwork nobody chose. */
+.entry-position {
+    position: absolute;
+    left: 0;
+    bottom: 0;
+    min-width: 1.4rem;
+    padding: 0 0.25rem;
+    background: rgb(0 0 0 / 0.66);
+    color: #fff;
+    font-size: 0.75rem;
+    font-variant-numeric: tabular-nums;
+    text-align: center;
+    border-radius: 0 4px 0 4px;
+}
+
+/* min-width: 0 so a long title wraps inside the card rather than widening it. */
+.entry-main { min-width: 0; display: grid; gap: 0.2rem; }
+
+/* A control, so it is a control-sized target. The text is 20px tall and the card is
+   114px, so the height is free — and the title is the most-pressed thing on the card
+   after the add button, because it is what opens the dialog everything else moved
+   into (18c). */
+.entry-title {
+    display: flex;
+    align-items: center;
+    min-height: 2.75rem;
+    font-weight: 500;
+    line-height: 1.3;
+    text-align: left;
+}
+
+.entry-badges { display: flex; flex-wrap: wrap; gap: 0.3rem; }
+
+/* The facts the dialog states in full. Absent below 720px, where the card holds a
+   picture, a title, a status, a score and an action and nothing else fits. */
+.entry-facts { display: none; margin: 0; }
+
+/* One number, large enough to run the eye down. Tabular figures so a column of them
+   lines up without a table to line them up in. */
+.entry-score {
+    margin: 0;
+    min-width: 2.2rem;
+    text-align: right;
+    font-size: 1.15rem;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+}
+
+/* The model's guess is drawn as a guess. Weight and colour, not colour alone. */
+.entry-score.predicted { color: var(--text-muted); font-weight: 500; }
+
+/* The published thumb target, which the 1.9rem icon button is not. It applies to the
+   add button, the remove and the grip alike — every control a phone has to hit. */
+.entry-card button.icon,
+.entry-card .drag-handle {
+    min-width: 44px;
+    min-height: 44px;
+}
+
+/* The keyboard path, and only where a keyboard is (§39, 18d). A thumb drags the grip
+   instead; four 20px arrows on a phone would be four things too small to hit. */
+.entry-card .queue-actions { display: none; }
+
+@media (min-width: 721px) {
+    /* The extra areas, and the whole of "desktop expansion": the facts appear, and
+       the queue gets its reorder buttons back. */
+    .entry-list:not(.queue) .entry-card { grid-template-columns: auto 1fr auto auto auto; }
+
+    .entry-list.queue .entry-card { grid-template-columns: auto auto 1fr auto auto auto; }
+
+    .entry-facts {
+        display: block;
         color: var(--text-muted);
         font-size: 0.85rem;
+        white-space: nowrap;
     }
 
-    /* Art is an aid to scanning a long list, which is not what this viewport is
-       doing — the same call the wide rule above makes, restated because the block
-       above it is more specific and would otherwise put the thumbnail back. */
-    table.library td.cover-col, table.queue td.cover-col { display: none; }
-
-    table.library tbody td[data-label]::before,
-    table.queue tbody td[data-label]::before {
-        content: attr(data-label);
-        opacity: 0.7;
-    }
-
-    /* Line one, in the order a hand reaches for it: what acts on the row, then
-       what the row is, then what removes it. */
-    table.library td.add-col, table.queue td.handle-col { order: 1; }
-    table.queue td.position-col { order: 2; }
-
-    table.library td.title-col, table.queue td.title-col {
-        order: 3;
-        flex: 1 1 8rem;
-        min-width: 0;
-        color: var(--text);
-        font-size: 0.95rem;
-    }
-
-    /* The break between the row and its metadata, and it has to be an item of its
-       own. Flex wraps where a line runs out, so with nothing full-width the metadata
-       crowds onto the title's line and the auto margin above has no space left to
-       push into — and making the first field full-width instead puts that one field
-       alone on a line of its own. A row is a flex container, so its ::after is a flex
-       item, and an item of no height that fills the line is a line break spelled the
-       only way this layout can spell one. */
-    table.library tbody tr::after, table.queue tbody tr::after {
-        content: "";
-        order: 5;
-        flex: 0 0 100%;
-        height: 0;
-    }
-
-    /* The queue's reorder controls are five buttons and will not share a line with
-       a title at this width. They take one of their own, below the metadata, which
-       is also the reading order: this is the row, this is what it is, this is where
-       you can send it. Drag still works where a pointer exists; these are what a
-       touch screen has instead. */
-    table.queue td.actions-col { order: 7; flex-basis: 100%; justify-content: flex-start; }
+    .entry-card .queue-actions { display: flex; }
 }
+
+/* The gap the card will drop into. Outlined rather than filled: a solid block reads
+   as the card itself having moved, when it has not yet. */
+.entry-card.drag-ghost {
+    opacity: 0.4;
+    outline: 2px dashed var(--accent);
+    outline-offset: -2px;
+}
+
+.entry-card.drag-chosen { background: var(--surface-alt); }

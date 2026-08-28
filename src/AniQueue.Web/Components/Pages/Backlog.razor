@@ -170,133 +170,75 @@ else
     }
     else
     {
-        <div class="card">
-            <div class="table-wrap">
-                @* Named so the narrow layout can find it (D54). Below 720px this and
-                   the queue stop being tables and become stacked rows; the ranking
-                   preview and the task list keep scrolling sideways, because they are
-                   read rather than acted on. *@
-                <table class="library">
-                    <thead>
-                        <tr>
-                            @* No header text on any control column: each holds a
-                               control per row, and naming them would put a word above
-                               fifty chevrons.
+        @* A list of cards, not a table (18d). The table earned nothing that was lost:
+           sorting is the select above, and nothing here is read across a row against
+           its neighbours. What it cost was every rule D54 wrote to make it behave like
+           something it is not — a zero-height ::after to force a line break, an order
+           on every cell, and a cover column hidden at exactly the width where the
+           picture is the most useful thing on the row.
 
-                               A hide button used to end the row, deliberately as far
-                               from the add button as the table is wide: both were
-                               small icons and only aim separated them. Phase 18b
-                               deleted hiding, so adding is the only action left. *@
-                            <th class="add-col"></th>
-                            @* Beside the title rather than leading the row: it is the
-                               same fact as the title, said faster (§10), so the two
-                               belong together and the control columns stay where the
-                               hand already expects them. *@
-                            <th class="cover-col"></th>
-                            <th>Title</th>
-                            <th>Type</th>
-                            <th class="numeric">Year</th>
-                            <th class="numeric">Runtime</th>
-                            <th>Status</th>
-                            <th>Progress</th>
-                            <th class="numeric">Score</th>
-                            @if (Facets.HasRecommendations)
+           Separated cards rather than divided rows, because a divided row still reads
+           as a table after the table has gone, and a card is a larger and more obvious
+           thing to tap. *@
+        <ul class="entry-list">
+            @foreach (var item in Page.Items)
+            {
+                <li class="entry-card">
+                    @* The picture leads, at every width. It is the fastest way to
+                       recognise a title you have seen the art for, and it is a pointer
+                       shortcut into the dialog — silent, because the title beside it
+                       carries the real name (D49). *@
+                    <CoverThumb Cover="item.Cover" OnActivate="() => ShowDetailAsync(item.AnimeId)" />
+
+                    <div class="entry-main">
+                        <button type="button"
+                                class="title-button entry-title"
+                                aria-label="Details for @item.Title"
+                                @onclick="() => ShowDetailAsync(item.AnimeId)">@item.Title</button>
+
+                        <div class="entry-badges">
+                            @* The one fact that changes what the row means, and the
+                               one the filter above acts on — seeing it is how somebody
+                               confirms the filter did what they asked. *@
+                            <span class="badge @item.Status.ToString().ToLowerInvariant()">@item.Status</span>
+
+                            @* Reads the page's own state rather than what the query
+                               returned, so a row acted on says so immediately without
+                               the list being re-read under the cursor (D26). *@
+                            @if (IsQueued(item.AnimeId))
                             {
-                                <th class="numeric">AI</th>
+                                <span class="badge queued" title="Already in Up Next">Queued</span>
                             }
-                        </tr>
-                    </thead>
-                    <tbody>
-                        @foreach (var item in Page.Items)
-                        {
-                            <tr>
-                                <td class="add-col">
-                                    @* Present on every row and disabled where it cannot
-                                       work, rather than absent: a control that comes and
-                                       goes down a column is harder to aim at than one
-                                       that is always in the same place, and a disabled
-                                       button carries the reason in its tooltip where an
-                                       absent one carries nothing. *@
-                                    <QueueButton AnimeId="item.AnimeId" Title="@item.Title"
-                                                 Status="item.Status" IsQueued="IsQueued(item.AnimeId)"
-                                                 OnToggle="ToggleQueuedAsync" />
-                                </td>
-                                <td class="cover-col">
-                                    <CoverThumb Cover="item.Cover" OnActivate="() => ShowDetailAsync(item.AnimeId)" />
-                                </td>
-                                <td class="title-col">
-                                    <div class="title-cell">
-                                        @* The row's one real control for opening the dialog. The
-                                           poster beside it is a pointer shortcut to the same
-                                           thing and disappears below 720px, so this is what has
-                                           to carry the accessible name (D49). *@
-                                        <button type="button"
-                                                class="title-button"
-                                                aria-label="Details for @item.Title"
-                                                @onclick="() => ShowDetailAsync(item.AnimeId)">@item.Title</button>
-                                        @* Both badges read the page's own state rather than
-                                           what the query returned, so a row acted on says so
-                                           immediately without the list being re-read under
-                                           the cursor (D26). *@
-                                        @if (IsQueued(item.AnimeId))
-                                        {
-                                            <span class="badge queued" title="Already in Up Next">Queued</span>
-                                        }
-                                    </div>
-                                    <div class="row-meta">
-                                        @* Free: the identifiers are already stored, so this is
-                                           formatting rather than a lookup.
+                        </div>
+                    </div>
 
-                                           One badge per site, because a title can be known to
-                                           more than one (D17) — anything AniList has bridged
-                                           carries a MyAnimeList id as well, and offering both
-                                           beats picking one.
+                    @* Its own column rather than a line under the title, and only
+                       where there is room for one. These are facts the dialog states
+                       in full; at desktop width the card has a column going spare and
+                       they are worth having at a glance, and on a phone they are four
+                       more greys under a title (18d). *@
+                    <p class="entry-facts">@FactsText(item)</p>
 
-                                           A badge rather than a sentence: it sits among the
-                                           other row badges, where prose reads as description
-                                           instead of as something clickable. The short name
-                                           is the label; the accessible name spells the site
-                                           out, because "MAL" announced on its own is jargon. *@
-                                        @foreach (var link in item.SourceLinks)
-                                        {
-                                            <a class="badge badge-link" href="@link.Url"
-                                               target="_blank" rel="noopener noreferrer"
-                                               title="@link.DescribeFor(item.Title)"
-                                               aria-label="@link.DescribeFor(item.Title)">
-                                                @link.ShortName<ExternalLinkIcon />
-                                            </a>
-                                        }
-                                    </div>
-                                </td>
-                                @* Missing metadata degrades to an em dash rather than
-                                   filling the table with "N/A". *@
-                                <td>@(item.MediaType == MediaType.Unknown ? "—" : MediaTypeLabel(item.MediaType))</td>
-                                <td class="numeric">@(item.ReleaseYear?.ToString() ?? "—")</td>
-                                <td class="numeric">@(RuntimeCalculator.Format(item.EstimatedRuntimeMinutes) ?? "—")</td>
-                                <td><span class="badge @item.Status.ToString().ToLowerInvariant()">@item.Status</span></td>
-                                <td>@ProgressText(item)</td>
-                                @* Labelled for the narrow layout, where the header row is
-                                   gone and this sits in a wrapped line beside the AI score.
-                                   Two bare numbers a few millimetres apart is the one place
-                                   here a person cannot work out which is which (D54). *@
-                                <td class="numeric" data-label="You">@(item.UserScore?.ToString() ?? "—")</td>
-                                @if (Facets.HasRecommendations)
-                                {
-                                    @* The score, and only the score. It used to be a
-                                       button opening a panel with the model's reasoning
-                                       and which model it was; that panel is in the
-                                       detail dialog now, where the reasoning already
-                                       lived and where a phone can read it (18c). *@
-                                    <td class="numeric" data-label="AI">
-                                        @(item.RecommendationScore?.ToString("0.0") ?? "—")
-                                    </td>
-                                }
-                            </tr>
-                        }
-                    </tbody>
-                </table>
-            </div>
-        </div>
+                    @* Your score if there is one, otherwise the model's. A rating
+                       somebody gave is a fact and a predicted score is a guess, and a
+                       fact outranks a guess whatever the status — a title rated years
+                       ago and put back on the pile would otherwise show the guess in
+                       place of the real number. *@
+                    <p class="entry-score @(item.UserScore is null ? "predicted" : null)"
+                       title="@ScoreLabel(item)"
+                       aria-label="@ScoreLabel(item)">@ScoreText(item)</p>
+
+                    @* Present on every card and disabled where it cannot work, rather
+                       than absent: a control that comes and goes down a column is
+                       harder to aim at than one always in the same place, and a
+                       disabled button carries the reason in its tooltip where an
+                       absent one carries nothing. *@
+                    <QueueButton AnimeId="item.AnimeId" Title="@item.Title"
+                                 Status="item.Status" IsQueued="IsQueued(item.AnimeId)"
+                                 OnToggle="ToggleQueuedAsync" />
+                </li>
+            }
+        </ul>
 
         @if (Page.TotalCount > PageSize)
         {
@@ -546,8 +488,70 @@ else
     private string EntryCountText() =>
         Page is null ? string.Empty : $"{Page.TotalCount} {(Page.TotalCount == 1 ? "entry" : "entries")}";
 
-    private static string ProgressText(LibraryListItem item) =>
-        item.EpisodeCount is { } total
-            ? $"{item.EpisodesWatched} / {total}"
-            : item.EpisodesWatched > 0 ? item.EpisodesWatched.ToString() : "—";
+    /// <summary>
+    /// The facts the card can afford, joined, with the unknown ones left out.
+    /// </summary>
+    /// <remarks>
+    /// One string rather than four elements, because the whole line is hidden below
+    /// 720px: a card that has to fit a phone holds a picture, a title, a status, a
+    /// score and an action, and everything here is in the dialog one tap away (18d).
+    /// Built the same way the dialog builds its own line, and deliberately not shared
+    /// with it — the dialog states progress differently and carries fields this row
+    /// never loaded.
+    /// </remarks>
+    private static string FactsText(LibraryListItem item)
+    {
+        var parts = new List<string>(4);
+
+        if (item.MediaType != MediaType.Unknown)
+        {
+            parts.Add(MediaTypeLabel(item.MediaType));
+        }
+
+        if (item.ReleaseYear is { } year)
+        {
+            parts.Add(year.ToString(CultureInfo.InvariantCulture));
+        }
+
+        if (RuntimeCalculator.Format(item.EstimatedRuntimeMinutes) is { } runtime)
+        {
+            parts.Add(runtime);
+        }
+
+        if (item.EpisodeCount is { } total)
+        {
+            parts.Add($"{item.EpisodesWatched} / {total}");
+        }
+        else if (item.EpisodesWatched > 0)
+        {
+            parts.Add($"{item.EpisodesWatched} watched");
+        }
+
+        return string.Join(" · ", parts);
+    }
+
+    /// <summary>
+    /// The one score the card shows: the user's where they gave one, else the model's.
+    /// </summary>
+    private static string ScoreText(LibraryListItem item) =>
+        item.UserScore?.ToString(CultureInfo.CurrentCulture)
+        ?? item.RecommendationScore?.ToString("0.0", CultureInfo.CurrentCulture)
+        ?? "—";
+
+    /// <summary>
+    /// Which of the two the number is, in words.
+    /// </summary>
+    /// <remarks>
+    /// The card shows a bare number because that is what a column of them has to be
+    /// to stay readable down its edge, and a bare number does not say whose judgement
+    /// it is. The label does, for a pointer and for a screen reader alike — the styling
+    /// that separates the two is colour and weight, which is not a fact anybody can be
+    /// assumed to read.
+    /// </remarks>
+    private static string ScoreLabel(LibraryListItem item) =>
+        item.UserScore is { } mine
+            ? $"You scored {item.Title} {mine}"
+            : item.RecommendationScore is { } predicted
+                ? $"The model predicts {predicted.ToString("0.0", CultureInfo.CurrentCulture)} for {item.Title}"
+                : $"{item.Title} has no score";
 }

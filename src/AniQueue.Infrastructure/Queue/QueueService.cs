@@ -65,6 +65,16 @@ public sealed class QueueService(
                     .Select(x => x.FileExtension)
                     .FirstOrDefault(),
 
+                // And the full-size rendition, which 18d promoted the row to.
+                PosterContentHash = q.Anime.Images
+                    .Where(x => x.Kind == ImageKind.Poster && x.Rendition == ImageRendition.Full && x.ContentHash != null)
+                    .Select(x => x.ContentHash)
+                    .FirstOrDefault(),
+                PosterFileExtension = q.Anime.Images
+                    .Where(x => x.Kind == ImageKind.Poster && x.Rendition == ImageRendition.Full && x.ContentHash != null)
+                    .Select(x => x.FileExtension)
+                    .FirstOrDefault(),
+
                 ExternalIds = q.Anime.ExternalIds
                     .Select(x => new { x.Source, x.ExternalId })
                     .ToList(),
@@ -91,6 +101,8 @@ public sealed class QueueService(
             EstimatedRuntimeMinutes = RuntimeCalculator.Estimate(r.EpisodeCount, r.EpisodeDurationMinutes),
             CoverContentHash = r.CoverContentHash,
             CoverFileExtension = r.CoverFileExtension,
+            PosterContentHash = r.PosterContentHash,
+            PosterFileExtension = r.PosterFileExtension,
             CoverImageColor = r.CoverImageColor
         });
     }

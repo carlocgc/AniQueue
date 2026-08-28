@@ -83,6 +83,18 @@ public sealed class LibraryService(
                     .Select(x => x.FileExtension)
                     .FirstOrDefault(),
 
+                // And the full-size rendition, which 18d promoted the row to. Two
+                // more scalar subqueries rather than a join, for the reason above:
+                // the row wants at most one of each.
+                PosterContentHash = e.Anime.Images
+                    .Where(x => x.Kind == ImageKind.Poster && x.Rendition == ImageRendition.Full && x.ContentHash != null)
+                    .Select(x => x.ContentHash)
+                    .FirstOrDefault(),
+                PosterFileExtension = e.Anime.Images
+                    .Where(x => x.Kind == ImageKind.Poster && x.Rendition == ImageRendition.Full && x.ContentHash != null)
+                    .Select(x => x.FileExtension)
+                    .FirstOrDefault(),
+
                 // Projected to an anonymous shape and mapped after materialising:
                 // a collection projection translates to a join, and building the
                 // domain record here would depend on constructor translation.
@@ -113,6 +125,8 @@ public sealed class LibraryService(
                 IsQueued = queuedIds.Contains(i.AnimeId),
                 CoverContentHash = i.CoverContentHash,
                 CoverFileExtension = i.CoverFileExtension,
+                PosterContentHash = i.PosterContentHash,
+                PosterFileExtension = i.PosterFileExtension,
                 CoverImageColor = i.CoverImageColor
             }).ToList()
         };

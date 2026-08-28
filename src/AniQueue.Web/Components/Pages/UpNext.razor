@@ -68,112 +68,95 @@ else if (Queue.Count == 0)
 }
 else
 {
-    <div class="card">
-        <div class="toolbar">
-            <span class="muted">@SummaryText()</span>
-        </div>
-
-        <div class="table-wrap">
-            <table class="queue">
-                <thead>
-                    <tr>
-                        <th class="handle-col"><span class="visually-hidden">Drag to reorder</span></th>
-                        <th class="numeric position-col">#</th>
-                        <th class="cover-col"></th>
-                        <th>Title</th>
-                        <th class="numeric">Runtime</th>
-                        <th>Progress</th>
-                        <th class="actions-col">Order</th>
-                    </tr>
-                </thead>
-                <tbody @ref="_rows">
-                    @* Keyed by slot id, not by index. Blazor's differ otherwise
-                       matches rows by position, so a reorder makes it rewrite the
-                       contents of every row between the two — and it is the
-                       prerequisite for layering drag on top of this without the
-                       renderer and the DOM disagreeing about what moved (§9). *@
-                    @foreach (var (item, index) in Queue.Select((item, index) => (item, index)))
-                    {
-                        <tr @key="item.QueueItemId">
-                            @* Mouse and touch only, and hidden from assistive
-                               technology on purpose: the five buttons in this row
-                               are the keyboard and screen-reader path, and they
-                               are the required one (§39). A grip announced as a
-                               control that cannot be operated by keyboard would be
-                               worse than one that is not announced at all. *@
-                            <td class="handle-col">
-                                <span class="drag-handle" aria-hidden="true" title="Drag to reorder">
-                                    <Icon Name="grip-vertical" />
-                                </span>
-                            </td>
-                            <td class="numeric position-col">@(index + 1)</td>
-                            <td class="cover-col">
-                                <CoverThumb Cover="item.Cover" OnActivate="() => ShowDetailAsync(item.AnimeId)" />
-                            </td>
-                            <td class="title-col">
-                                <div class="title-cell">
-                                    @* As on the backlog: the poster is a pointer shortcut and
-                                       vanishes below 720px, so the title is the real control. *@
-                                    <button type="button"
-                                            class="title-button"
-                                            aria-label="Details for @item.Title"
-                                            @onclick="() => ShowDetailAsync(item.AnimeId)">@item.Title</button>
-                                </div>
-                                <div class="row-meta">
-                                    @if (item.Status is { } status)
-                                    {
-                                        <span class="badge @status.ToString().ToLowerInvariant()">@status</span>
-                                    }
-                                    @* One per site: a bridged title is known to both (D17). *@
-                                    @foreach (var link in item.SourceLinks)
-                                    {
-                                        <a class="badge badge-link" href="@link.Url"
-                                           target="_blank" rel="noopener noreferrer"
-                                           title="@link.DescribeFor(item.Title)"
-                                           aria-label="@link.DescribeFor(item.Title)">
-                                            @link.ShortName<ExternalLinkIcon />
-                                        </a>
-                                    }
-                                </div>
-                            </td>
-                            <td class="numeric">@(RuntimeCalculator.Format(item.EstimatedRuntimeMinutes) ?? "—")</td>
-                            <td>@ProgressText(item)</td>
-                            <td class="actions-col">
-                                @* Every reorder has a keyboard-operable button, and
-                                   always will: §39 of the brief makes the non-drag
-                                   path a requirement rather than a fallback, so drag
-                                   will be layered over these rather than replacing
-                                   them. *@
-                                <div class="queue-actions" role="group"
-                                     aria-label="@($"Reorder {item.Title}")">
-                                    <button class="icon" disabled="@(index == 0)"
-                                            title="Move to top"
-                                            aria-label="@($"Move {item.Title} to the top")"
-                                            @onclick="() => MoveAsync(item, QueueMove.Top)"><Icon Name="chevrons-up" /></button>
-                                    <button class="icon" disabled="@(index == 0)"
-                                            title="Move up"
-                                            aria-label="@($"Move {item.Title} up")"
-                                            @onclick="() => MoveAsync(item, QueueMove.Up)"><Icon Name="chevron-up" /></button>
-                                    <button class="icon" disabled="@(index == Queue.Count - 1)"
-                                            title="Move down"
-                                            aria-label="@($"Move {item.Title} down")"
-                                            @onclick="() => MoveAsync(item, QueueMove.Down)"><Icon Name="chevron-down" /></button>
-                                    <button class="icon" disabled="@(index == Queue.Count - 1)"
-                                            title="Move to bottom"
-                                            aria-label="@($"Move {item.Title} to the bottom")"
-                                            @onclick="() => MoveAsync(item, QueueMove.Bottom)"><Icon Name="chevrons-down" /></button>
-                                    <button class="icon remove"
-                                            title="Remove from Up Next"
-                                            aria-label="@($"Remove {item.Title} from Up Next")"
-                                            @onclick="() => RemoveAsync(item)"><Icon Name="x" /></button>
-                                </div>
-                            </td>
-                        </tr>
-                    }
-                </tbody>
-            </table>
-        </div>
+    @* No card around the list, because the list is cards. One inside another reads
+       as a panel of rows, which is the table this phase deleted wearing a border. *@
+    <div class="toolbar">
+        <span class="muted">@SummaryText()</span>
     </div>
+
+    @* A list of cards, as the backlog is (18d). SortableJS attaches to a container
+       and finds its items by a handle selector, so a <ul> serves it exactly as a
+       <tbody> did — the table was never what made drag work. *@
+    <ul class="entry-list queue" @ref="_rows">
+        @* Keyed by slot id, not by index. Blazor's differ otherwise matches
+           cards by position, so a reorder makes it rewrite the contents of
+           every card between the two — and it is the prerequisite for layering
+           drag on top of this without the renderer and the DOM disagreeing
+           about what moved (§9). *@
+        @foreach (var (item, index) in Queue.Select((item, index) => (item, index)))
+        {
+            <li class="entry-card" @key="item.QueueItemId">
+                @* Mouse and touch only, and hidden from assistive technology on
+                   purpose: the buttons at the other end of this card are the
+                   keyboard and screen-reader path, and they are the required one
+                   (§39). A grip announced as a control that cannot be operated by
+                   keyboard would be worse than one that is not announced at all. *@
+                <span class="drag-handle" aria-hidden="true" title="Drag to reorder">
+                    <Icon Name="grip-vertical" />
+                </span>
+
+                @* The position sits over the poster's corner rather than in a
+                   column of its own. Position is the whole meaning of this list —
+                   after a drag the number is the confirmation that the move landed
+                   — and as a column it would cost 30px of every card at the width
+                   where there is least. *@
+                <span class="entry-art">
+                    <CoverThumb Cover="item.Cover" OnActivate="() => ShowDetailAsync(item.AnimeId)" />
+                    <span class="entry-position" aria-hidden="true">@(index + 1)</span>
+                </span>
+
+                <div class="entry-main">
+                    <button type="button"
+                            class="title-button entry-title"
+                            aria-label="@($"Details for {item.Title}, number {index + 1} in Up Next")"
+                            @onclick="() => ShowDetailAsync(item.AnimeId)">@item.Title</button>
+
+                    <div class="entry-badges">
+                        @if (item.Status is { } status)
+                        {
+                            <span class="badge @status.ToString().ToLowerInvariant()">@status</span>
+                        }
+                    </div>
+                </div>
+
+                @* Its own column at desktop width, absent below it (18d). *@
+                <p class="entry-facts">@FactsText(item)</p>
+
+                @* Every reorder has a keyboard-operable button, and always will:
+                   §39 makes the non-drag path a requirement rather than a
+                   fallback. They are hidden below 720px, where a thumb drags the
+                   grip instead and four 20px arrows would be four things too small
+                   to hit — a keyboard and the assistive technology that needs them
+                   are at the wider width (18d). *@
+                <div class="queue-actions" role="group"
+                     aria-label="@($"Reorder {item.Title}")">
+                    <button class="icon" disabled="@(index == 0)"
+                            title="Move to top"
+                            aria-label="@($"Move {item.Title} to the top")"
+                            @onclick="() => MoveAsync(item, QueueMove.Top)"><Icon Name="chevrons-up" /></button>
+                    <button class="icon" disabled="@(index == 0)"
+                            title="Move up"
+                            aria-label="@($"Move {item.Title} up")"
+                            @onclick="() => MoveAsync(item, QueueMove.Up)"><Icon Name="chevron-up" /></button>
+                    <button class="icon" disabled="@(index == Queue.Count - 1)"
+                            title="Move down"
+                            aria-label="@($"Move {item.Title} down")"
+                            @onclick="() => MoveAsync(item, QueueMove.Down)"><Icon Name="chevron-down" /></button>
+                    <button class="icon" disabled="@(index == Queue.Count - 1)"
+                            title="Move to bottom"
+                            aria-label="@($"Move {item.Title} to the bottom")"
+                            @onclick="() => MoveAsync(item, QueueMove.Bottom)"><Icon Name="chevrons-down" /></button>
+                </div>
+
+                @* Outside the group above and always present, because removing is
+                   not a reorder and is the one action a phone still needs. *@
+                <button class="icon remove entry-action"
+                        title="Remove from Up Next"
+                        aria-label="@($"Remove {item.Title} from Up Next")"
+                        @onclick="() => RemoveAsync(item)"><Icon Name="x" /></button>
+            </li>
+        }
+    </ul>
 }
 
 @* One instance for the page rather than one per row: a modal shows a single title
@@ -478,8 +461,33 @@ else
             : count;
     }
 
-    private static string ProgressText(QueueListItem item) =>
-        item.EpisodeCount is { } total
-            ? $"{item.EpisodesWatched} / {total}"
-            : item.EpisodesWatched > 0 ? item.EpisodesWatched.ToString() : "—";
+    /// <summary>
+    /// The facts the card can afford, joined, with the unknown ones left out.
+    /// </summary>
+    /// <remarks>
+    /// The queue's version of the backlog's line, and shorter by one: there is no
+    /// media type here, because what is in the queue is what you are about to watch
+    /// rather than something being chosen between. Hidden below 720px like the
+    /// backlog's, and in the dialog either way (18d).
+    /// </remarks>
+    private static string FactsText(QueueListItem item)
+    {
+        var parts = new List<string>(2);
+
+        if (RuntimeCalculator.Format(item.EstimatedRuntimeMinutes) is { } runtime)
+        {
+            parts.Add(runtime);
+        }
+
+        if (item.EpisodeCount is { } total)
+        {
+            parts.Add($"{item.EpisodesWatched} / {total}");
+        }
+        else if (item.EpisodesWatched > 0)
+        {
+            parts.Add($"{item.EpisodesWatched} watched");
+        }
+
+        return string.Join(" · ", parts);
+    }
 }

@@ -2459,6 +2459,13 @@ slot, and D47 already priced it at 83.3 KB a title and 67 MB across this library
 was taken in order to *reject* `extraLarge` for a fifty-row page, where it costs 4.2 MB a page; a
 dialog renders one image, so the number that disqualified it there does not apply here at all.
 
+*18d put it on the fifty-row page after all, and the arithmetic is what changed.* The measurement
+above was `extraLarge` at its published size; what the row now asks for is the same rendition
+lazily loaded into a 64px slot, so a page fetches only the cards somebody scrolls to. The reason
+for asking is that 64px on a three-times phone screen wants around 192px of image and the
+thumbnail is 100 — visibly soft at exactly the element the phase promoted. This is served over a
+LAN from a disk that already holds both.
+
 *Both of those figures turned out to be low, and 9b measured the real ones* — 183.3 KB a title and
 145 MB across the library, so a fifty-row page would have been 9.2 MB rather than 4.2. It
 strengthens the argument for keeping `extraLarge` off the list and weakens the case that putting it
@@ -2884,6 +2891,13 @@ candidate limit, because it always probes with two and the caller multiplies.
 ### D54 — A list you act on stops being a table before it stops fitting
 
 *Amends Phase 3's backlog listing and Phase 4's queue. Adds a narrow layout for both.*
+
+*Superseded in its mechanism by 18d, and vindicated in its diagnosis.* The measurement below is
+why the phase exists, and the rule in the title is the one 18d applied — it just applied it to the
+table rather than to the table's stylesheet. Every rule this decision wrote is deleted: the
+display:block cascade, the zero-height `::after`, the `order` on every cell, the data-labels, and
+the cover column hidden at exactly the width where the picture turned out to be the most useful
+thing on the row. The lists are grids of cards now, which need none of it.*
 
 Measured at 375px before any of this existed: **the backlog was a 710px table in a 309px
 window, and the queue a 499px one.** Both sat inside `.table-wrap`, which scrolls sideways, so
@@ -3466,7 +3480,7 @@ numbering. What is finished is a column; what happens next is the first row with
 | 15e | Sources reshape | ✅ | Sources is configuration, one review button and a file import |
 | 16 | Scoring without a rank | ✅ | The model returns scores and no ordering; nothing asks for, stores or shows a rank |
 | 17 | Improve remote model scoring | ▢ *held* | A sweep gets past a batch it cannot score, reports itself as one run, and cannot be defeated by a history that outgrew the context |
-| 18 | Mobile first | ◐ *18a–18c landed* | Every page usable at 375px with no sideways scroll and no control under 44px; five thumb-reachable tabs; the lists show a poster, a title, one score and one action |
+| 18 | Mobile first | ◐ *18a–18d landed* | Every page usable at 375px with no sideways scroll and no control under 44px; five thumb-reachable tabs; the lists show a poster, a title, one score and one action |
 
 **✅ done · ◐ part landed · ▢ not started.** *next* is what the running order reaches first;
 *held* waits on something outside the repository — for 17, a wider sample of models to
@@ -4979,7 +4993,9 @@ something else can be taken away.
 
 **D54 is amended rather than reverted.** Reverting restores a 710px table in a 309px window where
 the queue's reorder controls could not be reached at all — strictly worse than what is there now,
-and worse for the whole time a replacement is being built.
+and worse for the whole time a replacement is being built. *18d then deleted every rule it wrote,
+which is a different thing from reverting it: the table went with them, so there was nothing left
+for the rules to correct.*
 
 **What a row becomes**, agreed against AniList, Overseerr and CrossWatch as references:
 
@@ -5166,6 +5182,20 @@ keyboard and screen-reader path" — SortableJS offers no keyboard equivalent �
 everywhere would make the queue mouse-and-touch only. Touch reorders by dragging a handle sized
 for a thumb; keyboard and assistive-technology users reorder with the buttons, at the width where
 those users are.
+
+*Four things the build settled that the plan did not.*
+
+- **The grid tracks are written per list and per width, four templates rather than one.** The two
+  lists genuinely differ — the queue leads with a grip and ends with two controls, the backlog has
+  one of each — and a single template covering both would need empty cells in it, which is the
+  table this phase deleted.
+- **The facts are a column of the card, not a line under the title.** They have to be a direct
+  child to be placed by the grid at all, and a hidden child takes no track, so the same markup
+  gives four columns on a phone and five or six above 720px.
+- **The title is a 44px target too.** It is a control — it is what opens the dialog everything
+  else moved into (D55) — and at 20px of text inside a 114px card the height was free.
+- **Up Next's list is no longer inside a card.** It was, and a card of cards reads as a panel of
+  rows: the table again, wearing a border.
 
 #### 18e — What is left over
 
