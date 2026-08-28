@@ -17,7 +17,9 @@ next?**
 ## Status
 
 **In development — pre-MVP.** See [`docs/ROADMAP.md`](docs/ROADMAP.md) for the phase plan,
-architectural decisions and acceptance criteria. Nothing here is installable yet.
+architectural decisions and acceptance criteria. There is no release yet — the container runs,
+and `carlocgc/aniqueue:dev` is the moving edge of the `development` branch rather than something
+to keep data in.
 
 | Phase | | |
 |---|---|---|
@@ -30,7 +32,11 @@ architectural decisions and acceptance criteria. Nothing here is installable yet
 | 6 | Relations — a title's prequels, sequels and spin-offs | **complete** |
 | 7 | Scoring interchange — export the backlog, bring a ranking back | **complete** |
 | 8 | Hosted model scoring — settings store, endpoint, surface, scheduled sweep | **complete** |
-| 9–14 | Artwork → settings → Docker → auth → CI → security pass | planned |
+| 9 | Artwork, AniList enrichment, show detail dialog | **complete** |
+| 18 | Mobile first | **complete** |
+| 11 | Docker image, compose, health check | **mostly** — see the roadmap |
+| 13 | CI: build, test, publish | **complete** |
+| 10, 12, 14 | Settings page → optional auth → security pass | planned |
 
 ## Documentation
 
@@ -40,6 +46,70 @@ architectural decisions and acceptance criteria. Nothing here is installable yet
 | [`docs/RELEASE-NOTES.md`](docs/RELEASE-NOTES.md) | Changes that alter data or behaviour, worth reading before upgrading |
 | [`docs/BUILD-PROMPT.md`](docs/BUILD-PROMPT.md) | Original project brief, preserved for reference |
 | [`CLAUDE.md`](CLAUDE.md) | Working conventions: the development database, verification, testing, platform gotchas |
+
+## Running it in Docker
+
+**There is no released version yet.** What exists is `carlocgc/aniqueue:dev`, rebuilt from
+`development` on every merge and overwritten each time. It is the author's own edge, not a
+release: it has not been through the security pass, and it will change under you. `latest` and a
+`vX.Y.Z` tag arrive when Phase 14 does.
+
+With that said, it runs:
+
+```bash
+docker compose up -d
+```
+
+Then open `http://localhost:8080`. The first start creates the database, applies every migration
+and writes a `userconfig.json` beside it, and the library is empty — the same first screen a new
+user sees, offering an AniList sync or a MyAnimeList import.
+
+To build the image from a checkout instead of pulling it:
+
+```bash
+docker compose up -d --build
+```
+
+### What is in the volume
+
+Everything that must survive the container: `aniqueue.db`, the `userconfig.json` you edit when
+the pages cannot be reached, the cached cover art under `art/`, and the signing keys under
+`keys/` that keep pages open in a browser working across an upgrade. Recreating the container
+keeps all of it. Deleting the volume deletes your library.
+
+The compose file uses a **named volume**, and that is deliberate. The container runs as UID
+**1654**, not as root, and Docker copies ownership from the image into a named volume — so it
+works with no setup. A **bind mount** is not seeded that way, so if you swap the volume for a host
+path (the usual Unraid arrangement) chown it first, or AniQueue cannot create its database:
+
+```bash
+chown -R 1654:1654 /mnt/user/appdata/aniqueue
+```
+
+### Health and logs
+
+The container reports a health check against `/health`, so `docker ps` says `healthy` rather than
+just `running`. It allows 40 seconds at startup, because a first run applies every migration
+before it serves anything.
+
+Logs go to stdout and nowhere else — `docker logs aniqueue`. The compose file caps them at three
+10 MB files, because Docker's default driver does not rotate and will eventually fill a disk.
+
+### Settings
+
+Everything AniQueue does is set from its own pages, or by editing `userconfig.json` in the volume
+and restarting. The compose file holds the container's concerns only: the port, the volume, and
+`Database__Path`, which is the one setting that cannot live in the file — AniQueue finds the file
+by looking beside the database.
+
+### If you get a blank page
+
+Try it with browser extensions off. Anything that rewrites the page as it loads — a dark-mode
+extension, a translator, an accessibility overlay, Brave's Shields — can break the live connection
+this application renders through, and the symptom is an error banner or nothing at all rather than
+anything that names a cause. AniQueue ships Dark Reader's own opt-out tag and already has a dark
+theme, so that one is handled; the rest are not, and there is no way for the application to detect
+them.
 
 ## Technology
 
@@ -197,8 +267,8 @@ library rather than cluttering the file you edit when something is wrong.
 
 ---
 
-Installation, Docker deployment, backup/restore and the AI ranking workflow will be documented
-here as the corresponding phases land.
+Backup and restore are the volume: stop the container, copy it, start it again. There is no
+separate export format, and D33 in the roadmap says why.
 
 ## Licence
 

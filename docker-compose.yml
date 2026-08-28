@@ -1,0 +1,51 @@
+# AniQueue, self-hosted. `docker compose up -d`, then open http://localhost:8080.
+#
+# This file holds the container's concerns and nothing else — the volume, the
+# port, and the one setting that cannot live anywhere else. Everything about how
+# AniQueue behaves is in userconfig.json inside the volume (D20, D36), so there
+# is no second place to look.
+
+services:
+  aniqueue:
+    image: carlocgc/aniqueue:latest
+
+    # Build locally instead with `docker compose up -d --build`. Kept here so a
+    # change can be run the way a user runs it without publishing anything.
+    build:
+      context: .
+      dockerfile: Dockerfile
+
+    container_name: aniqueue
+    restart: unless-stopped
+
+    ports:
+      # Change the left number to publish on a different port. The right one is
+      # the container's and is fixed by the image.
+      - "8080:8080"
+
+    volumes:
+      # A named volume by default, because Docker seeds its ownership from the
+      # image and the container runs as UID 1654 rather than as root (§9). A bind
+      # mount is not seeded, so if you swap this for a host path — the usual
+      # Unraid arrangement — chown it to 1654:1654 first or AniQueue cannot
+      # create its database.
+      #
+      #   - /mnt/user/appdata/aniqueue:/data
+      - aniqueue-data:/data
+
+    environment:
+      # The one setting that could not live in userconfig.json even in principle:
+      # AniQueue finds that file by looking beside the database, so a path set
+      # inside it could not be read until it was already in use (D20).
+      Database__Path: /data/aniqueue.db
+
+    # The default json-file driver does not rotate, so a long-running container
+    # will fill a disk with its own log eventually.
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+volumes:
+  aniqueue-data:
