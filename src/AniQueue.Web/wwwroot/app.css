@@ -1225,6 +1225,12 @@ button.danger:hover:not(:disabled) { filter: brightness(0.95); }
        instead of a tall one holding a lot of nothing. */
     max-height: min(44rem, calc(100vh - 2rem));
     overflow: auto;
+
+    /* Scrolling stops at the ends of this dialog rather than carrying on into the
+       page. Without it, reaching the bottom of a long synopsis hands the rest of the
+       gesture to the list underneath, which scrolls away behind the dialog — so
+       closing it puts you somewhere you did not choose to be. */
+    overscroll-behavior: contain;
 }
 
 .detail-dialog::backdrop { background: rgb(0 0 0 / 0.55); }
