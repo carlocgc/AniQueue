@@ -1235,6 +1235,26 @@ button.danger:hover:not(:disabled) { filter: brightness(0.95); }
 
 .detail-dialog::backdrop { background: rgb(0 0 0 / 0.55); }
 
+/* The page holds still while the dialog is open.
+
+   overscroll-behavior above stops a scroll that *starts* in the dialog carrying on
+   into the list. It does nothing for a scroll that starts on the backdrop, and that
+   one does reach the page: measured with the dialog open, a wheel below it took the
+   backlog from 0 to 500 while the dialog sat still. A modal is a modal — the thing
+   behind it is inert, and a list that quietly moves under one is a list somebody
+   comes back to lost.
+
+   In CSS rather than by adding a class from script, because every close path would
+   have to remember to take it off again and one of them is the platform's own
+   Escape. A rule keyed on the open attribute cannot be left behind.
+
+   scrollbar-gutter reserves the scrollbar's width whether or not there is one, so
+   hiding the overflow does not let the whole page jump sideways by that width for
+   as long as the dialog is open. */
+html { scrollbar-gutter: stable; }
+
+html:has(dialog.detail-dialog[open]) { overflow: hidden; }
+
 .detail-dialog article { padding: var(--gap); }
 
 .detail-dialog header {
