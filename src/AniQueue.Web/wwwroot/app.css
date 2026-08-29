@@ -1127,6 +1127,56 @@ tr.muted td { opacity: 0.6; }
 
 .task-actions { display: flex; align-items: center; gap: 0.5rem; }
 
+/* Destructive rows, built on the task card's shape because they are the same shape:
+   something named on the left, the control acting on it on the right. */
+.delete-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+
+.delete-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    padding: 0.6rem 0.75rem;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+}
+
+.delete-row > div { flex: 1 1 16rem; min-width: 0; }
+
+.delete-row h3 { margin: 0; font-size: 0.95rem; }
+
+.delete-row p { margin: 0.15rem 0 0; font-size: 0.9rem; }
+
+/* The button stretches on a phone, where the row has already wrapped and a button
+   sized to its text would sit alone on a line looking like an afterthought. */
+.delete-row button { flex: 0 0 auto; }
+
+@media (max-width: 40rem) {
+    .delete-row button { flex: 1 1 100%; }
+}
+
+/* Confirming a delete. Narrow rather than capped in both directions: this is two
+   sentences and two buttons, and it must not grow into the detail dialog's shape. */
+.confirm-dialog {
+    margin: auto;
+    padding: 0;
+    width: min(30rem, calc(100vw - 2rem));
+    background: var(--surface);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+}
+
+.confirm-dialog::backdrop { background: rgb(0 0 0 / 0.55); }
+
+.confirm-dialog article { padding: var(--gap); }
+
+.confirm-dialog h2 { margin: 0 0 0.5rem; font-size: 1.05rem; }
+
+.confirm-dialog p { margin: 0 0 var(--gap); }
+
 table.runs th:nth-child(2), table.runs td:nth-child(2),
 table.runs th:nth-child(3), table.runs td:nth-child(3) { white-space: nowrap; }
 

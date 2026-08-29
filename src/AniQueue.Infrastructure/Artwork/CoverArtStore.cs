@@ -122,6 +122,18 @@ public sealed class CoverArtStore(IOptions<AniQueueDatabaseOptions> databaseOpti
     /// a kind that no longer exists is cleaned up too instead of becoming a pocket of
     /// files nothing will ever look at again.
     /// </remarks>
+    /// <summary>How many files are cached, for a sentence that has to name a number.</summary>
+    /// <remarks>
+    /// Counted off disk rather than off the rows, for the same reason
+    /// <see cref="RemoveUnclaimed"/> subtracts rather than consults: disk is the
+    /// authority on what is actually cached, and a row's claim can be wrong in both
+    /// directions.
+    /// </remarks>
+    public int CountCached() =>
+        _root is not null && Directory.Exists(_root)
+            ? Directory.EnumerateFiles(_root, "*", SearchOption.AllDirectories).Count()
+            : 0;
+
     public int RemoveUnclaimed(IReadOnlySet<string> claimedRelativePaths)
     {
         ArgumentNullException.ThrowIfNull(claimedRelativePaths);

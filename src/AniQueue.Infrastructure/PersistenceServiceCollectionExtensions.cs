@@ -42,6 +42,11 @@ public static class PersistenceServiceCollectionExtensions
         services.AddScoped<Core.Import.IImportService, Import.ImportService>();
         services.AddScoped<Core.Library.ILibraryService, Library.LibraryService>();
 
+        // Beside the library it empties. It reaches the artwork cache as well as the
+        // tables, which is why it takes the store the artwork pass writes through
+        // rather than deleting files itself.
+        services.AddScoped<Core.Library.ILibraryMaintenance, Library.LibraryMaintenance>();
+
         // Registered beside the library rather than with the sync services, because
         // it reads the graph rather than fills it: the backfill is outbound traffic
         // gated on a kill switch, this is a query the backlog makes.
