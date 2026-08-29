@@ -35,6 +35,28 @@ public sealed class JobRunStore(IDbContextFactory<AniQueueDbContext> contextFact
     /// </remarks>
     private static string Normalise(string? unitKey) => unitKey ?? string.Empty;
 
+    /// <summary>
+    /// Writes a run down, replacing the no-op it supersedes.
+    /// </summary>
+    /// <remarks>
+    /// <b>Consecutive no-op runs collapse to the latest one.</b> A task that gates on
+    /// its own precondition rather than on the cadence — cover art, relations — runs
+    /// on every tick and on every library change, and in its converged state that is
+    /// a hundred runs a day that all say the same thing. Kept one row each, they fill
+    /// the retained history within two days and the runs that did something are
+    /// pruned away underneath them.
+    ///
+    /// What the row says is unchanged, and that is the point: "checked forty minutes
+    /// ago, nothing to do" is still there, still current, and still tells a converged
+    /// task apart from a broken one. What goes is the ninety-five identical rows
+    /// underneath it.
+    ///
+    /// <b>Superseded by deleting and re-inserting rather than by updating in place.</b>
+    /// Every read here orders by <c>Id</c>, because SQLite can neither order nor
+    /// compare a <c>DateTimeOffset</c> — so a row updated in place would keep its old
+    /// key and sort below runs that happened before it, and the history would show
+    /// "just now" underneath "three hours ago".
+    /// </remarks>
     public async Task RecordAsync(JobRun run, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(run);
@@ -43,10 +65,45 @@ public sealed class JobRunStore(IDbContextFactory<AniQueueDbContext> contextFact
 
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
 
+        // Read before the insert, so the row this one supersedes is identified while
+        // it is still the newest.
+        var superseded = run.Outcome is JobOutcome.NothingToDo
+            ? await NewestNoOpIdAsync(context, run.TaskKey, run.UnitKey, cancellationToken)
+            : null;
+
         context.JobRuns.Add(run);
         await context.SaveChangesAsync(cancellationToken);
 
+        // After the insert rather than before it. An interruption between the two
+        // leaves one no-op row too many, which the next one collapses; the other order
+        // would lose the run the cadence clock is measured from.
+        if (superseded is { } id)
+        {
+            await context.JobRuns
+                .Where(r => r.Id == id)
+                .ExecuteDeleteAsync(cancellationToken);
+        }
+
         await PruneAsync(context, run.TaskKey, run.UnitKey, cancellationToken);
+    }
+
+    /// <summary>
+    /// The newest run for this unit, if it is itself a no-op. Null otherwise.
+    /// </summary>
+    private static async Task<int?> NewestNoOpIdAsync(
+        AniQueueDbContext context,
+        string taskKey,
+        string unitKey,
+        CancellationToken cancellationToken)
+    {
+        var newest = await context.JobRuns
+            .AsNoTracking()
+            .Where(r => r.TaskKey == taskKey && r.UnitKey == unitKey)
+            .OrderByDescending(r => r.Id)
+            .Select(r => new { r.Id, r.Outcome })
+            .FirstOrDefaultAsync(cancellationToken);
+
+        return newest is { Outcome: JobOutcome.NothingToDo } ? newest.Id : null;
     }
 
     public async Task<DateTimeOffset?> LastRunAtAsync(

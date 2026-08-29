@@ -1795,9 +1795,29 @@ before this decision needed them.
 **Runs that found nothing to do are recorded; ticks that were not due are not.** A converged task
 and a broken task look identical if the page can only report the last run that changed something —
 relations in its steady state legitimately does nothing for weeks. *"Checked forty minutes ago,
-nothing to do"* is the single most reassuring line a task page has, and it costs one row per
-cadence. Retention is the last two hundred runs per task, pruned on insert: five tasks, a thousand
-rows, no cleaner and no policy setting.
+nothing to do"* is the single most reassuring line a task page has. Retention is the last two
+hundred runs per task, pruned on insert: five tasks, a thousand rows, no cleaner and no policy
+setting.
+
+**One row per no-op *stretch*, not one per no-op run, and the difference was measured rather than
+foreseen.** This entry costed the reassuring line at "one row per cadence", which is true only of
+the tasks that gate on a cadence. Cover art and relations gate on their own precondition instead —
+that is what lets them converge and then do nothing — so they run on every tick *and* on every
+library change, roughly a hundred times a day each, and in the converged state every one of those
+is a no-op. A row each filled the retained history in about two days and pruned away the runs that
+had actually done something, which is the history it exists to keep.
+
+So a no-op that follows a no-op for the same unit replaces it. The row still says what it said —
+the latest check, its trigger and its time — and still tells a converged task from a broken one;
+what goes is the ninety-five identical rows underneath it. **The clock is why this is a
+replacement rather than a suppression:** due-ness is measured from the last recorded run, so a
+no-op that wrote nothing would leave that clock unmoved and make a source read as due on the very
+next tick — somebody else's API polled every five minutes, forever.
+
+*It supersedes by deleting and re-inserting rather than by updating in place.* Every read of this
+table orders by `Id`, because SQLite can neither order nor compare a `DateTimeOffset`; a row
+updated in place would keep its old key and sort below runs that happened before it, and the page
+would show *"just now"* underneath *"three hours ago"*.
 
 **Cancel means skip this cycle.** It is cooperative and lands at the next safe point — between
 batches, between requests, before a commit — and the button latches to *Stopping…*, as

@@ -167,4 +167,117 @@ public class JobRunStoreTests
         Assert.Equal(JobRunStore.Retained, context.JobRuns.Count(r => r.UnitKey == "AniList"));
         Assert.Equal(1, context.JobRuns.Count(r => r.UnitKey == "MyAnimeList"));
     }
+
+    /// <summary>
+    /// A run of no-ops keeps one row, and it is the latest.
+    /// </summary>
+    /// <remarks>
+    /// Cover art and related titles gate on their own precondition rather than on the
+    /// cadence, so in their converged state they run on every tick and on every
+    /// library change and find nothing every time. A row each filled the retained
+    /// history in two days and pruned away the runs that had done something.
+    /// </remarks>
+    [Fact]
+    public async Task Consecutive_runs_that_found_nothing_keep_one_row()
+    {
+        await using var database = await SqliteTestDatabase.CreateAsync();
+        var store = new JobRunStore(database.ContextFactory);
+
+        var first = new DateTimeOffset(2026, 8, 29, 9, 0, 0, TimeSpan.Zero);
+
+        for (var i = 0; i < 20; i++)
+        {
+            await store.RecordAsync(Run(
+                "AniList", JobOutcome.NothingToDo, first.AddMinutes(15 * i)));
+        }
+
+        await using var context = database.CreateContext();
+
+        var row = Assert.Single(context.JobRuns.Where(r => r.UnitKey == "AniList"));
+
+        Assert.Equal(JobOutcome.NothingToDo, row.Outcome);
+        Assert.Equal(first.AddMinutes(15 * 19), row.StartedAt);
+    }
+
+    /// <summary>
+    /// The cadence clock still moves, which is what stops a task running every tick.
+    /// </summary>
+    /// <remarks>
+    /// Due-ness is measured from the last recorded run, so a no-op that left the clock
+    /// where it was would make a source read as due on the very next tick — a sync
+    /// against somebody else's API every five minutes, forever.
+    /// </remarks>
+    [Fact]
+    public async Task Collapsing_no_ops_still_moves_the_clock()
+    {
+        await using var database = await SqliteTestDatabase.CreateAsync();
+        var store = new JobRunStore(database.ContextFactory);
+
+        var first = new DateTimeOffset(2026, 8, 29, 9, 0, 0, TimeSpan.Zero);
+
+        await store.RecordAsync(Run("AniList", JobOutcome.NothingToDo, first));
+        await store.RecordAsync(Run("AniList", JobOutcome.NothingToDo, first.AddHours(1)));
+
+        Assert.Equal(first.AddHours(1), await store.LastRunAtAsync(Task, "AniList"));
+    }
+
+    /// <summary>
+    /// A run that did something is never collapsed, and never collapses one.
+    /// </summary>
+    [Fact]
+    public async Task A_run_that_did_something_keeps_the_no_op_before_and_after_it()
+    {
+        await using var database = await SqliteTestDatabase.CreateAsync();
+        var store = new JobRunStore(database.ContextFactory);
+
+        await store.RecordAsync(Run("AniList", JobOutcome.NothingToDo));
+        await store.RecordAsync(Run("AniList", JobOutcome.Succeeded));
+        await store.RecordAsync(Run("AniList", JobOutcome.NothingToDo));
+
+        await using var context = database.CreateContext();
+
+        Assert.Equal(3, context.JobRuns.Count(r => r.UnitKey == "AniList"));
+    }
+
+    /// <summary>
+    /// A collapsed no-op still reads as the newest run rather than sinking in the
+    /// history.
+    /// </summary>
+    /// <remarks>
+    /// Every read here orders by <c>Id</c>, because SQLite cannot order a
+    /// <c>DateTimeOffset</c>. Superseding by updating the old row in place would keep
+    /// its old key, and the page would show "just now" underneath "three hours ago".
+    /// </remarks>
+    [Fact]
+    public async Task A_collapsed_no_op_is_still_the_newest_run()
+    {
+        await using var database = await SqliteTestDatabase.CreateAsync();
+        var store = new JobRunStore(database.ContextFactory);
+
+        await store.RecordAsync(Run("AniList", JobOutcome.NothingToDo));
+        await store.RecordAsync(Run("MyAnimeList", JobOutcome.Succeeded));
+        await store.RecordAsync(Run("AniList", JobOutcome.NothingToDo));
+
+        var recent = await store.RecentAsync(10);
+
+        Assert.Equal("AniList", recent[0].UnitKey);
+        Assert.Equal(JobOutcome.NothingToDo, recent[0].Outcome);
+    }
+
+    /// <summary>
+    /// A no-op collapses only within its own unit.
+    /// </summary>
+    [Fact]
+    public async Task One_units_no_op_does_not_replace_anothers()
+    {
+        await using var database = await SqliteTestDatabase.CreateAsync();
+        var store = new JobRunStore(database.ContextFactory);
+
+        await store.RecordAsync(Run("AniList", JobOutcome.NothingToDo));
+        await store.RecordAsync(Run("MyAnimeList", JobOutcome.NothingToDo));
+
+        await using var context = database.CreateContext();
+
+        Assert.Equal(2, context.JobRuns.Count());
+    }
 }
