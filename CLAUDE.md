@@ -46,6 +46,11 @@ crash from two routes sharing one field, a duplicate *Discard* button, a size es
 refreshed, a request too large for a real model's context. None were visible in a clean build or
 a green suite.
 
+**A container extends that rather than escaping it.** The published image once started, reported
+`healthy`, answered `/health` with 200 and served a page that rendered correctly and was completely
+dead — the Blazor script was missing from the publish. Neither the health check nor a page that
+loads proves an application works, so pull the image and press something in it.
+
 `.claude/launch.json` defines two preview configurations — `aniqueue-web` (real database) and
 `aniqueue-sample`. Drive the page, read the state back, and check the server log. Prefer
 `read_page` and `javascript_tool` over screenshots: the browser pane is often not displayed, and
