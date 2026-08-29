@@ -31,15 +31,20 @@ EXPOSE 8080
 # The volume holding everything that must outlive the container: the SQLite
 # database, the userconfig.json written beside it, the cached cover art
 # under /data/art and the signing keys under /data/keys. Created and owned
-# here so that a *named* volume inherits the ownership from the image — a bind
-# mount does not, and its host directory has to be chowned to this UID by hand
-#. That is the Unraid case, and the README says so.
+# here so that a *named* volume inherits the ownership from the image. A bind
+# mount does not inherit it, which is why the entry point below takes ownership
+# at start rather than the image trying to.
 #
 # APP_UID is defined by the base image as 1654. Named explicitly rather than
-# assumed, so the number the README tells people to chown to comes from the same
-# place the container actually uses.
+# assumed, so the entry point and the image agree on one number.
 RUN mkdir -p /data && chown -R $APP_UID:$APP_UID /data
-USER $APP_UID
+
+# No USER here, deliberately. The entry point starts as root purely to take
+# ownership of /data, then drops to $APP_UID for the application itself, so the
+# process serving requests is unprivileged either way. Setting USER would remove
+# the one privilege that makes a bind mount work without host setup.
+COPY docker-entrypoint.sh /usr/local/bin/
+RUN chmod +x /usr/local/bin/docker-entrypoint.sh
 
 # ---------------------------------------------------------------------------
 # build
@@ -104,4 +109,4 @@ COPY --from=build /app/publish ./
 HEALTHCHECK --interval=30s --timeout=5s --start-period=40s --retries=3 \
     CMD curl --fail --silent --show-error http://localhost:8080/health || exit 1
 
-ENTRYPOINT ["dotnet", "AniQueue.Web.dll"]
+ENTRYPOINT ["docker-entrypoint.sh", "dotnet", "AniQueue.Web.dll"]
