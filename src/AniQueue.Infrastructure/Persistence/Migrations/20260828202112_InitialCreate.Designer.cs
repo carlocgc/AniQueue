@@ -11,8 +11,8 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace AniQueue.Infrastructure.Persistence.Migrations
 {
     [DbContext(typeof(AniQueueDbContext))]
-    [Migration("20260823063631_SourceSettingsMoveToUserConfig")]
-    partial class SourceSettingsMoveToUserConfig
+    [Migration("20260828202112_InitialCreate")]
+    partial class InitialCreate
     {
         /// <inheritdoc />
         protected override void BuildTargetModel(ModelBuilder modelBuilder)
@@ -27,16 +27,14 @@ namespace AniQueue.Infrastructure.Persistence.Migrations
                         .HasColumnType("INTEGER");
 
                     b.Property<string>("CoverImageColor")
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("CoverImageUrl")
-                        .HasMaxLength(2000)
+                        .HasMaxLength(7)
                         .HasColumnType("TEXT");
 
                     b.Property<DateTimeOffset>("CreatedAt")
                         .HasColumnType("TEXT");
 
                     b.Property<string>("Description")
+                        .HasMaxLength(8000)
                         .HasColumnType("TEXT");
 
                     b.Property<int?>("EpisodeCount")
@@ -120,6 +118,80 @@ namespace AniQueue.Infrastructure.Persistence.Migrations
                     b.ToTable("AnimeExternalIds");
                 });
 
+            modelBuilder.Entity("AniQueue.Core.Domain.AnimeGenre", b =>
+                {
+                    b.Property<int>("AnimeId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("GenreId")
+                        .HasColumnType("INTEGER");
+
+                    b.HasKey("AnimeId", "GenreId");
+
+                    b.HasIndex("GenreId");
+
+                    b.ToTable("AnimeGenres");
+                });
+
+            modelBuilder.Entity("AniQueue.Core.Domain.AnimeImage", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("AnimeId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("AttemptCount")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<long?>("ByteCount")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("ContentHash")
+                        .HasMaxLength(64)
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTimeOffset?>("FailedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<bool>("FailureIsPermanent")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTimeOffset?>("FetchedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("FetchedUrl")
+                        .HasMaxLength(2000)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("FileExtension")
+                        .HasMaxLength(8)
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("Kind")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("RemoteUrl")
+                        .IsRequired()
+                        .HasMaxLength(2000)
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("Rendition")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("Source")
+                        .HasColumnType("INTEGER");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("AnimeId", "Kind", "Source", "Rendition")
+                        .IsUnique()
+                        .HasDatabaseName("IX_AnimeImages_AnimeId_Kind_Source_Rendition");
+
+                    b.ToTable("AnimeImages");
+                });
+
             modelBuilder.Entity("AniQueue.Core.Domain.AnimeRelation", b =>
                 {
                     b.Property<int>("Id")
@@ -152,6 +224,89 @@ namespace AniQueue.Infrastructure.Persistence.Migrations
                     b.ToTable("AnimeRelations");
                 });
 
+            modelBuilder.Entity("AniQueue.Core.Domain.AnimeStudio", b =>
+                {
+                    b.Property<int>("AnimeId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("StudioId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<bool>("IsMain")
+                        .HasColumnType("INTEGER");
+
+                    b.HasKey("AnimeId", "StudioId");
+
+                    b.HasIndex("StudioId");
+
+                    b.ToTable("AnimeStudios");
+                });
+
+            modelBuilder.Entity("AniQueue.Core.Domain.Genre", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Name")
+                        .IsUnique();
+
+                    b.ToTable("Genres");
+                });
+
+            modelBuilder.Entity("AniQueue.Core.Domain.JobRun", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("FailureReason")
+                        .HasMaxLength(500)
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTimeOffset>("FinishedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("ItemsChanged")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("ItemsProcessed")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("Outcome")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTimeOffset>("StartedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("TaskKey")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("Trigger")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("UnitKey")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TaskKey", "UnitKey", "Id")
+                        .HasDatabaseName("IX_JobRuns_TaskKey_UnitKey_Id");
+
+                    b.ToTable("JobRuns");
+                });
+
             modelBuilder.Entity("AniQueue.Core.Domain.LibraryEntry", b =>
                 {
                     b.Property<int>("Id")
@@ -171,9 +326,6 @@ namespace AniQueue.Infrastructure.Persistence.Migrations
                         .HasColumnType("TEXT");
 
                     b.Property<int>("EpisodesWatched")
-                        .HasColumnType("INTEGER");
-
-                    b.Property<bool>("IsHidden")
                         .HasColumnType("INTEGER");
 
                     b.Property<DateTimeOffset>("LastUpdated")
@@ -216,8 +368,6 @@ namespace AniQueue.Infrastructure.Persistence.Migrations
                         .IsUnique()
                         .HasDatabaseName("IX_LibraryEntries_ProfileId_AnimeId");
 
-                    b.HasIndex("ProfileId", "IsHidden");
-
                     b.HasIndex("ProfileId", "RecommendationScore");
 
                     b.HasIndex("ProfileId", "Status");
@@ -235,6 +385,10 @@ namespace AniQueue.Infrastructure.Persistence.Migrations
                         .HasColumnType("INTEGER");
 
                     b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("LibraryKey")
+                        .HasMaxLength(32)
                         .HasColumnType("TEXT");
 
                     b.Property<string>("Name")
@@ -379,9 +533,6 @@ namespace AniQueue.Infrastructure.Persistence.Migrations
                     b.Property<double>("PredictedScore")
                         .HasColumnType("REAL");
 
-                    b.Property<int>("Rank")
-                        .HasColumnType("INTEGER");
-
                     b.Property<string>("Reason")
                         .HasMaxLength(2000)
                         .HasColumnType("TEXT");
@@ -393,14 +544,34 @@ namespace AniQueue.Infrastructure.Persistence.Migrations
 
                     b.HasIndex("AnimeId");
 
-                    b.HasIndex("RunId", "Rank");
+                    b.HasIndex("RunId");
 
                     b.ToTable("RecommendationRunItems", t =>
                         {
                             t.HasCheckConstraint("CK_RecommendationRunItems_ConfidenceRange", "\"Confidence\" >= 0.0 AND \"Confidence\" <= 1.0");
-
-                            t.HasCheckConstraint("CK_RecommendationRunItems_RankPositive", "\"Rank\" >= 1");
                         });
+                });
+
+            modelBuilder.Entity("AniQueue.Core.Domain.Studio", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<bool>("IsAnimationStudio")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Name")
+                        .IsUnique();
+
+                    b.ToTable("Studios");
                 });
 
             modelBuilder.Entity("AniQueue.Core.Domain.SyncRun", b =>
@@ -466,6 +637,55 @@ namespace AniQueue.Infrastructure.Persistence.Migrations
                         .IsRequired();
 
                     b.Navigation("Anime");
+                });
+
+            modelBuilder.Entity("AniQueue.Core.Domain.AnimeGenre", b =>
+                {
+                    b.HasOne("AniQueue.Core.Domain.Anime", "Anime")
+                        .WithMany("Genres")
+                        .HasForeignKey("AnimeId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("AniQueue.Core.Domain.Genre", "Genre")
+                        .WithMany("Anime")
+                        .HasForeignKey("GenreId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("Anime");
+
+                    b.Navigation("Genre");
+                });
+
+            modelBuilder.Entity("AniQueue.Core.Domain.AnimeImage", b =>
+                {
+                    b.HasOne("AniQueue.Core.Domain.Anime", "Anime")
+                        .WithMany("Images")
+                        .HasForeignKey("AnimeId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Anime");
+                });
+
+            modelBuilder.Entity("AniQueue.Core.Domain.AnimeStudio", b =>
+                {
+                    b.HasOne("AniQueue.Core.Domain.Anime", "Anime")
+                        .WithMany("Studios")
+                        .HasForeignKey("AnimeId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("AniQueue.Core.Domain.Studio", "Studio")
+                        .WithMany("Anime")
+                        .HasForeignKey("StudioId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("Anime");
+
+                    b.Navigation("Studio");
                 });
 
             modelBuilder.Entity("AniQueue.Core.Domain.LibraryEntry", b =>
@@ -555,6 +775,17 @@ namespace AniQueue.Infrastructure.Persistence.Migrations
             modelBuilder.Entity("AniQueue.Core.Domain.Anime", b =>
                 {
                     b.Navigation("ExternalIds");
+
+                    b.Navigation("Genres");
+
+                    b.Navigation("Images");
+
+                    b.Navigation("Studios");
+                });
+
+            modelBuilder.Entity("AniQueue.Core.Domain.Genre", b =>
+                {
+                    b.Navigation("Anime");
                 });
 
             modelBuilder.Entity("AniQueue.Core.Domain.Profile", b =>
@@ -565,6 +796,11 @@ namespace AniQueue.Infrastructure.Persistence.Migrations
             modelBuilder.Entity("AniQueue.Core.Domain.RecommendationRun", b =>
                 {
                     b.Navigation("Items");
+                });
+
+            modelBuilder.Entity("AniQueue.Core.Domain.Studio", b =>
+                {
+                    b.Navigation("Anime");
                 });
 #pragma warning restore 612, 618
         }

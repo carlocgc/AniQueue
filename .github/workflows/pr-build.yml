@@ -1,0 +1,47 @@
+# Every pull request into development builds and tests, and builds the image
+# without pushing it. Phase 13's rule is that CI must not become the only way to
+# build or test, so each step runs the same `dotnet` command a clean checkout
+# runs rather than reimplementing it.
+name: PR build
+
+on:
+  pull_request:
+    branches:
+      - development
+
+# A second push to the same PR makes the first run's answer irrelevant.
+concurrency:
+  group: pr-build-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  DOTNET_VERSION: 10.0.x
+  SOLUTION: ./AniQueue.slnx
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up .NET SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+
+      - name: Restore solution
+        run: dotnet restore ${{ env.SOLUTION }}
+
+      - name: Build solution
+        run: dotnet build ${{ env.SOLUTION }} --configuration Release --no-restore
+
+      - name: Run tests
+        run: dotnet test ${{ env.SOLUTION }} --configuration Release --no-build
+
+      # Built and thrown away. A Dockerfile that stopped working is a broken
+      # release the day somebody tags one, and this is the cheapest place to find
+      # that out.
+      - name: Build Docker image
+        run: docker build --file ./Dockerfile --tag aniqueue:ci .

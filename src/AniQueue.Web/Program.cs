@@ -11,6 +11,7 @@ using AniQueue.Infrastructure.Sync;
 using AniQueue.Web.Components;
 using AniQueue.Web.Endpoints;
 using AniQueue.Web.Services;
+using Microsoft.AspNetCore.DataProtection;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -89,6 +90,31 @@ builder.Services.AddRazorComponents()
     // the page. The exposure this trades against is bounded by the same number, on
     // an application that binds to one operator's own network.
     .AddHubOptions(options => options.MaximumReceiveMessageSize = ScoringLimits.Default.MaxBytes);
+
+// Blazor Server signs the antiforgery tokens and circuit identifiers it hands out,
+// with keys ASP.NET Core generates on first use. Left where it puts them they live
+// in the container's own filesystem and die with it, so recreating the container
+// invalidates every page a browser still has open — the symptom is a form that
+// reports an antiforgery failure after an upgrade, which reads like a bug in the
+// form. Beside the database they are in the volume that already survives a
+// recreate (D20), which is the whole point of that volume.
+//
+// Not created here. The repository creates the directory when the key manager
+// first reaches it, which is after the database initialisation below — so an
+// unwritable /data still fails with the message that names the real problem.
+if (!string.IsNullOrEmpty(dataDirectory))
+{
+    builder.Services.AddDataProtection()
+        .PersistKeysToFileSystem(
+            new DirectoryInfo(Path.GetFullPath(Path.Combine(dataDirectory, "keys"))));
+}
+
+// The compose health check's target (Phase 11). Liveness only, and deliberately
+// so: a database that cannot be reached already prevents startup below, so a
+// check that queried one would be reporting on a state this process cannot be
+// in. What it does prove is the only thing a restart policy can act on — that
+// the server is accepting requests rather than merely running.
+builder.Services.AddHealthChecks();
 
 builder.Services.AddAniQueuePersistence(options =>
     builder.Configuration.GetSection(AniQueueDatabaseOptions.SectionName).Bind(options));
@@ -263,6 +289,11 @@ if (!app.Environment.IsDevelopment())
 
 app.UseStatusCodePagesWithReExecute("/not-found", createScopeForStatusCodePages: true);
 app.UseAntiforgery();
+
+// Unauthenticated, and it has to stay that way when Phase 12 lands: a compose
+// health check reaches this before anybody has logged in, and a lock that shuts
+// the orchestrator out of the liveness probe is worse than no lock.
+app.MapHealthChecks("/health");
 
 app.MapStaticAssets();
 app.MapCachedCoverArt();

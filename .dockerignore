@@ -1,0 +1,31 @@
+# The build context is the repository root, because restore needs
+# Directory.Build.props and Directory.Packages.props alongside the projects.
+# Everything below either cannot help the build or must never reach the image.
+
+# Personal data first. `data/` holds a real synced library and the settings file
+# beside it; a copy of either inside a published image would be a leak, not a
+# build input.
+data/
+**/data/
+*.db
+*.db-shm
+*.db-wal
+
+# Host build output. Copying it in would let a Windows `obj/` decide what a Linux
+# `--no-restore` publish believes it has already restored, which fails in ways
+# that read like source errors.
+**/bin/
+**/obj/
+
+.git/
+.github/
+.vs/
+.claude/
+.config/
+docs/
+tests/
+*.user
+*.md
+docker-compose.yml
+.dockerignore
+.editorconfig

@@ -3034,6 +3034,45 @@ have queued six titles rather than one.
 
 ---
 
+### D56 — `dev` is published continuously; a release still waits for the security pass
+
+*Amends Phase 13's "CI builds the image and does not publish it" without reopening the gate it
+was protecting.*
+
+Phase 13 wrote one rule for publishing: nothing reaches Docker Hub until Phase 14 has run,
+because an image on a registry is the moment a defect stops being local. That rule was written
+against a single tag. There are three, and they do not have the same audience.
+
+| Tag | Written by | Who pulls it |
+|---|---|---|
+| `dev` | every merge into `development` | the author, on their own machine |
+| `dev-<sha>` | the same run | anyone bisecting which merge broke something |
+| `vX.Y.Z` and `latest` | a `vX.Y.Z` tag on a commit contained in `main` | a self-hoster's compose file |
+
+**Decision:** `dev` publishes from today. `latest` and the version tag still wait for Phase 14,
+and nothing automatic can produce them — a release requires somebody to push a tag, and the
+workflow refuses one that is not already on `main`.
+
+**Why publish anything at all this early.** The container is the deployment target and the inner
+loop is `F5` (§13), so nothing exercises the container path unless CI does it on every merge. The
+alternative is discovering at release time that the Dockerfile stopped working three phases ago,
+which is exactly the class of failure this project keeps finding by running things rather than
+building them.
+
+**What it costs, stated plainly.** Phase 11's migration squash is free only while no database but
+ours exists, and a published image is how somebody else's comes to exist. `dev` moves that
+deadline from "the first release" to "the first time a `dev` image is deployed against a volume
+anybody minds losing" — including the author's own. **So the squash is now a decision to take
+before `dev` is deployed, not before `v1.0.0` is tagged.** It was taken in the same change, so the
+migration folder holds one baseline and no database anywhere records a migration that no longer
+exists.
+
+**Registry credentials are `DOCKERHUB_USERNAME` and `DOCKERHUB_TOKEN` in repository secrets**, and
+appear in no committed file. The workflows log in only after the test step, so a red suite cannot
+reach the registry at all.
+
+---
+
 ## 3. Solution structure
 
 Follows the brief's §36. It is a sensible shape; no argument.
@@ -3440,6 +3479,14 @@ the cost of a TMDB column. That unblocks both halves — but only `9b` ever need
 `9a` is where §10's argument actually lives, so the split lets the visible half ship while 9b's
 API terms are still unverified.
 
+**Phase 11 and Phase 13 land together, ahead of 10**, because in practice they are one piece of
+work: a workflow that builds an image needs the image to exist, and a Dockerfile that nothing
+builds on every merge is a Dockerfile that quietly stops working between releases. Taking them
+together also forces the question of what CI may publish before the security pass has run, which
+is D56 — and that decision then forced Phase 11's migration squash, because a `dev` image
+published on every merge is how a database other than ours comes to exist, and the squash is free
+only until one does. It was taken here.
+
 **So the table is in number order and the `Done` column carries the running order**, because those
 are two different questions and one table answering both by sorting would have to give up the
 numbering. What is finished is a column; what happens next is the first row without a tick.
@@ -3469,9 +3516,9 @@ numbering. What is finished is a column; what happens next is the first row with
 | 9c | Show detail dialog | ✅ | A row opens a dialog that argues for the title: poster, synopsis, genres, studio, and the score with its reason |
 | 10 | Settings page | ▢ **next** | One page for preferences; operator configuration shown and not editable |
 | 10a | Per-source settings to the file | ✅ | `SourceSyncSettings` deleted; every sync setting read from `userconfig.json` |
-| 11 | Docker + README | ▢ | Migrations squashed to one baseline; compose up, health check, container recreated without data loss |
+| 11 | Docker + README | ✅ | Migrations squashed to one baseline; compose up, health check, container recreated without data loss |
 | 12 | Optional auth | ▢ | A single-user login can be turned on; off by default, and off is still a supported deployment |
-| 13 | CI | ▢ | Build and tests on every push; image built on a tag, published only once Phase 14 has run |
+| 13 | CI | ✅ | Build and tests on every push and PR; `dev` published on every merge, a version and `latest` only from a tag on `main` (D56) |
 | 14 | Security pass | ▢ | §6's high-risk surfaces reviewed against the finished application; release gate opens |
 | 15a | Job contract | ✅ | Jobs take a trigger and return an outcome; the runner drives units and reschedules nothing |
 | 15b | Job runs | ✅ | Every executed run is recorded, including one that threw; every task reads its cadence from it |
@@ -4568,8 +4615,43 @@ Skipping it costs almost nothing — a slightly longer history and one redundant
 create-and-drop. It is a tidiness measure, not a correctness one. But it can only be done
 here, so it is listed as a gate rather than left to judgement.
 
+**Taken, and it cost one test file rather than nothing.** Twenty migrations became one
+`InitialCreate`, and the regenerated model snapshot came out byte-identical to the one it
+replaced — which is the check worth doing here, because an identical snapshot proves the squash
+changed no part of the schema. What it did change is what can be *tested*.
+`FranchiseExpansionMigrationTests` migrated a database to `DropManualPriority`, wrote franchise
+rows as SQL because the current model cannot express them, and migrated up through both the D15
+expansion and the D23 drop. Neither migration exists now, so the class no longer runs, and its
+subject — an upgrade path out of a schema no database is in — went with them. Deleted rather than
+ported, per §12's rule against a test that cannot fail. The Infrastructure suite lost those five
+tests and about twenty seconds with them, because each one applied every migration in turn.
+
 Final gate: Release build, full test run, image build, `docker compose up -d`, health check
 verified, **container recreated and the database confirmed intact**.
+
+**What landed.** The image, the compose file, `/health`, the README section, the squash, and a
+`Docker` launch profile that runs and debugs the production image from Visual Studio (§13). The
+one thing named above still ahead of this phase is **optional single-user auth** (Phase 12),
+which will put a login in front of everything except `/health` — the compose health check reaches
+it before anybody has logged in.
+
+**The final gate was run and passed.** Release build, 845 tests, `docker compose up -d --build`,
+`docker ps` reporting `healthy` rather than merely `Up`, and the container brought down and up
+again twice: the database applied no migrations on the second start, and `userconfig.json` still
+carried the timestamp the first container wrote it at. Criterion 25 is met.
+
+**Running it found one thing a build could not**, which is the usual outcome here. ASP.NET Core
+Data Protection warns at startup that it is keeping its keys inside the container. Blazor Server
+signs antiforgery tokens and circuit identifiers with them, so recreating the container — the
+normal way to upgrade — would invalidate every page a browser still had open, and the symptom is
+an antiforgery failure that reads like a bug in the form. They now persist to `/data/keys`
+alongside the database, and the same key survived both recreates.
+
+**The health check is liveness only, deliberately.** A check that queried the database would be
+reporting on a state the process cannot be in: migrate-on-boot already refuses to start when the
+database is unreachable. What it proves is the one thing a restart policy can act on — that the
+server is accepting requests rather than merely running. Its `start-period` covers a first run
+against an empty volume, which applies every migration before anything serves.
 
 ### Phase 12 — Optional single-user authentication
 A login that can be switched on, off by default, and **off remains a supported deployment** —
@@ -4607,6 +4689,24 @@ migration squash is free only while no database but ours exists, and publishing 
 that. An image on Docker Hub is also the moment a defect stops being local. So the workflow is
 built and exercised here, but **the first push of a release tag waits on Phase 14** — until
 then CI builds the image and does not publish it.
+
+*Amended by D56, which keeps the release gate and lifts it for one tag.* `dev` publishes on every
+merge into `development`, because nothing else exercises the container path — the inner loop is
+`F5` (§13), so a Dockerfile no workflow builds is one that breaks silently between releases.
+`latest` and `vX.Y.Z` still wait for Phase 14, and no automatic trigger can produce them.
+
+**Three workflows, and each runs the commands a clean checkout runs.**
+
+| Workflow | Fires on | Does |
+|---|---|---|
+| `pr-build.yml` | pull request into `development` | restore, build, test, build the image and throw it away |
+| `dev-image.yml` | push to `development` | the same, then push `dev` and `dev-<sha>` |
+| `release-docker.yml` | a `vX.Y.Z` tag | validate the tag is on `main`, test, push the version and `latest`, write the GitHub release |
+
+The tag validation is the part worth keeping: a tag can be pushed from any branch, and `latest`
+is what a self-hoster's compose file pulls, so the workflow refuses a commit that `main` does not
+contain. Every one of the three tests before it logs in to the registry, so a red suite cannot
+reach Docker Hub.
 
 Nothing about CI is allowed to become the only way to build or test: `dotnet build` and
 `dotnet test` at a clean checkout stay the contract, and the workflow runs those rather than
@@ -5242,11 +5342,12 @@ the shortest chip, which is "TV".
 the facts one tap away in the dialog; navigation is five thumb-reachable tabs; `IsHidden` appears
 nowhere in the codebase; and the desktop layout has lost nothing it had before.
 
-*Met, with one precise exception.* `IsHidden` survives in the migration history — the initial
-create, every designer snapshot after it, and the migration that drops the column — because those
-record schemas as they were and rewriting them would make a record of the past disagree with the
-past. The live model, the services, the pages and the stylesheet have none. The one test that names
-it inserts against a pre-D15 schema on purpose.
+*Met, and the one exception it had has since closed.* `IsHidden` survived in the migration
+history — the initial create, every designer snapshot after it, and the migration that dropped the
+column — because those recorded schemas as they were, and rewriting them would have made a record
+of the past disagree with the past. Phase 11's squash replaced that history with a single baseline
+describing the shipping schema, in which the column never existed. The only mention left in the
+codebase is the comment in `LibraryEntry` saying why there is none.
 
 ---
 
@@ -5314,10 +5415,11 @@ Phase 5 adds, and these are load-bearing rather than decorative:
 Phase 6 adds:
 
 - **6a proves a subtraction.** Nothing new is asserted; the franchise tests are deleted with
-  their subjects rather than ported. What must stay green is the migration applying to a fresh
-  database and to a pre-D15 one — `FranchiseExpansionMigrationTests` now upgrades through both
-  the expansion and the drop in one run, seeding entirely in SQL because the current model can
-  express none of it.
+  their subjects rather than ported. What had to stay green was the migration applying to a fresh
+  database and to a pre-D15 one — `FranchiseExpansionMigrationTests` upgraded through both the
+  expansion and the drop in one run, seeding entirely in SQL because the current model can express
+  none of it. *Deleted by Phase 11's squash, which removed both migrations it named and with them
+  the upgrade path it existed to prove.*
 - **Parsing relations**, in Core against a committed fixture that is structurally faithful and
   fictional per §0: relation types mapped, unknown types dropped rather than stored as `Other`,
   manga nodes filtered out, a missing `startDate`, and **edge direction preserved as fetched**.
@@ -5875,6 +5977,14 @@ has every one of them.
 - Rebase onto `development` and resolve conflicts locally before opening a PR.
 - No new third-party dependency without explicit approval. SortableJS is the only one
   pre-approved, and only for Phase 4.
+- **Phase 11 takes the second approved dependency**, and it is worth stating what it buys.
+  `Microsoft.VisualStudio.Azure.Containers.Tools.Targets` is what makes Visual Studio's `Docker`
+  launch profile work against this repository's own Dockerfile. It is build-time only and ships
+  nothing into the published output, which was verified rather than assumed: the package name
+  appears nowhere in the container's `AniQueue.Web.deps.json`. What it buys that `docker compose
+  up` cannot is a breakpoint inside the container, which is where the deployment-only failures
+  live — volume permissions, the non-root user, forwarded headers. Version matched to the sibling
+  project already using it.
 - **Phase 6 needs no new dependency either.** Pacing the relation backfill is tested against
   `TimeProvider`, which is in the box, so nothing was needed to avoid sleeping in tests.
 - **Phase 8 needs no new dependency either.** A chat-completions call is an HTTP POST with a JSON
@@ -5904,9 +6014,31 @@ has every one of them.
 - **The inner loop is `F5` on `AniQueue.Web`, not Docker.** Container debugging in
   Blazor Server adds a rebuild cycle per change for no diagnostic benefit. Docker is a
   Phase 11 deliverable and a pre-release gate, not the daily loop.
-- **Do not accept Visual Studio's generated Dockerfile.** Container Tools writes a
-  debug-oriented file tuned for its fast-mode volume mount. Phase 11 writes a production
-  multi-stage one (SDK build → `aspnet` runtime, non-root, no SDK in the final layer).
+- **Do not accept Visual Studio's generated Dockerfile**, and that is not the same as declining
+  Visual Studio's Docker integration. Container Tools offers to *write* a Dockerfile tuned for
+  its own fast-mode volume mount; Phase 11 writes the production one (SDK build → `aspnet`
+  runtime, non-root, no SDK in the final layer) and VS is pointed at that instead, through
+  `DockerfileFile` and `DockerfileContext` in `AniQueue.Web.csproj` and a `Docker` launch profile.
+
+  **Fast mode targets the first stage in the file**, which is why the production Dockerfile leads
+  with `base` — the runtime image — rather than with `build`. Put the SDK stage first and pressing
+  F5 on the Docker profile debugs inside a compiler image.
+
+  **The profile deliberately does not set `ASPNETCORE_ENVIRONMENT`.** Development would apply
+  `appsettings.Development.json`, whose `Database:Path` is `./data/aniqueue.db` — a path that
+  means the repository on this machine and means nothing useful inside a container. Left unset,
+  the container reads `/data/aniqueue.db` as a deployment does.
+
+  `DockerfileRunArguments` mounts `aniqueue-vs-data`, a volume of its own, so a debugging session
+  cannot write into the one a real deployment is using.
+
+  **Two traps, both found by pressing F5 rather than by reading the documentation.**
+  `DockerfileFile` is relative to the project; `DockerfileContext` is relative to the
+  *Dockerfile*. Writing `..\..` for both — the obvious thing — pointed the context at `G:\` and
+  asked Docker to send an entire drive. The Dockerfile is already at the repository root, so the
+  context is `.`. And Container Tools must be at least 1.21: 1.20.1 reads Docker Desktop's
+  settings from `settings.json`, which current versions renamed to `settings-store.json`, and it
+  throws rather than degrading when the file is missing.
 - `AniQueue.Web` is the single startup project; no multi-project startup is needed.
 - **EF tooling is a pinned local tool**, not a global install: `.config/dotnet-tools.json`
   fixes `dotnet-ef` at the same version as the EF packages. Run `dotnet tool restore` once
