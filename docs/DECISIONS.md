@@ -1310,6 +1310,8 @@ whatever the default says. *Settled by D30.*
 ### D30 — Sources is where every source lives, and primary is a single seat
 
 *Finishes D29, which could describe precedence but not let anyone configure it.*
+*Amended by D57, which moves the primary seat off this page and makes it a dropdown. The seat
+stays single, which is what this entry was protecting; where it is chosen is what changed.*
 
 MyAnimeList was a source everywhere except on the page named after sources. Its export was a
 separate **Import** item in the navigation, it had no settings of its own, and its rank was
@@ -1344,12 +1346,22 @@ express an unreachable state eventually will. So promotion is the only operation
 `SetPrimarySourceAsync` seats one source and demotes the rest in one transaction, and there is
 deliberately **no demote** — taking the seat from its only holder would leave it empty.
 
+*D57 replaces the radio with a single dropdown, and the argument above is why it can: the hazard
+was two controls over one seat, not the control's shape. One dropdown on one page cannot express
+two primaries or none, so it enforces what the radio pair had to be arranged across two cards to
+enforce.*
+
 Two smaller things follow from being able to see both cards at once. **Nothing is primary until
 somebody chooses**: the entity defaulted the rank to zero, so every unconfigured source claimed
 the seat and two claimed it simultaneously — and it disagreed with the import, which already
 ranks an unconfigured source below a configured one (D29). And **the title language moved out of
 AniList's settings** onto the page, because it is a profile preference rather than a fact about
 a source; with a second card it would have been drawn twice, as two controls over one setting.
+
+*Both are amended by D57. The empty seat is filled by defaulting to AniList, because a dropdown
+offering "nothing" offers the tie back. The title language moves once more, off this page onto
+the settings page, for the reason it left AniList's card: it describes how titles read, not where
+they came from.*
 
 **The Import page is retired**, and both empty states now offer one destination rather than two.
 Where the library comes from is one question with one answer.
@@ -3007,3 +3019,124 @@ exists.
 appear in no committed file. The workflows log in only after the test step, so a red suite cannot
 reach the registry at all.
 
+
+### D57 — Preference lives on the settings page; a source card holds what a run reads
+
+*Amends D30, which put the primary seat and the title language on the sources page, and amends
+Phase 10, which planned a register of everything in `userconfig.json`.*
+
+D36 drew the line between the two stores by **what a value describes**. This draws the same line
+across the two pages, because the sources page had drifted into holding both: an account and a
+conflict policy, which describe a source, sat in one disclosure beside a title language and a
+primary seat, which describe how the whole library reads.
+
+**Four preference columns existed and nothing read any of them.** `Theme`, `DateFormat`,
+`DefaultQueueSize` and `DefaultRecommendationMode` were written by the initial migration and are
+read by no page, no service and no job. Phase 10 was described as showing preferences that
+already existed; what it would actually have been is building four features and calling them
+settings.
+
+**So one survives and three are dropped**, along with `RecommendationMode`, whose only reference
+was the column. The backlog's default sort and filter columns Phase 10 also planned are not
+added, for the same reason arriving one step earlier: the backlog already opens somewhere
+sensible, and a stored default is a second answer to a question nothing was asking.
+
+- **`Theme` stays** because the stylesheet was written for it — `app.css` already says that an
+  explicit System/Light/Dark setting would set `data-theme` on `<html>` — and because a dark
+  application that ignores a person who wants light is the one preference here somebody notices.
+- **It is resolved during the server-side render**, in `App.razor`, which writes the attribute
+  into the document the browser first receives. One row read per page load, no JavaScript, and
+  no flash of the wrong theme. Reading it after the circuit connects would repaint in front of
+  the user, which is the failure this setting exists to avoid.
+
+*This is the first migration after Phase 11's squash, so it is the first one a `dev` image's
+database will have to apply (D56). Dropping three unread columns is the cheapest possible thing
+for that migration to be.*
+
+**The title language moves once more.** D30 lifted it out of AniList's card onto the sources
+page, because it is a profile preference rather than a fact about a source. That argument does
+not stop at the page boundary, and the settings page now exists to receive it.
+
+**Primary becomes a dropdown, and defaults to AniList.** D30's radio was chosen because two
+per-source dropdowns could both say *Primary*; one dropdown, on one page, over one seat, cannot.
+The default reverses D30's "nothing is primary until somebody chooses" deliberately: with a
+dropdown, offering "none" is offering the tie back, and the tie — last import wins — is the
+behaviour the setting exists to end. *A library where nothing was ever chosen changes behaviour
+on upgrade, which is the cost, stated rather than discovered.*
+
+**The per-source sync toggle is deleted, because it was never a second setting.** The sources
+page's *Sync this source* and the settings page's power button on the sync task both write
+`Sync:AniList:Enabled`. Two controls over one key is the bug D30 avoided on a text box and
+acquired here on a switch.
+
+**The register of `userconfig.json` is cut.** Phase 10 wanted one card naming every value in the
+file and where it came from, to answer "which won". D36 removed the question: each value is
+edited on the card that uses it, `appsettings.json` names no user-facing key, and a default is
+not a layer — so the value on the card *is* the effective value, and a register would be a second
+place showing the same numbers, which is the failure it was meant to prevent. What a person
+needs when the pages cannot be reached is the file's path and whether it loaded, and both are
+already said: on every card that saves to it, and in the banner when it breaks (D20).
+
+**The cadence is renamed for what it drives.** *How often* becomes **Scheduled tasks** and *Check
+for work* becomes **Frequency**. Not *Scheduled sync*: one cadence drives sync, relations, cover
+art and scoring (D40), and naming it after one of the four would mislabel the other three.
+
+**What is left on the sources page is what a run reads**: the AniList username, the MyAnimeList
+file picker, the review of held changes, and the three settings that decide what an unattended
+run may do — apply without asking, conflicts, and titles the source stopped listing. The
+collapsed *Settings* disclosure goes with the rest; there is no longer enough behind it to be
+worth hiding, and the username comes up into the card body where an unconfigured source already
+offers it.
+
+### D58 — Deleting everything is one action, and it keeps the profile
+
+*Answers a gap rather than amending anything: AniQueue has never had a surface for managing its
+own data.*
+
+The only destructive control in the application deletes the relation graph, and it lives on the
+sources page because that is where the coverage line explaining it lives. Everything else
+accumulates with no way to clear it: a library imported from the wrong account, artwork for
+titles long gone, a queue built against a backlog somebody no longer wants.
+
+**Three rows, in a destructive section at the bottom of the settings page.** Delete all title
+relationships, delete all artwork, and delete all. Each is a card row with a red trash button and
+a dialog that says what is about to happen. The relations row is the existing control, moved.
+
+**It is called *Delete all*, not *clear the backlog*.** The backlog is a view of the library, so
+emptying it means deleting titles — and a title takes its queue slot, its score and its pictures
+with it. A name describing the page it was pressed from would understate every one of those.
+
+**The profile row survives, and that is what "leaving the settings in place" means.**
+`ProfileSettings` hangs off `Profile`, so deleting the profile would reset the theme and the
+title language this action promises to keep, and the initializer would mint a replacement on the
+next start. *The `LibraryKey` is not the reason.* A fresh key would be harmless here: every reply
+carrying the old one names titles that no longer exist, and D50 already refuses such a reply
+whole. Keeping the row is about the preferences on it.
+
+**Run history goes with the library it describes.** A `JobRun` reading "changed 826" and a
+`SyncRun` recording a successful fetch are both statements about rows that are gone.
+
+**Sync is left switched on, and the dialog says what that means.** AniList titles come back on
+the next run; the queue, the scores and any MyAnimeList-only titles do not. Somebody expecting a
+clean slate and watching several hundred titles reappear would reasonably conclude the button
+failed, so the sentence explaining it belongs in front of the click rather than after it.
+Switching sync off as a side effect would be worse: this action is about data, and quietly
+changing a setting is the thing D36 spent an entry making impossible.
+
+**The artwork half needs no new code.** `CoverArtStore.RemoveUnclaimed` already deletes every
+file no row claims; an empty claim set deletes the tree. `ArtworkService` refetches whatever is
+missing from disk, so the cache heals itself afterwards without the rows being touched (D47).
+
+**It is refused while any task is running.** Deleting the library from under a sync can throw
+mid-run or re-add rows the moment it finishes, and a background job is the one thing on this page
+that can be doing either while somebody presses a button. The control is disabled with the reason
+said, rather than cancelling the running task first: cancellation is cooperative, so the wait is
+the same and the second version has two failure modes instead of one.
+
+**The dialog names counts; it does not ask for a typed word.** "Deletes 743 titles, 12 queued and
+680 pictures" is a number somebody has to read, and reading it is the guard. A confirmation
+phrase trains the habit of typing the phrase.
+
+**None of this is a backup or an undo.** D33 already says the database file is the backup and the
+copy is the operator's to keep, which is the same sentence the absence policy needs and for the
+same reason.
