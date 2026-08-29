@@ -3,6 +3,7 @@ using AniQueue.Core.Domain;
 using AniQueue.Core.Recommendations;
 using AniQueue.Core.Settings;
 using AniQueue.Infrastructure.Settings;
+using AniQueue.Infrastructure.Sync;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging.Abstractions;
 
@@ -369,6 +370,46 @@ public class UserSettingsStoreTests : IDisposable
         new ConfigurationBuilder().Build().GetSection(TaskOptions.SectionName).Bind(options);
 
         Assert.Equal(SyncSchedule.Off, options.Schedule);
+    }
+
+    /// <summary>
+    /// A file that says nothing about precedence still names an occupant.
+    /// </summary>
+    /// <remarks>
+    /// An empty seat is the tie it exists to end, so the default is a source rather
+    /// than an absence.
+    /// </remarks>
+    [Fact]
+    public void An_unnamed_primary_source_is_AniList()
+    {
+        var (store, _) = Create();
+
+        Assert.Equal(AnimeSource.AniList, store.Read().SyncPrimarySource);
+    }
+
+    /// <summary>
+    /// The empty value every older file holds must bind rather than throw.
+    /// </summary>
+    /// <remarks>
+    /// <c>"Sync:PrimarySource": ""</c> is what a first boot wrote while the seat could
+    /// be unoccupied, so it is in every <c>userconfig.json</c> that predates the
+    /// default. The binder throws on an empty string for a non-nullable enum, and it
+    /// throws during startup — which took the whole process down on exactly the
+    /// installations that have been running longest.
+    /// </remarks>
+    [Fact]
+    public async Task An_empty_primary_source_left_by_an_older_file_still_starts()
+    {
+        var (store, configuration) = Create();
+
+        await File.WriteAllTextAsync(SettingsPath, """{ "Sync:PrimarySource": "" }""");
+        configuration.Reload();
+
+        var options = new SyncOptions();
+        configuration.GetSection("Sync").Bind(options);
+
+        Assert.Null(options.PrimarySource);
+        Assert.Equal(AnimeSource.AniList, store.Read().SyncPrimarySource);
     }
 
     [Fact]

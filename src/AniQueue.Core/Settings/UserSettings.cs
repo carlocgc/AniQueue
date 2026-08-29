@@ -49,10 +49,13 @@ public sealed record UserSettings
 
     /// <summary>
     /// Which source outranks the others when two of them describe one title.
-    /// Null until somebody chooses, which is honest: with no choice
-    /// made two sources tie and the last import wins.
     /// </summary>
-    public AnimeSource? SyncPrimarySource { get; init; }
+    /// <remarks>
+    /// AniList by default, and never empty. An unoccupied seat means two sources tie
+    /// and the last import wins, which is what the setting exists to end — so the
+    /// control that sets it offers no way back to that state.
+    /// </remarks>
+    public AnimeSource SyncPrimarySource { get; init; } = AnimeSource.AniList;
 
     /// <summary>Whether AniList takes part in sync at all.</summary>
     /// <remarks>

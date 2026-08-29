@@ -127,6 +127,12 @@ public class AniListEnrichmentTests
         // nothing logged.
         await using var fixture = await ImportFixture.CreateAsync();
 
+        // The export is what this user trusts for tracking, which is what makes the
+        // last assertion a witness that the import ran at all. Under the default seat
+        // AniList would keep its own status, and a status that had not moved would
+        // prove nothing either way.
+        fixture.Options.PrimarySource = AnimeSource.MyAnimeList;
+
         await SyncAsync(fixture, Fetched());
         await BridgeToMyAnimeListAsync(fixture);
         await SyncAsync(fixture, Exported(), "MyAnimeList XML");

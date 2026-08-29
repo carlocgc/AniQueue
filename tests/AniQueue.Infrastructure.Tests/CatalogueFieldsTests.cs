@@ -100,6 +100,12 @@ public class CatalogueFieldsTests
         // for every title the two lists share — turning those filters back off.
         await using var fixture = await ImportFixture.CreateAsync();
 
+        // The export is what this user trusts for tracking, which is what makes the
+        // last assertion a witness that the import ran at all. Under the default seat
+        // AniList would keep its own status, and a status that had not moved would
+        // prove nothing either way.
+        fixture.Options.PrimarySource = AnimeSource.MyAnimeList;
+
         var synced = await fixture.Service.PreviewAsync(
             Fetched("16498", "Attack on Titan"), AniListFormat, Profile.DefaultProfileId);
         await fixture.Service.CommitAsync(synced, Profile.DefaultProfileId);

@@ -28,6 +28,10 @@ public static class SettingsServiceCollectionExtensions
     {
         services.AddSingleton<IUserSettingsStore, UserSettingsStore>();
 
+        // Scoped, unlike the store beside it: this one reads the database, and a
+        // context factory hands out a context per call rather than per process.
+        services.AddScoped<IAppearance, Appearance>();
+
         return services;
     }
 

@@ -26,16 +26,20 @@ public class SyncOptions
     public bool Enabled { get; set; } = true;
 
     /// <summary>
-    /// Which source outranks the others when two of them describe one title.
-    /// Null until somebody chooses.
+    /// Which source outranks the others when two of them describe one title. Null
+    /// where the file says nothing, which callers read as
+    /// <see cref="UserSettings.SyncPrimarySource"/>'s default.
     /// </summary>
     /// <remarks>
     /// One key naming the occupant, because the seat is single by definition. An
     /// integer per source could represent two primaries, or none.
     ///
-    /// Null is honest rather than a gap: with no choice made, two sources tie and the
-    /// last import wins, so the page says nothing is primary rather than defaulting
-    /// one of them into the seat.
+    /// <b>Nullable because of what is already written down.</b> Every
+    /// <c>userconfig.json</c> from before the seat had a default holds
+    /// <c>"Sync:PrimarySource": ""</c>, and the configuration binder throws on an
+    /// empty string for a non-nullable enum — at startup, before anything is serving,
+    /// on exactly the installations that have been running longest. The seat still has
+    /// no "nobody" value; the type is what tolerates a file that predates the default.
     /// </remarks>
     public AnimeSource? PrimarySource { get; set; }
 

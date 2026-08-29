@@ -522,21 +522,21 @@ public class SyncServiceTests
     }
 
     /// <summary>
-    /// Before anybody chooses, nothing claims to be primary.
+    /// Before anybody chooses, AniList holds the seat and exactly one source does.
     /// </summary>
     /// <remarks>
-    /// The entity defaults the rank to zero, so every unconfigured source used to
-    /// report itself primary — two of them at once, which is the tie resolved by
-    /// letting the last import win. The page has to be able to say "not chosen".
+    /// An empty seat is the tie — two sources both describing a title, resolved by
+    /// letting the last import win — which is the behaviour the setting exists to
+    /// end, so there is no state where nobody holds it.
     /// </remarks>
     [Fact]
-    public async Task No_source_is_primary_until_one_is_chosen()
+    public async Task AniList_holds_the_primary_seat_before_anybody_chooses()
     {
         await using var fixture = await SyncFixture.CreateAsync(new StubAniListClient());
 
         var statuses = await fixture.Service.GetStatusAsync(Profile.DefaultProfileId);
 
-        Assert.DoesNotContain(statuses, s => s.IsPrimary);
+        Assert.Equal(AnimeSource.AniList, Assert.Single(statuses, s => s.IsPrimary).Source);
     }
 
     [Fact]
@@ -569,8 +569,12 @@ public class SyncServiceTests
     {
         await using var fixture = await SyncFixture.CreateAsync(new StubAniListClient());
 
+        // Starting from the other source, so the promotion below has something to move
+        // rather than confirming the default it was already sitting on.
+        await fixture.Service.SetPrimarySourceAsync(Profile.DefaultProfileId, AnimeSource.MyAnimeList);
+
         var before = await fixture.Service.GetStatusAsync(Profile.DefaultProfileId);
-        Assert.DoesNotContain(before, s => s.IsPrimary);
+        Assert.Equal(AnimeSource.MyAnimeList, Assert.Single(before, s => s.IsPrimary).Source);
 
         await fixture.Service.SetPrimarySourceAsync(Profile.DefaultProfileId, AnimeSource.AniList);
 

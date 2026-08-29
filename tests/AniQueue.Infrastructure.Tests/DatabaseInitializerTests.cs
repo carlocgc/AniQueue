@@ -54,7 +54,7 @@ public class DatabaseInitializerTests
         // The scoring settings live in userconfig.json; what a fresh database has to
         // produce is the display preferences.
         Assert.Equal(TitleLanguage.Romaji, settings.PreferredTitleLanguage);
-        Assert.Equal(RecommendationMode.Manual, settings.DefaultRecommendationMode);
+        Assert.Equal(ThemePreference.System, settings.Theme);
     }
 
     [Fact]
