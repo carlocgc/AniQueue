@@ -39,6 +39,23 @@ public sealed class LibraryService(
         var filtered = ApplyFilters(context, context.LibraryEntries.AsNoTracking(), profileId, query);
         var total = await filtered.CountAsync(cancellationToken);
 
+        // Debug because it happens on every paint of the busiest page. It is here for
+        // the report that a filter shows nothing: the filters and the count they
+        // produced are the two halves of that question, and neither is recoverable
+        // from a screenshot.
+        logger.LogDebug(
+            "Backlog page for profile {ProfileId}: status {Status}, media {MediaType}, decade {Decade}, "
+            + "source {Source}, standalone {StandaloneOnly}, search {HasSearch}, sort {Sort} — {Total} matched",
+            profileId,
+            query.Status,
+            query.MediaType,
+            query.Decade,
+            query.Source,
+            query.StandaloneOnly,
+            !string.IsNullOrWhiteSpace(query.Search),
+            query.Sort,
+            total);
+
         // Loaded once for the page rather than joined per row: the queue is small
         // by design, and a set lookup beats a correlated subquery per entry.
         var queued = await context.QueueItems

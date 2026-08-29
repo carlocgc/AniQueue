@@ -41,12 +41,29 @@ public static class CoverArtEndpoint
 
         endpoints.MapGet(
             $"/{ArtworkPaths.Root}/{{directory}}/{{animeId:int}}/{{segment}}",
-            (string directory, int animeId, string segment, CoverArtStore store, HttpContext httpContext) =>
+            (string directory,
+             int animeId,
+             string segment,
+             CoverArtStore store,
+             HttpContext httpContext,
+             ILoggerFactory loggers) =>
             {
+                var logger = loggers.CreateLogger(typeof(CoverArtEndpoint).FullName!);
+
                 if (!ArtworkPaths.TryParseDirectory(directory, out var imageKind, out var rendition)
                     || !ArtworkPaths.TryParseSegment(segment, out var contentHash, out var fileExtension)
                     || ImageSource.ContentTypeFor(fileExtension) is not { } contentType)
                 {
+                    // A refusal rather than a miss: the route matched but the segments
+                    // are not ones this application could have produced. Worth telling
+                    // apart from an image that simply has not been fetched, because one
+                    // is a bug or a probe and the other is a job that has not caught up.
+                    logger.LogDebug(
+                        "Refused a cover art request for an address AniQueue does not issue: {Directory}/{AnimeId}/{Segment}",
+                        directory,
+                        animeId,
+                        segment);
+
                     return Results.NotFound();
                 }
 
@@ -57,6 +74,16 @@ public static class CoverArtEndpoint
                     // job has not fetched this yet or the file has gone, and both
                     // repair themselves within a tick — a 404 cached for a year would
                     // outlive the repair by about a year.
+                    //
+                    // Debug because a fresh install produces one of these per title
+                    // until the art arrives, and it is exactly what somebody asking
+                    // "why are there no pictures" needs to see.
+                    logger.LogDebug(
+                        "No cached {Rendition} {Kind} on disk for title {AnimeId}; the fetch job will repair it",
+                        rendition,
+                        imageKind,
+                        animeId);
+
                     return Results.NotFound();
                 }
 

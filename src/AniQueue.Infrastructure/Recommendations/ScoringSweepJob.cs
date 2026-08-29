@@ -91,6 +91,13 @@ public sealed class ScoringSweepJob(
         // switch, and whether anywhere exists to send to.
         if (!current.Enabled || !endpoint.IsConfigured)
         {
+            // The two commonest reasons nothing is ever ranked, and neither shows up
+            // anywhere except as a backlog that stays unscored.
+            logger.LogDebug(
+                "Scoring is not due: enabled {Enabled}, endpoint configured {Configured}",
+                current.Enabled,
+                endpoint.IsConfigured);
+
             return JobRunOutcome.NotDue;
         }
 
@@ -105,6 +112,8 @@ public sealed class ScoringSweepJob(
             // titles count as stale.
             if (tasks.CurrentValue.Schedule.ToInterval() is not { } interval)
             {
+                logger.LogDebug("Scoring is not due: the task cadence is switched off");
+
                 return JobRunOutcome.NotDue;
             }
 
@@ -116,6 +125,9 @@ public sealed class ScoringSweepJob(
 
             if (lastRun is { } previous && _time.GetUtcNow() - previous < interval)
             {
+                logger.LogDebug(
+                    "Scoring is not due: last run {LastRun:u}, cadence {Interval}", previous, interval);
+
                 return JobRunOutcome.NotDue;
             }
         }

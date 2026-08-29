@@ -294,6 +294,13 @@ public sealed class BackgroundJobRunner<TJob>(
     {
         if (!outcome.IsRecordable)
         {
+            // Nothing is written down for a tick that found nothing to do, because a
+            // history of those would bury the runs that happened. It is still said in
+            // the log at Debug, because "the task never runs" and "the task runs and
+            // finds nothing" look identical from outside and are different problems.
+            logger.LogDebug(
+                "{Job} / {Unit} had nothing to do ({Trigger})", name, unit.Name, context.Trigger);
+
             return;
         }
 

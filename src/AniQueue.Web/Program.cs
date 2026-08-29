@@ -1,3 +1,5 @@
+using AniQueue.Core.Artwork;
+using AniQueue.Core.Domain;
 using AniQueue.Core.Recommendations;
 using AniQueue.Core.Settings;
 using AniQueue.Infrastructure;
@@ -12,6 +14,7 @@ using AniQueue.Web.Components;
 using AniQueue.Web.Endpoints;
 using AniQueue.Web.Services;
 using Microsoft.AspNetCore.DataProtection;
+using Microsoft.Extensions.Options;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -279,6 +282,67 @@ if (!string.IsNullOrEmpty(dataDirectory))
     await app.Services
         .GetRequiredService<IUserSettingsStore>()
         .EnsureExistsAsync(app.Lifetime.ApplicationStopping);
+}
+
+// One block naming everything an operator would otherwise have to guess at from
+// inside a container: where the data is, and what this installation is configured
+// to do. Almost every support question about a self-hosted deployment is answered
+// by one of these lines — "it is not syncing" is usually a schedule left off or an
+// account never entered, and neither is visible from a page somebody cannot reach.
+//
+// After the database work so the paths it prints are paths that exist, and before
+// the pipeline so it lands above the first request in the log.
+{
+    var startupLogger = app.Services.GetRequiredService<ILogger<Program>>();
+    var database = app.Services.GetRequiredService<IOptions<AniQueueDatabaseOptions>>().Value;
+    var sync = app.Services.GetRequiredService<IOptionsMonitor<SyncOptions>>().CurrentValue;
+    var scoring = app.Services.GetRequiredService<IOptionsMonitor<ScoringOptions>>().CurrentValue;
+    var tasks = app.Services.GetRequiredService<IOptionsMonitor<TaskOptions>>().CurrentValue;
+
+    startupLogger.LogInformation(
+        "AniQueue {Version} starting in the {Environment} environment on .NET {Runtime}",
+        typeof(Program).Assembly.GetName().Version?.ToString() ?? "unknown",
+        app.Environment.EnvironmentName,
+        Environment.Version);
+
+    startupLogger.LogInformation(
+        "Database {DatabasePath}; settings {UserConfigPath} ({UserConfigState}); artwork cache {ArtworkPath}",
+        Path.GetFullPath(database.Path),
+        userConfig?.Path ?? "not used",
+        userConfig switch
+        {
+            null => "no data directory",
+            { IsBroken: true } => "unreadable and ignored",
+            _ when File.Exists(userConfig.Path) => "loaded",
+            _ => "not present yet"
+        },
+        dataDirectory is { Length: > 0 }
+            ? Path.GetFullPath(Path.Combine(dataDirectory, ArtworkPaths.Root))
+            : "not used");
+
+    // The account is a public AniList username and the endpoint is an address on the
+    // operator's own network, so both are safe to print and both are what somebody
+    // debugging actually needs. Nothing here is a credential; AniQueue holds none.
+    startupLogger.LogInformation(
+        "Sync {SyncState}; AniList {AniListState}, account {AniListAccount}",
+        sync.Enabled ? "enabled" : "switched off",
+        sync.AniList.Enabled ? "enabled" : "switched off",
+        string.IsNullOrWhiteSpace(sync.AniList.UserName) ? "not set" : sync.AniList.UserName);
+
+    startupLogger.LogInformation(
+        "Scheduled scoring {ScoringState}; endpoint {ScoringEndpoint}, model {ScoringModel}",
+        scoring.Enabled ? "enabled" : "switched off",
+        string.IsNullOrWhiteSpace(scoring.Endpoint) ? "not set" : scoring.Endpoint,
+        string.IsNullOrWhiteSpace(scoring.Model) ? "not set" : scoring.Model);
+
+    // Off is the default and the commonest reason nothing happens on its own, so it
+    // is said plainly rather than left to be inferred from a task that never runs.
+    startupLogger.LogInformation(
+        "Task cadence {Schedule}; relations {RelationsState}, cover art {ArtworkState}. "
+        + "A task with the cadence off still runs when the library changes or when asked",
+        tasks.Schedule,
+        tasks.RelationsEnabled ? "enabled" : "switched off",
+        tasks.CoverArtEnabled ? "enabled" : "switched off");
 }
 
 if (!app.Environment.IsDevelopment())

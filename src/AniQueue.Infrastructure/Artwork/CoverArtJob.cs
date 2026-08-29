@@ -2,6 +2,7 @@ using AniQueue.Core.Artwork;
 using AniQueue.Core.Jobs;
 using AniQueue.Core.Library;
 using AniQueue.Infrastructure.Jobs;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
 namespace AniQueue.Infrastructure.Artwork;
@@ -16,7 +17,8 @@ namespace AniQueue.Infrastructure.Artwork;
 public sealed class CoverArtJob(
     IArtworkService artwork,
     ILibraryChangeNotifier notifier,
-    IOptionsMonitor<TaskOptions> tasks) : IBackgroundJob
+    IOptionsMonitor<TaskOptions> tasks,
+    ILogger<CoverArtJob> logger) : IBackgroundJob
 {
     /// <summary>
     /// How long one visit may keep going.
@@ -61,6 +63,10 @@ public sealed class CoverArtJob(
 
         if (!tasks.CurrentValue.CoverArtEnabled)
         {
+            // Said out loud, because a switched-off task and a task with nothing to
+            // do are indistinguishable from a page that shows no pictures.
+            logger.LogDebug("Cover art is switched off; no pictures will be fetched");
+
             return JobRunOutcome.NotDue;
         }
 

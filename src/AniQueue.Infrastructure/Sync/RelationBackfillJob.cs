@@ -2,6 +2,7 @@ using AniQueue.Core.Jobs;
 using AniQueue.Core.Library;
 using AniQueue.Core.Sync;
 using AniQueue.Infrastructure.Jobs;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
 namespace AniQueue.Infrastructure.Sync;
@@ -16,7 +17,8 @@ namespace AniQueue.Infrastructure.Sync;
 public sealed class RelationBackfillJob(
     IRelationBackfill backfill,
     ILibraryChangeNotifier notifier,
-    IOptionsMonitor<TaskOptions> tasks) : IBackgroundJob
+    IOptionsMonitor<TaskOptions> tasks,
+    ILogger<RelationBackfillJob> logger) : IBackgroundJob
 {
     /// <summary>
     /// How long one visit may keep going, rather than how many requests it may make.
@@ -83,6 +85,10 @@ public sealed class RelationBackfillJob(
 
         if (!tasks.CurrentValue.RelationsEnabled)
         {
+            // Said out loud, because a switched-off task and a library with no
+            // AniList titles both show up as a backlog with no related titles.
+            logger.LogDebug("Related titles are switched off; no relations will be fetched");
+
             return JobRunOutcome.NotDue;
         }
 

@@ -164,6 +164,16 @@ public sealed class UnattendedSyncJob(
         // failed run.
         if (!status.CanFetch || !status.IsConfigured || !status.Settings.IsEnabled)
         {
+            // "It is not syncing" is nearly always one of these three, and none of
+            // them is visible from a library that simply never changes.
+            logger.LogDebug(
+                "{Source} is not due: fetchable {CanFetch}, account configured {IsConfigured}, "
+                + "source enabled {IsEnabled}",
+                status.Source,
+                status.CanFetch,
+                status.IsConfigured,
+                status.Settings.IsEnabled);
+
             return false;
         }
 
@@ -188,11 +198,25 @@ public sealed class UnattendedSyncJob(
         // without a restart.
         if (tasks.CurrentValue.Schedule.ToInterval() is not { } interval)
         {
+            logger.LogDebug(
+                "{Source} is not due: the task cadence is switched off", status.Source);
+
             return false;
         }
 
         var lastRun = await runs.LastRunAtAsync(Key, context.Unit, cancellationToken);
 
-        return lastRun is not { } last || DateTimeOffset.UtcNow - last >= interval;
+        if (lastRun is { } last && DateTimeOffset.UtcNow - last < interval)
+        {
+            logger.LogDebug(
+                "{Source} is not due: last run {LastRun:u}, cadence {Interval}",
+                status.Source,
+                last,
+                interval);
+
+            return false;
+        }
+
+        return true;
     }
 }
