@@ -493,12 +493,16 @@ else
     /// Written out rather than taken from <c>Enum.GetValues</c>, because the order is
     /// a reading order — what you are watching, then what is waiting, then what is
     /// done — where the enum's order is a storage contract.
-    /// "Backlog" rather than "Planning" for the same word the page's own heading uses.
+    ///
+    /// Every label is the status it counts, including "Planning". Naming that one
+    /// after the page instead put two words on one screen for one thing: the filter
+    /// beside it offers <i>Planning</i>, the badge on every row reads <i>Planning</i>,
+    /// and the tile between them said <i>Backlog</i>.
     /// </remarks>
     private static readonly (LibraryStatus Status, string Label)[] Counters =
     [
         (LibraryStatus.Watching, "Watching"),
-        (LibraryStatus.Planning, "Backlog"),
+        (LibraryStatus.Planning, "Planning"),
         (LibraryStatus.Completed, "Completed"),
         (LibraryStatus.OnHold, "On hold"),
         (LibraryStatus.Dropped, "Dropped")
