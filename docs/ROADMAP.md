@@ -900,9 +900,23 @@ conventional answer, but it is untested on a real touch device.
 
 **Non-root container against a bind-mounted `/data`.** A non-root UID cannot create the
 database file in a host directory owned by root. Named volumes are fine — Docker seeds
-ownership from the image — bind mounts are not. Plan: pin a known UID/GID in the image,
-default compose to a **named volume**, and document `chown` for bind-mount users (the
-common Unraid case).
+ownership from the image — bind mounts are not, and an Unraid path mapping produces a
+directory Docker created as root.
+
+**Closed by taking ownership at start rather than by documenting a `chown`.** The
+container's entry point runs as root long enough to hand `/data` to `$APP_UID`, then
+`setpriv` drops to that user for the application itself, so the process serving requests
+is unprivileged exactly as before. Recursive only when `/data` itself is owned by somebody
+else, which is the untouched bind mount; doing it every start would walk the whole artwork
+cache. An explicit `--user` is honoured and skips both, because an unprivileged process
+cannot chown and the caller has already said who this runs as.
+
+Verified against three volumes rather than argued: root-owned and untouched (migrations
+apply, `ps` shows PID 1 as `app`, a settings save writes `userconfig.json`), the same
+volume with `--user 1654` forced (fails with the original `SQLite Error 14`, which is what
+makes the first result mean something), and one owned by `99:100` with `--user 99:100`
+(runs as 99, writes as 99). `setpriv` is in the runtime image already, so this cost no
+package.
 
 **Privacy-hardened browsers break Blazor Server's DOM contract.** Narrowed by bisect: the
 circuit dies with `Cannot read properties of null (reading 'insertBefore')` followed by

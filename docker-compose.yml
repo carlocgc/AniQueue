@@ -32,11 +32,9 @@ services:
       - "8377:8080"
 
     volumes:
-      # A named volume by default, because Docker seeds its ownership from the
-      # image and the container runs as UID 1654 rather than as root. A bind
-      # mount is not seeded, so if you swap this for a host path — the usual
-      # Unraid arrangement — chown it to 1654:1654 first or AniQueue cannot
-      # create its database.
+      # A named volume by default. Swapping it for a host path — the usual Unraid
+      # arrangement — needs no preparation: the container takes ownership of
+      # /data at start and then drops to the unprivileged user it runs as.
       #
       #   - /mnt/user/appdata/aniqueue:/data
       - aniqueue-data:/data

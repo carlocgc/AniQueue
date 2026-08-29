@@ -71,15 +71,21 @@ across an upgrade. Recreating the container keeps all of it; deleting the volume
 deletes your library. Backup and restore are a copy of that volume with the container
 stopped.
 
-The compose file uses a **named volume** deliberately. AniQueue runs as UID **1654**,
-and Docker copies ownership from the image into a named volume, so it works with no
-setup. A **bind mount** is not seeded that way — if you swap the volume for a host
-path (the usual Unraid arrangement), chown it first or AniQueue cannot create its
-database:
+The compose file uses a **named volume**, and swapping it for a host path — the usual
+Unraid arrangement — needs nothing prepared. AniQueue's application process runs as
+UID **1654**; the container starts as root only long enough to hand `/data` to that
+user, then drops to it. A directory Docker created as root therefore works on first
+run instead of failing to open the database.
+
+If you would rather it not start as root at all, give it a user and a directory that
+already match:
 
 ```bash
-chown -R 1654:1654 /mnt/user/appdata/aniqueue
+chown -R 99:100 /mnt/user/appdata/aniqueue
+docker run --user 99:100 ...
 ```
+
+An explicit `--user` is honoured as given, and the container takes no ownership.
 
 ### Settings
 
