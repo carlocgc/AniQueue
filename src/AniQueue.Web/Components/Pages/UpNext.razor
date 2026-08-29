@@ -163,8 +163,9 @@ else
 
 @* The remove button sits alongside four reorder buttons, and a mis-aimed press
    costs the position this page exists to curate: putting a title back adds it to
-   the end of the queue, wherever it was before. So it asks, and the sentence says
-   both of those things.
+   the end of the queue, wherever it was before. So it asks first, and the sentence
+   says where the title goes — removing is a decision about order rather than about
+   the library, and a row that simply vanishes does not distinguish the two.
 
    The same module the detail dialog uses. Only showModal gives a backdrop, an inert
    page, a focus trap and Escape, and only from script. *@
@@ -176,8 +177,7 @@ else
 
             <p>
                 <strong>@pending.Title</strong> leaves your watch order and stays in your
-                library. Putting it back adds it to the end, so its place here is what
-                you lose.
+                backlog.
             </p>
 
             <div class="toolbar">
