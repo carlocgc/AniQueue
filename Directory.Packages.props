@@ -26,11 +26,17 @@
     Approved as an exception to §12 rather than smuggled in, and it buys the one
     thing `docker compose up` cannot: a breakpoint inside the container, which is
     where the deployment-only failures live — volume permissions, the non-root
-    user, forwarded headers. Version matched to the sibling project that already
-    uses it.
+    user, forwarded headers.
+
+    Pinned to 1.23.0 rather than the 1.20.1 the sibling project uses, because 1.20.1
+    cannot build here at all. Two of its bugs are in the way and both are fixed in
+    1.21: it reads Docker Desktop's settings from settings.json, which current
+    versions renamed to settings-store.json, and it crashes rather than degrading
+    when the file is missing; and it mis-quotes a build context ending in a
+    backslash, which a drive root does.
   -->
   <ItemGroup>
-    <PackageVersion Include="Microsoft.VisualStudio.Azure.Containers.Tools.Targets" Version="1.20.1" />
+    <PackageVersion Include="Microsoft.VisualStudio.Azure.Containers.Tools.Targets" Version="1.23.0" />
   </ItemGroup>
 
   <!-- Testing. The .NET 10 xunit template emits xUnit v2, not v3. -->

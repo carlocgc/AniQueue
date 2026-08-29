@@ -6031,6 +6031,14 @@ has every one of them.
 
   `DockerfileRunArguments` mounts `aniqueue-vs-data`, a volume of its own, so a debugging session
   cannot write into the one a real deployment is using.
+
+  **Two traps, both found by pressing F5 rather than by reading the documentation.**
+  `DockerfileFile` is relative to the project; `DockerfileContext` is relative to the
+  *Dockerfile*. Writing `..\..` for both — the obvious thing — pointed the context at `G:\` and
+  asked Docker to send an entire drive. The Dockerfile is already at the repository root, so the
+  context is `.`. And Container Tools must be at least 1.21: 1.20.1 reads Docker Desktop's
+  settings from `settings.json`, which current versions renamed to `settings-store.json`, and it
+  throws rather than degrading when the file is missing.
 - `AniQueue.Web` is the single startup project; no multi-project startup is needed.
 - **EF tooling is a pinned local tool**, not a global install: `.config/dotnet-tools.json`
   fixes `dotnet-ef` at the same version as the EF packages. Run `dotnet tool restore` once

@@ -45,6 +45,13 @@ USER $APP_UID
 # build
 # ---------------------------------------------------------------------------
 FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
+
+# Release unless somebody says otherwise, which in practice means Visual Studio:
+# its Docker profile passes the configuration the solution is set to. A container
+# built from a Debug solution should carry Debug symbols, or a breakpoint in it
+# lands somewhere unhelpful. Compose and CI pass nothing and get Release.
+ARG BUILD_CONFIGURATION=Release
+
 WORKDIR /src
 
 # Project files first, so a source-only change reuses the restore layer. The two
@@ -62,7 +69,7 @@ COPY src/ src/
 # UseAppHost=false drops the native launcher nothing here starts: the entry point
 # below runs `dotnet AniQueue.Web.dll`, so the executable would be dead weight.
 RUN dotnet publish src/AniQueue.Web/AniQueue.Web.csproj \
-    --configuration Release \
+    --configuration $BUILD_CONFIGURATION \
     --no-restore \
     --output /app/publish \
     -p:UseAppHost=false

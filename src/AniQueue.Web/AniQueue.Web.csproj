@@ -17,6 +17,12 @@
     file and a context are given: the Dockerfile lives at the repository root
     because restore needs the two Directory.*.props beside the projects.
 
+    The two paths are relative to different things, which is the trap here.
+    DockerfileFile is relative to this project; DockerfileContext is relative to
+    the *Dockerfile*. Since the Dockerfile is already at the repository root, the
+    context is `.`. Writing `..\..` for both — the obvious thing — resolved the
+    context to `G:\` and asked Docker to send an entire drive as build context.
+
     DockerfileRunArguments gives a VS run the same persistent volume compose
     gives, on its own name so a debugging session cannot write into the volume a
     real deployment is using.
@@ -24,7 +30,7 @@
   <PropertyGroup>
     <DockerDefaultTargetOS>Linux</DockerDefaultTargetOS>
     <DockerfileFile>..\..\Dockerfile</DockerfileFile>
-    <DockerfileContext>..\..</DockerfileContext>
+    <DockerfileContext>.</DockerfileContext>
     <DockerfileRunArguments>-v aniqueue-vs-data:/data</DockerfileRunArguments>
   </PropertyGroup>
 
