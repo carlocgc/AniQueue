@@ -10,13 +10,15 @@ namespace AniQueue.Infrastructure.Artwork;
 /// <summary>
 /// Fetches cover art nobody has fetched yet, with nobody present.
 ///
-/// It gates on its own precondition rather than on a schedule, so it converges and
-/// then does nothing at all. Nothing sequences it behind the sync that gives it work
-/// — it hears the library changed and looks.
+/// What there is to do is a precondition the database answers directly — rows whose
+/// art is not the art they claim — so it converges and then finds nothing. When it is
+/// allowed to look is the shared cadence, on the timer only: a library change still
+/// brings it forward, and nothing sequences it behind the sync that gives it work.
 /// </summary>
 public sealed class CoverArtJob(
     IArtworkService artwork,
     ILibraryChangeNotifier notifier,
+    IJobRunStore runs,
     IOptionsMonitor<TaskOptions> tasks,
     ILogger<CoverArtJob> logger) : IBackgroundJob
 {
@@ -55,18 +57,25 @@ public sealed class CoverArtJob(
 
     public async Task<JobRunOutcome> RunAsync(JobRunContext context, CancellationToken cancellationToken)
     {
-        // Nothing gates on a cadence. What there is to do is "rows whose art is not
-        // the art they claim", which the database answers directly, so a job that is
-        // a genuine no-op when there is nothing outstanding needs no schedule to
-        // protect anything from it.
-        _ = context;
-
         if (!tasks.CurrentValue.CoverArtEnabled)
         {
             // Said out loud, because a switched-off task and a task with nothing to
             // do are indistinguishable from a page that shows no pictures.
             logger.LogDebug("Cover art is switched off; no pictures will be fetched");
 
+            return JobRunOutcome.NotDue;
+        }
+
+        // The cadence gates the timer and nothing else. A library change still brings
+        // this forward, which is what stops a title synced at nine o'clock waiting
+        // until tomorrow for its picture, and pressing the button is a timed run
+        // brought forward by hand.
+        //
+        // The work here is a question the database answers directly, so a run costs
+        // little — but a task whose page says "once a day" and whose row moves every
+        // quarter of an hour is reporting a setting it is not keeping.
+        if (!context.IgnoresSchedule && !await IsDueAsync(context, cancellationToken))
+        {
             return JobRunOutcome.NotDue;
         }
 
@@ -92,5 +101,22 @@ public sealed class CoverArtJob(
         return result.FailureReason is { } reason
             ? JobRunOutcome.Failed(reason, result.Considered, result.Fetched)
             : JobRunOutcome.Succeeded(result.Considered, result.Fetched);
+    }
+
+    private async Task<bool> IsDueAsync(JobRunContext context, CancellationToken cancellationToken)
+    {
+        var lastRun = await runs.LastRunAtAsync(Key, context.Unit, cancellationToken);
+
+        if (JobCadence.IsDue(tasks.CurrentValue.Schedule, lastRun, DateTimeOffset.UtcNow))
+        {
+            return true;
+        }
+
+        logger.LogDebug(
+            "Cover art is not due: last run {LastRun:u}, cadence {Cadence}",
+            lastRun,
+            tasks.CurrentValue.Schedule);
+
+        return false;
     }
 }

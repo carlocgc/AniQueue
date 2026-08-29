@@ -1754,6 +1754,26 @@ but *when it is asked* is now one setting in one place. Two schedules that could
 pages, for a single-user application reading one list and one model, was a control surface nobody
 was using and a second thing to check when something had not run.
 
+*It covers every task, and for a while it did not.* Cover art and relations gate on a precondition
+the database answers directly, and that was read as licence to ignore the cadence outright: they
+ran on the runner's own tick, a quarter of an hour, whatever the page said. The reasoning was
+sound about **cost** — a converged pass is a cheap local query — and wrong about **the promise**.
+The card says *one setting for every task below*, and a page reading "once a day" beside a row
+that moves every fifteen minutes is a setting the application is not keeping, which is worse than
+a setting it does not offer. So the cadence now gates the timer for all four, through one shared
+`JobCadence.IsDue` rather than a copy of the same comparison per job.
+
+**The cadence gates the timer, not the job.** `JobRunContext.IgnoresSchedule` was already the
+name for this: a library change and a button both bypass it. That is what keeps the useful half —
+a title synced at nine o'clock still gets its picture and its relations at once rather than
+tomorrow — while *Only when I ask* comes to mean exactly what the page has always claimed, which
+is that the clock stops and nothing else does.
+
+*What it costs, stated:* with the cadence off, a cover that failed transiently is retried when
+something changes or when somebody asks, rather than within the quarter hour, and a relation
+marker older than thirty days waits for the same. Both were already true of every other task, and
+neither is a failure a user is waiting on.
+
 **Nothing reschedules itself.** `UnattendedSyncJob.BackoffMultiplier` doubled a source's interval
 per consecutive failure to a cap of sixteen, and `BackgroundJobRunner` delayed its own loop on an
 unhandled exception to the same cap. Both are deleted.

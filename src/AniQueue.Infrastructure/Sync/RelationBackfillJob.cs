@@ -10,13 +10,16 @@ namespace AniQueue.Infrastructure.Sync;
 /// <summary>
 /// Asks about relations for titles nobody has asked about yet, with nobody present.
 ///
-/// It gates on its own precondition — titles with
-/// no marker, or one older than thirty days — rather than being scheduled, so it
-/// converges and then does nothing at all.
+/// What there is to do is a precondition the database answers directly — titles with
+/// no marker, or one older than thirty days — so it converges and then finds nothing.
+/// When it is allowed to look is the shared cadence, on the timer only: a library
+/// change still brings it forward, which is how titles from a sync get their
+/// relations without waiting.
 /// </summary>
 public sealed class RelationBackfillJob(
     IRelationBackfill backfill,
     ILibraryChangeNotifier notifier,
+    IJobRunStore runs,
     IOptionsMonitor<TaskOptions> tasks,
     ILogger<RelationBackfillJob> logger) : IBackgroundJob
 {
@@ -77,18 +80,21 @@ public sealed class RelationBackfillJob(
         JobRunContext context,
         CancellationToken cancellationToken)
     {
-        // Nothing gates on a cadence here. Work is "titles nobody has asked about",
-        // which is a question the database answers directly, and a job that is a
-        // genuine no-op when there is nothing to do needs no schedule to protect
-        // anything from it.
-        _ = context;
-
         if (!tasks.CurrentValue.RelationsEnabled)
         {
             // Said out loud, because a switched-off task and a library with no
             // AniList titles both show up as a backlog with no related titles.
             logger.LogDebug("Related titles are switched off; no relations will be fetched");
 
+            return JobRunOutcome.NotDue;
+        }
+
+        // The cadence gates the timer and nothing else. A library change still brings
+        // this forward, so titles that arrived in a sync get their relations without
+        // waiting for the next scheduled run, and pressing the button is a timed run
+        // brought forward by hand.
+        if (!context.IgnoresSchedule && !await IsDueAsync(context, cancellationToken))
+        {
             return JobRunOutcome.NotDue;
         }
 
@@ -117,5 +123,22 @@ public sealed class RelationBackfillJob(
         return result.FailureReason is { } reason
             ? JobRunOutcome.Failed(reason, result.Requested, result.EdgesWritten + result.EdgesRemoved)
             : JobRunOutcome.Succeeded(result.Answered, result.EdgesWritten + result.EdgesRemoved);
+    }
+
+    private async Task<bool> IsDueAsync(JobRunContext context, CancellationToken cancellationToken)
+    {
+        var lastRun = await runs.LastRunAtAsync(Key, context.Unit, cancellationToken);
+
+        if (JobCadence.IsDue(tasks.CurrentValue.Schedule, lastRun, DateTimeOffset.UtcNow))
+        {
+            return true;
+        }
+
+        logger.LogDebug(
+            "Related titles are not due: last run {LastRun:u}, cadence {Cadence}",
+            lastRun,
+            tasks.CurrentValue.Schedule);
+
+        return false;
     }
 }

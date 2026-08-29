@@ -107,26 +107,22 @@ public sealed class ScoringSweepJob(
         // unattended re-score of the whole back catalogue.
         if (!context.NewWorkOnly && !context.IgnoresSchedule)
         {
-            // The shared cadence, not a scoring one. What stays scoring's own is what
-            // a sweep may do once it runs — the batch size, the time budget, and which
-            // titles count as stale.
-            if (tasks.CurrentValue.Schedule.ToInterval() is not { } interval)
-            {
-                logger.LogDebug("Scoring is not due: the task cadence is switched off");
-
-                return JobRunOutcome.NotDue;
-            }
-
             // From JobRun rather than from the last applied RecommendationRun, so a
             // sweep that ran and scored nothing — or failed, or was cancelled — does
             // not read as one that never happened and get started again on the next
             // tick.
+            //
+            // The shared cadence, not a scoring one. What stays scoring's own is what
+            // a sweep may do once it runs — the batch size, the time budget, and which
+            // titles count as stale.
             var lastRun = await runs.LastRunAtAsync(Key, context.Unit, cancellationToken);
 
-            if (lastRun is { } previous && _time.GetUtcNow() - previous < interval)
+            if (!JobCadence.IsDue(tasks.CurrentValue.Schedule, lastRun, _time.GetUtcNow()))
             {
                 logger.LogDebug(
-                    "Scoring is not due: last run {LastRun:u}, cadence {Interval}", previous, interval);
+                    "Scoring is not due: last run {LastRun:u}, cadence {Cadence}",
+                    lastRun,
+                    tasks.CurrentValue.Schedule);
 
                 return JobRunOutcome.NotDue;
             }
