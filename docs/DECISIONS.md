@@ -3064,6 +3064,15 @@ dropdown, offering "none" is offering the tie back, and the tie — last import 
 behaviour the setting exists to end. *A library where nothing was ever chosen changes behaviour
 on upgrade, which is the cost, stated rather than discovered.*
 
+**The seat still binds from a nullable option, and that is the second half of the upgrade
+cost.** Every `userconfig.json` written while the seat could be empty holds
+`"Sync:PrimarySource": ""`, and the configuration binder throws on an empty string for a
+non-nullable enum — during startup, before anything serves, on exactly the installations that
+have been running longest. `SyncOptions.PrimarySource` therefore stays `AnimeSource?` and its
+two readers coalesce to `UserSettings.Defaults.SyncPrimarySource`, which is the one place the
+default lives. There is still no "nobody": the type tolerates a file that predates the default,
+and the page offers no way to write one.
+
 **The per-source sync toggle is deleted, because it was never a second setting.** The sources
 page's *Sync this source* and the settings page's power button on the sync task both write
 `Sync:AniList:Enabled`. Two controls over one key is the bug D30 avoided on a text box and

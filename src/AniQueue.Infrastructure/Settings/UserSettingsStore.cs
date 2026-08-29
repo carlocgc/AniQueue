@@ -43,7 +43,9 @@ public sealed class UserSettingsStore(
 
         AniListUserName = Text(AniListKey(nameof(AniListSyncOptions.UserName))),
 
-        SyncPrimarySource = OptionalEnum<AnimeSource>(SyncKey(nameof(SyncOptions.PrimarySource))),
+        SyncPrimarySource = EnumValue(
+            SyncKey(nameof(SyncOptions.PrimarySource)),
+            UserSettings.Defaults.SyncPrimarySource),
 
         AniListEnabled = Bool(
             AniListKey(nameof(AniListSyncOptions.Enabled)),

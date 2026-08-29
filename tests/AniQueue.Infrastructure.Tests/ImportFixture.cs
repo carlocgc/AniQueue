@@ -48,9 +48,10 @@ internal sealed class ImportFixture : IAsyncDisposable
                 database.ContextFactory,
                 new QueueService(database.ContextFactory, NullLogger<QueueService>.Instance),
 
-                // No primary source by default, which is the state a fresh install is
-                // in and the one every test here but the precedence suite wants: an
-                // empty map means precedence never fires.
+                // AniList holds the seat by default, which is the state a fresh
+                // install is in. Precedence only decides contests between two sources
+                // that both describe one title, so a test using a single source is
+                // unaffected by it; one where a second source must win says so.
                 new StubOptionsMonitor(options),
                 NullLogger<ImportService>.Instance)
         };

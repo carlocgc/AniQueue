@@ -1,5 +1,14 @@
-﻿<!DOCTYPE html>
-<html lang="en">
+﻿@using AniQueue.Core.Settings
+
+@inject IAppearance Appearance
+@inject ILogger<App> Logger
+
+<!DOCTYPE html>
+@* Written into the document the browser first receives rather than applied once the
+   circuit connects, because the second one repaints in front of the reader — which is
+   the whole of what this setting is for. Absent for System, which leaves the
+   stylesheet following prefers-color-scheme as it did before there was a setting. *@
+<html lang="en" data-theme="@_theme">
 
 <head>
     <meta charset="utf-8" />
@@ -45,3 +54,29 @@
 </body>
 
 </html>
+
+@code {
+    /// <summary>The theme as an attribute value, or null to write no attribute.</summary>
+    private string? _theme;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            _theme = await Appearance.GetThemeAsync(Profile.DefaultProfileId) switch
+            {
+                ThemePreference.Light => "light",
+                ThemePreference.Dark => "dark",
+                _ => null
+            };
+        }
+        catch (Exception ex)
+        {
+            // Every page in the application renders through this component, the error
+            // page included. A database that has gone away must not take the page
+            // that would say so with it, and the cost of the fallback is one reader
+            // seeing the browser's own preference for one load.
+            Logger.LogWarning(ex, "Could not read the theme preference; following the browser instead");
+        }
+    }
+}

@@ -247,7 +247,7 @@ internal sealed class FakeUserSettingsStore(SyncOptions options) : IUserSettings
     public UserSettings Read() => new()
     {
         SyncEnabled = options.Enabled,
-        SyncPrimarySource = options.PrimarySource,
+        SyncPrimarySource = options.PrimarySource ?? UserSettings.Defaults.SyncPrimarySource,
         AniListUserName = options.AniList.UserName,
         AniListEnabled = options.AniList.Enabled,
 

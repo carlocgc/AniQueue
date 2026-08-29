@@ -2,6 +2,7 @@ using AniQueue.Core.Domain;
 using AniQueue.Core.Import;
 using AniQueue.Core.Progress;
 using AniQueue.Core.Queue;
+using AniQueue.Core.Settings;
 using AniQueue.Infrastructure.Persistence;
 using AniQueue.Infrastructure.Sync;
 using Microsoft.EntityFrameworkCore;
@@ -152,9 +153,11 @@ public sealed class ImportService(
         // import at the final save.
         var written = new HashSet<ExternalIdentifier>();
 
-        // Who outranks whom, for titles two sources both describe. Empty until
-        // somebody names a primary source, and an empty map means precedence never
-        // fires — so a single-tracker setup is unaffected by any of this.
+        // Who outranks whom, for titles two sources both describe. The seat is always
+        // occupied, so this always has an answer — a single-tracker setup is
+        // unaffected either way, because precedence only fires where two of them
+        // describe one title. A file naming nobody is read as a file naming the
+        // default, which is where that default lives.
         //
         // Every source gets an entry, not just the primary. MayWriteTracking
         // short-circuits when either source is missing a rank, on the grounds that an
@@ -163,11 +166,12 @@ public sealed class ImportService(
         //
         // Manual is left out, as it always was. A hand-added row is the user's own
         // work, and ranking it would let a sync outrank them.
-        var precedence = syncOptions.CurrentValue.PrimarySource is { } primary
-            ? Enum.GetValues<AnimeSource>()
-                .Where(source => source != AnimeSource.Manual)
-                .ToDictionary(source => source, source => source == primary ? PrimaryRank : DemotedRank)
-            : [];
+        var primary = syncOptions.CurrentValue.PrimarySource
+            ?? UserSettings.Defaults.SyncPrimarySource;
+
+        var precedence = Enum.GetValues<AnimeSource>()
+            .Where(source => source != AnimeSource.Manual)
+            .ToDictionary(source => source, source => source == primary ? PrimaryRank : DemotedRank);
 
         var preferredTitle = await LoadPreferredTitleAsync(context, profileId, cancellationToken);
 

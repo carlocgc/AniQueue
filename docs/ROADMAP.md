@@ -462,8 +462,10 @@ row order says what has happened. What happens next is the first row without a t
 | 9a | Cover art | ✅ | Covers cached under `/data` by a job that idles, served immutably, and rendered on the backlog and Up Next |
 | 9b | AniList enrichment | ✅ | Genres, studios, synopsis and a full-size cover landed from one selection-set change, on the next sync, with no backfill job |
 | 9c | Show detail dialog | ✅ | A row opens a dialog that argues for the title: poster, synopsis, genres, studio, and the score with its reason |
-| 10 | Settings page | ▢ **next** | Theme and title language edited in one place; a primary source chosen; a destructive section that deletes relations, artwork, or everything but the settings (D57, D58) |
+| 10 | Settings page | ◐ | Theme and title language edited in one place; a primary source chosen; a destructive section that deletes relations, artwork, or everything but the settings (D57, D58) |
 | 10a | Per-source settings to the file | ✅ | `SourceSyncSettings` deleted; every sync setting read from `userconfig.json` |
+| 10b | Preferences on the settings page | ✅ | Theme, title language and the primary seat edited in one place; three unread columns dropped; the sources page holds only what a run reads (D57) |
+| 10c | Deleting data | ▢ **next** | Relations, artwork and everything-but-the-settings each deleted from one section, each naming its counts and refused while a task runs (D58) |
 | 11 | Docker + README | ✅ | Migrations squashed to one baseline; compose up, health check, container recreated without data loss |
 | 12 | Optional auth | ▢ | A single-user login can be turned on; off by default, and off is still a supported deployment |
 | 13 | CI | ✅ | Build and tests on every push and PR; `dev` published on every merge, a version and `latest` only from a tag on `main` (D56) |
@@ -495,6 +497,7 @@ in the code, in its pull request, and in the decisions it produced.
 The page exists and holds background work. What this phase adds is the other half — the
 preferences that describe how AniQueue reads to one person — and the surface for managing the
 data underneath it. Both halves are argued in full by D57 and D58; what follows is what lands.
+The first half is `10b` and has landed; `10c` is the destructive section.
 
 - **Theme, and nothing else from `ProfileSettings`.** `DateFormat`, `DefaultQueueSize` and
   `DefaultRecommendationMode` are columns nothing reads, so the migration drops them along with

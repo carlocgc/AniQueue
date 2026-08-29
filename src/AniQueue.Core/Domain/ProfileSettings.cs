@@ -18,16 +18,17 @@ public class ProfileSettings
 
     public Profile? Profile { get; set; }
 
-    // General
-
     public required string DisplayName { get; set; }
 
-    /// <summary>How many Up Next entries a preview of the queue shows.</summary>
-    public int DefaultQueueSize { get; set; } = 10;
-
-    /// <summary>A .NET date format string applied when rendering dates.</summary>
-    public string DateFormat { get; set; } = "yyyy-MM-dd";
-
+    /// <summary>
+    /// Which palette the application renders in.
+    /// </summary>
+    /// <remarks>
+    /// Resolved during the server-side render and written as <c>data-theme</c> on
+    /// <c>&lt;html&gt;</c>, so the first paint is already correct. Read after the
+    /// circuit connects it would repaint in front of the user, which is the failure
+    /// this setting exists to avoid.
+    /// </remarks>
     public ThemePreference Theme { get; set; } = ThemePreference.System;
 
     /// <summary>
@@ -37,7 +38,4 @@ public class ProfileSettings
     /// through the same path that set it.
     /// </summary>
     public TitleLanguage PreferredTitleLanguage { get; set; } = TitleLanguage.Romaji;
-
-    /// <summary>Which ordering the backlog opens in.</summary>
-    public RecommendationMode DefaultRecommendationMode { get; set; } = RecommendationMode.Manual;
 }

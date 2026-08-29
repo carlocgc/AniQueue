@@ -1,7 +1,5 @@
-@* Named for what it will hold rather than for what it holds today. Five
-   tabs is what fits across a phone, so the sixth destination had to be a place other
-   settings can move to rather than a page about one feature. Background work is all
-   that lives here so far. *@
+@* Where a preference lives — the things describing how AniQueue reads to one person,
+   as distinct from what a source card holds, which is what a run reads. *@
 @page "/settings"
 @rendermode InteractiveServer
 
@@ -14,6 +12,9 @@
 @inject ITaskRegistry Registry
 @inject IJobRunStore Runs
 @inject IUserSettingsStore UserSettings
+@inject IAppearance Appearance
+@inject ISyncService SyncService
+@inject NavigationManager Navigation
 @inject IOptionsMonitor<TaskOptions> TaskConfiguration
 @inject IWebHostEnvironment Environment
 
@@ -24,8 +25,9 @@
 <div class="page-header">
     <h1>Settings</h1>
     <p class="muted">
-        Everything AniQueue does on its own. Each task decides for itself whether there is
-        anything to do, so one that is switched on and idle is costing you nothing.
+        How AniQueue reads to you, and everything it does on its own. Each task decides
+        for itself whether there is anything to do, so one that is switched on and idle
+        is costing you nothing.
     </p>
 </div>
 
@@ -35,10 +37,70 @@
 }
 
 <div class="card">
-    <h2>How often</h2>
+    <h2>Appearance</h2>
 
     <div class="field">
-        <label for="cadence">Check for work</label>
+        <label for="theme">Theme</label>
+        <select id="theme" value="@_theme" @onchange="OnThemeChangedAsync">
+            <option value="@ThemePreference.System">Follow my browser</option>
+            <option value="@ThemePreference.Light">Light</option>
+            <option value="@ThemePreference.Dark">Dark</option>
+        </select>
+        <p class="muted">
+            The page reloads to apply this, because the colours are decided before the
+            page is sent rather than swapped once it arrives — which is what stops a
+            fresh load flashing the wrong one at you.
+        </p>
+    </div>
+
+    @* Lifted from the sources page, where it had already been lifted out of AniList's
+       card. It decides how every title is displayed, whichever list it came from, so
+       it belongs beside the other preference rather than beside a source. *@
+    <div class="field">
+        <label for="title-language">Show titles in</label>
+        <select id="title-language" value="@_titleLanguage" @onchange="OnTitleLanguageChangedAsync">
+            <option value="@TitleLanguage.Romaji">Romaji — Shingeki no Kyojin</option>
+            <option value="@TitleLanguage.English">English — Attack on Titan</option>
+            <option value="@TitleLanguage.Native">Native — 進撃の巨人</option>
+        </select>
+        <p class="muted">
+            Applies immediately, to titles a source has told AniQueue about in more than
+            one language. Titles that came from a file import or were added by hand have
+            only one name and keep it. Where a preferred language is missing — English is,
+            for roughly one title in seven — the closest one is shown instead.
+        </p>
+    </div>
+</div>
+
+<div class="card">
+    <h2>When sources disagree</h2>
+
+    @* One dropdown over one seat, which is what makes the single-seat rule structural.
+       Two per-source controls could both say "primary", and two primaries tie — which
+       is resolved by letting the last import win, the behaviour this setting exists to
+       end. There is deliberately no "neither": offering it would be offering the tie
+       back. *@
+    <div class="field">
+        <label for="primary-source">Primary source</label>
+        <select id="primary-source" value="@_primarySource" @onchange="OnPrimarySourceChangedAsync">
+            <option value="@AnimeSource.AniList">AniList</option>
+            <option value="@AnimeSource.MyAnimeList">MyAnimeList</option>
+        </select>
+        <p class="muted">
+            The primary source decides status, progress and score, and settles any
+            disagreement about a title's name or type. Only consulted where two sources
+            both know a title — with one source it never applies. A secondary source
+            still fills in what the primary has no answer for, because a gap is not a
+            disagreement.
+        </p>
+    </div>
+</div>
+
+<div class="card">
+    <h2>Scheduled tasks</h2>
+
+    <div class="field">
+        <label for="cadence">Frequency</label>
         <select id="cadence" value="@_cadence" @onchange="OnCadenceChangedAsync">
             <option value="@SyncSchedule.Off">Only when I ask</option>
 
@@ -226,6 +288,12 @@
 
     private SyncSchedule _cadence;
 
+    private ThemePreference _theme;
+
+    private TitleLanguage _titleLanguage;
+
+    private AnimeSource _primarySource;
+
     /// <summary>
     /// Whether the ten-minute cadence is offered.
     /// </summary>
@@ -271,6 +339,10 @@
         Registry.Changed += OnRegistryChanged;
 
         _cadence = TaskConfiguration.CurrentValue.Schedule;
+        _primarySource = UserSettings.Read().SyncPrimarySource;
+
+        _theme = await Appearance.GetThemeAsync(Profile.DefaultProfileId);
+        _titleLanguage = await SyncService.GetPreferredTitleLanguageAsync(Profile.DefaultProfileId);
 
         await LoadAsync();
     }
@@ -353,6 +425,60 @@
         }
 
         Registry.Cancel(state.TaskKey, state.UnitKey);
+    }
+
+    /// <summary>
+    /// Stores the theme, then reloads so the document is rebuilt with it.
+    /// </summary>
+    /// <remarks>
+    /// A full reload rather than a re-render: the attribute this sets lives on
+    /// <c>&lt;html&gt;</c>, which is written once when the document is built and is
+    /// not part of anything a circuit re-renders.
+    /// </remarks>
+    private async Task OnThemeChangedAsync(ChangeEventArgs e)
+    {
+        if (!Enum.TryParse<ThemePreference>(e.Value?.ToString(), out var chosen))
+        {
+            return;
+        }
+
+        _theme = chosen;
+
+        await Appearance.SaveThemeAsync(Profile.DefaultProfileId, chosen);
+
+        Navigation.Refresh(forceReload: true);
+    }
+
+    private async Task OnTitleLanguageChangedAsync(ChangeEventArgs e)
+    {
+        if (!Enum.TryParse<TitleLanguage>(e.Value?.ToString(), out var language))
+        {
+            return;
+        }
+
+        _titleLanguage = language;
+
+        await SyncService.SavePreferredTitleLanguageAsync(Profile.DefaultProfileId, language);
+    }
+
+    private async Task OnPrimarySourceChangedAsync(ChangeEventArgs e)
+    {
+        if (!Enum.TryParse<AnimeSource>(e.Value?.ToString(), out var source))
+        {
+            return;
+        }
+
+        _error = null;
+
+        var result = await SyncService.SetPrimarySourceAsync(Profile.DefaultProfileId, source);
+
+        if (!result.Saved)
+        {
+            _error = $"Could not save to {result.Path}: {result.Error}";
+            return;
+        }
+
+        _primarySource = source;
     }
 
     private async Task OnCadenceChangedAsync(ChangeEventArgs e)

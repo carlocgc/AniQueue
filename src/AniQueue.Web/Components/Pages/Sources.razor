@@ -285,20 +285,16 @@
             }
         }
 
-        @* Inside the guard, not after it. It was left outside when the rest of the
-           card learned to collapse, so a preview shrank everything except the one
-           section tall enough to matter — settings are the least urgent thing on
-           this page and were the only thing that stayed. *@
+        @* Hidden while a preview is up, like everything else that is not an answer to
+           it. There is no disclosure around this any more: what a run reads is all
+           that is left here, and there is not enough of it to be worth hiding. *@
         @if (!IsPreviewing)
         {
-        <details class="source-settings">
-            <summary>Settings</summary>
-
             @* Configured, not merely fetchable. An unconfigured source already offers
                this field in the card above, where it is the one thing to do, and
-               drawing it here as well would be two controls over one setting — which
-               is the same bug a single primary seat avoids, on a text box. Once an account exists the card shows what it is reading and
-               this is where changing it belongs. *@
+               drawing it here as well would be two controls over one setting. Once an
+               account exists the card shows what it is reading and this is where
+               changing it belongs. *@
             @if (status.CanFetch && status.IsConfigured)
             {
                 @* The one control on this page that writes to userconfig.json rather
@@ -329,45 +325,6 @@
                     }
                 </div>
             }
-
-            @if (status.CanFetch)
-            {
-                @* A power button rather than a tick box, because this is a state the
-                   source is in rather than something being included. The
-                   preferences below it stay tick boxes for the same reason. *@
-                <div class="field power-field">
-                    <PowerToggle On="status.Settings.IsEnabled"
-                                 Label="@($"Sync {status.Source}")"
-                                 OnChange="on => Update(status, s => s with { IsEnabled = on })" />
-                    <span>Sync this source</span>
-                </div>
-            }
-
-            @* A radio rather than a per-source dropdown, and the difference is the
-               point. Primary is a single seat: two dropdowns could both say
-               "Primary", and two primaries tie, which is resolved by letting the
-               last import win — the behaviour the setting exists to end. A radio
-               cannot express that state, and choosing one here demotes the other
-               without the user having to go and do it.
-
-               Sharing a name across cards is what makes the browser enforce it, so
-               the two are one group even though they are drawn in two places. *@
-            <div class="field">
-                <label for="@($"primary-{status.Source}")">
-                    <input type="radio" id="@($"primary-{status.Source}")"
-                           name="primary-source"
-                           checked="@status.IsPrimary"
-                           @onchange="() => SetPrimaryAsync(status)" />
-                    Treat @status.Source as primary
-                </label>
-                <p class="muted">
-                    The primary source decides status, progress and score, and settles any
-                    disagreement about a title's name or type. Only consulted where two sources
-                    both know a title — with one source it never applies. A secondary source
-                    still fills in what the primary has no answer for, because a gap is not a
-                    disagreement.
-                </p>
-            </div>
 
             @* Scheduling, conflicts and absence are all things a run does, and nothing
                runs on a file source — you bring the file. Gated rather than disabled,
@@ -442,34 +399,7 @@
                 </div>
             </fieldset>
             }
-        </details>
         }
-    </div>
-}
-
-@* Lifted out of the per-source settings, where it had been sitting inside AniList's
-   card. It is a profile preference rather than a fact about a source — it decides
-   how every title is displayed, whichever list it came from — and with a second
-   card on the page it would otherwise have been drawn twice, as two controls over
-   one setting. Hidden while a preview is up, like everything else that is not
-   an answer to it. *@
-@if (!IsPreviewing && _applied is null)
-{
-    <div class="card">
-        <div class="field">
-            <label for="title-language">Show titles in</label>
-            <select id="title-language" value="@_titleLanguage" @onchange="OnTitleLanguageChangedAsync">
-                <option value="@TitleLanguage.Romaji">Romaji — Shingeki no Kyojin</option>
-                <option value="@TitleLanguage.English">English — Attack on Titan</option>
-                <option value="@TitleLanguage.Native">Native — 進撃の巨人</option>
-            </select>
-            <p class="muted">
-                Applies immediately, to titles a source has told AniQueue about in more than
-                one language. Titles that came from a file import or were added by hand have
-                only one name and keep it. Where a preferred language is missing — English is,
-                for roughly one title in seven — the closest one is shown instead.
-            </p>
-        </div>
     </div>
 }
 
@@ -555,7 +485,6 @@
     private AnimeSource? _pendingSource;
 
     private SyncApplyResult? _applied;
-    private TitleLanguage _titleLanguage;
     private RelationCoverage? _relations;
 
     /// <summary>How many relations the last delete removed, until the page moves on.</summary>
@@ -635,7 +564,6 @@
     private async Task LoadAsync()
     {
         _statuses = await SyncService.GetStatusAsync(Profile.DefaultProfileId);
-        _titleLanguage = await SyncService.GetPreferredTitleLanguageAsync(Profile.DefaultProfileId);
         _relations = await RelationBackfill.GetCoverageAsync();
 
         // Read every time rather than only on first load, so the field agrees with the
@@ -860,19 +788,6 @@
         await _toasts.ShowAsync("Saved");
     }
 
-    private async Task OnTitleLanguageChangedAsync(ChangeEventArgs e)
-    {
-        if (!Enum.TryParse<TitleLanguage>(e.Value?.ToString(), out var language))
-        {
-            return;
-        }
-
-        _titleLanguage = language;
-        await SyncService.SavePreferredTitleLanguageAsync(Profile.DefaultProfileId, language);
-
-        await _toasts.ShowAsync("Saved");
-    }
-
     private static int ParseInt(object? value, int fallback) =>
         int.TryParse(value?.ToString(), out var parsed) ? parsed : fallback;
 
@@ -980,28 +895,6 @@
             Logger.LogWarning(ex, "Import upload rejected");
             _error = "That file is too large to import.";
         }
-    }
-
-    /// <summary>
-    /// Promotes one source, which is the only way to change who is primary.
-    /// </summary>
-    /// <remarks>
-    /// There is no matching demote. The seat is single, so taking it away from the
-    /// only holder would leave nobody in it — and the radio cannot express that,
-    /// which is why it is a radio.
-    /// </remarks>
-    private async Task SetPrimaryAsync(SourceSyncStatus status)
-    {
-        _error = null;
-
-        var result = await SyncService.SetPrimarySourceAsync(Profile.DefaultProfileId, status.Source);
-
-        if (!result.Saved)
-        {
-            _error = $"Could not save to {result.Path}: {result.Error}";
-        }
-
-        await LoadAsync();
     }
 
     private void Reset()

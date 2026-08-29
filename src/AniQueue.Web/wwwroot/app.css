@@ -5,9 +5,11 @@
    information-dense that does not look like an enterprise admin panel, and
    Bootstrap's defaults are exactly that look.
 
-   Light and dark both come from prefers-color-scheme. An explicit
-   System/Light/Dark setting would set data-theme on <html>; the
-   tokens below are already structured for that.
+   Light and dark come from prefers-color-scheme unless the Settings page has said
+   otherwise, in which case App.razor writes data-theme on <html> during the render.
+   The dark palette is therefore written twice, and has to be: the two cases are a
+   media query and a plain selector, which cannot share one rule. Anything changed
+   in one belongs in the other.
 */
 
 :root {
@@ -33,8 +35,9 @@
     --sidebar-width: 210px;
 }
 
+/* The browser asked for dark, and nobody has overridden it with Light. */
 @media (prefers-color-scheme: dark) {
-    :root {
+    :root:not([data-theme="light"]) {
         --bg: #14171c;
         --surface: #1c2027;
         --surface-alt: #232830;
@@ -51,6 +54,31 @@
         --danger-bg: #3a1f1e;
     }
 }
+
+/* Dark was chosen, on a browser asking for light. Same palette; see the note at
+   the top of this file for why it is here twice. */
+:root[data-theme="dark"] {
+    --bg: #14171c;
+    --surface: #1c2027;
+    --surface-alt: #232830;
+    --border: #333a45;
+    --text: #e8ebef;
+    --text-muted: #98a2b3;
+    --accent: #7c8cff;
+    --accent-text: #10131a;
+    --success: #5fd0a0;
+    --success-bg: #16332a;
+    --warning: #e2b45f;
+    --warning-bg: #342c16;
+    --danger: #f2837c;
+    --danger-bg: #3a1f1e;
+}
+
+/* Tells the browser which of its own light and dark defaults to use for anything
+   the palette above does not paint — form controls, scrollbars, the canvas behind
+   the page — so an explicit choice reaches those as well. */
+:root[data-theme="light"] { color-scheme: light; }
+:root[data-theme="dark"] { color-scheme: dark; }
 
 *, *::before, *::after { box-sizing: border-box; }
 

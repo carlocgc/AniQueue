@@ -58,9 +58,9 @@ internal static class UserSettingsDocument
             "Sync:PrimarySource",
             [
                 "Which source wins when two of them disagree about a title you have on both.",
-                "AniList, MyAnimeList, or empty for neither — with neither, the last sync wins."
+                "AniList or MyAnimeList. One of them always holds the seat."
             ],
-            s => s.SyncPrimarySource?.ToString() ?? string.Empty),
+            s => s.SyncPrimarySource.ToString()),
 
         new(
             "Sync:AniList:Enabled",

@@ -503,11 +503,12 @@ public sealed class SyncService(
                 Settings = SettingsFor(source),
                 CanFetch = canFetch,
 
-                // Nothing is primary until somebody chooses, which is honest: with no
-                // choice made two sources tie and the last import wins, exactly as D29
-                // describes. The old rank defaulted to zero, so every unconfigured
-                // source claimed the seat and two of them claimed it at once.
-                IsPrimary = current.PrimarySource == source,
+                // One key naming the occupant, so exactly one source reads as primary
+                // and the seat is never empty. A rank per source could represent two
+                // primaries at once, which is the tie this setting exists to end. A
+                // file naming nobody is read as a file naming the default.
+                IsPrimary =
+                    (current.PrimarySource ?? UserSettings.Defaults.SyncPrimarySource) == source,
 
                 // A file source needs no account, so there is nothing to configure
                 // and nothing to warn about: the user brings the list themselves.
