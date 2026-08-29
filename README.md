@@ -167,7 +167,8 @@ xUnit · Docker. No React, Angular, Vue, or separate frontend build system.
 
 | Document | Purpose |
 |---|---|
-| [`docs/ROADMAP.md`](docs/ROADMAP.md) | The plan and the architecture: domain model, service boundaries, decisions, phases |
+| [`docs/ROADMAP.md`](docs/ROADMAP.md) | The plan: domain model, service boundaries, cross-cutting requirements, phases |
+| [`docs/DECISIONS.md`](docs/DECISIONS.md) | The reasoning: every architectural decision and deviation, numbered |
 | [`docs/RELEASE-NOTES.md`](docs/RELEASE-NOTES.md) | Changes that alter data or behaviour, worth reading before upgrading |
 | [`docs/BUILD-PROMPT.md`](docs/BUILD-PROMPT.md) | The original project brief, preserved for reference |
 | [`CLAUDE.md`](CLAUDE.md) | Working conventions: the development database, verification, testing, platform gotchas |

@@ -1,9 +1,10 @@
 # Working in this repository
 
-How to work here. **What** to build and **why** lives in [`docs/ROADMAP.md`](docs/ROADMAP.md),
-which is authoritative — every design decision has a `D`-number, and changing one means editing
-that file in the same PR that changes the code (§12). This file is the practical half: the
-things that have cost time to learn.
+How to work here. **What** to build lives in [`docs/ROADMAP.md`](docs/ROADMAP.md) and **why**
+in [`docs/DECISIONS.md`](docs/DECISIONS.md), where every architectural decision has a
+`D`-number. Both are authoritative, and changing a decision means editing its entry in the
+same PR that changes the code (ROADMAP §12). This file is the practical half: the things that
+have cost time to learn.
 
 ## Do not delete the development database
 
