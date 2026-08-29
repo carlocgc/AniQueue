@@ -60,7 +60,7 @@ With that said, it runs:
 docker compose up -d
 ```
 
-Then open `http://localhost:8080`. The first start creates the database, applies every migration
+Then open `http://localhost:8377`. The first start creates the database, applies every migration
 and writes a `userconfig.json` beside it, and the library is empty — the same first screen a new
 user sees, offering an AniList sync or a MyAnimeList import.
 

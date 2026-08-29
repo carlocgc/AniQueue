@@ -1,4 +1,4 @@
-# AniQueue, self-hosted. `docker compose up -d`, then open http://localhost:8080.
+# AniQueue, self-hosted. `docker compose up -d`, then open http://localhost:8377.
 #
 # This file holds the container's concerns and nothing else — the volume, the
 # port and the log limits. Everything about how AniQueue behaves is in
@@ -21,7 +21,15 @@ services:
     ports:
       # Change the left number to publish on a different port. The right one is
       # the container's and is fixed by the image.
-      - "8080:8080"
+      #
+      # 8377 rather than 8080 on the host, because 8080 is the first port anything
+      # takes and a self-hoster running AniQueue is likely to have several things
+      # already. It also stays clear of the ports its neighbours claim: 8096
+      # Jellyfin, 8123 Home Assistant, 8686 Lidarr, 8989 Sonarr, 7878 Radarr.
+      #
+      # Inside the container it is still 8080, which is what the .NET runtime image
+      # defaults to and what nothing else on that network can collide with.
+      - "8377:8080"
 
     volumes:
       # A named volume by default, because Docker seeds its ownership from the
