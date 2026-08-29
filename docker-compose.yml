@@ -1,9 +1,9 @@
 # AniQueue, self-hosted. `docker compose up -d`, then open http://localhost:8080.
 #
 # This file holds the container's concerns and nothing else — the volume, the
-# port, and the one setting that cannot live anywhere else. Everything about how
-# AniQueue behaves is in userconfig.json inside the volume (D20, D36), so there
-# is no second place to look.
+# port and the log limits. Everything about how AniQueue behaves is in
+# userconfig.json inside the volume (D20, D36), so there is no second place to
+# look.
 
 services:
   aniqueue:
@@ -33,11 +33,13 @@ services:
       #   - /mnt/user/appdata/aniqueue:/data
       - aniqueue-data:/data
 
-    environment:
-      # The one setting that could not live in userconfig.json even in principle:
-      # AniQueue finds that file by looking beside the database, so a path set
-      # inside it could not be read until it was already in use (D20).
-      Database__Path: /data/aniqueue.db
+    # No environment block, deliberately. The image already puts the database at
+    # /data/aniqueue.db, and D36 rules that a default is not a layer: repeating one
+    # here would pin it, so a later version that moved or renamed the file would be
+    # overridden by whatever this file happened to say on the day the installation
+    # was created. Set Database__Path only to override it, which almost nobody
+    # needs to. Everything else AniQueue does is set from its own pages or from
+    # userconfig.json inside the volume (D20, D36).
 
     # The default json-file driver does not rotate, so a long-running container
     # will fill a disk with its own log eventually.

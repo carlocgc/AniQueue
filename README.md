@@ -108,9 +108,8 @@ Logs go to stdout and nowhere else — `docker logs aniqueue`. The compose file 
 ### Settings
 
 Everything AniQueue does is set from its own pages, or by editing `userconfig.json` in the volume
-and restarting. The compose file holds the container's concerns only: the port, the volume, and
-`Database__Path`, which is the one setting that cannot live in the file — AniQueue finds the file
-by looking beside the database.
+and restarting. The compose file holds the container's concerns only: the port, the volume and
+the log limits. It sets nothing about AniQueue itself, and it does not need to.
 
 ### If you get a blank page
 
@@ -265,11 +264,13 @@ will not survive.
 Your compose file or Unraid template holds the container's concerns — the `/data` volume and
 the published port — and nothing else. There is no second place to look.
 
-Database settings are the exception, and stay in the environment. `Database:Path` could not live
-in the file even in principle — AniQueue finds the file by looking *beside* the database, so a
-path set inside it could not be read until it was already in use. The rest are tuning for the
-storage engine rather than choices about your library, and their defaults are right unless
-something is already wrong.
+Database settings are the exception, and stay outside that file. `Database:Path` could not live
+in it even in principle — AniQueue finds the file by looking *beside* the database, so a path set
+inside it could not be read until it was already in use. The image already points it at
+`/data/aniqueue.db`, so there is nothing to set; `Database__Path` as an environment variable is
+there to override that, and almost nobody needs to. The rest are tuning for the storage engine
+rather than choices about your library, and their defaults are right unless something is already
+wrong.
 
 Preferences about how AniQueue *looks* to you — the language titles are shown in, and later the
 theme and date format — are kept in the database instead, so they travel with a copy of your
