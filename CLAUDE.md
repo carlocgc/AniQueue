@@ -128,14 +128,32 @@ Before reaching for one, check whether the ASP.NET Core shared framework already
 
 That is how the test project gets `Microsoft.Extensions.Configuration.Json`.
 
-## Branches, commits and comments
+## Comments
+
+**A comment says what the code is for.** Nothing else. It is read by somebody trying to work
+out what a method does, and everything in front of that answer is a tax on them.
+
+Do not write:
+
+- **Decisions, or the argument behind one.** No `D`-numbers, no `§` citations, no "this was
+  chosen over X because". That lives in [`docs/DECISIONS.md`](docs/DECISIONS.md), which is
+  where somebody questioning a decision goes to look.
+- **What the code used to be.** No "X stood here", no "this replaced Y", no "the old one
+  reasoned that". Git holds it, and a comment about deleted code is a comment nobody can
+  check against anything.
+- **A phase number**, in any form — `Phase 9b`, `18d`, `since 15c`. It dates the comment and
+  means nothing to a reader who was not there.
+
+Do write the reasoning when it is a fact about the code rather than a defence of it: SQLite
+cannot compare a `DateTimeOffset`, an empty AniList response is not an empty library, a stack
+trace must never reach a page. Those stop somebody breaking it by accident.
+
+If nothing needs explaining, write no comment. That is the common case.
+
+## Branches and commits
 
 - One branch per phase part: `feature/phase-N<letter>-slug` → PR into `development`. `main` is
   release-only. Delete branches once merged.
-- **Comments say what the code is for.** They do not record decisions, cite `D`-numbers, or
-  narrate what the code used to be — that history belongs in the roadmap and in git. A comment
-  that a reader has to parse before reaching the code it sits above is noise; if nothing needs
-  explaining, write none.
 - Commit messages and PR bodies are prose, not bullet dumps: what changed, what it cost, what was
   found while doing it. Say plainly what could not be verified.
 
