@@ -62,6 +62,8 @@ jobs:
           push: true
           provenance: false
           sbom: false
-          tags: |
-            docker.io/${{ env.IMAGE_NAME }}:dev
-            docker.io/${{ env.IMAGE_NAME }}:dev-${{ github.sha }}
+          # One tag, overwritten every merge. A per-commit tag was tried and
+          # removed: it doubled the tag list on Docker Hub to say something the
+          # commit history already says, and `development` is where you look to
+          # find out what is in `dev`.
+          tags: docker.io/${{ env.IMAGE_NAME }}:dev
