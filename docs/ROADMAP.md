@@ -4650,6 +4650,28 @@ normal way to upgrade — would invalidate every page a browser still had open, 
 an antiforgery failure that reads like a bug in the form. They now persist to `/data/keys`
 alongside the database, and the same key survived both recreates.
 
+**And pulling the published image found a second, worse one.** `carlocgc/aniqueue:dev` started,
+reported healthy, answered `/health` with 200 and served a page that rendered perfectly and then
+did nothing at all. Every button was dead, because `_framework/blazor.web.js` — the script that
+opens the SignalR circuit — was not in the image and returned 404. A Blazor Server application
+without it is a screenshot.
+
+**The cause was `--no-restore` on the publish step**, and it is worth writing down because the
+reasoning behind it was sound. Project files are copied and restored before the source is, so a
+source-only change reuses the restore layer; `--no-restore` on the publish then avoids repeating
+work already done. What it actually avoids is the framework's own static web assets:
+`wwwroot/_framework` was simply absent from the published output, and the asset manifest had no
+entry for it, so `@Assets["_framework/blazor.web.js"]` fell through to the unfingerprinted path and
+404'd. Confirmed by building the same Dockerfile twice, changing only that flag.
+
+Letting publish restore again costs almost nothing — the packages are already in the image's NuGet
+cache — so the layer caching the staged copy exists for is kept.
+
+**A build-time assertion now stands where the flag was.** `test -f
+wwwroot/_framework/blazor.web.js` fails the image build outright, because nothing else can catch
+this: the container starts, the health check passes, and the page looks right. Both gates this
+phase already had would have shipped it again.
+
 **The health check is liveness only, deliberately.** A check that queried the database would be
 reporting on a state the process cannot be in: migrate-on-boot already refuses to start when the
 database is unreachable. What it proves is the one thing a restart policy can act on — that the

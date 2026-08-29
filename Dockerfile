@@ -68,11 +68,28 @@ COPY src/ src/
 
 # UseAppHost=false drops the native launcher nothing here starts: the entry point
 # below runs `dotnet AniQueue.Web.dll`, so the executable would be dead weight.
+#
+# **No --no-restore here, and it cost a broken published image to learn why.** The
+# restore above is staged from project files alone so that a source-only change
+# reuses its layer, and a publish told to skip restoring on top of that one drops
+# the framework's own static web assets — `wwwroot/_framework`, which is where
+# `blazor.web.js` lives. Nothing fails. The image builds, starts, reports healthy
+# and serves a page that renders correctly and then does absolutely nothing,
+# because the script that opens the circuit 404s.
+#
+# Letting publish restore again costs almost nothing: the packages are already in
+# the image's NuGet cache from the layer above, so it re-resolves rather than
+# re-downloads, and the layer caching that the staged copy exists for is kept.
 RUN dotnet publish src/AniQueue.Web/AniQueue.Web.csproj \
     --configuration $BUILD_CONFIGURATION \
-    --no-restore \
     --output /app/publish \
     -p:UseAppHost=false
+
+# The assertion that makes the above a build failure rather than a silent one. A
+# missing interactive script cannot be caught by anything that only checks the
+# container starts, and `/health` answers happily without it.
+RUN test -f /app/publish/wwwroot/_framework/blazor.web.js \
+    || (echo "Publish produced no wwwroot/_framework/blazor.web.js; the page would render and never become interactive." && exit 1)
 
 # ---------------------------------------------------------------------------
 # final — what is published and what compose runs
