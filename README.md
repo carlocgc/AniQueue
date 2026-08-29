@@ -11,7 +11,6 @@ those tools answer badly: *what do I actually watch next?*
 
 [![PR build](https://github.com/carlocgc/AniQueue/actions/workflows/pr-build.yml/badge.svg)](https://github.com/carlocgc/AniQueue/actions/workflows/pr-build.yml)
 [![Development image](https://github.com/carlocgc/AniQueue/actions/workflows/dev-image.yml/badge.svg)](https://github.com/carlocgc/AniQueue/actions/workflows/dev-image.yml)
-[![Release](https://github.com/carlocgc/AniQueue/actions/workflows/release-docker.yml/badge.svg)](https://github.com/carlocgc/AniQueue/actions/workflows/release-docker.yml)
 
 [![Docker image](https://img.shields.io/docker/image-size/carlocgc/aniqueue/dev?label=docker%20image)](https://hub.docker.com/r/carlocgc/aniqueue)
 [![.NET 10](https://img.shields.io/badge/.NET-10-512BD4)](https://dotnet.microsoft.com/)
