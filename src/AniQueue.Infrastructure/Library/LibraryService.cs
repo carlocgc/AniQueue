@@ -39,6 +39,23 @@ public sealed class LibraryService(
         var filtered = ApplyFilters(context, context.LibraryEntries.AsNoTracking(), profileId, query);
         var total = await filtered.CountAsync(cancellationToken);
 
+        // Debug because it happens on every paint of the busiest page. It is here for
+        // the report that a filter shows nothing: the filters and the count they
+        // produced are the two halves of that question, and neither is recoverable
+        // from a screenshot.
+        logger.LogDebug(
+            "Backlog page for profile {ProfileId}: status {Status}, media {MediaType}, decade {Decade}, "
+            + "source {Source}, standalone {StandaloneOnly}, search {HasSearch}, sort {Sort} — {Total} matched",
+            profileId,
+            query.Status,
+            query.MediaType,
+            query.Decade,
+            query.Source,
+            query.StandaloneOnly,
+            !string.IsNullOrWhiteSpace(query.Search),
+            query.Sort,
+            total);
+
         // Loaded once for the page rather than joined per row: the queue is small
         // by design, and a set lookup beats a correlated subquery per entry.
         var queued = await context.QueueItems
@@ -71,9 +88,7 @@ public sealed class LibraryService(
                 // The cached poster, as a scalar rather than a collection. It is a
                 // subquery per row instead of a join because the row wants at most
                 // one of them and a join would multiply the page by however many
-                // images a title has (D47). The multiplier was to be image kinds;
-                // D48 declined the sources those needed, and it is renditions of the
-                // one poster instead — which changes the count and not the argument.
+                // renditions a title has.
                 CoverContentHash = e.Anime.Images
                     .Where(x => x.Kind == ImageKind.Poster && x.Rendition == ImageRendition.Thumbnail && x.ContentHash != null)
                     .Select(x => x.ContentHash)
@@ -83,7 +98,7 @@ public sealed class LibraryService(
                     .Select(x => x.FileExtension)
                     .FirstOrDefault(),
 
-                // And the full-size rendition, which 18d promoted the row to. Two
+                // And the full-size rendition, which the card layout shows. Two
                 // more scalar subqueries rather than a join, for the reason above:
                 // the row wants at most one of each.
                 PosterContentHash = e.Anime.Images
@@ -133,7 +148,7 @@ public sealed class LibraryService(
     }
 
     /// <summary>
-    /// Loads one title in the detail the dialog argues with (D49).
+    /// Loads one title in the detail the dialog argues with.
     /// </summary>
     /// <remarks>
     /// <b>Split rather than joined.</b> Genres, studios, identifiers and the two
@@ -182,7 +197,7 @@ public sealed class LibraryService(
 
                 // The one AniList flags as primary, and null when it flags none —
                 // which is common enough that the dialog is built to omit the line
-                // rather than to promote whichever company came back first (D49).
+                // rather than to promote whichever company came back first.
                 MainStudio = e.Anime.Studios
                     .Where(s => s.IsMain)
                     .Select(s => s.Studio!.Name)
@@ -296,10 +311,8 @@ public sealed class LibraryService(
             sources.Add(AnimeSource.Manual);
         }
 
-        // Counted over exactly what the status options list. It used to exclude
-        // hidden entries because the listing did too — a "Planning (8)" that
-        // produced seven rows is a picker lying about its own options — and Phase
-        // 18b removed both halves of that.
+        // Counted over exactly what the status options list, so a "Planning (8)"
+        // cannot produce seven rows.
         var countByStatus = await entries
             .GroupBy(e => e.Status)
             .Select(g => new { Status = g.Key, Count = g.Count() })
@@ -333,12 +346,6 @@ public sealed class LibraryService(
         };
     }
 
-    // No BulkUpdateAsync. It applied one edit to many entries inside a transaction,
-    // reporting progress as it went, and hiding was the only edit that ever used it
-    // — so Phase 18b took the last caller with it. D26 already removed the bulk
-    // selection that would have given it more; if a filtered bulk action is ever
-    // wanted, D26 records what it would take.
-
     private static IQueryable<LibraryEntry> ApplyFilters(
         AniQueueDbContext context,
         IQueryable<LibraryEntry> source,
@@ -361,7 +368,7 @@ public sealed class LibraryService(
             //
             // Every variant is searched, not only the displayed one: someone reading
             // English titles still knows the show as Shingeki no Kyojin, and a search
-            // box that cannot find it by the name they typed is the wrong answer (D22).
+            // box that cannot find it by the name they typed is the wrong answer.
             filtered = filtered.Where(e =>
                 EF.Functions.Like(e.Anime!.Title, $"%{term}%") ||
                 (e.Anime!.TitleRomaji != null && EF.Functions.Like(e.Anime.TitleRomaji, $"%{term}%")) ||
@@ -393,7 +400,7 @@ public sealed class LibraryService(
         if (query.Source is { } source1)
         {
             // "Is this title on that service", not "did that service create this
-            // record" (D17). A hand-added title since linked to MyAnimeList belongs
+            // record". A hand-added title since linked to MyAnimeList belongs
             // under the MyAnimeList chip, which is what clicking it means.
             //
             // Manual keeps a useful meaning by inversion: carrying no external
@@ -406,7 +413,7 @@ public sealed class LibraryService(
         if (query.StandaloneOnly)
         {
             // An indexed EXISTS in both directions, which is the whole cost of it:
-            // an edge is stored exactly as fetched (D24), so a title with a sequel
+            // an edge is stored exactly as fetched, so a title with a sequel
             // may be named at either end of the row that says so.
             //
             // Both halves of the OR are covered — the unique index leads on

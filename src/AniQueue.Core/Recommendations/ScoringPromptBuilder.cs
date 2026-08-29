@@ -7,34 +7,24 @@ namespace AniQueue.Core.Recommendations;
 /// Writes the instructions that travel with a request.
 /// </summary>
 /// <remarks>
-/// In Core rather than on the page that shows it, because Phase 8 sends exactly
-/// this text to a configured endpoint and a prompt that lived in a Razor component
-/// would either be duplicated or reached for from the wrong layer. It is part of
+/// In Core rather than on the page that shows it, because a configured endpoint
+/// sends exactly this text and a prompt living in a Razor component would either be
+/// duplicated or reached for from the wrong layer. It is part of
 /// the contract, not part of the presentation: what a model is told to return and
 /// what <see cref="ScoringResponseParser"/> accepts are two statements of one
 /// thing, and keeping them in the same folder is the cheapest way to notice when
 /// they stop agreeing.
 ///
-/// <b>The example teaches as much as the rules do.</b> Its reasons used to read
-/// "Same director as one you rated 9." beside a predictedScore of 9.5 — a number
-/// in the reason, adjacent to the score, attached to no particular title. Models
-/// reproduced exactly that: a rating they had invented, tracking the score they
-/// had just given. The reasons now name where a comparison comes from and carry no
-/// number at all, and one of them shows what to say when there is no comparison to
-/// make.
+/// The example teaches as much as the rules do, so its reasons carry no numbers: a
+/// number in a reason beside a score gets reproduced as a rating the model invented.
+/// One of them shows what to say when there is no comparison to make.
 ///
-/// <b>No real title appears in the example, and that is why the rule asks for a
-/// pattern as well as for a name.</b> A first attempt asked for a title named from
-/// the history while both example reasons named none, which is a contradiction in
-/// the one direction that matters here: the example is the stronger instruction, so
-/// prose it disagrees with is prose that loses. Resolving it the other way —
-/// putting a concrete title into the example — would place one title string in
-/// front of a model whose observed failure is copying example content into a claim
-/// about the person, and a copied title inside a reason is a plausible lie that
-/// nothing downstream can catch. A pattern is grounded without being specific
-/// enough to invent.
+/// No real title appears in the example either, which is why the rules ask for a
+/// pattern as well as for a name. Putting a concrete title in front of a model whose
+/// observed failure is copying example content produces a plausible lie that nothing
+/// downstream can catch.
 ///
-/// <b>Written for a small model.</b> The target is something self-hosted, so the
+/// Written for a small model. The target is something self-hosted, so the
 /// instructions are short, ordered with the output format last — which is the part
 /// most likely to survive a truncated context — and state the failure explicitly
 /// rather than politely. "Return only JSON" outperforms "please try to return
@@ -122,7 +112,7 @@ public static class ScoringPromptBuilder
         prompt.AppendLine("- \"id\" must be copied exactly from the candidate. Never invent one.");
 
         // Asked for plainly, because the whole value of the key is that it travels
-        // with a reply a person may keep and paste back months later (D50). A model
+        // with a reply a person may keep and paste back months later. A model
         // that ignores this produces a reply AniQueue reads exactly as it read replies
         // before the key existed, so the instruction is worth making and not worth
         // insisting on.
@@ -136,7 +126,7 @@ public static class ScoringPromptBuilder
             CultureInfo.InvariantCulture,
             $"- \"predictedScore\" is {scale.Min}–{scale.Max}. \"confidence\" is 0–1.");
 
-        // No rule about "rank", because nothing asks for one any more (D43). Asking
+        // No rule about "rank", because nothing asks for one any more. Asking
         // for a placement alongside a score got the score derived from the placement
         // — observed output ranged from an integer staircase locked to position to
         // genuinely independent scoring — and the score is the half that is stored.
@@ -179,15 +169,15 @@ public static class ScoringPromptBuilder
 
     /// <summary>
     /// The library key as it appears inside the example envelope, or nothing at all
-    /// when the request carries none (D50).
+    /// when the request carries none.
     /// </summary>
     /// <remarks>
     /// Shown in the worked example rather than described in a rule alone, for the
     /// reason <see cref="Schema"/> exists at all: a model reproduces a shape it has
     /// seen more reliably than it follows a sentence about one.
     ///
-    /// <b>The example carries this request's own key rather than a placeholder, and
-    /// that is what makes it safe.</b> D37 accepts a reply by finding the last object
+    /// The example carries this request's own key rather than a placeholder, and
+    /// that is what makes it safe. The parser accepts a reply by finding the last object
     /// carrying a <c>results</c> array, and this example is itself such an object — a
     /// model that restates the question before answering it emits two. So a model that
     /// copies the envelope out of the example instead of out of the request still

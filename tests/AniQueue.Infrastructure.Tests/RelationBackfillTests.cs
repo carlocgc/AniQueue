@@ -90,7 +90,7 @@ public class RelationBackfillTests
     /// it.
     /// </summary>
     /// <remarks>
-    /// The pacing arithmetic is tested in Core with no clock at all (§8). This exists
+    /// The pacing arithmetic is tested in Core with no clock at all. This exists
     /// only so a multi-batch test does not spend two real seconds proving that the
     /// service asked to wait.
     /// </remarks>
@@ -232,8 +232,8 @@ public class RelationBackfillTests
     [Fact]
     public async Task An_edge_pointing_at_a_title_the_user_does_not_own_is_kept()
     {
-        // The reason this table is keyed by identifiers rather than AnimeId pairs
-        // (D24). Resolving at write time would discard exactly these, permanently,
+        // The reason this table is keyed by identifiers rather than AnimeId pairs.
+        // Resolving at write time would discard exactly these, permanently,
         // on the strength of what happened to be in the library that afternoon.
         await using var fixture = await Fixture.CreateAsync(new StubRelationClient(
             Response(("100", Edge("SEQUEL", "999")))));
@@ -407,7 +407,7 @@ public class RelationBackfillTests
     {
         // Unattended outbound traffic is exactly what that switch exists to halt, and
         // an operator who turned sync off would not expect a second thing to carry on
-        // talking to the same host (D25).
+        // talking to the same host.
         var client = new StubRelationClient(Response(("100", "")));
         await using var fixture = await Fixture.CreateAsync(client, syncEnabled: false);
 
@@ -444,7 +444,7 @@ public class RelationBackfillTests
     /// it managed.
     /// </summary>
     /// <remarks>
-    /// The budget replaced a request ceiling in Phase 15a, and the difference that
+    /// A budget rather than a request ceiling, and the difference that
     /// matters is this one: the ceiling ended a visit on a count nobody chose, while
     /// this ends it only where a library is large enough to need it — and either way
     /// the markers already written mean the next pass carries on rather than starting
@@ -489,7 +489,7 @@ public class RelationBackfillTests
     [Fact]
     public async Task A_library_with_no_AniList_identifiers_is_left_alone()
     {
-        // A MyAnimeList-only library gets nothing from this, which D23 records as a
+        // A MyAnimeList-only library gets nothing from this, which is a
         // real gap rather than an oversight. What it must not do is ask anyway.
         var client = new StubRelationClient(Response(("100", "")));
         await using var fixture = await Fixture.CreateAsync(client);
@@ -563,7 +563,7 @@ public class RelationBackfillTests
     [Fact]
     public async Task A_title_the_response_did_not_mention_keeps_every_edge_it_had()
     {
-        // D19's scoping, applied to edges: the source's silence is authoritative only
+        // Absence scoping, applied to edges: the source's silence is authoritative only
         // where it spoke. A batch that simply did not cover a title is a gap, not a
         // statement, and deleting on that basis would read one as the other.
         var client = new StubRelationClient(
@@ -610,9 +610,7 @@ public class RelationBackfillTests
     /// them until the thirty-day staleness expired — a button that silently emptied
     /// the relation graph for a month. They are one transaction for that reason.
     ///
-    /// This replaced a test about refreshing, which forgot the markers and immediately
-    /// re-read. The re-reading half moved to the tasks page in Phase 15e; what is left
-    /// here is the throwing away.
+    /// Re-reading belongs to the tasks page; what is left here is the throwing away.
     /// </remarks>
     [Fact]
     public async Task Deleting_the_graph_removes_the_edges_and_the_markers()

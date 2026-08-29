@@ -2,13 +2,9 @@ namespace AniQueue.Core.Recommendations;
 
 /// <summary>One title's score, as a model returned it.</summary>
 /// <remarks>
-/// There is deliberately no placement here. A rank was asked for and stored until
-/// D43, on the argument that placement stays inside its batch and only the score
-/// leaves — every clause of which was true, and the conclusion of which was not: a
-/// model asked for both will sometimes derive the score <i>from</i> the rank, and
-/// the score is what leaves. A <c>rank</c> that arrives anyway is read past rather
-/// than refused, because a model repeating a shape it has seen is not returning a
-/// malformed answer.
+/// There is deliberately no placement here: a model asked for both a rank and a
+/// score will sometimes derive the score from the rank, and the score is what
+/// leaves. A <c>rank</c> that arrives anyway is read past rather than refused.
 /// </remarks>
 public sealed record ScoringResult
 {
@@ -52,7 +48,7 @@ public sealed record ScoringResponse
     public const string ResponseFormat = "aniqueue-scoring-response";
 
     /// <summary>
-    /// The library key the reply echoed, or null when it echoed none (D50).
+    /// The library key the reply echoed, or null when it echoed none.
     /// </summary>
     /// <remarks>
     /// Read here and judged elsewhere, which is the same split the rest of this type

@@ -17,7 +17,7 @@ namespace AniQueue.Infrastructure.Sync;
 /// rather than baked into a timer at startup.
 /// </summary>
 /// <remarks>
-/// <b>One unit per fetchable source</b> (D40), which is why this no longer loops.
+/// <b>One unit per fetchable source</b>, which is why this no longer loops.
 /// Each source carries its own enabled state and its own failure history, so one row
 /// covering both would have to aggregate two of everything — and the runner asking
 /// once per unit is what lets one be run, cancelled or switched off without touching
@@ -53,7 +53,7 @@ public sealed class UnattendedSyncJob(
     /// <remarks>
     /// A file source is never here. It has no list to go and read, so it can never be
     /// due, and a row whose button could never do anything is a worse answer than no
-    /// row at all (D40).
+    /// row at all.
     /// </remarks>
     public IReadOnlyList<JobUnit> Units { get; } =
         [new JobUnit(nameof(AnimeSource.AniList), "AniList")];
@@ -122,7 +122,7 @@ public sealed class UnattendedSyncJob(
 
             // Held changes count as processed and not as changed, which is the honest
             // reading: the run reached the source and found work, and deliberately did
-            // not apply it (D21).
+            // not apply it.
             SyncOutcome.HeldForReview => JobRunOutcome.Succeeded(
                 result.ChangesHeld + result.ConflictsHeld, 0),
 
@@ -137,7 +137,7 @@ public sealed class UnattendedSyncJob(
     /// Measured from the last run's start rather than its finish, so a slow fetch
     /// does not push the schedule out by its own duration.
     ///
-    /// <b>From <c>JobRun</c> rather than from <c>SyncRun</c>, since Phase 15b.</b>
+    /// From <c>JobRun</c> rather than from <c>SyncRun</c>.
     /// <c>SyncRun</c> is written only when a run reaches a terminal state, so a run
     /// that was cancelled — or that threw before it could record anything — left the
     /// clock unmoved and was started again on the very next tick. Reading it from the
@@ -149,12 +149,10 @@ public sealed class UnattendedSyncJob(
     /// safe, because turning the schedule on is what creates that state and the
     /// user has just said they want it read.
     ///
-    /// <b>A failing source is not made to wait longer.</b> Until D40 the interval was
-    /// doubled per consecutive failure to a cap of sixteen, reasoning that a rate
-    /// limit or an unreadable account does not improve for being asked again on the
-    /// dot. True, and outweighed: asking again costs one request, while not asking
-    /// costs a schedule the user set being rewritten by the application, invisibly,
-    /// in response to a condition they may already know about.
+    /// A failing source is not made to wait longer. Asking again costs one request,
+    /// while backing off costs a schedule the user set being rewritten by the
+    /// application, invisibly, in response to a condition they may already know
+    /// about.
     /// </remarks>
     private async Task<bool> IsDueAsync(
         SourceSyncStatus status,
@@ -166,6 +164,16 @@ public sealed class UnattendedSyncJob(
         // failed run.
         if (!status.CanFetch || !status.IsConfigured || !status.Settings.IsEnabled)
         {
+            // "It is not syncing" is nearly always one of these three, and none of
+            // them is visible from a library that simply never changes.
+            logger.LogDebug(
+                "{Source} is not due: fetchable {CanFetch}, account configured {IsConfigured}, "
+                + "source enabled {IsEnabled}",
+                status.Source,
+                status.CanFetch,
+                status.IsConfigured,
+                status.Settings.IsEnabled);
+
             return false;
         }
 
@@ -173,7 +181,7 @@ public sealed class UnattendedSyncJob(
         // covers a library change. A sync is not something to start because data moved:
         // relations writing edges, or a file being imported, is no reason to go and
         // re-read somebody's list. This job is a producer of library changes; the jobs
-        // that bypass their cadence on that signal are the ones consuming it (D41).
+        // that bypass their cadence on that signal are the ones consuming it.
         //
         // It no longer needs to guard against its *own* announcements — the runner
         // discards those now — but the rule stands on its own without that.
@@ -185,16 +193,30 @@ public sealed class UnattendedSyncJob(
             return true;
         }
 
-        // One cadence for every background task since Phase 15c (D40). Read on each
+        // One cadence for every background task. Read on each
         // tick rather than captured, so a change on the tasks page takes effect
         // without a restart.
         if (tasks.CurrentValue.Schedule.ToInterval() is not { } interval)
         {
+            logger.LogDebug(
+                "{Source} is not due: the task cadence is switched off", status.Source);
+
             return false;
         }
 
         var lastRun = await runs.LastRunAtAsync(Key, context.Unit, cancellationToken);
 
-        return lastRun is not { } last || DateTimeOffset.UtcNow - last >= interval;
+        if (lastRun is { } last && DateTimeOffset.UtcNow - last < interval)
+        {
+            logger.LogDebug(
+                "{Source} is not due: last run {LastRun:u}, cadence {Interval}",
+                status.Source,
+                last,
+                interval);
+
+            return false;
+        }
+
+        return true;
     }
 }

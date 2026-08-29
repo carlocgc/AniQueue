@@ -12,14 +12,13 @@ namespace AniQueue.Infrastructure;
 public static class SettingsServiceCollectionExtensions
 {
     /// <summary>
-    /// Registers the reader and writer of <c>userconfig.json</c> (D36).
+    /// Registers the reader and writer of <c>userconfig.json</c>.
     /// </summary>
     /// <remarks>
-    /// Its own extension rather than a line inside <c>AddAniQueueSync</c>, where the
-    /// first-boot template used to live. Settings are not sync's business — scoring
-    /// writes them too, and Phase 10's page will read all of them — and leaving the
-    /// registration under the first feature that happened to need it is how a shared
-    /// component comes to look like one feature's helper.
+    /// Its own extension rather than a line inside <c>AddAniQueueSync</c>. Settings are
+    /// not sync's business — scoring writes them too, and the settings page reads all
+    /// of them — and registering a shared component under one feature is how it comes
+    /// to look like that feature's helper.
     ///
     /// <b>Singleton</b>, because it holds nothing per request and its two collaborators
     /// are singletons: the configuration root it reloads, and the status the banner
@@ -33,7 +32,7 @@ public static class SettingsServiceCollectionExtensions
     }
 
     /// <summary>
-    /// Registers the courier that carries a scoring request to a hosted model (D31).
+    /// Registers the courier that carries a scoring request to a hosted model.
     /// </summary>
     /// <remarks>
     /// <b>Its own <see cref="HttpClient"/>, not the one AniList uses.</b> That client's
@@ -48,12 +47,6 @@ public static class SettingsServiceCollectionExtensions
     /// </remarks>
     public static IServiceCollection AddAniQueueScoringEndpoint(this IServiceCollection services)
     {
-        // IScoringGate was registered here, a rendezvous between a background sweep and
-        // whichever circuit had pressed Rank now. D42 deleted that button, so there is
-        // no second claimant to arbitrate: a sweep and a Run now both enter the same
-        // sequential runner loop, and a person who wants the model stops the sweep from
-        // the tasks page rather than queueing behind it.
-
         // Scoped, and resolved once per tick by whatever runs it, like every other
         // background job here. It holds nothing between runs: what it needs to know
         // about the last one is in the run record, which survives a restart.
@@ -86,7 +79,7 @@ public static class SettingsServiceCollectionExtensions
                 // A ranking of a large backlog is tens of kilobytes and the parser
                 // refuses anything past its own limit anyway, so this is sized to
                 // refuse a hostile or malfunctioning endpoint while the body is still
-                // arriving (§6) rather than to bound a legitimate reply.
+                // arriving rather than to bound a legitimate reply.
                 MaxResponseContentBufferSize = 32 * 1024 * 1024
             };
 

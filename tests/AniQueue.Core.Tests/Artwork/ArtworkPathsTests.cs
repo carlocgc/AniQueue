@@ -4,7 +4,7 @@ using AniQueue.Core.Domain;
 namespace AniQueue.Core.Tests.Artwork;
 
 /// <summary>
-/// Where a picture lives, on disk and on the wire (D47).
+/// Where a picture lives, on disk and on the wire.
 /// </summary>
 /// <remarks>
 /// The job writes files, the endpoint reads them and the page builds addresses, and
@@ -35,7 +35,7 @@ public class ArtworkPathsTests
     [Fact]
     public void The_two_poster_renditions_do_not_share_a_directory()
     {
-        // What 9b got wrong first time and D48 corrected. Both renditions in one
+        // Both renditions in one
         // directory is 1,620 files where the argument for splitting by kind said one
         // directory holding all of them is worse to list and worse to sweep — and it
         // put the 145 MB of full-size covers behind a delete that also blanked every
@@ -120,7 +120,7 @@ public class ArtworkPathsTests
     }
 
     [Theory]
-    // §6 forbids user-supplied file paths, and this is the check that keeps that
+    // No user-supplied string becomes a file path, and this is the check that keeps
     // true: the segment arrives from a request and goes into a filename. It is a
     // whitelist rather than a sanitiser, so every one of these fails for the same
     // dull reason — a separator is not a hexadecimal digit.

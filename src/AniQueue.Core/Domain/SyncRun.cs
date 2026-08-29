@@ -1,20 +1,13 @@
 namespace AniQueue.Core.Domain;
 
 /// <summary>
-/// One completed attempt to sync one source (D21).
+/// One completed attempt to sync one source: the audit trail for writes nobody
+/// watched, and the source of the "last synced" the Sources page shows.
 ///
-/// The audit trail for writes nobody watched, and the source of the "last synced"
-/// the Sources page shows. It is written in Phase 5b, where every run is
-/// user-initiated, because an on-demand run deserves the same record as an
-/// unattended one and because a page that cannot say when it last worked is a page
-/// that cannot say anything useful about whether it is working.
-///
-/// <b>A row is written when a run reaches a terminal state, and not before.</b> A
-/// fetch that produced a preview the user is still looking at has not finished:
-/// nothing has been applied, and recording it as a sync would let the page claim
-/// the library is up to date while the changes sit unconfirmed on screen. So a
-/// failed fetch is recorded immediately, a fetch with nothing to apply is recorded
-/// immediately, and a fetch with changes is recorded when they are applied.
+/// A row is written when a run reaches a terminal state and not before. A failed
+/// fetch is recorded immediately, a fetch with nothing to apply is recorded
+/// immediately, and a fetch with changes is recorded when they are applied — so a
+/// preview the user is still looking at never reads as a completed sync.
 /// </summary>
 public class SyncRun
 {
@@ -41,42 +34,33 @@ public class SyncRun
 
     /// <summary>
     /// Conflicts the run did not resolve, which is the pending-decision count the
-    /// Sources page badges (D21).
+    /// Sources page badges.
     /// </summary>
     public int ConflictsHeld { get; set; }
 
     /// <summary>
     /// Queue slots released because the sync showed their titles are no longer
-    /// waiting to be watched (D12).
+    /// waiting to be watched.
     /// </summary>
     public int SlotsReleased { get; set; }
 
     /// <summary>
     /// Unambiguous changes an unattended run found and did not apply, because the
-    /// source is set to ask first (D21).
+    /// source is set to ask first. A count only: what the changes were is not
+    /// stored, because the user's visit re-fetches.
     /// </summary>
-    /// <remarks>
-    /// A count and nothing else. What the changes were is not stored: a held
-    /// preview is stale within the hour and the user's visit re-fetches, so
-    /// persisting one would mean showing them a decision computed against a
-    /// library that has since moved.
-    /// </remarks>
     public int ChangesHeld { get; set; }
 
     /// <summary>
     /// Titles this source used to list and no longer does, marked for the user to
-    /// look at (D19).
+    /// look at. Only ever counts rows carrying this source's identifier, and only
+    /// when the fetch was structurally complete.
     /// </summary>
-    /// <remarks>
-    /// Only ever counts rows carrying this source's identifier, and only when the
-    /// fetch was structurally complete. Under an absence policy of ignore it is
-    /// always zero, because nothing is looked for.
-    /// </remarks>
     public int AbsentFlagged { get; set; }
 
     /// <summary>
     /// Why a failed run failed, in plain words. Never a stack trace: this is
-    /// rendered to whoever opens the page (§6).
+    /// rendered to whoever opens the page.
     /// </summary>
     public string? FailureReason { get; set; }
 }

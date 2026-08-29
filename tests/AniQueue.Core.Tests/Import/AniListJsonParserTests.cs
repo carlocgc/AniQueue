@@ -7,10 +7,10 @@ namespace AniQueue.Core.Tests.Import;
 
 /// <summary>
 /// AniList's vocabulary, tested against a committed fixture so no test touches the
-/// network (§8).
+/// network.
 ///
 /// The cases here are chosen from what the live probe could <i>not</i> confirm. The
-/// real library used to verify the API contained only COMPLETED, CURRENT and
+/// real library used for verification contained only COMPLETED, CURRENT and
 /// PLANNING entries, no partial FuzzyDate and no custom list — so the mappings most
 /// likely to be wrong are exactly the ones a captured response would have left
 /// untested.
@@ -98,7 +98,7 @@ public class AniListJsonParserTests
     {
         // 4/100 divides to 0.4 and rounds to 0, which is indistinguishable from
         // unscored. A 1 separates a disliked show from an unrated one, and that
-        // distinction is what Phase 7 ranks on.
+        // distinction is what a ranking turns on.
         var result = await ParseFixtureAsync();
 
         Assert.Equal(1, Entry(result, "900103").UserScore);
@@ -132,7 +132,7 @@ public class AniListJsonParserTests
     public async Task A_repeating_entry_is_watching_not_planning()
     {
         // Someone five episodes into a re-watch is watching the show, whatever their
-        // intent was when they started (D12, D15). Reading REPEATING as Planning
+        // intent was when they started. Reading REPEATING as Planning
         // would put a half-watched title back into the backlog as queueable.
         var result = await ParseFixtureAsync();
         var entry = Entry(result, "900106");
@@ -181,7 +181,7 @@ public class AniListJsonParserTests
         // English is absent for roughly one title in seven, and the column says so
         // rather than borrowing another language to fill it. What the reader sees
         // when they prefer English is decided later, by the fallback chain, from
-        // variants that each know what they are (D22).
+        // variants that each know what they are.
         var result = await ParseFixtureAsync();
         var entry = Entry(result, "900102");
 
@@ -193,9 +193,8 @@ public class AniListJsonParserTests
     [Fact]
     public async Task Every_variant_is_carried_against_its_own_language()
     {
-        // The parser has no opinion about which to display. It used to take the
-        // preference and resolve one, which is why the stored alternative could not
-        // be identified later and the preference needed a full re-fetch to change.
+        // The parser has no opinion about which to display, so the stored variants
+        // stay identifiable and the preference can change without a re-fetch.
         var result = await ParseFixtureAsync();
         var entry = Entry(result, "900101");
 
@@ -211,7 +210,7 @@ public class AniListJsonParserTests
     [Fact]
     public async Task An_entry_supplies_both_its_own_id_and_the_MyAnimeList_one()
     {
-        // D17's bridge, at its source. Writing both is what lets a sync match a
+        // The identifier bridge, at its source. Writing both is what lets a sync match a
         // MyAnimeList-imported row rather than duplicate it, whichever service the
         // user started with.
         var result = await ParseFixtureAsync();
@@ -257,7 +256,7 @@ public class AniListJsonParserTests
     [Fact]
     public async Task Duration_and_release_year_arrive_because_this_is_where_they_come_from()
     {
-        // Phase 3's runtime filter, runtime sort and decade chips have been inert in
+        // The runtime filter, runtime sort and decade chips are inert in
         // every real installation, because nothing populated these two columns.
         var result = await ParseFixtureAsync();
         var entry = Entry(result, "900101");
@@ -300,7 +299,7 @@ public class AniListJsonParserTests
     {
         // This is the dangerous one. GraphQL reports failure inside an HTTP 200, and
         // reading that body as zero entries is indistinguishable from the user having
-        // deleted their entire list — which is precisely what D19's absence handling
+        // deleted their entire list — which is precisely what the absence handling
         // would act on.
         await using var stream = Json(
             """

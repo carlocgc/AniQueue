@@ -5,8 +5,8 @@
    information-dense that does not look like an enterprise admin panel, and
    Bootstrap's defaults are exactly that look.
 
-   Light and dark both come from prefers-color-scheme for now. Phase 10 adds the
-   explicit System/Light/Dark setting, which will set data-theme on <html>; the
+   Light and dark both come from prefers-color-scheme. An explicit
+   System/Light/Dark setting would set data-theme on <html>; the
    tokens below are already structured for that.
 */
 
@@ -132,7 +132,7 @@ code { overflow-wrap: anywhere; }
 .page-header { margin-bottom: 1.25rem; }
 .page-header p { color: var(--text-muted); margin: 0.25rem 0 0; }
 
-/* Small screens: the sidebar becomes a bottom tab bar (Phase 18a).
+/* Small screens: the sidebar becomes a bottom tab bar.
 
    Bottom rather than top because the complaint was reach and not room — a phone is
    held at its bottom. Fixed rather than scrolling away with the page for the same
@@ -419,9 +419,9 @@ h2 > .badge { font-size: 0.7rem; vertical-align: middle; margin-left: 0.5rem; fo
 
 /* Row actions ------------------------------------------------------------- */
 
-/* Every action sits on the row it acts on (D26), so the column is narrow rather
+/* Every action sits on the row it acts on, so the column is narrow rather
    than a bar that appears above the table once something is selected. Up Next is
-   the only page with one since Phase 18b took the backlog's hide button away, and
+   the only page with one, and
    the rule stays shared because the Tasks list uses the same shape. */
 .actions-col { width: 1%; white-space: nowrap; }
 
@@ -500,14 +500,13 @@ button:has(> .icon-glyph), .button:has(> .icon-glyph) {
    box does not: a tick box says "include this". Filled green for on, outlined red
    for off, and the state is written into the accessible name as well — roughly one
    man in twelve cannot reliably tell that red from that green, so the colour
-   reinforces and never carries (Phase 18a). */
+   reinforces and never carries. */
 .power {
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    /* The published thumb target. The switch this replaced was a 13px tick box.
-       flex: none because these sit in flex rows that were happy to shave 3px off
-       one, which is the whole point of the size. */
+    /* The published thumb target. flex: none because these sit in flex rows that
+       would otherwise shave 3px off it, which is the whole point of the size. */
     flex: none;
     width: 2.75rem;
     height: 2.75rem;
@@ -541,11 +540,6 @@ button:has(> .icon-glyph), .button:has(> .icon-glyph) {
 .badge.queued { background: var(--accent); color: var(--accent-text); border-color: transparent; }
 
 /* The set a title comes with ---------------------------------------------- */
-
-/* Two expandable rows lived here until 18c — a chevron column, a pressable score,
-   and the tinted rows they opened. Both moved into the detail dialog, where the
-   reasoning already was and where a phone can read either. What is left is the
-   list itself and the one control above it, restyled for the dialog. */
 
 /* Label above value rather than beside it: the four facts are short and of
    different lengths, and a two-column grid of them leaves one column mostly air. */
@@ -589,10 +583,9 @@ button:has(> .icon-glyph), .button:has(> .icon-glyph) {
 
 .detail-set-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.6rem; }
 
-/* The add button holds its column and the title takes the rest. It used to be one
-   wrapping line of button, title and badges, which held up until a real library
-   arrived: an eighty-character light-novel title wrapped, took the badges to a third
-   line, and pushed the button onto a line of its own *above* the title it acted on. */
+/* The add button holds its column and the title takes the rest. One wrapping line
+   of button, title and badges breaks on a long title: the badges take a third line
+   and the button lands above the title it acts on. */
 .detail-set-list li {
     display: flex;
     align-items: flex-start;
@@ -629,7 +622,7 @@ button:has(> .icon-glyph), .button:has(> .icon-glyph) {
 
 /* Up Next ----------------------------------------------------------------- */
 
-   be (§39), so the grip is aria-hidden and never takes focus. */
+   be, so the grip is aria-hidden and never takes focus. */
 .drag-handle {
     display: inline-flex;
     align-items: center;
@@ -674,7 +667,7 @@ button:has(> .icon-glyph), .button:has(> .icon-glyph) {
    aria-label naming both the action and the title, because an arrow announced on
    its own tells a screen-reader user nothing about what it will move. */
 button.icon {
-    /* Centres the glyph the way text used to centre itself. */
+    /* Centres the glyph the way text centres itself. */
     display: inline-flex;
     align-items: center;
     justify-content: center;
@@ -843,7 +836,7 @@ button.icon.remove:hover:not(:disabled) {
    to start one; the settings behind it are read once and then left alone, and
    putting them in front of that would bury the two things a user came for. */
 /* A source card with a preview under it is a header and two buttons, so it takes
-   the space of one rather than of the panel it used to be. The heading shrinks with
+   the space of one rather than of a full panel. The heading shrinks with
    it: at full size it is the section title, and here it is a label on a control. */
 .card.collapsed { padding: 0.6rem var(--gap); }
 
@@ -943,8 +936,7 @@ tr.muted td { opacity: 0.6; }
    is given, so on a narrow screen the two pinned columns take their rem widths
    and the last column — the reasoning — is handed whatever is left, which is
    nothing. Below this the wrap scrolls instead, which is what .table-wrap is for. */
-/* Every index here moved down one when D43 deleted the Rank column. These are
-   positional selectors against a fixed layout, so they do not fail visibly when
+/* These are positional selectors against a fixed layout, so they do not fail visibly when
    they go stale — they silently pin the wrong column, which is why the widths are
    listed in column order rather than in the order they were written. */
 .ranking { table-layout: fixed; min-width: 40rem; }
@@ -1070,11 +1062,11 @@ tr.muted td { opacity: 0.6; }
 
 .card.status .scoring-facts { margin-top: 0.75rem; }
 
-/* Tasks (Phase 15c). Rows are the page, so the only new shapes are the ones a
+/* Tasks. Rows are the page, so the only new shapes are the ones a
    row needs: a state that reads as live, an outcome that reads as good or bad,
    and a switch that is a checkbox with its label off-screen. */
 
-/* A task is a card, by the rule 18d applied to the two lists: a table that scrolls
+/* A task is a card, by the same rule as the two lists: a table that scrolls
    sideways is right for something read and wrong for something acted on, and this
    one held Run now and a power button at a 40rem minimum in a 309px window.
 
@@ -1119,7 +1111,7 @@ table.runs th:nth-child(3), table.runs td:nth-child(3) { white-space: nowrap; }
 /* Wraps under the task it explains rather than widening anything. */
 p.failure { margin: 0.25rem 0 0; font-size: 0.85rem; }
 
-/* Sources: the one destructive action, and the one inline wait (Phase 15e).
+/* Sources: the one destructive action, and the one inline wait.
 
    A danger button is drawn rather than merely worded because it sits in a toolbar
    beside a button that keeps the data — colour is what stops the two reading as
@@ -1143,7 +1135,7 @@ button.danger:hover:not(:disabled) { filter: brightness(0.95); }
     vertical-align: middle;
 }
 
-/* Cover art (D47). A box of a fixed size whether or not there is a picture in it,
+/* Cover art. A box of a fixed size whether or not there is a picture in it,
    because one that changed size as pictures arrive would reflow the list under the
    cursor for the whole of a first pass. The 40×60 here is what the relations list
    in the dialog uses; a card overrides it to 64×96. */
@@ -1178,7 +1170,7 @@ button.danger:hover:not(:disabled) { filter: brightness(0.95); }
 
 /* Show detail dialog ------------------------------------------------------ */
 
-/* The title as a control (D49). It has to read as the row's text, because that is
+/* The title as a control. It has to read as the row's text, because that is
    what it is — a button that looked like a button would put fifty of them down a
    column that is meant to be scanned. Only the affordances that say "activate me"
    are kept: a pointer cursor, and an underline on hover and focus. */
@@ -1425,7 +1417,7 @@ html:has(dialog.detail-dialog[open]) { overflow: hidden; }
 .detail-links { clear: both; }
 
 /* A spoiler is blacked out rather than removed, so the reader can see that
-   something is being withheld and choose (D49). Colour alone would not do it —
+   something is being withheld and choose. Colour alone would not do it —
    selecting the text or reading the DOM would give it away — but this is a
    courtesy for someone browsing their own backlog, not a security boundary. */
 .spoiler {
@@ -1457,9 +1449,8 @@ html:has(dialog.detail-dialog[open]) { overflow: hidden; }
     /* The float comes off entirely and the poster stacks above everything. Wrapping
        text around a picture needs a channel wide enough to hold a line; at 375px the
        remainder would be four or five words per line, which is worse than no wrap at
-       all. The list thumbnail used to be hidden outright at this width; 18d made it
-       the leading element of a card instead, and this poster is still bigger again
-       because it is most of what the dialog is for. */
+       all. This poster is bigger again than the list thumbnail, because it is most
+       of what the dialog is for. */
     .detail-poster {
         float: none;
         width: min(230px, 60vw);
@@ -1468,15 +1459,10 @@ html:has(dialog.detail-dialog[open]) { overflow: hidden; }
 }
 /* The two lists are cards, not tables ------------------------------------- */
 
-/* Measured at 375px before any of this existed (D54). The backlog was a 710px table
+/* Measured at 375px before any of this existed. The backlog was a 710px table
    in a 309px window and the queue a 499px one, so a phone showed two icon buttons
    and a title squeezed to 98px, and the queue's reorder controls started 42px past
-   the right edge. D54 answered it by making a table behave like something it is not:
-   display: block on every part, a zero-height ::after to force a line break, an
-   order on every cell, and the cover column hidden at exactly the width where the
-   picture is the most useful thing on the row.
-
-   18d deleted all of that by deleting the table. What is left is one grid that gains
+   the right edge. What is left is one grid that gains
    a column at the wider breakpoint, which is what "mobile first with desktop
    expansion" means here — and it is why the table had to go, because a table cannot
    gain a column at a breakpoint without the cell already existing in every row. */
@@ -1520,7 +1506,7 @@ html:has(dialog.detail-dialog[open]) { overflow: hidden; }
 
 /* Big enough to recognise art by, which is the whole reason it leads the card. The
    thumbnail rendition is 100px and looked soft here, so the row reads the full-size
-   poster and falls back (D47, 18d). */
+   poster and falls back. */
 .entry-card .cover-thumb {
     width: 64px;
     height: 96px;
@@ -1558,7 +1544,7 @@ html:has(dialog.detail-dialog[open]) { overflow: hidden; }
 /* A control, so it is a control-sized target. The text is 20px tall and the card is
    114px, so the height is free — and the title is the most-pressed thing on the card
    after the add button, because it is what opens the dialog everything else moved
-   into (18c). */
+   into. */
 .entry-title {
     display: flex;
     align-items: center;
@@ -1612,7 +1598,7 @@ html:has(dialog.detail-dialog[open]) { overflow: hidden; }
 
 .entry-card .drag-handle .icon-glyph { width: 1.6rem; height: 1.6rem; }
 
-/* The keyboard path, and only where a keyboard is (§39, 18d). A thumb drags the grip
+/* The keyboard path, and only where a keyboard is. A thumb drags the grip
    instead; four 20px arrows on a phone would be four things too small to hit. */
 .entry-card .queue-actions { display: none; }
 
@@ -1645,8 +1631,8 @@ html:has(dialog.detail-dialog[open]) { overflow: hidden; }
 
 /* Every control is a thumb target on a phone ------------------------------- */
 
-/* Phase 18's exit says no control under 44px on a 375px screen, and 18d met it a
-   card at a time. What was left over is everything else: a worded button is 39px,
+/* No control under 44px on a 375px screen. The cards meet that on their own; what
+   was left over is everything else: a worded button is 39px,
    a filter chip 30px and an icon button 30px, and on a page of a dozen chips that
    is a dozen things to miss.
 
@@ -1683,11 +1669,10 @@ html:has(dialog.detail-dialog[open]) { overflow: hidden; }
     }
 }
 
-/* One square button that starts a task and then stops it. It was a worded "Run now"
-   with a play glyph beside it, which 18a argued for on the grounds that a symbol
-   alone is a guess at what a button does — true of a floppy disc, and not of a
-   circling arrow for "run this again" or a cross for "stop". Both carry a full name
-   for a pointer and a screen reader either way.
+/* One square button that starts a task and then stops it. A symbol alone is a guess
+   at what a button does — true of a floppy disc, and not of a circling arrow for
+   "run this again" or a cross for "stop" — and both carry a full name for a pointer
+   and a screen reader either way.
 
    Two buttons swapping in and out was the other cost: the power button moved under
    the cursor every time a task started. One button in one place does not. */

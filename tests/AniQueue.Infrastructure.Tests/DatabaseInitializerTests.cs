@@ -43,7 +43,7 @@ public class DatabaseInitializerTests
     public async Task Default_settings_do_not_opt_into_sharing_personal_notes()
     {
         // Privacy default: notes are free text and never leave the machine in an
-        // AI export unless the user explicitly turns it on (ROADMAP.md §6).
+        // AI export unless the user explicitly turns it on.
         await using var database = await SqliteTestDatabase.CreateAsync();
 
         await CreateInitializer(database).InitialiseAsync();
@@ -51,8 +51,8 @@ public class DatabaseInitializerTests
         await using var context = database.CreateContext();
         var settings = await context.ProfileSettings.SingleAsync();
 
-        // The scoring settings that used to be asserted here moved to userconfig.json
-        // (D36); what a fresh database still has to produce is the display preferences.
+        // The scoring settings live in userconfig.json; what a fresh database has to
+        // produce is the display preferences.
         Assert.Equal(TitleLanguage.Romaji, settings.PreferredTitleLanguage);
         Assert.Equal(RecommendationMode.Manual, settings.DefaultRecommendationMode);
     }
@@ -60,7 +60,7 @@ public class DatabaseInitializerTests
     [Fact]
     public async Task A_new_database_names_its_library()
     {
-        // The name is what lets a scoring reply say which library it came from (D50),
+        // The name is what lets a scoring reply say which library it came from,
         // and a reply generated before the database existed cannot have it.
         await using var database = await SqliteTestDatabase.CreateAsync();
 
@@ -76,7 +76,7 @@ public class DatabaseInitializerTests
     public async Task A_library_keeps_the_name_it_was_given()
     {
         // Regenerating on start would invalidate every reply the user is holding —
-        // which is the failure D50 exists to report, not to cause.
+        // which is the failure the library key exists to report, not to cause.
         await using var database = await SqliteTestDatabase.CreateAsync();
         var initializer = CreateInitializer(database);
 

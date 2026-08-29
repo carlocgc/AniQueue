@@ -3,7 +3,7 @@
 
 @* Up Next is where this belongs, and only here. The page's correctness silently
    depends on sync running: titles leave the queue when a sync shows they have
-   been started or finished (D12), so a sync that has been failing for a day
+   been started or finished, so a sync that has been failing for a day
    leaves a queue that looks maintained and is not. Everywhere else, stale data
    is merely old; here it is misleading. *@
 @foreach (var stalled in _stalled)
@@ -30,7 +30,7 @@
         // stalled when it does not run — that is it doing what it was told, and a red
         // banner for it would be this page shouting about a setting the user chose.
         //
-        // The per-source schedule became one cadence in Phase 15c (D40), so the test
+        // There is one cadence for every task, so the test
         // is now "enabled, and the cadence is on" rather than "this source has a
         // schedule". A source left enabled while the cadence is off still syncs when
         // asked, and still is not stalled for not doing it unasked.

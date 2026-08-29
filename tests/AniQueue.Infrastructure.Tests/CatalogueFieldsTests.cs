@@ -8,7 +8,7 @@ namespace AniQueue.Infrastructure.Tests;
 /// The catalogue fields a sync brings and a file export does not: episode duration,
 /// release year, cover art and the second title variant.
 ///
-/// These matter beyond tidiness. Phase 3 shipped a runtime filter, a runtime sort
+/// These matter beyond tidiness. There is a runtime filter, a runtime sort
 /// and *Under 2h* / *Under 6h* / decade chips against columns nothing had ever
 /// populated, so every one of them was inert in a real installation. They start
 /// working when these fields do.
@@ -97,7 +97,7 @@ public class CatalogueFieldsTests
         // The consolidating user's ordinary Tuesday: sync AniList, then re-import a
         // MyAnimeList export. The export carries none of these fields, and a
         // catalogue write that treated absent as empty would blank the runtime data
-        // for every title the two lists share — turning Phase 3's filters back off.
+        // for every title the two lists share — turning those filters back off.
         await using var fixture = await ImportFixture.CreateAsync();
 
         var synced = await fixture.Service.PreviewAsync(
@@ -138,7 +138,7 @@ public class CatalogueFieldsTests
 
     /// <summary>
     /// A source publishing one unlabelled name does not overwrite a display title
-    /// resolved from labelled variants (D29).
+    /// resolved from labelled variants.
     /// </summary>
     /// <remarks>
     /// The bug this pins down: the display title was resolved from the <i>incoming
@@ -216,7 +216,7 @@ public class CatalogueFieldsTests
         // A cover URL that merely changed is nearly always the same picture behind a
         // rotated CDN path. Reporting it would make an otherwise idle sync render as
         // a library-wide list of updates needing review, which is exactly the churn
-        // D21 assumes does not happen when it says an unchanged sync writes nothing.
+        // must not happen, because an unchanged sync writes nothing.
         await using var fixture = await ImportFixture.CreateAsync();
 
         var first = await fixture.Service.PreviewAsync(

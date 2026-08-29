@@ -184,9 +184,7 @@ public class LibraryServiceTests
     /// </summary>
     /// <remarks>
     /// A picker whose counts do not match its own results is worse than one with no
-    /// counts at all. The two used to be able to disagree because the count excluded
-    /// hidden entries and so did the listing, and each was capable of forgetting;
-    /// Phase 18b removed hiding, and this holds the two to each other anyway.
+    /// counts at all. This holds the counts and the listing to each other.
     /// </remarks>
     [Fact]
     public async Task A_status_count_is_what_choosing_that_status_lists()
@@ -335,7 +333,7 @@ public class LibraryServiceTests
 
         // The one thing the page cannot tell from an empty result: the backlog
         // defaults to Planning, so a fresh install always has a filter applied and
-        // would otherwise offer to clear one that is not the reason (D27).
+        // would otherwise offer to clear one that is not the reason.
         Assert.True(facets.IsEmpty);
     }
 
@@ -354,7 +352,7 @@ public class LibraryServiceTests
 
     /// <summary>
     /// The surviving half of the brief's franchise/standalone pair, redefined by
-    /// D24 as "no prequel and no sequel edge at all".
+    /// as "no prequel and no sequel edge at all".
     /// </summary>
     /// <remarks>
     /// The edge is stored exactly as the source stated it, so a title with a sequel

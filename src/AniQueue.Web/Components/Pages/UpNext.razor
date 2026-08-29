@@ -1,7 +1,6 @@
-@* The application's front door since Phase 18a. The Dashboard that used to hold "/"
-   was six counters and nothing to do; this is the page the whole thing is for, so it
-   is the one you land on — and, being first, it is also where a fresh install has to
-   say how to get a library in (D27). *@
+@* The application's front door: this is the page the whole thing is for, so it is
+   the one you land on — and, being first, it is also where a fresh install has to
+   say how to get a library in. *@
 @page "/"
 @using AniQueue.Core.Queue
 @implements IAsyncDisposable
@@ -14,7 +13,7 @@
 
 <div class="page-header">
     <h1>Up Next</h1>
-    @* The second sentence states D12 up front. A queue that shortens by itself is
+    @* The second sentence states the rule up front. A queue that shortens by itself is
        alarming if you do not know it is meant to, and the rule is easier to accept
        when it was explained before it happened rather than after. *@
     <p>
@@ -26,7 +25,7 @@
 <SyncHealthBanner />
 
 @* The queue is the surface a background sync visibly changes — slots leave it
-   without anyone pressing anything (D12) — so this page is the one where an open
+   without anyone pressing anything — so this page is the one where an open
    tab most needs telling that what it shows has moved on. *@
 <StaleLibraryNotice OnRefresh="RefreshAsync" />
 
@@ -50,7 +49,7 @@ else if (Queue.Count == 0)
             @* An empty queue and an empty library are different states, and offering
                the backlog to somebody who has no library sends them to a second empty
                page. One destination either way: Sources owns every way in, because
-               AniQueue assumes the library already exists somewhere (D11). *@
+               AniQueue assumes the library already exists somewhere. *@
             @if (_libraryIsEmpty)
             {
                 <p>Nothing here yet. Bring your library in from wherever it already lives.</p>
@@ -74,7 +73,7 @@ else
         <span class="muted">@SummaryText()</span>
     </div>
 
-    @* A list of cards, as the backlog is (18d). SortableJS attaches to a container
+    @* A list of cards, as the backlog is. SortableJS attaches to a container
        and finds its items by a handle selector, so a <ul> serves it exactly as a
        <tbody> did — the table was never what made drag work. *@
     <ul class="entry-list queue" @ref="_rows">
@@ -82,15 +81,15 @@ else
            cards by position, so a reorder makes it rewrite the contents of
            every card between the two — and it is the prerequisite for layering
            drag on top of this without the renderer and the DOM disagreeing
-           about what moved (§9). *@
+           about what moved. *@
         @foreach (var (item, index) in Queue.Select((item, index) => (item, index)))
         {
             <li class="entry-card" @key="item.QueueItemId">
                 @* Mouse and touch only, and hidden from assistive technology on
                    purpose: the buttons at the other end of this card are the
-                   keyboard and screen-reader path, and they are the required one
-                   (§39). A grip announced as a control that cannot be operated by
-                   keyboard would be worse than one that is not announced at all. *@
+                   keyboard and screen-reader path, and they are the required one.
+                   A grip announced as a control that cannot be operated by keyboard
+                   would be worse than one that is not announced at all. *@
                 <span class="drag-handle" aria-hidden="true" title="Drag to reorder">
                     <Icon Name="grip-vertical" />
                 </span>
@@ -119,15 +118,14 @@ else
                     </div>
                 </div>
 
-                @* Its own column at desktop width, absent below it (18d). *@
+                @* Its own column at desktop width, absent below it. *@
                 <p class="entry-facts">@FactsText(item)</p>
 
                 @* Every reorder has a keyboard-operable button, and always will:
-                   §39 makes the non-drag path a requirement rather than a
-                   fallback. They are hidden below 720px, where a thumb drags the
-                   grip instead and four 20px arrows would be four things too small
-                   to hit — a keyboard and the assistive technology that needs them
-                   are at the wider width (18d). *@
+                   the non-drag path is a requirement rather than a fallback. They are
+                   hidden below 720px, where a thumb drags the grip instead and four
+                   20px arrows would be four things too small to hit. A keyboard and
+                   the assistive technology that needs one are at the wider width. *@
                 <div class="queue-actions" role="group"
                      aria-label="@($"Reorder {item.Title}")">
                     <button class="icon" disabled="@(index == 0)"
@@ -160,19 +158,17 @@ else
 }
 
 @* One instance for the page rather than one per row: a modal shows a single title
-   at a time, so fifty dialogs in the markup would be forty-nine that can never open
-   (D49). *@
+   at a time, so fifty dialogs in the markup would be forty-nine that can never
+   open. *@
 <ShowDetailDialog @ref="_detailDialog" OnChanged="RefreshAsync" />
 
 @code {
     private ShowDetailDialog? _detailDialog;
 
-    /// <summary>Opens the detail dialog for one title (D49).</summary>
+    /// <summary>Opens the detail dialog for one title.</summary>
     /// <remarks>
-    /// The read used to happen here, so the dialog could stay a renderer with no
-    /// service of its own. It loads its own since 18c, which is also how this page
-    /// gained relations at all: the dialog carries them, and this page only had to
-    /// stop handing it a record.
+    /// The dialog loads its own data, which is also how this page shows relations at
+    /// all: the dialog carries them.
     ///
     /// The queue is re-read when the dialog changes something, because it can now
     /// queue a whole set from in here — and this page is the queue.
@@ -226,13 +222,11 @@ else
     {
         if (HasRows && _sortable is null && !_dragUnavailable)
         {
-            // Failing to set drag up must not take the page with it. D5 chose
-            // buttons first precisely so this layer could fall over without
-            // blocking anything: every reorder drag offers is already reachable
-            // from the row's buttons, so the cost of a failure here is a lost
-            // convenience, not a lost feature. Letting the exception escape
-            // OnAfterRenderAsync would instead tear down the circuit and leave the
-            // user with "An unhandled error has occurred".
+            // Failing to set drag up must not take the page with it. Every reorder
+            // drag offers is already reachable from the row's buttons, so a failure
+            // here costs a convenience rather than a feature. Letting the exception
+            // escape OnAfterRenderAsync would instead tear down the circuit and
+            // leave the user with "An unhandled error has occurred".
             try
             {
                 _module ??= await JS.InvokeAsync<IJSObjectReference>(
@@ -468,7 +462,7 @@ else
     /// The queue's version of the backlog's line, and shorter by one: there is no
     /// media type here, because what is in the queue is what you are about to watch
     /// rather than something being chosen between. Hidden below 720px like the
-    /// backlog's, and in the dialog either way (18d).
+    /// backlog's, and in the dialog either way.
     /// </remarks>
     private static string FactsText(QueueListItem item)
     {

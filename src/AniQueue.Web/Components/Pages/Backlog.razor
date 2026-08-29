@@ -16,7 +16,7 @@
    showing something that finished watching an hour ago. *@
 <StaleLibraryNotice OnRefresh="ReloadAsync" />
 
-@* No busy dialog here any more (D26). Every write this page makes is now one row's
+@* No busy dialog here any more. Every write this page makes is now one row's
    worth, so a modal covering the page to announce it would be more disruptive than
    the wait it describes — and it was the bulk actions, gone with the checkboxes,
    that needed to be kept off the circuit thread. *@
@@ -31,7 +31,7 @@ else if (Facets.IsEmpty)
        search box, a sort order and "0 entries" above a message saying there is
        nothing here — it was actively wrong: the backlog defaults to Planning, and
        an empty library has no Planning count, so the status picker rendered with a
-       selected value matching none of its options and drew itself blank (D27). *@
+       selected value matching none of its options and drew itself blank. *@
     <div class="card">
         <div class="empty-state">
             <p>Your library is empty. Bring it in from wherever it already lives.</p>
@@ -43,8 +43,7 @@ else if (Facets.IsEmpty)
 }
 else
 {
-    @* The six counters, which were the whole of the Dashboard until 18a deleted it.
-       They are a health check — did the sync bring everything in — and this is where
+    @* The six counters. They are a health check — did the sync bring everything in — and this is where
        that question gets asked, above the list the answer is about.
 
        Read from the facets the filter bar below is already using rather than from a
@@ -74,9 +73,7 @@ else
             <input type="search" placeholder="Search titles" value="@_query.Search"
                    @oninput="OnSearchChangedAsync" aria-label="Search titles" />
 
-            @* Which slice of the library is being looked at. It used to carry a
-               second group listing what had been set aside; Phase 18b deleted
-               hiding, so status is the only slice there is. *@
+            @* Which slice of the library is being looked at. *@
             <select value="@_statusValue" @onchange="OnStatusChangedAsync" aria-label="Show">
                 <option value="">All statuses</option>
                 @foreach (var status in Enum.GetValues<LibraryStatus>())
@@ -135,7 +132,7 @@ else
             @* Beside the runtime chips on purpose: both answer "what can I start
                tonight without signing up for something". Offered only once the
                relation graph holds a prequel or sequel edge, or it would match every
-               row and read as "my whole library is standalone" (D24). *@
+               row and read as "my whole library is standalone". *@
             @if (Facets.HasSequelEdges)
             {
                 <button class="chip @Active(_query.StandaloneOnly)"
@@ -177,8 +174,8 @@ else
         </div>
     </div>
 
-    @* No selection bar, and nothing appears above the table when a row is acted on
-       (D26). Every action lives on the row it acts on: a control that materialises
+    @* No selection bar, and nothing appears above the table when a row is acted on.
+       Every action lives on the row it acts on: a control that materialises
        at the top of a fifty-row page is out of reach of the row that summoned it,
        and the feedback is the row changing under the cursor rather than a sentence
        somewhere else. *@
@@ -196,12 +193,8 @@ else
     }
     else
     {
-        @* A list of cards, not a table (18d). The table earned nothing that was lost:
-           sorting is the select above, and nothing here is read across a row against
-           its neighbours. What it cost was every rule D54 wrote to make it behave like
-           something it is not — a zero-height ::after to force a line break, an order
-           on every cell, and a cover column hidden at exactly the width where the
-           picture is the most useful thing on the row.
+        @* A list of cards, not a table. Sorting is the select above, and nothing
+           here is read across a row against its neighbours.
 
            Separated cards rather than divided rows, because a divided row still reads
            as a table after the table has gone, and a card is a larger and more obvious
@@ -213,7 +206,7 @@ else
                     @* The picture leads, at every width. It is the fastest way to
                        recognise a title you have seen the art for, and it is a pointer
                        shortcut into the dialog — silent, because the title beside it
-                       carries the real name (D49). *@
+                       carries the real name. *@
                     <CoverThumb Cover="item.Cover" OnActivate="() => ShowDetailAsync(item.AnimeId)" />
 
                     <div class="entry-main">
@@ -230,7 +223,7 @@ else
 
                             @* Reads the page's own state rather than what the query
                                returned, so a row acted on says so immediately without
-                               the list being re-read under the cursor (D26). *@
+                               the list being re-read under the cursor. *@
                             @if (IsQueued(item.AnimeId))
                             {
                                 <span class="badge queued" title="Already in Up Next">Queued</span>
@@ -242,7 +235,7 @@ else
                        where there is room for one. These are facts the dialog states
                        in full; at desktop width the card has a column going spare and
                        they are worth having at a glance, and on a phone they are four
-                       more greys under a title (18d). *@
+                       more greys under a title. *@
                     <p class="entry-facts">@FactsText(item)</p>
 
                     @* Your score if there is one, otherwise the model's. A rating
@@ -284,23 +277,22 @@ else
 }
 
 @* One instance for the page rather than one per row: a modal shows a single title
-   at a time, so fifty dialogs in the markup would be forty-nine that can never open
-   (D49). *@
+   at a time, so fifty dialogs in the markup would be forty-nine that can never
+   open. *@
 <ShowDetailDialog @ref="_detailDialog" OnChanged="LoadPageAsync" />
 
 @code {
 
     private ShowDetailDialog? _detailDialog;
 
-    /// <summary>Opens the detail dialog for one title (D49).</summary>
+    /// <summary>Opens the detail dialog for one title.</summary>
     /// <remarks>
-    /// The read used to happen here, so the dialog could stay a renderer with no
-    /// service of its own. It loads its own three reads since 18c, because it gained
-    /// an action and two pages were otherwise going to learn the same four calls.
+    /// The dialog loads its own data, so two pages do not both have to learn the
+    /// same four calls.
     ///
-    /// <b>Re-reading the whole page is the right answer to the dialog changing
-    /// something, and it is the opposite of what a row press does.</b> D26's rule —
-    /// patch the row, never re-query — exists to stop rows moving under the cursor
+    /// Re-reading the whole page is the right answer to the dialog changing
+    /// something, and it is the opposite of what a row press does. Patching the row
+    /// rather than re-querying exists to stop rows moving under the cursor
     /// while somebody is reading a list. Nobody is reading the list while a modal is
     /// covering it, and what came back may have queued six titles rather than one.
     /// </remarks>
@@ -327,19 +319,13 @@ else
     private LibraryQuery _query = new() { Take = PageSize };
 
     // What the page has done since it was loaded, overlaid on what the query
-    // returned (D26). A row acted on has to say so at once, and re-reading the list
+    // returned. A row acted on has to say so at once, and re-reading the list
     // to find that out would move rows under the cursor, close every expansion and
     // lose the reader's place — to report a change they just made.
     //
     // Queue membership can be a plain set because a title is either in Up Next or it
-    // is not, and the page can say which for anything on screen. Hiding needed a
-    // three-state override beside it, and Phase 18b deleted hiding.
+    // is not, and the page can say which for anything on screen.
     private readonly HashSet<int> _queued = [];
-
-    // Nothing else is kept here any more. Related titles, how many of a set would
-    // queue, and what a model said about a score were all page state in service of
-    // two expandable rows; 18c moved both into the detail dialog, which loads them
-    // itself for whichever title is open.
 
     private string _statusValue => _query.Status?.ToString() ?? string.Empty;
 
@@ -447,9 +433,6 @@ else
     private Task ToggleStandaloneAsync() =>
         ApplyAsync(_query with { StandaloneOnly = !_query.StandaloneOnly });
 
-    // No ColumnCount. It existed to give the two expansion rows a colspan, and 18c
-    // moved both into the detail dialog — so the warning it carried, that adding a
-    // column meant changing a literal in two places, is gone with the literals.
     private bool IsQueued(int animeId) => _queued.Contains(animeId);
 
     /// <summary>
@@ -457,8 +440,8 @@ else
     /// expansion.
     /// </summary>
     /// <remarks>
-    /// Nothing is re-read afterwards, and that is the point of doing it this way
-    /// (D26). The row is already showing everything the press changed, so re-running
+    /// Nothing is re-read afterwards, and that is the point of doing it this way.
+    /// The row is already showing everything the press changed, so re-running
     /// the query would move rows under the cursor, close every open expansion and
     /// lose the reader's place — to tell them about a change they just made.
     ///
@@ -509,7 +492,7 @@ else
     /// <remarks>
     /// Written out rather than taken from <c>Enum.GetValues</c>, because the order is
     /// a reading order — what you are watching, then what is waiting, then what is
-    /// done — and the enum's is a storage order that D22 fixed for a different reason.
+    /// done — where the enum's order is a storage contract.
     /// "Backlog" rather than "Planning" for the same word the page's own heading uses.
     /// </remarks>
     private static readonly (LibraryStatus Status, string Label)[] Counters =
@@ -538,7 +521,7 @@ else
     /// <remarks>
     /// One string rather than four elements, because the whole line is hidden below
     /// 720px: a card that has to fit a phone holds a picture, a title, a status, a
-    /// score and an action, and everything here is in the dialog one tap away (18d).
+    /// score and an action, and everything here is in the dialog one tap away.
     /// Built the same way the dialog builds its own line, and deliberately not shared
     /// with it — the dialog states progress differently and carries fields this row
     /// never loaded.

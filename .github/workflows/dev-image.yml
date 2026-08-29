@@ -1,5 +1,5 @@
 # Every merge into development tests, then publishes the result as the `dev` tag
-# on Docker Hub (D56). `dev` is the moving edge of the integration branch and is
+# on Docker Hub. `dev` is the moving edge of the integration branch and is
 # overwritten on every merge — it is for the author's own machine, not for
 # anybody's data.
 name: Development image

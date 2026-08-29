@@ -12,25 +12,16 @@
 @inject IJSRuntime JS
 
 @*
-    Everything about one title, and the only place several of those things live
-    (D49, D55).
+    Everything about one title, and the only place several of those things live: the
+    synopsis and the pitch, the model's reasoning, and what else comes with it.
 
-    It began as the case for one title: the first surface here whose job was
-    persuasion rather than administration, arguing that an unwatched show was worth
-    queueing. Phase 18c widened it, because the backlog row was carrying two
-    expandable panels that said what this already says better — the model's
-    reasoning, and what else comes with this title — and a row cannot hold either on
-    a phone.
-
-    So it reads its own data now, where it used to be handed a record. Two pages open
-    it and would otherwise both have to know how to load three things and how to
-    queue a set; one component knowing that is the point of it being one component.
-    It tells the page when it changed something, and the page re-reads.
+    It reads its own data rather than being handed a record. Two pages open it, and
+    both would otherwise have to know how to load three things and how to queue a
+    set. It tells the page when it changed something, and the page re-reads.
 
     Every field degrades to absent. A title with no synopsis, no genres, no main
-    studio or no poster shows less rather than showing a placeholder — D25's rule,
-    which the art path has followed since 9a and which most titles will exercise:
-    a MyAnimeList-only import has none of this at all.
+    studio or no poster shows less rather than showing a placeholder, which most
+    titles will exercise: a MyAnimeList-only import has none of this at all.
 *@
 
 <dialog @ref="_dialog" class="detail-dialog" aria-labelledby="detail-dialog-title" @onclose="OnClosed">
@@ -60,7 +51,7 @@
                     @* The full-size rendition where it has arrived, the list's own
                        thumbnail while it has not, then the colour block. The middle
                        step matters more than it looks: a fresh install has thumbnails
-                       for several minutes before it has posters (D48), and a dialog
+                       for several minutes before it has posters, and a dialog
                        showing a colour block beside a list row showing art for the
                        same title would read as broken rather than as pending. *@
                     <span class="detail-poster @(detail.Poster.HasImage ? null : "detail-poster-blank") @(detail.Poster.IsEmpty ? "detail-poster-empty" : null)"
@@ -142,10 +133,7 @@
                             <p class="detail-reason">@reason</p>
                         }
 
-                        @* Who decided, when, and carried how. These came off the
-                           backlog's score panel in 18c and are the part of it that
-                           lived nowhere else — the score and the reasoning were
-                           already here, these three were not.
+                        @* Who decided, when, and carried how.
 
                            The model earns its line because it is the one fact that
                            tells a user whether to run this again: a score from a small
@@ -228,9 +216,7 @@
             }
             </div>
 
-            @* What else comes with this title (D55). It was an expandable panel in
-               the backlog listing until 18c, where it could only ever be opened from
-               one page and had to fit inside a table row.
+            @* What else comes with this title.
 
                The set is the same work followed as far as it goes — main seasons and
                their specials, in release order — so opening season three shows season
@@ -242,8 +228,7 @@
                     <h3>Comes with</h3>
 
                     @* The one control that acts on more than one title, above the
-                       list of what they are — which is where D26 put it and why. It
-                       moved with the list rather than away from it.
+                       list of what they are.
 
                        Offered only when it would do more than the row's own add
                        button already does: at one title it is that button with a
@@ -268,7 +253,7 @@
                             <li>
                                 @* Leads the line, as it does on every row of the
                                    backlog: the whole point of finding a season here
-                                   is being able to act on it (D26), and acting leaves
+                                   is being able to act on it, and acting leaves
                                    the dialog open so the next one down is still in
                                    front of the user. *@
                                 <QueueButton AnimeId="relative.AnimeId" Title="@relative.Title"
@@ -297,8 +282,8 @@
 
                                         @* Only where the source said something. Anything
                                            more than one edge away has no edge to read, so
-                                           it gets no badge rather than a guessed one
-                                           (D55). *@
+                                           it gets no badge rather than a guessed
+                                           one. *@
                                         @if (relative.Relation is not null)
                                         {
                                             <span class="badge relation">@relative.Label</span>
@@ -343,7 +328,7 @@
     /// Raised after this dialog changes the queue, so the page behind it can re-read.
     /// </summary>
     /// <remarks>
-    /// The dialog owns the writes now (D55), and the page still owns its own rows —
+    /// The dialog owns the writes now, and the page still owns its own rows —
     /// a backlog row's Queued badge and an Up Next slot are both stale the moment
     /// something in here is queued. Announcing it rather than reaching for the page
     /// keeps the direction of knowledge one way.
@@ -425,7 +410,7 @@
     /// <remarks>
     /// The whole set is re-read rather than the one row patched, because queueing one
     /// season changes the number on the button above it too — and the set is a dozen
-    /// rows, not a page of fifty. The backlog patches its own rows instead (D26); the
+    /// rows, not a page of fifty. The backlog patches its own rows instead; the
     /// reason that rule exists there is losing the reader's place in a long list,
     /// which a dialog does not have.
     /// </remarks>

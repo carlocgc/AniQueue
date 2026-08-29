@@ -28,7 +28,7 @@ public sealed record SourceLink(string ShortName, string SiteName, string Url)
 /// already stored by the importer, so a URL is pure formatting.
 ///
 /// It is also the first implementation of the pattern the Plex and Overseerr links
-/// will use (ROADMAP.md §10) — given a title, return an optional link. Those need
+/// will use — given a title, return an optional link. Those need
 /// a configured base URL, which is the only reason they are not here too.
 /// </summary>
 public static class SourceLinkBuilder
@@ -37,8 +37,7 @@ public static class SourceLinkBuilder
     /// A link per identifier that points somewhere, in a stable order.
     /// </summary>
     /// <remarks>
-    /// Returns several since D17: a title AniList knows carries a MyAnimeList
-    /// identifier too, and offering both is strictly more useful than picking one.
+    /// Often several: a title AniList knows carries a MyAnimeList identifier too.
     /// Ordered by source so a row's badges do not reshuffle between renders.
     /// </remarks>
     public static IReadOnlyList<SourceLink> ForAnime(IEnumerable<ExternalIdentifier>? identifiers)

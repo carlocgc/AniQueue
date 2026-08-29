@@ -3,11 +3,11 @@ using AniQueue.Core.Recommendations;
 namespace AniQueue.Core.Tests.Recommendations;
 
 /// <summary>
-/// D38's guards: what AniQueue will and will not be told to POST to.
+/// The guards: what AniQueue will and will not be told to POST to.
 /// </summary>
 /// <remarks>
-/// §6 used to say every outbound endpoint is a constant, so there was no
-/// request-forgery surface. D36 made this one settable from a page, and these are what
+/// Every other outbound endpoint is a constant in code, so there is no
+/// request-forgery surface. This one is settable from a page, and these are what
 /// replaced that protection — so the cases that must be refused matter more here than
 /// the ones that must work.
 /// </remarks>

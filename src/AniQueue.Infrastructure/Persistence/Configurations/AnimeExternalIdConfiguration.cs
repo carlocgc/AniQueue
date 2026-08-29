@@ -17,7 +17,7 @@ public class AnimeExternalIdConfiguration : IEntityTypeConfiguration<AnimeExtern
         // "WHERE SourceAnimeId IS NOT NULL" because a manual entry stored a null
         // identifier and would otherwise collide with every other manual entry on
         // (Manual, NULL). A manual entry now has no row here at all, so the null
-        // case the filter existed for cannot occur (D17).
+        // case the filter existed for cannot occur.
         builder
             .HasIndex(x => new { x.Source, x.ExternalId })
             .IsUnique()

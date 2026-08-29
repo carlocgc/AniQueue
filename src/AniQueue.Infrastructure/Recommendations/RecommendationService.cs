@@ -39,7 +39,7 @@ public sealed class RecommendationService(
         // Logged here rather than in the read below, so the line means what it says: a
         // request somebody asked for and is going to send. <see cref="MeasureAsync"/>
         // builds one too and does not log at this level, because a page rendering a size
-        // estimate is not a ranking about to happen (D53).
+        // estimate is not a ranking about to happen.
         logger.LogInformation(
             "Built a scoring request for profile {ProfileId}: {Candidates} candidates, {History} of {Available} scored titles.",
             profileId,
@@ -58,15 +58,10 @@ public sealed class RecommendationService(
     {
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
 
-        // Everything about how much to send now arrives as an argument. It used to be
-        // read from ProfileSettings here, which made this service the owner of a
-        // preference as well as the builder of a request; D36 moved the settings to
-        // userconfig.json and the caller reads them, so this is a function of what it
-        // is given again.
-        //
-        // The default is what a caller who says nothing gets — notably a test, and
-        // notably with notes excluded, which is the answer §6 requires when nobody has
-        // opted in.
+        // Everything about how much to send arrives as an argument: the settings live
+        // in userconfig.json and the caller reads them, so this stays a function of
+        // what it is given. A caller who says nothing gets the default, notably with
+        // personal notes excluded.
         options ??= ScoringRequestOptions.Default;
 
         var waiting = context.LibraryEntries
@@ -152,7 +147,7 @@ public sealed class RecommendationService(
         // Two candidates, once. The one-candidate request the baseline needs is this
         // same request with a shorter list, and re-serialising a record already in
         // memory costs nothing — where asking for it separately cost a second read of
-        // every rated title (D53).
+        // every rated title.
         var probe = await ReadRequestAsync(
             profileId,
             options with { MaxCandidates = 2 },
@@ -208,7 +203,7 @@ public sealed class RecommendationService(
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
 
         // Asked before anything is matched, because the answer decides whether matching
-        // means anything at all (D50). An id is a row key, and a row key from another
+        // means anything at all. An id is a row key, and a row key from another
         // database names whatever this one happens to have put at that number — so a
         // reply from elsewhere does not fail loudly, it fails by applying a stranger's
         // scores to titles that were never ranked.
@@ -240,23 +235,9 @@ public sealed class RecommendationService(
                 return new ScoringPreview { Problems = problems };
             }
 
-            // Silence is refused on the route where a person carried the document.
-            //
-            // D50 first made this lenient everywhere, reasoning that models drop the
-            // envelope and that refusing a correct ranking over a field carrying no
-            // ranking costs the user everything and protects nothing. That lost, and
-            // the argument that beat it is about who is being protected: leniency is a
-            // permanent silent path for every future user of every future version, and
-            // "some user will eventually do this" is the right standard for a rule
-            // whose whole job is to stop a wrong reply. A refusal costs one retry.
-            // Accepting a wrong reply costs a library of scores nobody can tell apart
-            // from correct ones afterwards, which is D31's own reasoning one level up.
-            //
-            // An explicit "yes, this is the right database" confirmation was considered
-            // in its place and declined. It asks the user to assert what only the
-            // request can establish, the honest expectation is that they would tick it
-            // every time, and the question cannot even be phrased without the word
-            // "library" meaning two things at once.
+            // Silence is refused on the route where a person carried the document. A
+            // refusal costs one retry; accepting a wrong reply costs a library of
+            // scores nobody can tell apart from correct ones afterwards.
             if (string.IsNullOrEmpty(named) && route == ScoringRoute.Pasted)
             {
                 problems.Add(ScoringProblem.Error(
@@ -316,13 +297,13 @@ public sealed class RecommendationService(
                 // a ranking of somebody else's backlog, or a model that invented an
                 // id rather than echoing one. Neither is safe to apply the rest of.
                 //
-                // Named by position in the reply rather than by rank (D43). The reply
+                // Named by position in the reply rather than by rank. The reply
                 // is what the user would have to open to find the offending entry;
                 // the rank never was, and no longer exists. The same wording the
                 // parser uses for its own per-result problems, so two halves of one
                 // validation pass do not count differently.
                 //
-                // Gathered rather than reported one by one (D50). Every one of these
+                // Gathered rather than reported one by one. Every one of these
                 // has the same cause, and a reply generated against a different library
                 // produces one per result — two hundred and fifty identical sentences
                 // that say a single thing, in a panel the user has to scroll to reach
@@ -342,7 +323,7 @@ public sealed class RecommendationService(
                 skipped = "no longer waiting to be watched";
 
                 // Gathered and capped for the same reason the unmatched ids are, and
-                // found the same way (D50). A reply built against a replaced database
+                // found the same way. A reply built against a replaced database
                 // lands most of its ids on rows that were never candidates, so this
                 // was seen twenty-four deep, burying the errors above it. Three of
                 // these is news. Twenty-four is a wall.
@@ -417,8 +398,8 @@ public sealed class RecommendationService(
     }
 
     /// <summary>
-    /// How many problems of one kind are named one by one before the rest are counted
-    /// (D50).
+    /// How many problems of one kind are named one by one before the rest are counted.
+
     /// </summary>
     /// <remarks>
     /// Five is enough to see the shape of the problem — which positions, which ids,
@@ -432,16 +413,10 @@ public sealed class RecommendationService(
     /// Reports ids that named nothing, as few problems as will carry the information.
     /// </summary>
     /// <remarks>
-    /// These were one error each until D50, which is correct per result and unusable in
-    /// aggregate: the case that produces them is a reply built against a library that
-    /// no longer exists, and it produces one for every result in the reply.
-    ///
-    /// <b>All of them unmatched is a different statement from some of them.</b> A reply
-    /// where nothing matches is not a reply with many bad ids; it is a reply about
-    /// another library, said without an envelope to say it with — so it gets one
-    /// sentence that says that, rather than a truncated list of a fact that was never
-    /// about individual results. It stays an error either way: D31 applies nothing in
-    /// part, and an id naming nothing is exactly as unsafe as it was before.
+    /// All of them unmatched is a different statement from some of them. A reply where
+    /// nothing matches is a reply about another library, so it gets one sentence
+    /// saying that rather than a truncated list of one error per result. It is an
+    /// error either way, and nothing is applied in part.
     /// </remarks>
     private static void ReportUnmatched(
         List<string> unmatched,
@@ -477,7 +452,7 @@ public sealed class RecommendationService(
     }
 
     /// <summary>
-    /// Reports one kind of skipped title, naming a few and counting the rest (D50).
+    /// Reports one kind of skipped title, naming a few and counting the rest.
     /// </summary>
     /// <remarks>
     /// A warning per skipped title is right when a handful of things have moved on since
@@ -507,7 +482,7 @@ public sealed class RecommendationService(
 
     /// <summary>
     /// The key naming this profile's library, or null on a database old enough not to
-    /// have been given one yet (D50).
+    /// have been given one yet.
     /// </summary>
     /// <remarks>
     /// Read from the database on every use rather than cached or taken from the request
@@ -540,7 +515,7 @@ public sealed class RecommendationService(
         // Checked here rather than trusted from the caller. The UI disables the
         // button, but the button is not the guard: a preview with an error is a
         // ranking nobody has established the meaning of, and this is the only place
-        // that can refuse it for every caller Phase 8 adds.
+        // that can refuse it for every caller.
         if (preview.HasErrors)
         {
             throw new InvalidOperationException(
@@ -685,9 +660,9 @@ public sealed class RecommendationService(
         var total = await waiting.CountAsync(cancellationToken);
 
         // When each ranked title was scored, read rather than compared in SQL: SQLite
-        // can neither order nor compare a DateTimeOffset, so both halves of D39's rule
-        // have to be decided here. One nullable column over the ranked part of a
-        // backlog is a small thing to carry, and it answers both questions at once.
+        // can neither order nor compare a DateTimeOffset, so both halves of the
+        // staleness rule have to be decided here. One nullable column over the
+        // ranked part of a backlog is small, and it answers both questions at once.
         var scoredAt = await waiting
             .Where(e => e.RecommendationScore != null)
             .Select(e => e.RecommendationUpdatedAt)
@@ -695,7 +670,7 @@ public sealed class RecommendationService(
 
         var ranked = scoredAt.Count;
 
-        // The moment before which a score no longer reflects this person's taste (D39).
+        // The moment before which a score no longer reflects this person's taste.
         //
         // Found as the timestamp of the Nth most recent rating rather than by counting
         // ratings per title: one scalar and one indexed comparison, instead of a
@@ -745,7 +720,7 @@ public sealed class RecommendationService(
         // Ordered by key, not by CreatedAt. SQLite cannot ORDER BY a DateTimeOffset —
         // EF stores it as text with an offset and throws at query time rather than
         // returning a wrong order — and for an append-only table the key is the same
-        // order anyway (ROADMAP.md §8).
+        // order anyway.
         return await context.RecommendationRuns
             .AsNoTracking()
             .Where(r => r.ProfileId == profileId)

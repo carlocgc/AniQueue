@@ -56,8 +56,7 @@ public sealed record RelationCoverage(int Known, int Total)
 /// unmarked and are picked up without anything having to notice they are new.
 /// </summary>
 /// <remarks>
-/// This is the first instance of D25's shape, and the rules it keeps are that
-/// decision's rather than this feature's: it gates on its own precondition rather
+/// It gates on its own precondition rather
 /// than being told when to run, it is unauthenticated, it only ever adds, and it
 /// degrades silently — a failure here means a row is missing a detail, not that the
 /// library is wrong, so it logs and waits rather than raising a banner.
@@ -72,21 +71,14 @@ public interface IRelationBackfill
     /// budget is spent, or it is cancelled, and returns what it managed either way.
     /// </param>
     /// <remarks>
-    /// <b>A budget rather than a request ceiling</b>, since Phase 15a. The ceiling was
-    /// sixteen requests — an 800-title library in one visit, with anything larger
-    /// finishing on the next one. That was tolerable while a visit came round every
-    /// fifteen minutes and is not now: a manual run that does "some of it" is the
-    /// behaviour the tasks page exists to remove, and a relaxed cadence turns "the
-    /// next visit" into tomorrow.
+    /// A budget rather than a request ceiling, so a run finishes the library rather
+    /// than doing some of it and leaving the rest for the next visit.
+    /// <c>RelationPacing</c> is what keeps AniQueue inside AniList's rate limit, and
+    /// each job has its own runner, so a long pass here delays nothing but itself.
     ///
-    /// It was never what kept AniQueue inside AniList's rate limit either;
-    /// <c>RelationPacing</c> is, and it remains the only thing deciding how fast this
-    /// goes. What the ceiling protected was one tick not running long, and each job
-    /// has its own runner, so a long pass here delays nothing but itself.
-    ///
-    /// The budget exists for the pathological case rather than the ordinary one. At
-    /// two seconds a request, ten thousand titles is about seven minutes; resumption
-    /// is free because the marker is per title, so stopping early costs nothing.
+    /// The budget is for the pathological case rather than the ordinary one.
+    /// Resumption is free because the marker is per title, so stopping early costs
+    /// nothing.
     /// </remarks>
     Task<RelationBackfillResult> RunAsync(
         TimeSpan budget,
@@ -98,17 +90,10 @@ public interface IRelationBackfill
     /// </summary>
     /// <returns>How many edges were deleted.</returns>
     /// <remarks>
-    /// <b>This replaced a "refresh" that re-read in place</b> (Phase 15e). The old one
-    /// nulled the markers and immediately ran a pass, which was the right shape while
-    /// a page was the only way to make anything happen; the tasks page runs the pass
-    /// now, so what is left here is the destructive half — and saying that plainly is
-    /// better than a button called <i>Refresh</i> that quietly empties a table.
-    ///
-    /// <b>Nulling the markers is not optional.</b> Deleting the edges alone would
-    /// leave every title reading as already fetched, so nothing would rebuild them
-    /// until <see cref="RelationBackfillService.StaleAfter"/> expired thirty days
-    /// later — a button that silently emptied the relation graph for a month. The two
-    /// halves are one operation for that reason.
+    /// Nulling the markers is not optional. Deleting the edges alone would leave
+    /// every title reading as already fetched, so nothing would rebuild them until
+    /// <see cref="RelationBackfillService.StaleAfter"/> expired thirty days later.
+    /// The two halves are one operation for that reason.
     ///
     /// It does not fetch. Emptying is immediate and refilling is the ordinary pass,
     /// which the relation task picks up on its next run or when somebody presses

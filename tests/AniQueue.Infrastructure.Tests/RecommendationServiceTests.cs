@@ -9,13 +9,13 @@ using Microsoft.Extensions.Options;
 namespace AniQueue.Infrastructure.Tests;
 
 /// <summary>
-/// Phase 7's two halves against a real schema: what a model is given, and what
+/// The two halves of the scoring contract against a real schema: what a model is given, and what
 /// applying its answer is allowed to touch.
 ///
 /// The second half carries most of the weight. A ranking is the one thing in
 /// AniQueue written by something that is not the user, so the tests that matter
 /// are the ones asserting what it leaves alone — status, progress, the user's own
-/// score, and above all the queue order D11 says the user owns.
+/// score, and above all the queue order the user owns.
 /// </summary>
 public class RecommendationServiceTests
 {
@@ -23,7 +23,7 @@ public class RecommendationServiceTests
 
     /// <summary>
     /// The library key every fixture is forced to, so a reply naming it can be written
-    /// as a literal (D50).
+    /// as a literal.
     /// </summary>
     /// <remarks>
     /// Overwritten rather than read back, because the real one is random and a test that
@@ -160,7 +160,7 @@ public class RecommendationServiceTests
     private static string Ranking(params (int Id, double Score)[] results) =>
         RankingFrom(TestLibraryKey, results);
 
-    /// <summary>A reply naming some other library, or none at all (D50).</summary>
+    /// <summary>A reply naming some other library, or none at all.</summary>
     private static string RankingFrom(string? library, params (int Id, double Score)[] results) =>
         $$"""
           {
@@ -525,10 +525,9 @@ public class RecommendationServiceTests
     [Fact]
     public async Task What_a_request_carries_is_what_the_caller_asked_for()
     {
-        // These sizes used to be read from ProfileSettings inside the service, which
-        // is why there was once a test that they were "remembered". D36 moved them to
-        // userconfig.json, so what is worth asserting here is that the service honours
-        // what it is handed — where they were stored is UserSettingsStoreTests' problem.
+        // The sizes live in userconfig.json, so what is worth asserting here is that
+        // the service honours what it is handed. Where they are stored is
+        // UserSettingsStoreTests' problem.
         await using var fixture = await Fixture.CreateAsync();
         await using var context = fixture.Database.CreateContext();
 
@@ -570,11 +569,9 @@ public class RecommendationServiceTests
     [Fact]
     public async Task An_unset_history_size_sends_every_rated_title()
     {
-        // Null is a real setting rather than an absence, and it means all of them. This
-        // replaced a test asserting that zero sends none: zero used to be what an empty
-        // field on the page meant, which made "I have not set a limit" and "send no
-        // evidence of my taste" the same keystroke. Nobody wants the second one, and the
-        // two sizes beside it already read an empty field as everything.
+        // Null is a real setting rather than an absence, and it means all of them. An
+        // empty field on the page means everything, not nothing — the two sizes beside
+        // it read it the same way.
         await using var fixture = await Fixture.CreateAsync();
         await using var context = fixture.Database.CreateContext();
 
@@ -609,10 +606,9 @@ public class RecommendationServiceTests
     [Fact]
     public async Task Personal_notes_travel_only_when_the_caller_opts_in()
     {
-        // §6's privacy rule, and the one setting whose default matters more than its
-        // value: a caller that says nothing must get exclusion. The flag used to be a
-        // ProfileSettings column read here; it now arrives with the options (D36), and
-        // this is the assertion that the move did not turn "unset" into "included".
+        // The privacy rule, and the one setting whose default matters more than its
+        // value: a caller that says nothing must get exclusion. The flag arrives with
+        // the options, and this is the assertion that "unset" is never "included".
         await using var fixture = await Fixture.CreateAsync();
         await using var context = fixture.Database.CreateContext();
 
@@ -809,7 +805,7 @@ public class RecommendationServiceTests
         var second = await AddAsync(context, fixture.ProfileId, "Second");
 
         // Queued in the opposite order to the ranking, which is the whole point: the
-        // model proposes an order and the user owns one (D11). If applying a ranking
+        // model proposes an order and the user owns one. If applying a ranking
         // could reorder this, the application would have no answer to "why did my
         // queue change".
         context.QueueItems.AddRange(
@@ -873,7 +869,7 @@ public class RecommendationServiceTests
 
         Assert.Equal(9.0, (await check.LibraryEntries.SingleAsync(e => e.AnimeId == anime.Id)).RecommendationScore);
 
-        // Denormalised for sorting, not instead of history (D4).
+        // Denormalised for sorting, not instead of history.
         Assert.Equal(2, await check.RecommendationRuns.CountAsync());
     }
 
@@ -900,7 +896,7 @@ public class RecommendationServiceTests
         Assert.Equal(Now, detail.DeterminedAt);
 
         // Rank and CandidateCount were asserted here too, together rendering
-        // "Ranked 1 of 2" on the title. D43 removed both: the placement it reported
+        // "Ranked 1 of 2" on the title. Both are gone: the placement it reported
         // was relative to a batch the user never sees, and a score derived from a
         // placement is what the whole phase exists to stop.
     }
@@ -987,7 +983,7 @@ public class RecommendationServiceTests
         Assert.True(preview.HasErrors);
     }
 
-    // D39's read half, which the Recommendations card reports and Phase 8d's sweep
+    // The read half, which the scoring card reports and the sweep
     // will pick its batches from. Both come from this one query so that what the page
     // says and what the job does cannot describe different backlogs.
 
@@ -1097,7 +1093,7 @@ public class RecommendationServiceTests
     [Fact]
     public async Task A_threshold_of_zero_never_calls_anything_stale()
     {
-        // Somebody who wants scores to stay put, which D39 records as a legitimate
+        // Somebody who wants scores to stay put, which is a legitimate
         // choice rather than a misconfiguration.
         await using var fixture = await Fixture.CreateAsync();
         await using var context = fixture.Database.CreateContext();
@@ -1146,7 +1142,7 @@ public class RecommendationServiceTests
     public async Task A_request_says_which_database_it_is_about()
     {
         // Without this in the envelope there is nothing for a reply to echo, and the
-        // check D50 adds can never fire.
+        // library-key check can never fire.
         await using var fixture = await Fixture.CreateAsync();
 
         var request = await fixture.Recommendations.BuildRequestAsync(fixture.ProfileId);
@@ -1159,7 +1155,7 @@ public class RecommendationServiceTests
     [InlineData(ScoringRoute.Endpoint)]
     public async Task A_reply_naming_another_database_is_refused_whole(ScoringRoute route)
     {
-        // The failure D50 exists for, and the reason matching cannot catch it: every id
+        // The failure the key exists for, and the reason matching cannot catch it: every id
         // here names a real title in a real backlog. Only the envelope knows the reply
         // is about somewhere else.
         //
@@ -1187,7 +1183,7 @@ public class RecommendationServiceTests
     [Fact]
     public async Task A_pasted_reply_naming_no_database_is_refused()
     {
-        // The rule that replaced D50's original leniency. A person carried this file, so
+        // A person carried this file, so
         // nothing here can establish that it belongs to this database, and every id in
         // it will name something whether it belongs or not.
         await using var fixture = await Fixture.CreateAsync();
@@ -1308,7 +1304,7 @@ public class RecommendationServiceTests
             Ranking([.. moved.Select(id => (id, 7.0))]));
 
         // Warnings, still: the ranking was right when it was made, and a title that has
-        // left the backlog is news rather than a fault (D31).
+        // left the backlog is news rather than a fault.
         Assert.False(preview.HasErrors);
         Assert.Equal(6, preview.Problems.Count);
         Assert.Contains(

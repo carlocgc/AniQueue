@@ -9,13 +9,8 @@ namespace AniQueue.Core.Recommendations;
 /// A section-bound view rather than the file itself: <c>UserSettings</c> describes
 /// what may be written, this describes what scoring needs to read, and binding it
 /// to the live section is what lets a save reach an options monitor without a
-/// restart (D36).
-///
-/// These were <c>ProfileSettings</c> columns until D36 moved them. The argument for
-/// the move is the one the columns' own documentation already made: the right value
-/// is "a property of somebody else's model, which AniQueue cannot see" — an
-/// integration detail rather than a display preference, and so the file's side of
-/// the line.
+/// restart. Everything here is an integration detail rather than a display
+/// preference, which is why it lives in the file and not in the database.
 /// </remarks>
 public class ScoringOptions
 {
@@ -31,7 +26,7 @@ public class ScoringOptions
     /// <summary>How many rankings to ask for back, or null for one per candidate.</summary>
     public int? ReturnTop { get; set; }
 
-    /// <summary>Whether personal notes travel with a request (§6, opt in).</summary>
+    /// <summary>Whether personal notes travel with a request.</summary>
     public bool IncludePersonalNotes { get; set; }
 
     /// <summary>
@@ -41,7 +36,7 @@ public class ScoringOptions
     /// <remarks>
     /// An origin — <c>http://192.168.1.50:1234</c> — rather than a full path. The path
     /// is this application's business and a constant; what the operator knows is where
-    /// their server is. Guarded before use (D38), because a settable outbound address
+    /// their server is. Guarded before use, because a settable outbound address
     /// is a request-forgery surface and the guards are what replaced the protection a
     /// constant used to give.
     /// </remarks>
@@ -70,8 +65,8 @@ public class ScoringOptions
     /// </summary>
     /// <remarks>
     /// On by default, because the servers people actually run — LM Studio, Ollama,
-    /// llama.cpp — support it, and a constrained model cannot emit a code fence at all.
-    /// That turns D37's unwrapping from the path into the fallback it was meant to be.
+    /// llama.cpp — support it, and a constrained model cannot emit a code fence at
+    /// all, which keeps the parser's unwrapping a fallback rather than the path.
     ///
     /// A setting rather than something sniffed, because a server that does not support
     /// it usually answers with an error naming the field, which is a clearer thing to
@@ -80,7 +75,7 @@ public class ScoringOptions
     public bool UseStructuredOutput { get; set; } = true;
 
     /// <summary>
-    /// How many further titles must be rated before a score counts as stale (D39).
+    /// How many further titles must be rated before a score counts as stale.
     /// </summary>
     /// <remarks>
     /// Five by default. One rating is noise; several is a changed picture, and nobody
@@ -94,44 +89,21 @@ public class ScoringOptions
     /// Whether a scheduled sweep may ask a remote model. Off until asked for.
     /// </summary>
     /// <remarks>
-    /// A configuration key for D20's reason: the moment it is needed is the moment
-    /// somebody wants a model to stop being hammered, which may be the moment the
-    /// pages cannot be reached.
-    ///
-    /// <b>"It refuses every run, scheduled or pressed" was true and no longer is.</b>
-    /// D42 deleted the pressed run, so the only thing left for this to refuse is the
-    /// sweep — which is why turning its default off is exactly what "remote ranking is
-    /// opt-in" needs, and why no second setting was added beside it. The manual paste
-    /// route does not read this and is unaffected.
+    /// A configuration key rather than a page setting: the moment it is needed is the
+    /// moment somebody wants a model to stop being hammered, which may be the moment
+    /// the pages cannot be reached. The manual paste route does not read it.
     /// </remarks>
     public bool Enabled { get; set; }
-
-    // Schedule was here, and its own comment recorded the wart: the type was
-    // SyncSchedule and the name "now lies slightly", kept because renaming it would
-    // touch every Sources surface for no behavioural gain. Phase 15c removed the
-    // question instead of the wart — there is one cadence for every background task
-    // now (D40, TaskOptions), so nothing here decides when a sweep happens. What
-    // remains below is what a sweep may do once it does.
 
     /// <summary>
     /// How many titles one unattended batch carries.
     /// </summary>
     /// <remarks>
-    /// <b>Was twenty-five, on the reasoning that it is about three thousand output
-    /// tokens and so inside any local server's budget.</b> The arithmetic was right
-    /// and the assumption under it was not: it counted the tokens of the answer and
-    /// not the tokens a reasoning model spends before starting one, and it treated
-    /// "fits in the budget" as the only thing that could go wrong with a long reply.
-    ///
-    /// Measured against gpt-oss-20b at twenty-five, most replies came back short by
-    /// choice rather than by truncation — the model simply stopped, which the prompt
-    /// permits — so the batch size was setting an answer length the model would not
-    /// see through. Ten is inside what it finishes reliably.
-    ///
-    /// The old note's other half still holds and now cuts the other way: a backlog of
-    /// several hundred should still be worked through in an evening. That survives
-    /// halving the batch only because the request no longer breaks the prompt cache,
-    /// so the history costs one processing per sweep rather than one per batch.
+    /// Ten, which is inside what a small local model finishes reliably: a larger
+    /// batch sets an answer length the model tends to stop short of rather than
+    /// truncate. A backlog of several hundred is still worked through in an evening,
+    /// because the request does not break the server's prompt cache and the history
+    /// therefore costs one processing per sweep rather than one per batch.
     /// </remarks>
     public int BatchSize { get; set; } = 10;
 

@@ -1,18 +1,12 @@
 namespace AniQueue.Core.Domain;
 
 /// <summary>
-/// Which title variant the user wants to read (D22).
+/// Which title variant the user wants to read. AniList publishes three and a
+/// MyAnimeList export one, so this is the choice that decides what a sync writes
+/// to <see cref="Anime.Title"/>.
 ///
-/// A MyAnimeList export publishes one title, roughly romaji; AniList publishes
-/// three, so the first sync would otherwise rewrite the displayed name of most of
-/// the library — <i>Shingeki no Kyojin</i> becoming <i>Attack on Titan</i> across
-/// every row and queue slot — driven by a choice nobody made. This is
-/// that choice, made explicitly.
-///
-/// <c>userPreferred</c> is deliberately not offered: it resolves against the
-/// AniList account's own display setting, which would make a committed test
-/// fixture irreproducible and the application's behaviour depend on a value the
-/// user cannot see from here.
+/// AniList's <c>userPreferred</c> is not offered: it resolves against the AniList
+/// account's own display setting, which the user cannot see from here.
 ///
 /// Stored as an integer; values are a database contract. Append only.
 /// </summary>

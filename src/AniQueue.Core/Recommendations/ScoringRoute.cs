@@ -2,11 +2,11 @@ namespace AniQueue.Core.Recommendations;
 
 /// <summary>
 /// How a reply reached AniQueue, which decides how much it has to prove about
-/// itself (D50).
+/// itself.
 /// </summary>
 /// <remarks>
-/// The two routes D45 already distinguishes, told apart here because they differ in
-/// one way that matters to validation: whether a person carried the document.
+/// The two routes differ in one way that matters to validation: whether a person
+/// carried the document.
 ///
 /// It is stated by the caller rather than inferred, and it has no default. A
 /// defaulted value would be a silent answer to the only question in this method

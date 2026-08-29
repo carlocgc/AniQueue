@@ -7,7 +7,7 @@
     @* Declared here as well as in the stylesheet, because this is the earliest point
        a browser — or an extension deciding whether a site needs its help — can read
        it. AniQueue ships a full dark palette, so anything re-theming it on top is
-       redoing work, and in one measured case broke the page outright (§9). *@
+       redoing work, and in one measured case broke the page outright. *@
     <meta name="color-scheme" content="light dark" />
     @* Tells Dark Reader to leave this page alone, which is its documented opt-out
        for sites that already have a dark theme — and AniQueue does, immediately
@@ -19,7 +19,7 @@
        created, so a node moved or removed underneath it fails the next render with
        "insertBefore … parentNode is null", then "No element is currently associated
        with component 1", and the circuit dies on load. Measured in both Firefox and
-       Chromium, on this page, with nothing else installed (§9).
+       Chromium, on this page, with nothing else installed.
 
        In Dark Reader's own source this tag is checked before it does anything: with
        the lock present it never starts its theme or its watchers, so there is no

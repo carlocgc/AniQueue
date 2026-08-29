@@ -1,12 +1,9 @@
 namespace AniQueue.Core.Domain;
 
 /// <summary>
-/// A service that catalogues anime.
-///
-/// On <see cref="Anime.Source"/> this means **provenance** — how the record came
-/// to exist here — and nothing more. Identity is <see cref="AnimeExternalId"/>,
-/// which pairs this enum with the identifier the service issued, and which a title
-/// may carry several of (D17).
+/// A service that catalogues anime. On <see cref="Anime.Source"/> this records
+/// provenance only — how the record came to exist here. Identity is
+/// <see cref="AnimeExternalId"/>, which a title may carry several of.
 ///
 /// Stored as an integer; values are a database contract. Append only.
 /// </summary>

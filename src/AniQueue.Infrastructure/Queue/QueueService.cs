@@ -14,7 +14,7 @@ namespace AniQueue.Infrastructure.Queue;
 /// Every mutation follows the same shape: open a transaction, load the profile's
 /// slots in order, change the order, then rewrite <see cref="QueueItem.Position"/>
 /// from the resulting sequence. Rewriting rather than patching is what keeps
-/// positions contiguous without a unique index to lean on (D2), and it means a
+/// positions contiguous without a unique index to lean on, and it means a
 /// queue that somehow arrived with gaps or duplicates is repaired by the next
 /// ordinary edit rather than needing a separate fixer.
 ///
@@ -32,7 +32,7 @@ public sealed class QueueService(
     {
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
 
-        // One query, because a slot is one title (D15). Under the old model this
+        // One query, because a slot is one title. Under the old model this
         // needed three: the slots, then titles and groupings resolved separately
         // and stitched back together in memory.
         var rows = await context.QueueItems
@@ -55,7 +55,7 @@ public sealed class QueueService(
 
                 // Scalar subqueries rather than a join, as the backlog does: a slot
                 // wants one poster and a join would multiply the queue by however
-                // many images a title has (D47, D48).
+                // many images a title has.
                 CoverContentHash = q.Anime.Images
                     .Where(x => x.Kind == ImageKind.Poster && x.Rendition == ImageRendition.Thumbnail && x.ContentHash != null)
                     .Select(x => x.ContentHash)
@@ -65,7 +65,7 @@ public sealed class QueueService(
                     .Select(x => x.FileExtension)
                     .FirstOrDefault(),
 
-                // And the full-size rendition, which 18d promoted the row to.
+                // And the full-size rendition, which the card layout shows.
                 PosterContentHash = q.Anime.Images
                     .Where(x => x.Kind == ImageKind.Poster && x.Rendition == ImageRendition.Full && x.ContentHash != null)
                     .Select(x => x.ContentHash)
@@ -141,7 +141,7 @@ public sealed class QueueService(
         // Statuses decide what may be queued at all. Read from the library rather
         // than the catalogue: a title with no entry for this profile has nothing to
         // plan, and a LibraryEntry cannot exist without its Anime, so this also
-        // covers the stale-selection case that used to need its own query.
+        // covers a stale selection without a second query.
         var statuses = await context.LibraryEntries
             .AsNoTracking()
             .Where(e => e.ProfileId == profileId && toAdd.Contains(e.AnimeId))
@@ -428,7 +428,7 @@ public sealed class QueueService(
     /// </summary>
     /// <remarks>
     /// The <c>Id</c> tiebreak is not decoration. Position is not unique in the
-    /// schema (D2), so two rows can in principle share one — after a crashed write,
+    /// schema, so two rows can in principle share one — after a crashed write,
     /// say — and without a tiebreak SQLite is free to return them in either order,
     /// which would make a reorder land somewhere different each time it ran.
     /// </remarks>

@@ -2,13 +2,8 @@ namespace AniQueue.Core.Domain;
 
 /// <summary>
 /// Metadata for one recommendation exercise: what was sent for ranking, by which
-/// provider, and whether the user accepted the result.
-///
-/// The request payload itself is not stored. The brief asked both to avoid
-/// duplicating request data and to support comparing one recommendation set
-/// against a previous one, which metadata alone cannot do — so the per-candidate
-/// results live in <see cref="RecommendationRunItem"/> and the request is
-/// reconstructable from them (D4).
+/// provider, and whether the user accepted the result. The request payload is not
+/// stored — it is reconstructable from <see cref="RecommendationRunItem"/>.
 /// </summary>
 public class RecommendationRun
 {
@@ -19,11 +14,9 @@ public class RecommendationRun
     public DateTimeOffset CreatedAt { get; set; }
 
     /// <summary>
-    /// Which provider produced the ranking: the manual copy-and-paste JSON provider
-    /// of Phase 7, or the hosted-endpoint provider of Phase 8. Both carry the same
-    /// payload and are validated against the same schema (D31), so this records who
-    /// carried it and nothing about what was allowed through. No API key is required
-    /// for either, and neither has to be configured at all.
+    /// Which provider carried the ranking: the manual copy-and-paste route or a
+    /// hosted endpoint. Both send the same payload and are validated against the
+    /// same schema, so this records who carried it and nothing more.
     /// </summary>
     public required string ProviderName { get; set; }
 
@@ -43,28 +36,20 @@ public class RecommendationRun
     public int ResultCount { get; set; }
 
     /// <summary>
-    /// Whether this run's scores were written onto library entries. Importing a
-    /// ranking never reorders the manual queue, so "applied" affects display
-    /// ordering and nothing else.
+    /// Whether this run's scores were written onto library entries. Applying a
+    /// ranking affects display ordering and never the manual queue.
     /// </summary>
     public bool WasApplied { get; set; }
 
     /// <summary>
-    /// How long the model took to answer, when anything measured it.
+    /// How long the model took to answer, in milliseconds. Null for the manual
+    /// route, where the wait happened in somebody else's chat window. It lets a
+    /// later run say how long the last one took while a request with no progress to
+    /// report is in flight.
     /// </summary>
     /// <remarks>
-    /// Null for the manual path, where the wait happened in somebody else's chat
-    /// window and AniQueue has no idea how long it was. Written by Phase 8's endpoint,
-    /// which does.
-    ///
-    /// It exists so that the second run onwards can say "your last one took six
-    /// minutes" while a person waits on a request with no progress to report — a
-    /// ranking arrives all at once, so there is nothing to show but elapsed time, and
-    /// elapsed time means nothing without something to compare it to. That is the
-    /// difference between a page that looks hung and one that looks busy.
-    ///
-    /// Stored as milliseconds because SQLite has no interval type and EF's TimeSpan
-    /// mapping is a formatted string that cannot be compared or averaged in a query.
+    /// Milliseconds because SQLite has no interval type and EF's TimeSpan mapping
+    /// is a formatted string that cannot be compared or averaged in a query.
     /// </remarks>
     public long? DurationMilliseconds { get; set; }
 

@@ -3,7 +3,7 @@ using System.Reflection;
 namespace AniQueue.Core.Tests;
 
 /// <summary>
-/// Enforces the layering rule from ROADMAP.md §3 mechanically rather than by
+/// Enforces the layering rule mechanically rather than by
 /// convention. Core's isolation is what keeps the majority of the test suite
 /// database-free and fast, so it is worth a test that fails the build the moment
 /// someone adds a convenient dependency.
@@ -33,7 +33,7 @@ public class ArchitectureTests
         Assert.True(
             referenced.Length == 0,
             $"AniQueue.Core must not reference '{forbiddenPrefix}'. Found: {string.Join(", ", referenced)}. "
-            + "See ROADMAP.md §3 — Core stays dependency-free so its tests need no fixtures.");
+            + "Core stays dependency-free so its tests need no fixtures.");
     }
 
     private static Assembly LoadCore() => Assembly.Load(new AssemblyName("AniQueue.Core"));

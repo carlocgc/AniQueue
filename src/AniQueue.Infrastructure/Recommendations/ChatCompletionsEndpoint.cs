@@ -16,13 +16,13 @@ namespace AniQueue.Infrastructure.Recommendations;
 /// <b>The chat-completions shape, because everything speaks it.</b> LM Studio, Ollama,
 /// llama.cpp, vLLM and text-generation-webui all serve <c>/v1/chat/completions</c>, so
 /// targeting it is what makes "anything speaking a chat-completions API" true rather
-/// than aspirational (D31).
+/// than aspirational.
 ///
-/// <b>What is sent is what the Manual card shows, byte for byte.</b> The prompt is the
+/// What is sent is what the Manual card shows, byte for byte. The prompt is the
 /// system message and the payload is the user message, both from the same builders the
-/// page renders. If those ever diverged, the two routes would be two pipelines with one
-/// name, which is the thing D31 exists to prevent — so nothing here composes text of
-/// its own beyond the envelope the API requires.
+/// page renders. If those ever diverged, the two routes would be two pipelines with
+/// one name, so nothing here composes text of its own beyond the envelope the API
+/// requires.
 /// </remarks>
 public sealed partial class ChatCompletionsEndpoint(
     HttpClient client,
@@ -75,7 +75,7 @@ public sealed partial class ChatCompletionsEndpoint(
     /// </remarks>
     private const int TokenFloor = 2048;
 
-    /// <summary>How much of a failing response is shown back (D38).</summary>
+    /// <summary>How much of a failing response is shown back.</summary>
     private const int MaxDiagnosticLength = 2048;
 
     /// <summary>
@@ -152,8 +152,8 @@ public sealed partial class ChatCompletionsEndpoint(
 
         if (!ScoringEndpointAddress.TryResolve(current.Endpoint, out var target, out var refusal))
         {
-            // Refused before anything leaves the machine, which is the point of D38's
-            // guards: the check is on what may be sent, not on what came back.
+            // Refused before anything leaves the machine: the check is on what may
+            // be sent, not on what came back.
             return ScoringEndpointResult.Failed(
                 current.HasEndpoint ? ScoringEndpointFailure.AddressRefused : ScoringEndpointFailure.NotConfigured,
                 refusal);
@@ -305,12 +305,10 @@ public sealed partial class ChatCompletionsEndpoint(
 
             if (string.Equals(finish, "length", StringComparison.OrdinalIgnoreCase))
             {
-                // It used to say "raise your server's output limit", which was advice
-                // that could not work: AniQueue sends max_tokens on every request, so
-                // the limit that bit was always this one and never the server's. A
-                // reasoning model is the usual cause — its analysis is spent from the
-                // same allowance as the answer — so the message names that instead of
-                // sending somebody to a setting that would be overridden anyway.
+                // AniQueue sends max_tokens on every request, so the limit that bit
+                // is this one and never the server's. A reasoning model is the usual
+                // cause, since its analysis is spent from the same allowance as the
+                // answer, so the message names that rather than a server setting.
                 return ScoringEndpointResult.Failed(
                     ScoringEndpointFailure.Truncated,
                     "Your model ran out of room part-way through the reply, after using "
@@ -367,17 +365,11 @@ public sealed partial class ChatCompletionsEndpoint(
 
             if (current.UseStructuredOutput)
             {
-                // json_schema rather than json_object, which is a correction rather
-                // than a preference. This sent json_object on the grounds that it was
-                // "the weakest form every server in scope understands" — and LM Studio,
-                // the most likely target of all, answers that with
-                //
-                //   400: 'response_format.type' must be 'json_schema' or 'text'
-                //
-                // so the compatibility argument pointed the other way the whole time.
-                // The schema is also the stronger request: a server that converts it to
-                // a grammar cannot emit a code fence at all, which turns D37's
-                // unwrapping back into the fallback it was meant to be.
+                // json_schema rather than json_object. LM Studio rejects the latter
+                // outright — 400: 'response_format.type' must be 'json_schema' or
+                // 'text' — and the schema is the stronger request anyway: a server
+                // that converts it to a grammar cannot emit a code fence at all,
+                // which keeps the parser's unwrapping a fallback rather than the path.
                 writer.WriteStartObject("response_format");
                 writer.WriteString("type", "json_schema");
 

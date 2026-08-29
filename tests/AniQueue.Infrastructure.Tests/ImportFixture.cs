@@ -22,7 +22,7 @@ internal sealed class ImportFixture : IAsyncDisposable
 
     public required IImportService Service { get; init; }
 
-    /// <summary>The configuration the import reads precedence from (Phase 10a).</summary>
+    /// <summary>The configuration the import reads precedence from.</summary>
     public required SyncOptions Options { get; init; }
 
     public static async Task<ImportFixture> CreateAsync()
@@ -42,7 +42,7 @@ internal sealed class ImportFixture : IAsyncDisposable
             Options = options,
 
             // The real queue service, not a stub: committing an import advances
-            // the queue (D12), and that is behaviour worth exercising here
+            // the queue, and that is behaviour worth exercising here
             // rather than mocking away.
             Service = new ImportService(
                 database.ContextFactory,
@@ -50,7 +50,7 @@ internal sealed class ImportFixture : IAsyncDisposable
 
                 // No primary source by default, which is the state a fresh install is
                 // in and the one every test here but the precedence suite wants: an
-                // empty map means precedence never fires (D29).
+                // empty map means precedence never fires.
                 new StubOptionsMonitor(options),
                 NullLogger<ImportService>.Instance)
         };

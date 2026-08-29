@@ -1,9 +1,10 @@
 # Working in this repository
 
-How to work here. **What** to build and **why** lives in [`docs/ROADMAP.md`](docs/ROADMAP.md),
-which is authoritative — every design decision has a `D`-number, and changing one means editing
-that file in the same PR that changes the code (§12). This file is the practical half: the
-things that have cost time to learn.
+How to work here. **What** to build lives in [`docs/ROADMAP.md`](docs/ROADMAP.md) and **why**
+in [`docs/DECISIONS.md`](docs/DECISIONS.md), where every architectural decision has a
+`D`-number. Both are authoritative, and changing a decision means editing its entry in the
+same PR that changes the code (ROADMAP §12). This file is the practical half: the things that
+have cost time to learn.
 
 ## Do not delete the development database
 
@@ -127,13 +128,32 @@ Before reaching for one, check whether the ASP.NET Core shared framework already
 
 That is how the test project gets `Microsoft.Extensions.Configuration.Json`.
 
-## Branches, commits and comments
+## Comments
+
+**A comment says what the code is for.** Nothing else. It is read by somebody trying to work
+out what a method does, and everything in front of that answer is a tax on them.
+
+Do not write:
+
+- **Decisions, or the argument behind one.** No `D`-numbers, no `§` citations, no "this was
+  chosen over X because". That lives in [`docs/DECISIONS.md`](docs/DECISIONS.md), which is
+  where somebody questioning a decision goes to look.
+- **What the code used to be.** No "X stood here", no "this replaced Y", no "the old one
+  reasoned that". Git holds it, and a comment about deleted code is a comment nobody can
+  check against anything.
+- **A phase number**, in any form — `Phase 9b`, `18d`, `since 15c`. It dates the comment and
+  means nothing to a reader who was not there.
+
+Do write the reasoning when it is a fact about the code rather than a defence of it: SQLite
+cannot compare a `DateTimeOffset`, an empty AniList response is not an empty library, a stack
+trace must never reach a page. Those stop somebody breaking it by accident.
+
+If nothing needs explaining, write no comment. That is the common case.
+
+## Branches and commits
 
 - One branch per phase part: `feature/phase-N<letter>-slug` → PR into `development`. `main` is
   release-only. Delete branches once merged.
-- **Comments explain why, not what**, and cite their `D`-number. When a decision is reversed,
-  replace the old comment with the reason it lost rather than deleting it — the argument that
-  failed is worth leaving legible.
 - Commit messages and PR bodies are prose, not bullet dumps: what changed, what it cost, what was
   found while doing it. Say plainly what could not be verified.
 

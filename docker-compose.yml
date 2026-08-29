@@ -2,7 +2,7 @@
 #
 # This file holds the container's concerns and nothing else — the volume, the
 # port and the log limits. Everything about how AniQueue behaves is in
-# userconfig.json inside the volume (D20, D36), so there is no second place to
+# userconfig.json inside the volume, so there is no second place to
 # look.
 
 services:
@@ -33,7 +33,7 @@ services:
 
     volumes:
       # A named volume by default, because Docker seeds its ownership from the
-      # image and the container runs as UID 1654 rather than as root (§9). A bind
+      # image and the container runs as UID 1654 rather than as root. A bind
       # mount is not seeded, so if you swap this for a host path — the usual
       # Unraid arrangement — chown it to 1654:1654 first or AniQueue cannot
       # create its database.
@@ -42,12 +42,12 @@ services:
       - aniqueue-data:/data
 
     # No environment block, deliberately. The image already puts the database at
-    # /data/aniqueue.db, and D36 rules that a default is not a layer: repeating one
+    # /data/aniqueue.db, and a default is not a layer: repeating one
     # here would pin it, so a later version that moved or renamed the file would be
     # overridden by whatever this file happened to say on the day the installation
     # was created. Set Database__Path only to override it, which almost nobody
     # needs to. Everything else AniQueue does is set from its own pages or from
-    # userconfig.json inside the volume (D20, D36).
+    # userconfig.json inside the volume.
 
     # The default json-file driver does not rotate, so a long-running container
     # will fill a disk with its own log eventually.

@@ -5,10 +5,7 @@ namespace AniQueue.Core.Domain;
 /// stored — the parse-time counterpart of <see cref="AnimeExternalId"/>.
 /// </summary>
 /// <remarks>
-/// This exists so a parser can emit more than one identifier per entry. The
-/// MyAnimeList export knows only itself and emits one; an AniList response carries
-/// its own id and <c>idMal</c> and emits two. Nothing downstream needs to know
-/// which parser produced which, and that is what makes D17's bridge work in both
-/// directions from a single matching path.
+/// A parser emits one of these per identifier it knows: the MyAnimeList export
+/// emits one, an AniList response emits its own id and <c>idMal</c>.
 /// </remarks>
 public sealed record ExternalIdentifier(AnimeSource Source, string Value);

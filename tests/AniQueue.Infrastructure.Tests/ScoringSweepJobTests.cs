@@ -92,12 +92,12 @@ public class ScoringSweepJobTests
 
         public ScoringRoute? Route { get; private set; }
 
-        /// <summary>Never called by the sweep. The page is the only caller (D53).</summary>
+        /// <summary>Never called by the sweep. The page is the only caller.</summary>
         public Task<ScoringSizeEstimate> MeasureAsync(
             int profileId, ScoringRequestOptions? options = null, CancellationToken ct = default) =>
             throw new NotSupportedException("The sweep does not measure requests.");
 
-        /// <summary>The route the job asked for, so a test can assert it (D50).</summary>
+        /// <summary>The route the job asked for, so a test can assert it.</summary>
         public Task<ScoringPreview> PreviewAsync(int profileId, ScoringRoute route, string json, ScoringRequest? request = null, CancellationToken ct = default)
         {
             Route = route;
@@ -178,7 +178,7 @@ public class ScoringSweepJobTests
     /// "did not answer within 1200 seconds" names the setting to change. The sentence
     /// it replaced — "the model rejected or could not answer every request" — was
     /// reconstructed here after the real reason had been discarded, and sent the reader
-    /// to the log to learn what the endpoint had already said (D40).
+    /// to the log to learn what the endpoint had already said.
     /// </remarks>
     [Fact]
     public async Task A_failed_sweep_reports_what_the_endpoint_said()
@@ -204,7 +204,7 @@ public class ScoringSweepJobTests
     /// page then showed the same thing whether or not anybody had pressed Cancel, which
     /// is exactly how a user came to be unable to say which had happened.
     ///
-    /// It also matters beyond the label: 15b made a cancelled run advance the cadence
+    /// It also matters beyond the label: a cancelled run advances the cadence
     /// clock so that cancelling means "skip this cycle", and that rests on the run being
     /// recorded as one.
     /// </remarks>
@@ -352,7 +352,7 @@ public class ScoringSweepJobTests
     [Fact]
     public async Task A_sweep_with_nothing_to_do_does_not_read_the_history()
     {
-        // D25's shape: a task that is switched on and idle costs nothing. The history
+        // A task that is switched on and idle costs nothing. The history
         // is several hundred rows, and reading it before the gate that decides there is
         // work would spend that on every tick of an up-to-date library — which is most
         // ticks. This nearly happened while adding the snapshot, which is why it is
@@ -389,7 +389,7 @@ public class ScoringSweepJobTests
         // reporting 559 rated titles and then 563 within the same minute, because the
         // AniList job runs in its own loop and had landed four new ratings between two
         // batches. Scores from either side of that go into one column and get sorted
-        // against each other, which is the comparison D43 spent a phase making safe.
+        // against each other, which is exactly the unsafe comparison.
         var (job, library, _, _, _) = Create(unranked: 100);
 
         library.RatedTitles = 559;
@@ -426,7 +426,7 @@ public class ScoringSweepJobTests
     [Fact]
     public async Task It_stops_when_there_is_nothing_left_to_rank()
     {
-        // D25's rule: a job woken with no work is a no-op, which is what lets a shared
+        // A job woken with no work is a no-op, which is what lets a shared
         // signal be safe to broadcast and a schedule be safe to leave on.
         var (job, _, endpoint, _, _) = Create(unranked: 0);
 
@@ -486,7 +486,7 @@ public class ScoringSweepJobTests
         var (job, _, endpoint, clock, runs) = Create(unranked: 100, null, SyncSchedule.Daily);
 
         // From the run record rather than from the last applied ranking, since Phase
-        // 15b: a sweep that ran and scored nothing is still a sweep that ran.
+        // A sweep that ran and scored nothing is still a sweep that ran.
         runs.LastRunAt = clock.Now.AddHours(-1);
 
         await job.RunAsync(new JobRunContext(JobTrigger.Timer), CancellationToken.None);
@@ -506,15 +506,9 @@ public class ScoringSweepJobTests
         Assert.Equal(1, endpoint.Calls);
     }
 
-    // Two tests were here about the scoring gate: that a sweep stood down when
-    // somebody was waiting for the model, and that it took the gate once per batch
-    // rather than once per sweep. Both described how a sweep shared the model with a
-    // run started from the Recommendations page, and D42 deleted that run — so there
-    // is no second claimant left to yield to, and the gate went with it.
-    //
-    // What replaces standing down is cancelling: a person who wants the model stops
-    // the sweep from the tasks page, which needs no cooperation between batches and
-    // works while a request is in flight rather than only between them.
+    // Nothing arbitrates the model: a person who wants it stops the sweep from the
+    // tasks page, which needs no cooperation between batches and works while a
+    // request is in flight rather than only between them.
 
     [Fact]
     public async Task A_request_that_will_not_fit_halves_the_batch_rather_than_ending_the_sweep()
@@ -555,7 +549,7 @@ public class ScoringSweepJobTests
     [Fact]
     public async Task A_sweep_checks_its_reply_as_an_endpoint_answer()
     {
-        // D50's exemption, asserted where it is claimed. The sweep must not ask a reply
+        // The exemption, asserted where it is claimed. The sweep must not ask a reply
         // to name the database: it built the request itself moments earlier, and the
         // schema a constrained server is given declares no envelope to answer in — so
         // requiring one would refuse every scheduled ranking.
@@ -569,7 +563,7 @@ public class ScoringSweepJobTests
     [Fact]
     public async Task A_reply_the_schema_rejects_is_skipped_rather_than_applied_in_part()
     {
-        // D31's invariant, enforced by the service and relied on here: a preview
+        // The invariant, enforced by the service and relied on here: a preview
         // carrying an error is never written, and the sweep moves on rather than
         // stalling on the titles behind it.
         var (job, library, endpoint, _, _) = Create(unranked: 500);
@@ -599,7 +593,7 @@ public class ScoringSweepJobTests
     /// <remarks>
     /// These tests are about what the sweep decides, not about who listens. A fake
     /// that recorded publications would invite an assertion that the sweep announced
-    /// itself, which is the coupling D41 exists to prevent.
+    /// itself, which is the coupling the origin exists to prevent.
     /// </remarks>
     private sealed class NullNotifier : ILibraryChangeNotifier
     {

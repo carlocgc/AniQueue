@@ -67,24 +67,19 @@ public sealed record ScoringCandidateTitles
 /// A history read once, so that several requests can be built from the same evidence.
 /// </summary>
 /// <remarks>
-/// <b>A sweep is many requests and should be one opinion.</b> Every batch used to read
-/// the history afresh, which meant a sync landing mid-sweep changed the evidence
-/// underneath it: observed for real, with one sweep's batches reporting 559 rated
-/// titles and then 563 within the same minute. The scores from either side of that
-/// land in one column and are sorted against each other, which is D43's failure in a
-/// different costume — two numbers compared as though they measured the same thing.
+/// A sweep is many requests and should be one opinion. Reading the history per batch
+/// would let a sync landing mid-sweep change the evidence underneath it, and the
+/// scores from either side then land in one column and get sorted against each
+/// other.
 ///
-/// It also settles the prompt cache, from the other end to
-/// <see cref="ScoringRequestWriter"/>. That class keeps the varying fields out of the
-/// prefix; this keeps the prefix's own contents from varying. The history is around
-/// 95% of a batch's payload, so a single new rating would otherwise cost the whole
-/// remainder of a sweep its cache.
+/// It also settles the server's prompt cache, from the other end to
+/// <see cref="ScoringRequestWriter"/>: that class keeps the varying fields out of
+/// the prefix, and this keeps the prefix's own contents from varying. The history is
+/// around 95% of a batch's payload.
 ///
-/// <b>What it knowingly costs:</b> a long sweep's last batch predicts against evidence
-/// as old as the sweep. A rating added at minute two does not influence the run it is
-/// added during. That is the trade — internal consistency over freshness — and it is
-/// the right way round, because the alternative is not fresher scores but incomparable
-/// ones.
+/// The cost is that a long sweep's last batch predicts against evidence as old as
+/// the sweep, so a rating added at minute two does not influence the run it is added
+/// during.
 /// </remarks>
 public sealed record ScoringHistorySnapshot
 {
@@ -109,7 +104,7 @@ public sealed record ScoringCandidate
     /// <remarks>
     /// Not an external id, and not the title. External ids are absent for manual
     /// and MyAnimeList-only rows and a title is rewritten wholesale whenever the
-    /// displayed language changes (D22) — either would make a response that was
+    /// displayed language changes — either would make a response that was
     /// valid when generated stop matching the library it came from. The identifier
     /// that is stable for exactly as long as the row exists is the row's own.
     /// </remarks>
@@ -126,7 +121,7 @@ public sealed record ScoringCandidate
 
     /// <summary>The format, which is a coarse statement about taste.</summary>
     /// <remarks>
-    /// <b>Episode count and episode duration stood beside this and were removed (D52).</b>
+    /// <b>Episode count and episode duration stood beside this and were removed.</b>
     /// Neither survived the question they were asked: does this change a predicted score?
     /// A model that recognises the title already knows how long it is, and one that does
     /// not is told by the prompt to answer with low confidence rather than infer — so
@@ -144,7 +139,7 @@ public sealed record ScoringCandidate
 
     /// <summary>
     /// What other services call this title, so a model can recognise it by an id it
-    /// already knows rather than by a name it has to match (D17).
+    /// already knows rather than by a name it has to match.
     /// </summary>
     public ScoringCandidateIds ExternalIds { get; init; } = new();
 
@@ -160,13 +155,11 @@ public sealed record ScoringCandidate
 /// they have liked, and what is waiting.
 /// </summary>
 /// <remarks>
-/// This is one half of the contract Phase 7 exists to define; the other is
-/// <see cref="ScoringResponse"/>. Both are carried either by the user, through
-/// copy and paste, or by a configured endpoint in Phase 8 — the payload does not
-/// know which, and D31 turns on it not needing to.
+/// One half of the scoring contract; the other is <see cref="ScoringResponse"/>.
+/// Both are carried either by the user through copy and paste or by a configured
+/// endpoint, and the payload does not know which.
 ///
-/// Nothing here identifies a person. §6's privacy rule is that an export carries
-/// what ranking needs and nothing else: no account names, no email address, no
+/// Nothing here identifies a person: no account names, no email address, no
 /// credentials, and no notes unless they were explicitly opted in.
 /// </remarks>
 public sealed record ScoringRequest
@@ -181,7 +174,7 @@ public sealed record ScoringRequest
 
     /// <summary>
     /// Which library this request is about — <see cref="Domain.Profile.LibraryKey"/>,
-    /// written into the envelope and asked for back (D50).
+    /// written into the envelope and asked for back.
     /// </summary>
     /// <remarks>
     /// Null only when a caller builds a request without one, which in practice means

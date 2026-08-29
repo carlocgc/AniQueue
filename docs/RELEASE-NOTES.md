@@ -1,9 +1,10 @@
 # Release notes
 
 Changes that alter data or behaviour somebody would notice, newest first. This is not a
-changelog of every commit — [`ROADMAP.md`](ROADMAP.md) holds the plan and the reasoning, and the
-git history holds the rest. What goes here is the short list of things worth reading **before
-upgrading**, because a migration will apply them without asking.
+changelog of every commit — [`ROADMAP.md`](ROADMAP.md) holds the plan,
+[`DECISIONS.md`](DECISIONS.md) the reasoning, and the git history holds the rest. What goes
+here is the short list of things worth reading **before upgrading**, because a migration
+will apply them without asking.
 
 ## Phase 18b — hidden entries come back
 

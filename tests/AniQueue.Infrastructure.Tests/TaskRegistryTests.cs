@@ -22,8 +22,8 @@ public class TaskRegistryTests
     [Fact]
     public void A_registered_task_has_a_row_before_it_has_ever_run()
     {
-        // The state a fresh install is in, and the one the page is most needed in
-        // (D27). A page listing only tasks that had already done something would be
+        // The state a fresh install is in, and the one the page is most needed in.
+        // A page listing only tasks that had already done something would be
         // empty exactly when somebody is trying to work out what AniQueue does.
         var rows = Registered().Snapshot();
 
@@ -144,7 +144,7 @@ public class TaskRegistryTests
     /// <remarks>
     /// Both halves matter. The token is how the work stops; <c>WasCancelled</c> is how
     /// the runner tells a cancel apart from a shutdown, which arrives the same way and
-    /// must not be recorded as a run somebody stopped (D40).
+    /// must not be recorded as a run somebody stopped.
     /// </remarks>
     [Fact]
     public void Cancelling_trips_the_token_and_is_distinguishable_from_shutdown()

@@ -3,7 +3,7 @@ using AniQueue.Core.Library;
 namespace AniQueue.Core.Tests.Library;
 
 /// <summary>
-/// What a stored synopsis becomes on the way to the detail dialog (D49).
+/// What a stored synopsis becomes on the way to the detail dialog.
 /// </summary>
 /// <remarks>
 /// The spoiler cases carry more weight than usual: the development library contains

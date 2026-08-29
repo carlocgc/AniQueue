@@ -1,5 +1,5 @@
 # Every pull request into development builds and tests, and builds the image
-# without pushing it. Phase 13's rule is that CI must not become the only way to
+# without pushing it. CI must not become the only way to
 # build or test, so each step runs the same `dotnet` command a clean checkout
 # runs rather than reimplementing it.
 name: PR build

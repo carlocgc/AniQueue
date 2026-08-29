@@ -2,13 +2,7 @@ namespace AniQueue.Core.Domain;
 
 /// <summary>
 /// One user's relationship with one title: status, progress, score and notes.
-///
-/// Note the absence of a QueuePosition column (D1). The argument that put queue
-/// membership on its own table has since been withdrawn twice over — first by D15
-/// and then by D23 — but the conclusion outlived both: reordering would write to
-/// wide library rows that imports contend for on a single-writer database, the
-/// column would be null on most rows, and the queue has its own lifecycle. Queue
-/// membership therefore lives in <see cref="QueueItem"/>.
+/// Queue membership is not here — it lives in <see cref="QueueItem"/>.
 /// </summary>
 public class LibraryEntry
 {
@@ -24,7 +18,7 @@ public class LibraryEntry
 
     /// <summary>
     /// The user's own 1–10 rating, or null if unscored. Never assigned
-    /// automatically — completing a title only ever *offers* to record a score.
+    /// automatically — completing a title only ever offers to record a score.
     /// </summary>
     public int? UserScore { get; set; }
 
@@ -41,34 +35,16 @@ public class LibraryEntry
     /// <summary>Free text. Excluded from AI export unless explicitly opted in.</summary>
     public string? PersonalNotes { get; set; }
 
-    // No ManualPriority (D14). The brief listed one, but a 0-5 bucket shared by
-    // many entries does not express an order: setting twenty titles to 5 says
-    // nothing about which comes first. The user's ordering is QueueItem.Position,
-    // which is a real rank, and the AI's is RecommendationScore. Two orderings,
-    // both meaningful, and a hybrid can blend them.
-
-    // No IsHidden (Phase 18b). It was a second, local way to say "stop offering me
-    // this", and D11 already settled where that is said: list membership lives
-    // outside AniQueue. The honest answer to "I do not want this ranked" is to take
-    // it off the AniList or MyAnimeList list it came from and let the next sync
-    // agree — a local flag only made AniQueue disagree with the source it trusts.
-
     /// <summary>
     /// Which source last wrote the tracking fields above — status, progress, score
-    /// and the watch dates (D18).
+    /// and the watch dates. Null for anything edited here rather than observed. It
+    /// stops a lower-ranked source overwriting what a higher-ranked one recorded.
     /// </summary>
-    /// <remarks>
-    /// Null for rows written before precedence existed, and for anything edited
-    /// here rather than observed. It exists so a lower-ranked source cannot
-    /// overwrite what a higher-ranked one recorded: with two lists both describing
-    /// one title, unconditional last-writer-wins lets a scheduled sync silently
-    /// revert a deliberate import, every interval, forever.
-    /// </remarks>
     public AnimeSource? LastWrittenBySource { get; set; }
 
-    // Currently-applied recommendation, denormalised from the latest applied
+    // The currently-applied recommendation, denormalised from the latest applied
     // RecommendationRun so that sorting the backlog by AI score stays a
-    // single-table query rather than a join against run history (D4).
+    // single-table query rather than a join against run history.
 
     public double? RecommendationScore { get; set; }
 

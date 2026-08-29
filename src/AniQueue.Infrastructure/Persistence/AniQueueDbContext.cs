@@ -7,7 +7,7 @@ namespace AniQueue.Infrastructure.Persistence;
 /// The application's only database context.
 ///
 /// Instances are short-lived and created through <see cref="IDbContextFactory{TContext}"/>
-/// rather than injected as a scoped service (D3). Under Blazor Interactive Server
+/// rather than injected as a scoped service. Under Blazor Interactive Server
 /// a scoped service lives as long as the SignalR circuit — potentially hours —
 /// which would give the change tracker unbounded growth, stale reads, and
 /// concurrency failures the first time two components rendered at once.

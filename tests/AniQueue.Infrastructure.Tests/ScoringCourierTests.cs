@@ -11,12 +11,12 @@ using Microsoft.Extensions.Options;
 namespace AniQueue.Infrastructure.Tests;
 
 /// <summary>
-/// Phase 8b's exit criterion, whole: a request built from a library, carried to an
+/// The whole route: a request built from a library, carried to an
 /// endpoint that is not there, and the reply turned into a preview a person could
 /// apply — with no page anywhere in it.
 /// </summary>
 /// <remarks>
-/// <b>This is the test D31's claim rests on.</b> The manual path and a hosted endpoint
+/// <b>This is the test the claim rests on.</b> The manual path and a hosted endpoint
 /// are supposed to be one contract carried by two couriers, and the only way to know
 /// that is true is to run the second courier into the same
 /// <see cref="IRecommendationService.PreviewAsync"/> the first one uses and find the
@@ -127,7 +127,7 @@ public class ScoringCourierTests : IAsyncDisposable
         // The same method the paste box calls, given the same kind of string. Nothing
         // about this preview knows which courier produced it, and that is the point.
         //
-        // It is told the route, which is not the same thing (D50): what differs is
+        // It is told the route, which is not the same thing: what differs is
         // whether a person carried the document, not which server answered.
         var preview = await service.PreviewAsync(profileId, ScoringRoute.Endpoint, answer.Reply!, request);
 
@@ -175,7 +175,7 @@ public class ScoringCourierTests : IAsyncDisposable
 
         Assert.True(preview.CanApply);
 
-        // And it says what it threw away, so the score stays auditable (D37).
+        // And it says what it threw away, so the score stays auditable.
         Assert.Contains(preview.Problems, p => p.Severity == ScoringSeverity.Warning);
     }
 

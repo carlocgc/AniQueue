@@ -41,8 +41,8 @@ public class AnimeGenreConfiguration : IEntityTypeConfiguration<AnimeGenre>
             .OnDelete(DeleteBehavior.Restrict);
 
         // The reverse of the composite key, for the query this table exists to make
-        // possible later: every title carrying one genre (§6's indexed, server-side
-        // filtering). Nothing runs it yet — 9c renders chips from a title it already
+        // possible later: every title carrying one genre, indexed and server-side.
+        // Nothing runs it yet — the dialog renders chips from a title it already
         // has — and it is here because it is the half of the key an index cannot be
         // derived from.
         builder.HasIndex(x => x.GenreId);

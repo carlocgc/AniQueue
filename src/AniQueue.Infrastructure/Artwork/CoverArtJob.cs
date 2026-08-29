@@ -2,6 +2,7 @@ using AniQueue.Core.Artwork;
 using AniQueue.Core.Jobs;
 using AniQueue.Core.Library;
 using AniQueue.Infrastructure.Jobs;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
 namespace AniQueue.Infrastructure.Artwork;
@@ -9,36 +10,33 @@ namespace AniQueue.Infrastructure.Artwork;
 /// <summary>
 /// Fetches cover art nobody has fetched yet, with nobody present.
 ///
-/// D25's third enrichment pass, and the same shape as the second: it gates on its own
-/// precondition rather than on a schedule, so it converges and then does nothing at
-/// all. Nothing sequences it behind the sync that gives it work — it hears the
-/// library changed and looks (D28, D41).
+/// It gates on its own precondition rather than on a schedule, so it converges and
+/// then does nothing at all. Nothing sequences it behind the sync that gives it work
+/// — it hears the library changed and looks.
 /// </summary>
 public sealed class CoverArtJob(
     IArtworkService artwork,
     ILibraryChangeNotifier notifier,
-    IOptionsMonitor<TaskOptions> tasks) : IBackgroundJob
+    IOptionsMonitor<TaskOptions> tasks,
+    ILogger<CoverArtJob> logger) : IBackgroundJob
 {
     /// <summary>
     /// How long one visit may keep going.
     /// </summary>
     /// <remarks>
-    /// A first pass over a fresh 810-title library measured four minutes and six
-    /// seconds at the pacing the service uses. That was room for a library twice this
-    /// one's size to finish in one visit, and Phase 9b spends the headroom: a second
-    /// rendition per title at 8.5× the bytes means a first run stops and resumes
-    /// instead (D48). It costs nothing because progress is recorded per picture, and
-    /// the only visible consequence is that a fresh install shows a small poster in
-    /// the detail dialog for a while — the same degradation the colour block exists
-    /// for. Raising this would hold a database connection and a cancellation window
-    /// open longer to buy nothing.
+    /// A first pass over a fresh 810-title library takes a few minutes at the pacing
+    /// the service uses, and two renditions per title mean a large one stops and
+    /// resumes instead. That costs nothing, because progress is recorded per picture:
+    /// the only visible consequence is a fresh install showing a small poster in the
+    /// detail dialog for a while. Raising this would hold a database connection and a
+    /// cancellation window open longer to buy nothing.
     /// </remarks>
     private static readonly TimeSpan Budget = TimeSpan.FromMinutes(10);
 
     /// <summary>
     /// Fifteen minutes, and the number barely matters — the same answer the relation
     /// pass gives, for the same reason. This is polling resolution, and newly synced
-    /// titles do not wait for it (D28, D41).
+    /// titles do not wait for it.
     /// </summary>
     public TimeSpan TickPeriod => TimeSpan.FromMinutes(15);
 
@@ -51,7 +49,7 @@ public sealed class CoverArtJob(
     /// One, and unnamed. Sync has a unit per source because each carries its own
     /// enabled state and failure history; art has neither to divide — a picture is
     /// fetched from wherever the title's row says it is, whatever brought the title
-    /// in (D40).
+    /// in.
     /// </summary>
     public IReadOnlyList<JobUnit> Units { get; } = [new JobUnit(null, "Cover art")];
 
@@ -60,11 +58,15 @@ public sealed class CoverArtJob(
         // Nothing gates on a cadence. What there is to do is "rows whose art is not
         // the art they claim", which the database answers directly, so a job that is
         // a genuine no-op when there is nothing outstanding needs no schedule to
-        // protect anything from it (D25).
+        // protect anything from it.
         _ = context;
 
         if (!tasks.CurrentValue.CoverArtEnabled)
         {
+            // Said out loud, because a switched-off task and a task with nothing to
+            // do are indistinguishable from a page that shows no pictures.
+            logger.LogDebug("Cover art is switched off; no pictures will be fetched");
+
             return JobRunOutcome.NotDue;
         }
 
@@ -77,16 +79,16 @@ public sealed class CoverArtJob(
 
         // Published because a title gaining art is library data changing, and an open
         // backlog is showing a colour block for a picture that now exists. Nothing
-        // here knows who is listening, which is the point (D41).
+        // here knows who is listening, which is the point.
         if (result.ChangedAnything)
         {
             notifier.Publish(origin: Key);
         }
 
         // Failures are counted, not raised. A cover that did not arrive is one row
-        // missing a detail, and D25 is explicit that this is deliberately unlike a
-        // stalled sync — so a pass in which some pictures failed is still a pass that
-        // succeeded, and only a pass that could not run at all is a failure.
+        // missing a detail rather than a library that is wrong, so a pass in which
+        // some pictures failed is still a pass that succeeded. Only a pass that could
+        // not run at all is a failure.
         return result.FailureReason is { } reason
             ? JobRunOutcome.Failed(reason, result.Considered, result.Fetched)
             : JobRunOutcome.Succeeded(result.Considered, result.Fetched);

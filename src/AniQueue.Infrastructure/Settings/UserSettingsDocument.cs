@@ -19,7 +19,7 @@ namespace AniQueue.Infrastructure.Settings;
 /// <c>"Sync:AniList:UserName"</c> means the same as the nested spelling — and it is
 /// the spelling that survives being edited by hand at two in the morning. A nested
 /// block edited badly leaves stray braces, and a file that will not parse is one
-/// whose settings are all silently absent (D20).
+/// whose settings are all silently absent.
 ///
 /// <b>Every setting is written out, and each carries one line saying what it does.</b>
 /// The file is what somebody opens when something is already wrong, so it has to be
@@ -194,10 +194,9 @@ internal static class UserSettingsDocument
     /// The only line of preamble, and it earns its place by preventing data loss.
     /// </summary>
     /// <remarks>
-    /// Everything else that was here has gone. Explaining the format, the reload
-    /// semantics, and which settings deliberately live elsewhere is documentation, and
-    /// documentation at the top of a settings file is read once and then scrolled past
-    /// forever — while pushing the thing somebody actually came for further down.
+    /// Nothing else is written above the settings. Documentation at the top of a
+    /// settings file is read once and then scrolled past forever, while pushing the
+    /// thing somebody came for further down.
     ///
     /// This line stays because it is not documentation but a warning about a surprise:
     /// AniQueue regenerates the whole file, so a note somebody adds here disappears at

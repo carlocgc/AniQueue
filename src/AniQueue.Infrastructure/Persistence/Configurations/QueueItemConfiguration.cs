@@ -10,7 +10,7 @@ public class QueueItemConfiguration : IEntityTypeConfiguration<QueueItem>
     {
         builder.HasKey(q => q.Id);
 
-        // Ordering lookups. Deliberately NOT unique (D2): SQLite evaluates
+        // Ordering lookups. Deliberately NOT unique: SQLite evaluates
         // uniqueness per statement rather than at commit, so a reorder that shifts
         // a block of positions would collide against itself mid-transaction and
         // abort. Contiguity is a QueueService invariant covered by tests instead.
@@ -19,7 +19,7 @@ public class QueueItemConfiguration : IEntityTypeConfiguration<QueueItem>
             .HasDatabaseName("IX_QueueItems_ProfileId_Position");
 
         // The same title must not occupy two slots. No longer filtered, because
-        // AnimeId is no longer nullable — a slot is always exactly one title (D15).
+        // AnimeId is no longer nullable — a slot is always exactly one title.
         builder
             .HasIndex(q => new { q.ProfileId, q.AnimeId })
             .IsUnique()

@@ -7,8 +7,8 @@ namespace AniQueue.Core.Tests.Library;
 /// Which rendition a list row asks for, and what it does while that one is missing.
 /// </summary>
 /// <remarks>
-/// D47 chose the thumbnail for a list and was right about the list it saw: fifty
-/// rows of a wide table, each showing a 40px sliver. 18d made the picture the leading
+/// The thumbnail is the right rendition for a list of fifty
+/// rows of a wide table, each showing a 40px sliver. The card makes the picture leading
 /// element of a card and a 64px slot wants more than a 100px image, so the row asks
 /// for the full rendition and falls back the way the dialog does.
 ///
@@ -42,7 +42,7 @@ public sealed class ListRowArtTests
     /// <summary>
     /// The step that matters in practice: a fresh install has thumbnails for minutes
     /// before it has posters, and a page of colour blocks during that window would
-    /// look broken rather than pending (D48).
+    /// look broken rather than pending.
     /// </summary>
     [Fact]
     public void The_thumbnail_stands_in_until_the_full_one_arrives()

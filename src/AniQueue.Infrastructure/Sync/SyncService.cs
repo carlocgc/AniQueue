@@ -45,7 +45,7 @@ public sealed class SyncService(
     /// Wider than <see cref="SyncableSources"/> on purpose. MyAnimeList is a source
     /// — it names titles, it ranks against the other, and its export is how a
     /// library gets here — so leaving it off the page left its precedence
-    /// unsettable and its import somewhere else entirely (D30). What it cannot do is
+    /// unsettable and its import somewhere else entirely. What it cannot do is
     /// be fetched, and that is one flag rather than a second concept.
     /// </remarks>
     private static readonly AnimeSource[] PageSources = [AnimeSource.AniList, AnimeSource.MyAnimeList];
@@ -64,7 +64,7 @@ public sealed class SyncService(
         var current = options.CurrentValue;
 
         // The kill switch, and no run is recorded for it. Nothing was attempted, and
-        // a log of runs that never ran would bury the failures that did (D20).
+        // a log of runs that never ran would bury the failures that did.
         if (!current.Enabled)
         {
             return Failure(source, "Syncing is turned off in this deployment's configuration.");
@@ -101,7 +101,7 @@ public sealed class SyncService(
         var parsed = await ParseAsync(fetch, cancellationToken);
 
         // A rejected parse is a fetch that cannot be trusted, not an empty list. The
-        // distinction is the whole of D19's safety: an empty list means the user
+        // distinction matters: an empty list would mean the user
         // deleted everything, and acting on that reading is unrecoverable.
         if (parsed.IsFileRejected)
         {
@@ -117,7 +117,7 @@ public sealed class SyncService(
         // it iterates what arrived, so a title that stopped arriving is never
         // considered at all. The response is known to be complete by this point —
         // the client fails rather than truncating, and a merge rejects the whole
-        // fetch if any part of it failed — which is the precondition D19 requires.
+        // fetch if any part of it failed — which is the precondition absence needs.
         var absent = await ReconcileAbsenceAsync(profileId, source, parsed, settings, cancellationToken);
 
         var preview = await importService.PreviewAsync(
@@ -259,8 +259,8 @@ public sealed class SyncService(
         // Nothing was applied — either because this source asks first, or because
         // everything left is a conflict. Recorded rather than passed over: a run
         // that found twelve changes and applied none of them is not a sync that
-        // found nothing, and the Sources page has to be able to tell the difference
-        // (§4). Only the count is kept, per D21 — a held preview is stale within the
+        // found nothing, and the Sources page has to be able to tell the difference.
+        // Only the count is kept: a held preview is stale within the
         // hour, and the user's visit re-fetches and recomputes it.
         var changesHeld = preview.CreateCount + preview.UpdateCount + preview.ResolvedConflictCount;
         var conflictsHeld = preview.Items.Count(i =>
@@ -298,7 +298,7 @@ public sealed class SyncService(
 
     /// <summary>
     /// Opts a conflict in to linking, where the titles are letter-for-letter the
-    /// same (D21).
+    /// same.
     /// </summary>
     /// <remarks>
     /// The only resolution that may be automated, because it is the only one that
@@ -310,7 +310,7 @@ public sealed class SyncService(
     /// all. There must be exactly one candidate — an ambiguous multi-match carries
     /// no <see cref="ImportPreviewItem.ExistingAnimeId"/> at all, so it cannot be
     /// picked up here — and the titles must match exactly, ignoring case only. This
-    /// is not the similarity heuristic D10 rejected.
+    /// is exact equality rather than a similarity heuristic.
     ///
     /// <c>ImportAsNew</c> is never applied without a person. It duplicates the row,
     /// both copies appear in the backlog, both are queueable, and nothing in the MVP
@@ -330,24 +330,24 @@ public sealed class SyncService(
 
     /// <summary>
     /// Marks the titles this source used to list and no longer does, and unmarks the
-    /// ones it has started listing again (D19).
+    /// ones it has started listing again.
     /// </summary>
     /// <remarks>
-    /// <b>Scope is structural, not configured.</b> Only rows carrying this source's
+    /// Scope is structural, not configured. Only rows carrying this source's
     /// identifier are ever considered, so a MyAnimeList-only title — or one added by
     /// hand — cannot be reached by an AniList policy whatever the user has set. That
     /// is what protects somebody consolidating two separately-maintained lists.
     ///
-    /// <b>An empty fetch marks nothing.</b> A truncated response, a paging bug, a
+    /// An empty fetch marks nothing. A truncated response, a paging bug, a
     /// mistyped account and "the user deleted everything" are indistinguishable from
-    /// here, and D19 is explicit that acting on that reading is the one failure with
+    /// here, and acting on that reading is the one failure with
     /// no recovery path. The client fails rather than truncating and a merge rejects
     /// a fetch any part of which failed, so reaching this method already means the
     /// response was structurally complete; the zero-entry guard covers the remaining
     /// case of a complete response that is simply empty.
     ///
     /// Nothing is removed. <see cref="SyncAbsencePolicy.Remove"/> waits on the guards
-    /// D19 requires — the backup it originally waited for was declined by D33 — so the
+    /// it needs — see <see cref="SyncAbsencePolicy"/> — so the
     /// mark is currently the whole of the behaviour, which is also why it is safe to
     /// write during a fetch that has not been confirmed: it records what the source
     /// said, and the next fetch that says otherwise clears it.
@@ -416,7 +416,7 @@ public sealed class SyncService(
         {
             // The steady state, and the reason for counting rather than saving
             // unconditionally: an idle poll must not open a write transaction at all,
-            // because it contends with the user for SQLite's single writer (§9).
+            // because it contends with the user for SQLite's single writer.
             return 0;
         }
 
@@ -539,7 +539,7 @@ public sealed class SyncService(
 
         // The whole file is rewritten on every save, so everything this call is not
         // editing is read back and passed through. The alternative — writing only the
-        // changed keys — is the round-tripping D36 removed the need for.
+        // changed keys — would mean comment-preserving round-tripping.
         var result = await settingsStore.SaveAsync(
             settingsStore.Read() with
             {
@@ -588,10 +588,8 @@ public sealed class SyncService(
     /// Recomputes every stored display title from the variants beside it.
     /// </summary>
     /// <remarks>
-    /// This is what makes the preference a preference. It used to take effect only
-    /// when the next sync happened to rewrite the row, which meant a library already
-    /// up to date could not change language at all without re-fetching the whole list
-    /// — a display choice wearing a sync's clothes (D22).
+    /// This is what makes the preference a preference: a library already up to date
+    /// changes language without re-fetching the whole list.
     ///
     /// One statement rather than a load-modify-save loop: this touches every row in
     /// the catalogue, and a few thousand tracked entities to write one column each is
@@ -636,7 +634,7 @@ public sealed class SyncService(
     /// <remarks>
     /// No title preference passes through here. The parser carries every variant the
     /// source published and the import resolves which to display, so one parse serves
-    /// any preference and changing it later needs no fetch at all (D22).
+    /// any preference and changing it later needs no fetch at all.
     /// </remarks>
     private async Task<ParseResult> ParseAsync(AniListFetch fetch, CancellationToken cancellationToken)
     {
@@ -665,7 +663,7 @@ public sealed class SyncService(
 
         // A profile with no settings row gets romaji, which is what a MyAnimeList
         // library already holds — so the absence of a preference never rewrites
-        // titles (D22).
+        // titles.
         return preference ?? TitleLanguage.Romaji;
     }
 
@@ -673,13 +671,12 @@ public sealed class SyncService(
     /// How this source is configured, right now.
     /// </summary>
     /// <remarks>
-    /// Synchronous and allocation-cheap, where this used to be a query per call.
-    /// Reading the options monitor rather than the store keeps a save reaching a run
-    /// in flight without a restart, and there is no longer an "unconfigured" state to
-    /// distinguish: an unset key means the default, so every source always has a
-    /// complete answer.
+    /// Synchronous and allocation-cheap. Reading the options monitor rather than the
+    /// store lets a save reach a run in flight without a restart, and there is no
+    /// "unconfigured" state to distinguish: an unset key means the default, so every
+    /// source always has a complete answer.
     ///
-    /// A file source gets the defaults and consults none of them (Phase 10a).
+    /// A file source gets the defaults and consults none of them.
     /// </remarks>
     private SourceSyncSettings SettingsFor(AnimeSource source)
     {
@@ -738,11 +735,8 @@ public sealed class SyncService(
     {
         RequireConfigurable(source);
 
-        // One key naming the occupant, where this used to be a rank written to every
-        // row inside a transaction. The transaction existed because two rows could
-        // disagree — a failure between promoting one and demoting the other left two
-        // primaries. A single value cannot hold two names, so the invariant is now
-        // structural and the transaction has nothing left to protect (Phase 10a).
+        // One key naming the occupant, so no transaction is needed: a single value
+        // cannot hold two names, which makes the single-seat invariant structural.
         var result = await settingsStore.SaveAsync(
             settingsStore.Read() with { SyncPrimarySource = source },
             cancellationToken);
@@ -772,7 +766,7 @@ public sealed class SyncService(
     /// </summary>
     /// <remarks>
     /// <see cref="AnimeSource.Manual"/> is the exception and always will be: a title
-    /// somebody typed in has no service behind it to rank or schedule (D17).
+    /// somebody typed in has no service behind it to rank or schedule.
     /// </remarks>
     private static void RequireConfigurable(AnimeSource source)
     {

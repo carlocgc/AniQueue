@@ -45,7 +45,7 @@ public class MyAnimeListXmlParserTests
         Assert.Equal(AnimeSource.MyAnimeList, entry.Source);
 
         // One identifier: a MyAnimeList export knows only about MyAnimeList. An
-        // AniList response will supply two (D17), and nothing downstream cares
+        // AniList response will supply two, and nothing downstream cares
         // which parser produced how many.
         var identifier = Assert.Single(entry.ExternalIds);
         Assert.Equal(new ExternalIdentifier(AnimeSource.MyAnimeList, "268"), identifier);

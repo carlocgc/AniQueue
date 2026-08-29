@@ -22,7 +22,7 @@ public class AnimeStudioConfiguration : IEntityTypeConfiguration<AnimeStudio>
     {
         // A title credits a company once. IsMain is an attribute of that one
         // pairing rather than a second pairing, which is what makes this a join
-        // entity and AnimeGenre a pure join (D49).
+        // entity and AnimeGenre a pure join.
         builder.HasKey(x => new { x.AnimeId, x.StudioId });
 
         builder

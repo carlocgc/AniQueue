@@ -62,7 +62,7 @@ public class ScoringRequestWriterTests
         Assert.Equal("Tv", candidate.GetProperty("mediaType").GetString());
         Assert.Equal(2011, candidate.GetProperty("year").GetInt32());
 
-        // Never, whatever the catalogue knows (D52). A model that recognises the title
+        // Never, whatever the catalogue knows. A model that recognises the title
         // already knows how long it is, and one that does not is told to answer with low
         // confidence rather than infer.
         Assert.False(candidate.TryGetProperty("episodes", out _));
@@ -253,7 +253,7 @@ public class ScoringRequestWriterTests
     [Fact]
     public void Names_the_library_it_is_about()
     {
-        // D50. It sits in the envelope beside the format, which is the part of the
+        // It sits in the envelope beside the format, which is the part of the
         // document a reply is asked to copy back.
         var request = Minimal() with { Library = "a1b2c3d4e5f6" };
 

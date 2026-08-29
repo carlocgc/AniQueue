@@ -7,13 +7,13 @@ using Microsoft.Extensions.Logging.Abstractions;
 namespace AniQueue.Infrastructure.Tests;
 
 /// <summary>
-/// What the detail dialog is handed for one title (D49).
+/// What the detail dialog is handed for one title.
 /// </summary>
 /// <remarks>
 /// The poster fallback is the part worth a database: which of two rendition rows is
 /// chosen, and what happens when the better one has not arrived, is a decision made
 /// in a query rather than in the markup — and a fresh install spends its first
-/// several minutes in exactly the state the middle case describes (D48).
+/// several minutes in exactly the state the middle case describes.
 /// </remarks>
 public class TitleDetailTests
 {
@@ -109,7 +109,7 @@ public class TitleDetailTests
         var detail = await ServiceFor(fixture).GetTitleDetailAsync(Profile.DefaultProfileId, 1);
 
         // Null rather than the only company credited: the dialog renders no studio
-        // line at all rather than promoting a producer to studio (D25, D49).
+        // line at all rather than promoting a producer to studio.
         Assert.Null(detail!.MainStudio);
     }
 
@@ -129,7 +129,7 @@ public class TitleDetailTests
     public async Task Before_the_full_size_cover_arrives_the_list_thumbnail_stands_in()
     {
         // The state every fresh install is in for its first several minutes: 810
-        // thumbnails cached and the full-size covers still downloading (D48). A
+        // thumbnails cached and the full-size covers still downloading. A
         // dialog showing a colour block here, beside a list row showing art for the
         // same title, would read as broken rather than as pending.
         await using var fixture = await SyncedAsync(Fetched());
@@ -173,7 +173,7 @@ public class TitleDetailTests
     {
         // The row a user clicked can be removed by a sync between the page rendering
         // and the dialog opening. Null rather than a throw, because that is our
-        // timing rather than anything they did (D25).
+        // timing rather than anything they did.
         await using var fixture = await SyncedAsync(Fetched());
 
         var detail = await ServiceFor(fixture).GetTitleDetailAsync(Profile.DefaultProfileId, 999);

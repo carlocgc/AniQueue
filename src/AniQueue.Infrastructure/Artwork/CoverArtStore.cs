@@ -6,17 +6,15 @@ using Microsoft.Extensions.Options;
 namespace AniQueue.Infrastructure.Artwork;
 
 /// <summary>
-/// The cached pictures on disk (D47).
+/// The cached pictures on disk.
 /// </summary>
 /// <remarks>
-/// <b>Under <c>&lt;data&gt;/art/{kind}/</c>, derived from the database path.</b> §6
-/// forbids image binaries in the database, and §9 already had to solve the non-root
-/// bind-mount problem for the database file — solving it once solves it here. It also
-/// means the sample profile gets its own cache without anything being configured,
-/// because Phase 10a moved that profile into its own directory and the path this
-/// reads is the one that moved.
+/// Under <c>&lt;data&gt;/art/{kind}/</c>, derived from the database path: image
+/// binaries never go in the database, and deriving the location means the non-root
+/// bind-mount problem is solved once for both, and the sample profile gets its own
+/// cache without anything being configured.
 ///
-/// <b>Disk is the authority on what is cached, not the table.</b> A row saying a
+/// Disk is the authority on what is cached, not the table. A row saying a
 /// picture is cached is a claim; this is where it is checked. Somebody reclaiming
 /// space by deleting the art directory is the same instinct that makes deleting
 /// <c>data/sample</c> safe, and it heals on the next tick rather than leaving every
@@ -157,7 +155,7 @@ public sealed class CoverArtStore(IOptions<AniQueueDatabaseOptions> databaseOpti
             catch (UnauthorizedAccessException)
             {
                 // Same answer, and the likelier one under a bind mount owned by
-                // another uid — which is §9's problem rather than this pass's, and
+                // another uid, which is a deployment problem rather than this pass's and
                 // not worth failing a run over.
             }
         }

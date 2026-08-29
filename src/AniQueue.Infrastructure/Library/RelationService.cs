@@ -7,11 +7,11 @@ using Microsoft.EntityFrameworkCore;
 namespace AniQueue.Infrastructure.Library;
 
 /// <summary>
-/// Resolves the relation graph into the set one title belongs to (D55).
+/// Resolves the relation graph into the set one title belongs to.
 /// </summary>
 /// <remarks>
 /// Every read here has the same shape and it is worth stating once: an edge is
-/// stored as a pair of external identifiers with no foreign key to anything (D24),
+/// stored as a pair of external identifiers with no foreign key to anything,
 /// so <i>both</i> ends are resolved through <see cref="AnimeExternalId"/> at read
 /// time, and both directions are searched. Half of any title's relations are rows
 /// where it is the <c>RelatedExternalId</c> rather than the <c>ExternalId</c> —
@@ -27,8 +27,8 @@ public sealed class RelationService(
     /// </summary>
     /// <remarks>
     /// AniList and only AniList, matching the backfill that fills it: no other
-    /// source AniQueue reads publishes relations at all (D10). A MyAnimeList-only
-    /// library therefore expands nothing, which D23 records as a real gap rather
+    /// source AniQueue reads publishes relations at all. A MyAnimeList-only
+    /// library therefore expands nothing, which is a known gap rather
     /// than an oversight.
     /// </remarks>
     private const AnimeSource Source = AnimeSource.AniList;
@@ -47,14 +47,14 @@ public sealed class RelationService(
     private const int MaxWalkSteps = 32;
 
     /// <summary>
-    /// The relation types that mean "the same work", and so make up a set (D55).
+    /// The relation types that mean "the same work", and so make up a set.
     /// </summary>
     /// <remarks>
     /// Prequel and sequel give the main run; side story hangs the specials off it.
     ///
     /// <b><c>Parent</c> is deliberately absent, and its absence is the whole reason a
     /// spin-off cannot drag a franchise in.</b> AniList publishes <c>PARENT</c> as the
-    /// counterpart of both <c>SIDE_STORY</c> and <c>SPIN_OFF</c> (D24), so a parent
+    /// counterpart of both <c>SIDE_STORY</c> and <c>SPIN_OFF</c>, so a parent
     /// edge cannot tell a special from a spin-off — and it points the wrong way for a
     /// set in any case. A main work contains its side stories; a side story does not
     /// contain the work it branches from. Measured on a real library: Prisma Illya
@@ -188,10 +188,10 @@ public sealed class RelationService(
     /// and the note on why <c>Parent</c> is not among them. Spin-off, alternative,
     /// summary, compilation and contains are not followed at all: a separate work in
     /// the same world is a different purchase, and a remake or a recap is the same
-    /// story told again (D55).
+    /// story told again.
     ///
     /// <b>Membership is symmetric, so direction is not consulted.</b> An edge is
-    /// stored exactly as fetched (D24), so "this has sequel X" and "X has prequel
+    /// stored exactly as fetched, so "this has sequel X" and "X has prequel
     /// this" are the same fact written from opposite ends — and a season whose own
     /// relations have never been fetched is reachable only through the second form.
     /// Either endpoint being in the frontier puts the other in the set.
@@ -255,8 +255,8 @@ public sealed class RelationService(
 
             // Release order, and it is a fact rather than an opinion: AniList
             // publishes no viewing sequence, and ordering along the edges themselves
-            // would produce story order, which is frequently the wrong watch order
-            // (D24). Unknown dates last, with the year as a tiebreak for anything the
+            // would produce story order, which is frequently the wrong watch order.
+            // Unknown dates last, with the year as a tiebreak for anything the
             // relation pass has not reached.
             .OrderBy(e => e.Anime!.StartDate == null)
             .ThenBy(e => e.Anime!.StartDate)
@@ -338,11 +338,11 @@ public sealed class RelationService(
     /// <remarks>
     /// Only the direct neighbours get a label, and only where the two ends agree.
     /// Anything further into the set has no edge to read, so it has no name for why
-    /// it is there — which the dialog renders as no badge rather than as a guess
-    /// (D55).
+    /// it is there — which the dialog renders as no badge rather than as a guess.
+
     ///
-    /// Inverted in memory because it has to be: the mapping is a switch over an enum
-    /// (D24), and translating it would mean writing the same table twice in two
+    /// Inverted in memory because it has to be: the mapping is a switch over an enum,
+    /// and translating it would mean writing the same table twice in two
     /// languages. The set is one title's neighbours, so there is nothing to gain by
     /// trying.
     /// </remarks>
@@ -384,14 +384,13 @@ public sealed class RelationService(
     /// </summary>
     /// <remarks>
     /// This is now only what labels a neighbour, not what decides membership — the
-    /// walk in <see cref="SetAsync"/> does that, and goes further (D55). It stays a
+    /// walk in <see cref="SetAsync"/> does that, and goes further. It stays a
     /// query over both directions because an edge is stored exactly as fetched.
     ///
     /// No status is excluded. A set is context rather than results — a completed
     /// prequel is frequently the most useful thing it can say — so filtering it the
     /// way the listing above it is filtered would empty it of exactly what it exists
-    /// for. Hidden used to be the one exception, on the grounds that it was the user
-    /// saying they did not want to see that title anywhere; Phase 18b deleted hiding.
+    /// for.
     /// </remarks>
     private static IQueryable<Edge> Edges(
         AniQueueDbContext context,

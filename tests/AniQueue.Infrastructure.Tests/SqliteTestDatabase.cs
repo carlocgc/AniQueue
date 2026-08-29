@@ -28,7 +28,7 @@ public sealed class SqliteTestDatabase : IAsyncDisposable
         ContextFactory = new PooledFactory(options);
     }
 
-    /// <summary>Mirrors how production code obtains contexts (D3).</summary>
+    /// <summary>Mirrors how production code obtains contexts.</summary>
     public IDbContextFactory<AniQueueDbContext> ContextFactory { get; }
 
     public static async Task<SqliteTestDatabase> CreateAsync(CancellationToken cancellationToken = default)

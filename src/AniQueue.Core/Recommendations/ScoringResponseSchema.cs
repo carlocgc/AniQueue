@@ -9,20 +9,18 @@ namespace AniQueue.Core.Recommendations;
 /// to return, what a server is told to enforce, and what AniQueue will accept are
 /// three statements of one thing, and keeping them apart is how they come to disagree.
 ///
-/// <b>Shape only, deliberately.</b> No minimums, no maximums, no uniqueness. Servers
+/// Shape only, deliberately. No minimums, no maximums, no uniqueness. Servers
 /// convert this to a grammar and the conversions vary in what they support, so a
 /// schema that expresses everything is a schema some servers refuse — and the
 /// constraints left out are exactly the ones the parser already enforces and tests.
 /// The wire schema stops a model returning prose; the parser decides whether the
-/// numbers mean anything (D31).
+/// numbers mean anything.
 ///
-/// <b>No <c>additionalProperties: false</c>, and since D43 that carries weight.</b>
-/// <c>rank</c> left the interchange, but a model that has seen the old shape will
-/// still send one; a closed schema would make the server refuse a reply whose
-/// scores are perfectly good over a field nothing reads any more. Open here and
-/// read past in the parser is the same decision stated twice.
+/// No <c>additionalProperties: false</c>. A model may send a field nothing reads —
+/// a <c>rank</c>, say — and a closed schema would make the server refuse a reply
+/// whose scores are perfectly good. Open here and read past in the parser.
 ///
-/// <b>The envelope is not required here</b> even though the prompt asks for it.
+/// The envelope is not required here even though the prompt asks for it.
 /// <see cref="ScoringResponseParser"/> tolerates its absence on purpose — models
 /// return the array reliably and the wrapper unreliably — so requiring it on the wire
 /// would make a server refuse replies AniQueue would have accepted.

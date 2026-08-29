@@ -1,21 +1,15 @@
 namespace AniQueue.Core.Domain;
 
 /// <summary>
-/// How one title relates to another, as the source states it.
-///
-/// Stored as an integer; values are a database contract. Append only.
-///
-/// This is a subset of AniList's <c>MediaRelation</c>, and the omissions are
-/// decisions rather than gaps (D24). <c>CHARACTER</c> links shows that share a
-/// character and nothing else, which is noise wearing a relation's clothes.
-/// <c>ADAPTATION</c> and <c>SOURCE</c> point at manga and novels, which this
-/// application does not hold. <c>OTHER</c> is undefined by construction, and a
-/// relation that cannot be labelled cannot be shown — every relative the user sees
-/// carries a name for why it is there.
+/// How one title relates to another, as the source states it. A subset of
+/// AniList's <c>MediaRelation</c>: relations pointing at manga and novels, ones
+/// that only share a character, and ones AniList leaves undefined are not stored,
+/// because every relative the user sees carries a name for why it is there.
 ///
 /// A type unknown to this enum is dropped at parse time rather than stored as a
-/// catch-all, so a value AniList adds later cannot arrive as a row nothing can
-/// render.
+/// catch-all.
+///
+/// Stored as an integer; values are a database contract. Append only.
 /// </summary>
 public enum RelationType
 {
@@ -75,22 +69,13 @@ public static class RelationTypes
         name is not null && ByAniListName.TryGetValue(name, out var type) ? type : null;
 
     /// <summary>
-    /// The same relation seen from the other title.
+    /// The same relation seen from the other title. Edges are stored exactly as
+    /// fetched and inverted on read, so a title whose own relations have never been
+    /// fetched is still reachable through the far end of another title's edge.
     /// </summary>
     /// <remarks>
-    /// AniList states an edge from the perspective of the media that was queried, so
-    /// an edge fetched as "A has sequel B" is the same fact as "B has prequel A".
-    /// Edges are stored exactly as fetched and inverted on read, because normalising
-    /// at write time would lose which end the source spoke from — and a title whose
-    /// relations have never been fetched is reachable only through the far end of
-    /// somebody else's edge.
-    ///
-    /// Three types are their own inverse. <see cref="Alternative"/> is symmetric by
-    /// meaning, and <see cref="SpinOff"/> and <see cref="SideStory"/> are not, but
-    /// AniList publishes no inverse for either — <c>PARENT</c> is the counterpart it
-    /// uses for both, and choosing one would state a relationship the source did not.
-    /// Left as they are, so the worst case is a label that reads oddly from one side
-    /// rather than one that is wrong.
+    /// Types AniList publishes no inverse for are returned unchanged, so the worst
+    /// case is a label that reads oddly from one side rather than one that is wrong.
     /// </remarks>
     public static RelationType Invert(RelationType type) => type switch
     {

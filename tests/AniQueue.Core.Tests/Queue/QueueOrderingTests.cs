@@ -3,7 +3,7 @@ using AniQueue.Core.Queue;
 namespace AniQueue.Core.Tests.Queue;
 
 /// <summary>
-/// The arithmetic behind every reorder. D2 traded the database's help with the
+/// The arithmetic behind every reorder. The database does not defend the
 /// contiguity invariant for a service that maintains it, which makes these the
 /// tests that stand behind that trade — so they are exhaustive where the input
 /// space allows it rather than picking a few representative cases.

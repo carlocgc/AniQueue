@@ -2,8 +2,7 @@ namespace AniQueue.Core.Domain;
 
 /// <summary>
 /// The form a title takes. <see cref="Unknown"/> is the default because imports
-/// routinely omit it, and the brief requires missing metadata to degrade cleanly
-/// rather than be invented.
+/// routinely omit it, and missing metadata degrades rather than being invented.
 ///
 /// Stored as an integer; values are a database contract. Append only.
 /// </summary>

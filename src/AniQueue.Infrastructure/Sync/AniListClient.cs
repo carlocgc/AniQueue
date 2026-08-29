@@ -10,7 +10,7 @@ namespace AniQueue.Infrastructure.Sync;
 /// Reads a public AniList list over GraphQL.
 ///
 /// A GraphQL request is an HTTP POST with a JSON body, which is why no client
-/// library was taken for it (§12): <c>HttpClient</c> and <c>System.Text.Json</c>
+/// library was taken for it: <c>HttpClient</c> and <c>System.Text.Json</c>
 /// are in the box, and the one query this application issues is written out below
 /// where it can be read.
 /// </summary>
@@ -32,7 +32,7 @@ public sealed class AniListClient(HttpClient httpClient, ILogger<AniListClient> 
     /// from the other end, and a server that always says "there is more" would
     /// otherwise be a request loop this application never escapes. Hitting it is a
     /// failure rather than a truncation, because half a list is the one shape a
-    /// sync must never act on (§5, D19).
+    /// sync must never act on.
     /// </remarks>
     private const int MaxChunks = 20;
 
@@ -54,10 +54,10 @@ public sealed class AniListClient(HttpClient httpClient, ILogger<AniListClient> 
     /// Everything else is the smallest set the pipeline consumes. <c>relations</c>
     /// is deliberately absent, and stays absent: relations are near-static while a
     /// list changes constantly, so they belong to a separate, lazy pass rather than
-    /// riding along on every poll of the data that does change (D24).
+    /// riding along on every poll of the data that does change.
     ///
-    /// <b>Phase 9b's four fields ride along, and that is the whole of the phase's
-    /// fetching</b> (D49). <c>description</c>, <c>genres</c>, <c>studios</c> and
+    /// Four enrichment fields ride along, and that is the whole of the
+    /// fetching. <c>description</c>, <c>genres</c>, <c>studios</c> and
     /// <c>coverImage.extraLarge</c> arrive in a request that was already being made
     /// for the entire collection, so every existing title is populated by the next
     /// scheduled sync and no backfill pass is needed — unlike relations, which needed
@@ -66,7 +66,7 @@ public sealed class AniListClient(HttpClient httpClient, ILogger<AniListClient> 
     /// <c>description</c> is taken without <c>asHtml</c> deliberately. AniList's own
     /// markdown keeps spoilers as <c>~!...!~</c>, which a renderer can mask; the HTML
     /// form has already expanded them into markup, and would additionally be
-    /// third-party HTML that only <c>MarkupString</c> could render (D49).
+    /// third-party HTML that only <c>MarkupString</c> could render.
     /// </remarks>
     private const string ListQuery =
         """
@@ -105,7 +105,7 @@ public sealed class AniListClient(HttpClient httpClient, ILogger<AniListClient> 
         """;
 
     /// <summary>
-    /// The relation query (D24).
+    /// The relation query.
     /// </summary>
     /// <remarks>
     /// <c>type: ANIME</c> pins the media selected, but deliberately not the far end
@@ -115,7 +115,7 @@ public sealed class AniListClient(HttpClient httpClient, ILogger<AniListClient> 
     ///
     /// <c>startDate</c> and <c>coverImage.color</c> ride along because the request is
     /// being made anyway: release ordering needs a date finer than a year, and the
-    /// colour is six bytes Phase 9 will want (D25). Neither justifies a request of
+    /// colour is six bytes a card can be themed with. Neither justifies a request of
     /// its own, which is exactly why they are here and not in a pass of their own.
     ///
     /// <c>idMal</c> is asked for on the media but not on the node. It costs nothing
@@ -156,7 +156,7 @@ public sealed class AniListClient(HttpClient httpClient, ILogger<AniListClient> 
         // [Int] on the other end, and an identifier that is not a number is one this
         // query could never have answered for. AnimeExternalId keeps identifiers as
         // text precisely because they arrive from files and are not trusted to be
-        // numeric (D17), so this is where that assumption gets checked.
+        // numeric, so this is where that assumption gets checked.
         var ids = externalIds
             .Select(id => int.TryParse(id, System.Globalization.CultureInfo.InvariantCulture, out var parsed)
                 ? parsed
@@ -292,7 +292,7 @@ public sealed class AniListClient(HttpClient httpClient, ILogger<AniListClient> 
                 // than in the status. It answered a 403 with "The AniList API has been
                 // temporarily disabled due to severe stability issues", and the page
                 // said "AniList returned 403." — a number the user can do nothing with
-                // in place of a sentence that explains itself (D40, §6).
+                // in place of a sentence that explains itself.
                 var failure = await response.Content.ReadAsStringAsync(cancellationToken);
 
                 return (null, DescribeFailure(response, failure));
@@ -308,7 +308,7 @@ public sealed class AniListClient(HttpClient httpClient, ILogger<AniListClient> 
         catch (HttpRequestException ex)
         {
             // Deliberately not surfaced verbatim. The message can carry the
-            // resolved host and inner socket detail, and §6 keeps that out of a
+            // resolved host and inner socket detail, which stays out of a
             // production-facing surface; the log has the exception in full.
             logger.LogWarning(ex, "AniList request failed for chunk {Chunk}", chunk);
             return (null, "AniList could not be reached.");
@@ -329,12 +329,12 @@ public sealed class AniListClient(HttpClient httpClient, ILogger<AniListClient> 
     ///
     /// The measured rate limit is 30 requests a minute, not the documented 90, so
     /// 429 is real rather than theoretical — though a single on-demand fetch of one
-    /// or two requests is a long way from it. <b>No retry happens here.</b>
+    /// or two requests is a long way from it. No retry happens here.
     /// Retrying inside a user-initiated action turns a fast failure into a stall
-    /// they cannot cancel; backoff belongs to the unattended runner in Phase 5c,
+    /// they cannot cancel; backoff belongs to the unattended runner,
     /// which has somewhere to wait.
     ///
-    /// <b>Anything else asks AniList what it meant.</b> A GraphQL server answers a
+    /// Anything else asks AniList what it meant. A GraphQL server answers a
     /// failure with an <c>errors</c> array whatever the status, and that message is
     /// the only one that can describe a state nobody anticipated — an API switched
     /// off for maintenance being the case that prompted this. Falling back to the
@@ -359,7 +359,7 @@ public sealed class AniListClient(HttpClient httpClient, ILogger<AniListClient> 
     /// The first message out of a GraphQL <c>errors</c> array, if there is one.
     /// </summary>
     /// <remarks>
-    /// <b>Bounded and parsed rather than pasted.</b> §6 treats what a remote host
+    /// Bounded and parsed rather than pasted. What a remote host
     /// sends back as untrusted and caps what an endpoint may say — the same rule the
     /// scoring client follows — so this reads one string out of a known shape and
     /// truncates it, rather than surfacing whatever arrived. A body that is not JSON,
@@ -408,7 +408,7 @@ public sealed class AniListClient(HttpClient httpClient, ILogger<AniListClient> 
     /// This is the one piece of the body the client looks at, and it is protocol
     /// rather than content: whether to issue another request. Everything meaningful
     /// in the payload is the parser's business, in Core, where it is tested without
-    /// a network (D9).
+    /// a network.
     ///
     /// An unreadable body returns false rather than throwing. The parser is about
     /// to reject it with a message describing what is actually wrong, which is a

@@ -4,8 +4,8 @@ using AniQueue.Core.Import;
 namespace AniQueue.Core.Tests.Import;
 
 /// <summary>
-/// The four fields Phase 9b added to the list query: genres, studios, the synopsis
-/// and the full-size cover (D49).
+/// The four enrichment fields on the list query: genres, studios, the synopsis
+/// and the full-size cover.
 ///
 /// They are tested here rather than against a database because everything worth
 /// checking about them is a reading decision — what an absent list means, which of
@@ -63,7 +63,7 @@ public class AniListEnrichmentParsingTests
         // The distinction the whole merge rests on. An empty list here has to be
         // indistinguishable from an absent one, because both mean "this source did
         // not tell us" — and the moment one of them means "this title has no genres",
-        // a MyAnimeList re-import starts erasing them (D49).
+        // a MyAnimeList re-import starts erasing them.
         await using var absent = Response("\"seasonYear\": 2013");
         await using var empty = Response("\"genres\": []");
 
@@ -108,7 +108,7 @@ public class AniListEnrichmentParsingTests
     public async Task A_title_with_no_main_studio_flagged_yields_none()
     {
         // Real and reasonably common. The dialog shows no studio line rather than
-        // promoting whichever company happened to come back first (D25, D49).
+        // promoting whichever company happened to come back first.
         await using var stream = Response("""
             "studios": { "edges": [
               { "isMain": false, "node": { "name": "Pony Canyon", "isAnimationStudio": false } }
@@ -156,7 +156,7 @@ public class AniListEnrichmentParsingTests
         // Spoiler markup intact, and the line breaks AniList's users write as HTML
         // still there. Both are the renderer's problem by design: masking a spoiler
         // is only possible while ~!...!~ is still a delimiter rather than markup, and
-        // storing a transformation instead would need a refetch to undo (D49).
+        // storing a transformation instead would need a refetch to undo.
         const string Synopsis = "Humanity fights back.<br>~!Eren becomes the villain.!~";
 
         await using var stream = Response($"""
@@ -187,7 +187,7 @@ public class AniListEnrichmentParsingTests
     [Fact]
     public async Task A_response_carrying_only_the_thumbnail_leaves_the_full_size_cover_unclaimed()
     {
-        // What every AniList response looked like before Phase 9b. The full-size row
+        // A response carrying no full-size cover. The full-size row
         // must simply not be created, rather than being created pointing at the
         // thumbnail — which would cache the same 100px picture twice and put it
         // behind a dialog expecting 460px.

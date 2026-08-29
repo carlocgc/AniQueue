@@ -26,7 +26,7 @@ public sealed record ParsedLibraryEntry
     public required AnimeSource Source { get; init; }
 
     /// <summary>
-    /// Every identifier this record supplies, which may be more than one (D17).
+    /// Every identifier this record supplies, which may be more than one.
     /// </summary>
     /// <remarks>
     /// A MyAnimeList export knows only itself and supplies one, or none for an
@@ -49,7 +49,7 @@ public sealed record ParsedLibraryEntry
     /// </remarks>
     public required string Title { get; init; }
 
-    /// <summary>Variants, each against its language, for sources that publish them (D22).</summary>
+    /// <summary>Variants, each against its language, for sources that publish them.</summary>
     public string? TitleRomaji { get; init; }
 
     public string? TitleEnglish { get; init; }
@@ -66,10 +66,8 @@ public sealed record ParsedLibraryEntry
     /// </summary>
     /// <remarks>
     /// This and the two fields below are catalogue facts rather than tracking data,
-    /// so D18's precedence never guards them — whichever source has them fills them
-    /// in. A MyAnimeList export carries none of the three, which is why every
-    /// runtime and decade surface built in Phase 3 sat inert until an AniList sync
-    /// existed to populate them.
+    /// so source precedence never guards them: whichever source has them fills them
+    /// in. A MyAnimeList export carries none of the three.
     /// </remarks>
     public int? EpisodeDurationMinutes { get; init; }
 
@@ -79,17 +77,13 @@ public sealed record ParsedLibraryEntry
     /// Where the source says the cover is. The parser does not fetch it.
     /// </summary>
     /// <remarks>
-    /// This lands on an <c>AnimeImage</c> row rather than a column, and it is the
-    /// <i>thumbnail</i> size rather than the largest available (D47). §10 took
-    /// <c>extraLarge</c> on the reasoning that nothing rendered art yet, which was
-    /// right about the timing and wrong about the size: something renders it now, in
-    /// a forty-pixel column, and the same picture is 9.7 KB or 83.3 KB depending only
-    /// on which field named it.
+    /// The thumbnail rendition, for a list slot. It lands on an <c>AnimeImage</c>
+    /// row rather than a column.
     /// </remarks>
     public string? CoverImageUrl { get; init; }
 
     /// <summary>
-    /// Where the source says the full-size cover is, for the detail dialog (D48).
+    /// Where the source says the full-size cover is, for the detail dialog.
     /// </summary>
     /// <remarks>
     /// A second field rather than a second entry, because both sizes arrive on the
@@ -100,7 +94,7 @@ public sealed record ParsedLibraryEntry
     public string? CoverImageFullUrl { get; init; }
 
     /// <summary>
-    /// The synopsis, as the source published it. Never transformed here (D49).
+    /// The synopsis, as the source published it. Never transformed here.
     /// </summary>
     public string? Description { get; init; }
 
@@ -108,11 +102,10 @@ public sealed record ParsedLibraryEntry
     /// Genres the source names, or empty when it names none.
     /// </summary>
     /// <remarks>
-    /// <b>Empty means the source did not say</b>, and every consumer has to read it
-    /// that way. A MyAnimeList export publishes no genres at all, so treating empty
-    /// as a statement of fact would strip whatever AniList supplied off every title
-    /// the two sources share — the collection form of the rule <c>Merge</c> already
-    /// keeps for scalars (D49).
+    /// Empty means the source did not say, and every consumer has to read it that
+    /// way. A MyAnimeList export publishes no genres at all, so treating empty as a
+    /// statement of fact would strip whatever AniList supplied off every title the
+    /// two sources share.
     /// </remarks>
     public IReadOnlyList<string> Genres { get; init; } = [];
 
@@ -135,7 +128,7 @@ public sealed record ParsedLibraryEntry
 }
 
 /// <summary>
-/// One company credited on a title, as the source states it (D49).
+/// One company credited on a title, as the source states it.
 /// </summary>
 /// <param name="Name">The company's name, verbatim.</param>
 /// <param name="IsMain">

@@ -9,7 +9,7 @@ using Microsoft.Extensions.Options;
 namespace AniQueue.Infrastructure.Tests;
 
 /// <summary>
-/// The reorder tests D2 calls load-bearing.
+/// The reorder tests the queue service depends on.
 ///
 /// Dropping the unique index over (ProfileId, Position) moved contiguity and
 /// uniqueness out of the schema and into <see cref="QueueService"/>. Nothing in the
@@ -197,7 +197,7 @@ public class QueueServiceTests
     }
 
     /// <summary>
-    /// Positions are not unique in the schema (D2), so a queue can in principle
+    /// Positions are not unique in the schema, so a queue can in principle
     /// arrive with duplicates or gaps. The next ordinary edit should repair it
     /// rather than compounding it.
     /// </summary>
@@ -259,7 +259,7 @@ public class QueueServiceTests
 
     /// <summary>
     /// The same removal addressed by title, which is how the backlog undoes its own
-    /// queue button — it lists titles and never sees a slot id (D26).
+    /// queue button — it lists titles and never sees a slot id.
     /// </summary>
     [Fact]
     public async Task Removing_by_title_releases_its_slot_and_closes_the_gap()
@@ -280,7 +280,7 @@ public class QueueServiceTests
 
     /// <summary>
     /// Adding then removing then adding again lands the title at the back rather
-    /// than where it used to be. Queue position is authored, not remembered (D11) —
+    /// than at its former position. Queue position is authored, not remembered:
     /// restoring the old one would be AniQueue holding an opinion about the order.
     /// </summary>
     [Fact]
@@ -408,7 +408,7 @@ public class QueueServiceTests
 
     /// <summary>
     /// Not a special case carved out for re-watching — the ordinary rule, reached by
-    /// the source saying the title is planned again (D12).
+    /// the source saying the title is planned again.
     /// </summary>
     [Fact]
     public async Task A_finished_title_becomes_queueable_again_once_it_is_planned_again()
@@ -455,7 +455,7 @@ public class QueueServiceTests
         Assert.Equal(1, result.Unavailable);
     }
 
-    // --- Advancement (D12) -----------------------------------------------
+    // --- Advancement -----------------------------------------------
 
     /// <summary>
     /// The rule that replaces the watching workflow: there is no "start watching"
@@ -497,7 +497,7 @@ public class QueueServiceTests
         Assert.Equal(0, await fixture.Queue.AdvanceAsync(fixture.ProfileId));
         Assert.Equal("A B", await fixture.OrderAsync());
 
-        // Idempotent: the Phase 5 sync will call this on a schedule, so running it
+        // Idempotent: the sync calls this on a schedule, so running it
         // repeatedly against an unchanged library must stay a no-op.
         Assert.Equal(0, await fixture.Queue.AdvanceAsync(fixture.ProfileId));
         Assert.Equal("A B", await fixture.OrderAsync());

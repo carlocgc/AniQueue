@@ -20,33 +20,18 @@ namespace AniQueue.Core.Recommendations;
 /// written as null. There is no difference between the two for a reader, and one
 /// of them is shorter.
 ///
-/// <b>Field order is load-bearing, and only for one reason: the prompt cache.</b>
+/// Field order is load-bearing, and only for one reason: the server's prompt cache.
 /// A sweep sends the same history — around twenty thousand tokens of it — with every
-/// batch, and a local server will reuse the state it computed for an identical
-/// prefix rather than processing those tokens again. That reuse ends at the first
-/// byte that differs, so everything invariant is written before <c>history</c> and
-/// everything that changes between batches is written after it. A varying field near
-/// the top costs the whole history on every batch: measured at roughly seven seconds
-/// of prompt processing per batch against gpt-oss-20b, for a document whose only
-/// difference was a timestamp.
+/// batch, and a local server reuses the state it computed for an identical prefix
+/// rather than processing those tokens again. That reuse ends at the first byte that
+/// differs, so everything invariant is written before <c>history</c> and everything
+/// that changes between batches is written after it. Nothing about the order is a
+/// hint to the model; a reader cannot tell the difference.
 ///
-/// Which is what was happening. <c>generatedAt</c> sat inside the opening envelope
-/// and <c>candidatesAvailable</c> — which shrinks as a sweep scores its way through
-/// the backlog — sat immediately before the history array. Both are now below it.
-/// **Nothing here is a hint to the model**; a reader cannot tell the difference, and
-/// that is the point.
-///
-/// <b>This half works and is not sufficient on its own.</b> Measured against
-/// llama.cpp through LM Studio, before and after: every request used to be handed to
-/// a slot by <c>LRU</c> — round-robin across four cold caches, because no slot held a
-/// prefix worth matching. Afterwards every batch but the first is routed by
-/// <c>LCP similarity</c> at 0.93–0.999 and lands back on the same warm slot, which is
-/// the server saying it can see the shared prefix. It then reprocesses the whole
-/// prompt anyway, at an unchanged ~9 seconds a batch, because that server was running
-/// four slots against a unified KV cache. **So a change here is necessary, verifiable
-/// from the slot-selection line, and cannot be confirmed by wall-clock time alone** —
-/// if the tokens are still being reprocessed after this, look at the server's slot
-/// count before looking at the payload again.
+/// Field order is necessary and not sufficient. Whether the tokens are actually
+/// reused also depends on how the server is configured — a slot count set against a
+/// unified KV cache reprocesses the prompt anyway. Confirm it from the server's own
+/// slot-selection log rather than from wall-clock time.
 /// </remarks>
 public static class ScoringRequestWriter
 {
@@ -81,7 +66,7 @@ public static class ScoringRequestWriter
         writer.WriteString("format", ScoringRequest.RequestFormat);
         writer.WriteNumber("version", ScoringRequest.CurrentVersion);
 
-        // Which library is being ranked, for the reply to echo back (D50). Invariant
+        // Which library is being ranked, for the reply to echo back. Invariant
         // for the life of a database, so it belongs in the prefix and costs a sweep
         // nothing: it is written once per request and never varies between batches.
         //
@@ -169,7 +154,7 @@ public static class ScoringRequestWriter
         }
 
         WriteMediaType(writer, candidate.MediaType);
-        // No "episodes" and no "episodeMinutes" (D52). They were about a tenth of a real
+        // No "episodes" and no "episodeMinutes". They were about a tenth of a real
         // request and changed no score anyone could measure.
         WriteOptionalNumber(writer, "year", candidate.Year);
 
