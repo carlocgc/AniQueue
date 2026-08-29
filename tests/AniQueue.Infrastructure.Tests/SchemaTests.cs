@@ -24,17 +24,17 @@ public class SchemaTests
     }
 
     [Theory]
-    // Import deduplication (D17). Unfiltered, unlike the single-column index it
+    // Import deduplication. Unfiltered, unlike the single-column index it
     // replaced — a manual entry now has no row rather than a null identifier.
     [InlineData("IX_AnimeExternalIds_Source_ExternalId")]
     // One identifier per title per source; a second means two sources disagree.
     [InlineData("IX_AnimeExternalIds_AnimeId_Source")]
     // One relationship per profile per title; what makes re-import idempotent.
     [InlineData("IX_LibraryEntries_ProfileId_AnimeId")]
-    // Queue ordering reads (D2 — intentionally not unique).
+    // Queue ordering reads (intentionally not unique).
     [InlineData("IX_QueueItems_ProfileId_Position")]
-    // No title may occupy two queue slots. Since D15 a slot is always one title,
-    // so this index is unfiltered, and since D23 there is no other kind of slot it
+    // No title may occupy two queue slots. A slot is always one title,
+    // so this index is unfiltered, and there is no other kind of slot it
     // could ever need a counterpart for.
     [InlineData("IX_QueueItems_ProfileId_AnimeId")]
     public async Task Expected_index_exists(string indexName)
@@ -47,7 +47,7 @@ public class SchemaTests
     }
 
     /// <summary>
-    /// D2 is a deliberate trade: the database does not defend queue contiguity, so
+    /// A deliberate trade: the database does not defend queue contiguity, so
     /// this asserts the constraint really is absent. If someone "helpfully" adds
     /// it later, reorders will start aborting mid-transaction and this test
     /// explains why that happened.

@@ -1,11 +1,10 @@
 /*
    Drag reordering for the Up Next queue.
 
-   This is the whole of ROADMAP.md §9's "budget a spike in Phase 4", and the shape
-   below is the point of it. Blazor's renderer diffs against its own virtual tree
-   and patches the live DOM through direct node references. SortableJS physically
-   moves nodes behind its back. Left alone, the two disagree about what the list
-   contains, and the next render duplicates or resurrects rows.
+   The shape below is the point of it. Blazor's renderer diffs against its own
+   virtual tree and patches the live DOM through direct node references. SortableJS
+   physically moves nodes behind its back. Left alone, the two disagree about what
+   the list contains, and the next render duplicates or resurrects rows.
 
    The working pattern is three steps, in this order:
 

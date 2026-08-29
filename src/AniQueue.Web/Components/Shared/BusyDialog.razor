@@ -39,19 +39,6 @@
                 </ul>
             }
 
-            @* A cancel button was here, rendered only when an operation supplied a
-               callback. Its own comment said why it was rare: every operation with a
-               dialog could not usefully be interrupted — an import is committing rows,
-               a sync is reconciling them — and offering to stop one raises a question
-               about what half-done means. Waiting on somebody else's model was "the
-               first thing here where stopping is free and the wait can be long enough
-               to want to".
-
-               It was also the last. D42 deleted that wait, so every operation behind
-               this dialog is once again one that should not be interrupted, and the
-               dialog goes back to having no way out. Stopping background work is the
-               tasks page's job, where the thing being stopped is not something
-               somebody is standing in front of. *@
         </div>
     </div>
 }
@@ -60,11 +47,4 @@
     /// <summary>The scope driving this dialog. Owned by the page.</summary>
     [Parameter, EditorRequired]
     public required BusyScope State { get; set; }
-
-    // OnCancel, CancelLabel and the latch that stopped a second press were here. The
-    // latch is worth remembering rather than just deleting: cancelling was not instant
-    // — an HTTP call in flight is abandoned rather than undone — so the button had to
-    // go quiet and say "Stopping…" on its own, because the work reported nothing more
-    // once it had been told to stop. The tasks page repeats that shape for the same
-    // reason (D42).
 }

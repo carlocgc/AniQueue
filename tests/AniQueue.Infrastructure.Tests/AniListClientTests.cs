@@ -8,11 +8,11 @@ namespace AniQueue.Infrastructure.Tests;
 /// <summary>
 /// The HTTP half of the sync, driven by a stub handler.
 ///
-/// No test here reaches the network (§8). What is worth testing is not that
+/// No test here reaches the network. What is worth testing is not that
 /// <c>HttpClient</c> works but that the failure paths produce something a user can
 /// act on, and that a list arriving in pieces either arrives whole or does not
 /// arrive at all — a half-fetched list is the one input a sync must never treat as
-/// the truth (D19).
+/// the truth.
 /// </summary>
 public class AniListClientTests
 {
@@ -91,7 +91,7 @@ public class AniListClientTests
     {
         // hasNextChunk comes from the other end. A server that always says "there is
         // more" would otherwise be a request loop with no exit, and the answer is to
-        // fail rather than to keep what arrived — half a list is exactly what D19's
+        // fail rather than to keep what arrived — half a list is exactly what
         // absence handling would read as a mass deletion.
         var (client, handler) = Build(_ => Json(Collection(hasNextChunk: true)));
 
@@ -149,7 +149,7 @@ public class AniListClientTests
     /// This body is verbatim what AniList answered on 23 August 2026, when their API
     /// was switched off and every sync began failing. The page said "AniList returned
     /// 403." — a number nobody can act on — while the sentence that explains the whole
-    /// situation was sitting in the response being discarded (D40).
+    /// situation was sitting in the response being discarded.
     ///
     /// A status code cannot describe a state nobody anticipated. A GraphQL server
     /// answers with an <c>errors</c> array whatever the status, so that is where to
@@ -185,7 +185,7 @@ public class AniListClientTests
     /// What a remote host says is bounded before it is shown.
     /// </summary>
     /// <remarks>
-    /// §6's rule for the scoring endpoint, applied here for the same reason: a message
+    /// The scoring endpoint's rule, applied here for the same reason: a message
     /// from somewhere else is untrusted input, and a page is not the place to find out
     /// how long it was.
     /// </remarks>

@@ -9,7 +9,7 @@ namespace AniQueue.Infrastructure.Sync;
 /// <summary>
 /// Asks about relations for titles nobody has asked about yet, with nobody present.
 ///
-/// The first instance of D25's shape: it gates on its own precondition — titles with
+/// It gates on its own precondition — titles with
 /// no marker, or one older than thirty days — rather than being scheduled, so it
 /// converges and then does nothing at all.
 /// </summary>
@@ -48,7 +48,7 @@ public sealed class RelationBackfillJob(
     /// <remarks>
     /// Polling resolution, not a schedule. What decides whether this does anything is
     /// its own precondition, and a newly synced title does not wait for a tick at all
-    /// — the library-change broadcast wakes it (D28, D41).
+    /// — the library-change broadcast wakes it.
     /// </remarks>
     public TimeSpan TickPeriod => TimeSpan.FromMinutes(15);
 
@@ -67,7 +67,7 @@ public sealed class RelationBackfillJob(
     /// Does whatever is outstanding, which is usually nothing.
     /// </summary>
     /// <remarks>
-    /// Failures are reported rather than thrown, and that is D25's silent degradation
+    /// Failures are reported rather than thrown, which is silent degradation
     /// rather than carelessness: a failure here means one row is missing a detail, not
     /// that the library is wrong.
     /// </remarks>
@@ -78,7 +78,7 @@ public sealed class RelationBackfillJob(
         // Nothing gates on a cadence here. Work is "titles nobody has asked about",
         // which is a question the database answers directly, and a job that is a
         // genuine no-op when there is nothing to do needs no schedule to protect
-        // anything from it (D25).
+        // anything from it.
         _ = context;
 
         if (!tasks.CurrentValue.RelationsEnabled)
@@ -98,7 +98,7 @@ public sealed class RelationBackfillJob(
         // Published because relations are library data and something downstream may
         // want them — the cover art job wakes on exactly this. Nothing here knows
         // that, which is the point: the signal says data changed, never "run the
-        // cover art job" (D41).
+        // cover art job".
         //
         // Without a payload, because there is no sentence a page could usefully show
         // about it. A runner wakes on the signal and ignores the detail; the notice

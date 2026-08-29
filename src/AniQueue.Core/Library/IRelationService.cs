@@ -4,7 +4,7 @@ using AniQueue.Core.Queue;
 namespace AniQueue.Core.Library;
 
 /// <summary>
-/// One title the user owns, listed as part of another title's set (D24, D55).
+/// One title the user owns, listed as part of another title's set.
 /// </summary>
 /// <remarks>
 /// Deliberately not a <see cref="LibraryListItem"/>. A set is context rather than a
@@ -49,11 +49,10 @@ public sealed record RelatedTitle
     /// How the source says the two are related, where it says anything at all.
     /// </summary>
     /// <remarks>
-    /// Null is a real answer rather than missing data, and it now means one of two
-    /// things. The edges may disagree — see <see cref="Label"/>. Or the title may
-    /// simply be further than one edge away, which since D55 is routine: season one
-    /// is in season three's set without any edge between them saying so, and calling
-    /// that "Prequel" would state a relationship the source did not.
+    /// Null is a real answer rather than missing data. Either the edges disagree —
+    /// see <see cref="Label"/> — or the title is further than one edge away, as
+    /// season one is from season three, and naming the relation would state
+    /// something the source did not.
     /// </remarks>
     public RelationType? Relation { get; init; }
 
@@ -76,28 +75,21 @@ public sealed record RelatedTitle
 }
 
 /// <summary>
-/// Answers what one title comes with: the set a complete box set would hold (D55).
+/// Answers what one title comes with: the set a complete box set would hold.
 ///
 /// There are no groups here and there will not be. This is keyed by anime id and
 /// answered per title, because a set is a property of the title you asked about
-/// rather than a thing stored anywhere (D23).
+/// rather than a thing stored anywhere.
 /// </summary>
 /// <remarks>
-/// <b>The set is the same work, followed as far as it goes.</b> Prequel and sequel
-/// give the main run and side story hangs the specials off it, so the walk follows
-/// those transitively and stops at nothing else. Spin-offs, alternative versions,
-/// recaps and compilations are not in the box: a separate work set in the same world
-/// is a different purchase, and a remake or a recap is the same story told again.
+/// The set is the same work, followed as far as it goes. Prequel and sequel give the
+/// main run and side story hangs the specials off it, so the walk follows those
+/// transitively and stops at nothing else. Spin-offs, alternative versions, recaps
+/// and compilations are not in the box.
 ///
-/// <b>A parent edge is not followed</b>, which is what stops a spin-off dragging in
-/// the work it branches from — AniList spells both with <c>PARENT</c> (D24), so the
-/// edge cannot tell them apart. See the note on <c>SameWork</c> in the implementation.
-///
-/// <b>This reverses D24's "one edge out, never transitive" for this surface, and
-/// deliberately.</b> One edge out was right for a panel injected into a list, where
-/// the question was "how is this connected". The dialog asks a bigger question —
-/// what am I taking on if I start here — and season one is the answer to it from
-/// season three, one edge away or three.
+/// A parent edge is not followed, which is what stops a spin-off dragging in the
+/// work it branches from: AniList spells both with <c>PARENT</c>, so the edge cannot
+/// tell them apart. See the note on <c>SameWork</c> in the implementation.
 /// </remarks>
 public interface IRelationService
 {
@@ -107,7 +99,7 @@ public interface IRelationService
     /// <remarks>
     /// <b>Owned titles only.</b> The walk reaches thousands of titles the user has
     /// never expressed an interest in, and the only action AniQueue could offer for
-    /// one of those is "go and add this somewhere else yourself" (D11). It walks
+    /// one of those is "go and add this somewhere else yourself". It walks
     /// through them, though: an unowned middle season is a gap in the results rather
     /// than a wall, because the walk happens in external identifiers and resolves to
     /// library rows only at the end.
@@ -118,7 +110,7 @@ public interface IRelationService
     /// <b>Release order, and nothing else.</b> AniList publishes no viewing
     /// sequence, and a topological sort along prequel edges produces story order,
     /// which is frequently the wrong watch order. Release order is a fact the source
-    /// supplies; story order would be an opinion (D24). Unknown dates sort last.
+    /// supplies; story order would be an opinion. Unknown dates sort last.
     ///
     /// <see cref="RelatedTitle.Relation"/> is set only for titles one edge away and
     /// null for anything further — see the note on that property.
@@ -145,7 +137,7 @@ public interface IRelationService
         CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Queues a title and the whole set it belongs to, in release order (D55).
+    /// Queues a title and the whole set it belongs to, in release order.
     /// </summary>
     /// <remarks>
     /// <b>Both directions, unlike the sequel walk this replaces.</b> That one went

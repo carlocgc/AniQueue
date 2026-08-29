@@ -7,7 +7,7 @@ using Microsoft.Extensions.Logging;
 namespace AniQueue.Infrastructure.Artwork;
 
 /// <summary>
-/// Fetches the covers nothing has fetched yet, paced, with nobody watching (D47).
+/// Fetches the covers nothing has fetched yet, paced, with nobody watching.
 /// </summary>
 /// <remarks>
 /// <b>Outstanding work is a disagreement, not a flag.</b> A row's <c>RemoteUrl</c> is
@@ -33,7 +33,7 @@ public sealed class ArtworkService(
     /// Transient failures allowed per URL before the row is left alone.
     /// </summary>
     /// <remarks>
-    /// The bound lives on the row because D40 took rescheduling away from jobs, and
+    /// The bound lives on the row because jobs do not reschedule themselves, and
     /// something still has to stop an unreachable title being asked about on every
     /// tick forever. Five is enough to ride out a restart of whatever was in the way
     /// and few enough that a genuinely dead URL stops costing requests within a day.
@@ -132,8 +132,8 @@ public sealed class ArtworkService(
         {
             // Logged as information rather than a warning, and never surfaced. Every
             // use of enrichment is an enhancement, so a cover that did not arrive
-            // means one row is missing a detail — D25 is explicit that this is
-            // deliberately unlike a stalled sync, which means the library is wrong.
+            // means one row is missing a detail. That is deliberately unlike a stalled
+            // sync, which means the library is wrong.
             logger.LogInformation(
                 "Cover art pass fetched {Fetched} and could not fetch {Failed}", fetched, failed);
         }
@@ -197,7 +197,7 @@ public sealed class ArtworkService(
     /// </summary>
     /// <remarks>
     /// Queued first, then planning, then everything else. <b>This is precondition
-    /// ordering, not orchestration</b> (D25, D28): remove it and the pass still
+    /// ordering, not orchestration</b>: remove it and the pass still
     /// converges on exactly the same set, one arbitrary order later. What it buys is
     /// that the first thing a user sees fill in is Up Next, which is the page the
     /// decision is actually made on.
@@ -209,8 +209,7 @@ public sealed class ArtworkService(
         // Projected to an anonymous type and mapped after materialising, not straight
         // into PendingImage. EF cannot see through a record constructor, so ordering
         // by a property of one fails to translate — at run time, with a clean build
-        // and a green suite behind it, which is the same shape of trap §8 records for
-        // DateTimeOffset comparison.
+        // and a green suite behind it, in the same way as a DateTimeOffset comparison.
         var rows = await context.AnimeImages
             .Where(i => !i.FailureIsPermanent && i.AttemptCount < MaxAttempts)
             .Where(i => i.ContentHash == null || i.FetchedUrl != i.RemoteUrl)

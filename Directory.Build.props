@@ -1,7 +1,7 @@
 <Project>
 
   <!--
-    Shared compiler settings for every project in the solution (D6).
+    Shared compiler settings for every project in the solution.
     Individual .csproj files should stay nearly empty so that a setting cannot
     drift between projects without anyone noticing.
   -->

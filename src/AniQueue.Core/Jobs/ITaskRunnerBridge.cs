@@ -2,7 +2,7 @@ namespace AniQueue.Core.Jobs;
 
 /// <summary>
 /// The runner's half of <see cref="ITaskRegistry"/>: waiting for a request, and
-/// saying what is happening (D40).
+/// saying what is happening.
 /// </summary>
 /// <remarks>
 /// Separated from the page's half because the two halves are used by things that

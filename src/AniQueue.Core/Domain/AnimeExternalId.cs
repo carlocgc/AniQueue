@@ -1,17 +1,9 @@
 namespace AniQueue.Core.Domain;
 
 /// <summary>
-/// One title's identifier on one external service (D17).
-///
-/// A title carries zero or more of these, which is the whole point: an AniList
-/// sync publishes <c>Media.idMal</c> alongside its own id, so storing both leaves
-/// a MyAnimeList identifier waiting for an export that lands later — and a
-/// MyAnimeList-imported library is matched rather than duplicated when AniList
-/// arrives. Under the old single-identifier model neither direction worked, and
-/// every title in a real library conflicted on first sync.
-///
-/// <see cref="Anime.Source"/> still exists and still means something, but only
-/// provenance: how the record came to be here. Identity is this table.
+/// One title's identifier on one external service. A title carries zero or more
+/// of these, so a library imported from one service is matched rather than
+/// duplicated when another one syncs.
 /// </summary>
 public class AnimeExternalId
 {
@@ -23,78 +15,36 @@ public class AnimeExternalId
 
     /// <summary>
     /// The service that issued <see cref="ExternalId"/>.
+    /// <see cref="AnimeSource.Manual"/> never appears: a hand-created title has no
+    /// external identifier and therefore no row here.
     /// </summary>
-    /// <remarks>
-    /// <see cref="AnimeSource.Manual"/> never appears here. A hand-created title
-    /// has no external identifier and therefore no rows at all, which is what lets
-    /// the uniqueness index below be unfiltered.
-    /// </remarks>
     public AnimeSource Source { get; set; }
 
     /// <summary>
-    /// The identifier as the source states it, kept as text.
+    /// The identifier as the source states it, kept as text because it arrives
+    /// from imported files and is not trusted to be numeric. Callers that need a
+    /// number parse it at the point of use.
     /// </summary>
-    /// <remarks>
-    /// Not an integer, even though both services currently issue numbers: these
-    /// values arrive from imported files and are not trusted to be numeric.
-    /// Anything that needs a number parses it at the point of use, as
-    /// <see cref="Library.SourceLinkBuilder"/> does before putting one in a URL.
-    /// </remarks>
     public required string ExternalId { get; set; }
 
     /// <summary>
     /// When a structurally complete fetch from <see cref="Source"/> last came back
-    /// without this title, or null while the source is still listing it (D19).
+    /// without this title, or null while the source is still listing it. Cleared
+    /// the moment the source lists the title again, so it always describes the most
+    /// recent fetch.
     /// </summary>
-    /// <remarks>
-    /// Absence is a fact about a title <i>on one service</i>, which is exactly what
-    /// this row already is, so it is recorded here rather than on the library entry
-    /// — a title dropped from AniList while still on MyAnimeList is absent from one
-    /// and present on the other, and one flag on the entry could not say that.
-    ///
-    /// It is written by the flag policy and cleared the moment the source lists the
-    /// title again, so it always describes the most recent fetch rather than
-    /// accumulating history. Only rows that have one of these are ever in scope for
-    /// absence at all, which is the structural protection D19 depends on: a
-    /// MyAnimeList-only title has no AniList row here, so no AniList policy can
-    /// reach it whatever the user sets.
-    ///
-    /// It is also the exact population <see cref="SyncAbsencePolicy.Remove"/> would
-    /// act on, whenever the guards D19 requires are built.
-    /// </remarks>
     public DateTimeOffset? MissingFromSourceAt { get; set; }
 
     /// <summary>
     /// When this title's relations were last asked for from <see cref="Source"/>,
-    /// or null while they have never been fetched.
+    /// or null while they have never been fetched. It records that the question was
+    /// asked, not that edges came back, so a title with no relations is not
+    /// re-queued forever. Expires after thirty days.
     /// </summary>
     /// <remarks>
-    /// It means <b>we asked</b>, not <i>we got edges</i>. Roughly half a library has
-    /// no relations at all, and a marker that only recorded success would put every
-    /// standalone title back in the queue on every pass — a backfill that never
-    /// finishes, against a rate limit, for titles that will never have an answer.
-    ///
-    /// It lives here rather than on <see cref="Anime"/> for the same reason
-    /// <see cref="MissingFromSourceAt"/> does: relations are published per service,
-    /// and this row is already the per-service fact about a title. A title AniList
-    /// knows and MyAnimeList does not has one of these and not the other, which a
-    /// column on the catalogue row could not say.
-    ///
-    /// A new season needs no re-read at all: it arrives as a <i>new</i> title with no
-    /// marker, and its own edges point back at the older seasons. What re-reading is
-    /// for is the other case — a relation added or corrected between two titles the
-    /// library already holds — so this expires after thirty days, and the Sources
-    /// page has a button for anyone who knows something changed sooner.
-    ///
-    /// <b>A <c>DateTime</c> rather than a <c>DateTimeOffset</c>, alone among the
-    /// timestamps here, and the exception is forced.</b> SQLite cannot compare a
-    /// <c>DateTimeOffset</c> at all: EF stores it as text carrying an offset, and
-    /// both <c>ORDER BY</c> and <c>&lt;</c> fail — the latter at translation time,
-    /// with "could not be translated" (§8 records the ordering half of this; the
-    /// comparison half was found here). Every other timestamp in the model is read,
-    /// displayed or null-checked, and this is the only one a <c>WHERE</c> has to
-    /// compare, so it is the only one that pays for the difference. Always written
-    /// as UTC, which is what makes the offset carry nothing worth keeping.
+    /// A <c>DateTime</c> rather than a <c>DateTimeOffset</c> because SQLite cannot
+    /// translate a comparison on the latter, and this is the only timestamp in the
+    /// model that a <c>WHERE</c> has to compare. Always written as UTC.
     /// </remarks>
     public DateTime? RelationsFetchedAt { get; set; }
 }

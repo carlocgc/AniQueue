@@ -9,7 +9,7 @@ using Microsoft.Extensions.Options;
 namespace AniQueue.Infrastructure.Tests;
 
 /// <summary>
-/// The pass that fills the cover cache in (D47).
+/// The pass that fills the cover cache in.
 /// </summary>
 /// <remarks>
 /// What is asserted here is the gate and the bookkeeping — which rows are picked up,
@@ -390,7 +390,7 @@ public class ArtworkServiceTests
     [Fact]
     public async Task A_pass_with_nothing_outstanding_makes_no_request_at_all()
     {
-        // D25's "idle when its input is empty", stated as an assertion. This is the
+        // "Idle when its input is empty", stated as an assertion. This is the
         // property that lets the job be switched on and cost nothing.
         await using var fixture = await Fixture.CreateAsync();
 

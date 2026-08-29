@@ -6,7 +6,7 @@ namespace AniQueue.Core.Tests.Sync;
 
 /// <summary>
 /// AniList's relation vocabulary, against a committed fixture so no test touches
-/// the network (§8).
+/// the network.
 ///
 /// The cases are chosen from what a real library would <i>not</i> have exercised:
 /// declined relation types, a manga on the far end of an edge, a duplicate edge, a
@@ -50,7 +50,7 @@ public class AniListRelationsParserTests
     {
         // CHARACTER links shows sharing a character and nothing else; OTHER has no
         // meaning to label a row with; ADAPTATION points at manga. All three are on
-        // real titles constantly, and none can be rendered (D24).
+        // real titles constantly, and none can be rendered.
         var slayers = Title(ParseFixture(), "4001");
 
         Assert.Equal(
@@ -97,7 +97,7 @@ public class AniListRelationsParserTests
         // Both ends of one relationship appear, each from its own perspective. The
         // parser normalises neither, because which end spoke is part of the fact
         // and is what lets a title nobody has fetched be reached through the far
-        // end of somebody else's edge (D24).
+        // end of somebody else's edge.
         var result = ParseFixture();
 
         Assert.Contains(

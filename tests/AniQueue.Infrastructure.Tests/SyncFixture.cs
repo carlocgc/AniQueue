@@ -36,7 +36,7 @@ internal sealed class SyncFixture : IAsyncDisposable
     /// </summary>
     /// <remarks>
     /// Mutable because the settings sync reads stopped being database rows in Phase
-    /// 10a. A test that used to arrange a scenario by inserting a row now changes
+    /// A test arranges a scenario by changing
     /// this, and a test that exercises <c>SaveSettingsAsync</c> sees the write arrive
     /// here through <see cref="Settings"/> — which means the round trip through the
     /// settings document is covered rather than mocked past.
@@ -237,7 +237,7 @@ internal sealed class StubOptionsMonitor(SyncOptions value) : IOptionsMonitor<Sy
 /// </remarks>
 internal sealed class FakeUserSettingsStore(SyncOptions options) : IUserSettingsStore
 {
-    /// <summary>Set to make every save fail, as an unwritable bind mount does (§9).</summary>
+    /// <summary>Set to make every save fail, as an unwritable bind mount does.</summary>
     public string? FailWith { get; set; }
 
     public int Saves { get; private set; }

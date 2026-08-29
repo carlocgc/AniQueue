@@ -18,7 +18,7 @@ public class LibraryChangeNotifierTests
     /// else's.
     /// </summary>
     /// <remarks>
-    /// The whole point of the origin. D41 made every job announce what it changed and
+    /// The whole point of the origin. Every job announces what it changed, and
     /// left "do not wake each other in a ring" as a discipline; a job that changes
     /// something on most runs woke its own runner on most runs regardless. Seen for
     /// real: a relation pass that wrote 826 edges produced a second run, triggered by

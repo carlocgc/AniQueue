@@ -1,6 +1,6 @@
 namespace AniQueue.Core.Jobs;
 
-/// <summary>One task as the page sees it right now (D40).</summary>
+/// <summary>One task as the page sees it right now.</summary>
 /// <param name="TaskKey">What its history is filed under.</param>
 /// <param name="UnitKey">Which unit within the task, or null where there is one.</param>
 /// <param name="Name">What to call it on the row.</param>
@@ -11,7 +11,7 @@ public sealed record TaskState(string TaskKey, string? UnitKey, string Name, Dat
 }
 
 /// <summary>
-/// What is running, what can be started, and what can be stopped (D40).
+/// What is running, what can be started, and what can be stopped.
 ///
 /// The only thing the tasks page talks to. It never reaches a job: a run requested
 /// here is delivered to the runner that owns the job, which starts it inside its own

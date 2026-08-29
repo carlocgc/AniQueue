@@ -6,7 +6,7 @@ using static AniQueue.Infrastructure.Tests.SyncFixture;
 namespace AniQueue.Infrastructure.Tests;
 
 /// <summary>
-/// A sync with nobody watching (D19, D21).
+/// A sync with nobody watching.
 ///
 /// Everything covered here happens while the user is asleep: what an unattended
 /// run may apply, what it must hold, and what it is entitled to conclude from a
@@ -20,7 +20,7 @@ public class UnattendedSyncTests
     /// </summary>
     /// <remarks>
     /// Deliberately still going through <c>SaveSettingsAsync</c> rather than poking
-    /// the options directly, even though Phase 10a made the latter possible. These
+    /// the options directly, even though the latter is possible. These
     /// tests are about what an unattended run does with a setting the user changed,
     /// and a helper that skipped the save would stop covering the path the user takes
     /// to get there.
@@ -41,8 +41,8 @@ public class UnattendedSyncTests
     [Fact]
     public async Task An_unattended_run_applies_the_unambiguous()
     {
-        // The safe subset is Phase 2's preview with conflicts withheld, and nothing
-        // here re-decides what "safe" means (D21).
+        // The safe subset is the preview with conflicts withheld, and nothing
+        // here re-decides what "safe" means.
         await using var fixture = await SyncFixture.CreateAsync(
             new StubAniListClient(Response(900101, "Sora no Kakera")));
 
@@ -66,7 +66,7 @@ public class UnattendedSyncTests
     {
         // What the fourth outcome exists for: a run that found changes and applied
         // none of them is not a run that found nothing, and a page unable to tell
-        // them apart reports a stalled library as up to date (§4).
+        // them apart reports a stalled library as up to date.
         await using var fixture = await SyncFixture.CreateAsync(
             new StubAniListClient(Response(900101, "Sora no Kakera")));
 
@@ -90,7 +90,7 @@ public class UnattendedSyncTests
     [Fact]
     public async Task Conflicts_are_held_unless_the_user_opted_into_linking()
     {
-        // Hold for review is the default, and it is what §6 requires: a match the
+        // Hold for review is the default: a match the
         // application cannot confirm is never merged without a person.
         await using var fixture = await SyncFixture.CreateAsync(
             new StubAniListClient(Response(900101, "Sora no Kakera")));
@@ -118,14 +118,14 @@ public class UnattendedSyncTests
     public async Task Linking_by_exact_title_converges()
     {
         // The only resolution that may be automated, because writing the identifier
-        // is what stops the entry conflicting again on every subsequent run (D21).
+        // is what stops the entry conflicting again on every subsequent run.
         await using var fixture = await SyncFixture.CreateAsync(
             new StubAniListClient(Response(900101, "Sora no Kakera")));
 
         await using (var setup = fixture.Database.CreateContext())
         {
             // Cased differently on purpose: the test is exact equality ignoring case,
-            // not the similarity heuristic D10 rejected.
+            // not a similarity heuristic.
             var anime = await SeedData.CreateAnimeAsync(setup, "sora no kakera");
             setup.LibraryEntries.Add(SeedData.Entry(Profile.DefaultProfileId, anime.Id));
             await setup.SaveChangesAsync();
@@ -208,7 +208,7 @@ public class UnattendedSyncTests
         Assert.Equal("900102", Assert.Single(flagged).ExternalId);
 
         // Flagged, and nothing more: the entry and any queue slot survive, because
-        // removal waits for the phase that can undo it (D19).
+        // removal waits for the phase that can undo it.
         Assert.Equal(2, await context.LibraryEntries.CountAsync());
 
         var status = await AniListStatusAsync(fixture);
@@ -239,7 +239,7 @@ public class UnattendedSyncTests
     [Fact]
     public async Task A_row_with_no_identifier_for_the_source_is_never_absent()
     {
-        // The protection D19 calls structural rather than configured: a
+        // The protection is structural rather than configured: a
         // MyAnimeList-only title, or one added by hand, cannot be reached by an
         // AniList policy whatever the setting says.
         await using var fixture = await SyncFixture.CreateAsync(
@@ -272,7 +272,7 @@ public class UnattendedSyncTests
     {
         // A truncated response, a paging bug, a mistyped account and "the user
         // deleted everything" are indistinguishable from here, so an empty fetch
-        // concludes nothing at all (D19).
+        // concludes nothing at all.
         await using var fixture = await SyncFixture.CreateAsync(new StubAniListClient(TwoTitles()));
 
         await fixture.Service.RunUnattendedAsync(Profile.DefaultProfileId, AnimeSource.AniList);
@@ -332,7 +332,7 @@ public class UnattendedSyncTests
     public async Task The_kill_switch_records_nothing()
     {
         // Nothing was attempted, and a log of runs that never ran would bury the
-        // failures that did (D20).
+        // failures that did.
         await using var fixture = await SyncFixture.CreateAsync(
             new StubAniListClient(Response(900101, "Sora no Kakera")),
             Configured(enabled: false));
@@ -381,7 +381,7 @@ public class UnattendedSyncTests
 
     /// <summary>
     /// The AniList status specifically, because the page now accounts for every
-    /// source rather than only the ones something can be fetched from (D30).
+    /// source rather than only the ones something can be fetched from.
     /// </summary>
     private static async Task<SourceSyncStatus> AniListStatusAsync(SyncFixture fixture) =>
         (await fixture.Service.GetStatusAsync(Profile.DefaultProfileId))

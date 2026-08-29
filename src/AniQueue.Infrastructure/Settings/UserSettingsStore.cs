@@ -10,7 +10,7 @@ using Microsoft.Extensions.Logging;
 namespace AniQueue.Infrastructure.Settings;
 
 /// <summary>
-/// The one writer of <c>userconfig.json</c> (D36).
+/// The one writer of <c>userconfig.json</c>.
 /// </summary>
 /// <remarks>
 /// <b>It replaces the first-boot template rather than sitting beside it.</b> The
@@ -36,7 +36,7 @@ public sealed class UserSettingsStore(
         //
         // Read through the indexer and parsed here rather than through the binder's
         // GetValue<T>, which lives in a package Infrastructure does not reference and
-        // §12 would require approving. A handful of keys parsed explicitly is a smaller
+        // would have to be approved. A handful of keys parsed explicitly is a smaller
         // thing to own than a dependency, and it is where the "unset means default"
         // rule becomes visible rather than implied.
         SyncEnabled = Bool(SyncKey(nameof(SyncOptions.Enabled)), UserSettings.Defaults.SyncEnabled),
@@ -125,8 +125,8 @@ public sealed class UserSettingsStore(
 
     /// <summary>A configured number, or null when unset or unreadable.</summary>
     /// <remarks>
-    /// A value that will not parse is treated as absent rather than fatal, which is
-    /// the same choice D20 made for a file that will not parse at all: this is the
+    /// A value that will not parse is treated as absent rather than fatal, as is a
+    /// file that will not parse at all: this is the
     /// file somebody edits when something is already wrong, and refusing to start
     /// over a typo in it is precisely backwards.
     /// </remarks>
@@ -195,7 +195,7 @@ public sealed class UserSettingsStore(
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or NotSupportedException)
         {
-            // §9's non-root container writing to a root-owned bind mount reaches here,
+            // A non-root container writing to a root-owned bind mount reaches here,
             // and it is a deployment rather than a defect. The caller shows the reason
             // beside the control that failed; nothing else changes, because nothing was
             // written.
@@ -230,8 +230,8 @@ public sealed class UserSettingsStore(
 
             // Seeded from what is currently in effect rather than from the defaults,
             // and that is what makes writing real values safe. This file is added last
-            // to the configuration chain, so a first boot that wrote UserSettings
-            // .Defaults would set an empty AniList account over one an operator had
+            // to the configuration chain, so a first boot that wrote UserSettings.
+            // Defaults would set an empty AniList account over one an operator had
             // supplied through the environment — silently, on a machine where nobody
             // had opened the file. Writing what is already true cannot override
             // anything, because it agrees with it.
@@ -246,7 +246,7 @@ public sealed class UserSettingsStore(
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or NotSupportedException)
         {
             // Refusing to start over an unwritable convenience file would turn a hint
-            // into an outage (D20), so this is a warning and the application continues.
+            // into an outage, so this is a warning and the application continues.
             logger.LogWarning(
                 ex,
                 "Could not write a settings file to {UserConfigPath}. AniQueue will run "
@@ -263,7 +263,7 @@ public sealed class UserSettingsStore(
     /// <remarks>
     /// A direct write leaves a truncated file if the process stops midway, and a
     /// truncated settings file is one whose settings are all silently absent — the
-    /// exact failure D20 designed the one-key-per-line format to avoid. A rename is
+    /// failure the one-key-per-line format exists to avoid. A rename is
     /// the cheapest way for the file to only ever be wholly old or wholly new.
     /// </remarks>
     private async Task WriteAsync(string content, CancellationToken cancellationToken)
@@ -289,7 +289,7 @@ public sealed class UserSettingsStore(
     /// Makes what was just written the current configuration.
     /// </summary>
     /// <remarks>
-    /// Explicit rather than waiting for the file watcher, which D20 records as
+    /// Explicit rather than waiting for the file watcher, which is
     /// unreliable on Windows-host and network-share bind mounts. AniQueue is the
     /// writer here, so it does not have to be told: reloading directly means the value
     /// is live by the time a save returns, identically on every platform.

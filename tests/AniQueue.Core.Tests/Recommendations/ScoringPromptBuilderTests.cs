@@ -118,10 +118,9 @@ public class ScoringPromptBuilderTests
     /// There is something to say when the history has no answer.
     /// </summary>
     /// <remarks>
-    /// The instruction this replaced — "referring to their history where you can" —
-    /// gave a model no way to decline, so one that found nothing close invented
-    /// something rather than saying so. An escape hatch is what stops a request for
-    /// grounding from becoming a request for fiction.
+    /// A model with no way to decline invents something rather than saying it found
+    /// nothing close. An escape hatch is what stops a request for grounding from
+    /// becoming a request for fiction.
     /// </remarks>
     [Fact]
     public void Offers_a_way_to_say_there_is_no_comparison()
@@ -176,7 +175,7 @@ public class ScoringPromptBuilderTests
     [Fact]
     public void Never_asks_for_a_rank_in_the_reply()
     {
-        // D43. The prose still says "rank" because judging candidates against each
+        // The prose still says "rank" because judging candidates against each
         // other is the task; what went is the request to number the result, and the
         // difference is only visible in the reply rules and the worked example. Both
         // limited and unlimited forms, because the limited one carried its own
@@ -217,7 +216,7 @@ public class ScoringPromptBuilderTests
     [Fact]
     public void Asks_for_the_library_key_back_and_shows_where_it_goes()
     {
-        // Said twice on purpose (D50): once as a rule, once inside the worked example,
+        // Said twice on purpose: once as a rule, once inside the worked example,
         // because a model reproduces a shape it has seen more reliably than it follows
         // a sentence about one.
         var prompt = ScoringPromptBuilder.Build(Request() with { Library = "a1b2c3d4e5f6" });

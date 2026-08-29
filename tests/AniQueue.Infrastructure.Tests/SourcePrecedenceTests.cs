@@ -5,7 +5,7 @@ using Microsoft.EntityFrameworkCore;
 namespace AniQueue.Infrastructure.Tests;
 
 /// <summary>
-/// D18: on a title two sources both describe, the higher-ranked one owns the
+/// : on a title two sources both describe, the higher-ranked one owns the
 /// user's tracking data.
 ///
 /// The failure this prevents is specific and only appears once consolidation is
@@ -53,7 +53,7 @@ public class SourcePrecedenceTests
         int watched = 0,
         MediaType mediaType = MediaType.Tv,
 
-        // Overridable because a real export often carries no count, and D29 turns on
+        // Overridable because a real export often carries no count, and precedence turns on
         // the difference between a field a source left empty and one it disagrees
         // about. A helper that always supplied 12 could only ever exercise the second.
         int? episodes = 12) =>
@@ -69,7 +69,7 @@ public class SourcePrecedenceTests
 
     /// <summary>
     /// An AniList entry as a sync produces it — its own id *and* idMal — so it
-    /// bridges onto a MyAnimeList-imported row (D17) rather than creating a second
+    /// bridges onto a MyAnimeList-imported row rather than creating a second
     /// title. Precedence only has something to decide once both sources describe
     /// one row, so the bridge is a precondition of these tests rather than
     /// incidental to them.
@@ -100,7 +100,7 @@ public class SourcePrecedenceTests
     /// Names the source that outranks the other.
     /// </summary>
     /// <remarks>
-    /// A rank per source until Phase 10a, which is why the callers still read as two
+    /// The callers read as two
     /// statements. One key replaced them, and the arithmetic is unchanged: the named
     /// source sits at rank 0 and everything else falls back to 1, exactly where the
     /// old explicit demotion row put it.
@@ -161,8 +161,8 @@ public class SourcePrecedenceTests
     [Fact]
     public async Task With_nothing_configured_the_last_writer_still_wins()
     {
-        // The single-tracker case D13 optimises for pays nothing for precedence
-        // existing. This is the behaviour that shipped before D18, asserted so a
+        // The single-tracker case pays nothing for precedence
+        // existing. This is unconditional last-writer-wins, asserted so a
         // future change to the default cannot pass unnoticed.
         await using var fixture = await ImportFixture.CreateAsync();
 
@@ -201,16 +201,13 @@ public class SourcePrecedenceTests
     }
 
     /// <summary>
-    /// A lower-ranked source fills gaps and does not settle disagreements (D29).
+    /// A lower-ranked source fills gaps and does not settle disagreements.
     /// </summary>
     /// <remarks>
-    /// This test used to assert that a blocked source wrote catalogue metadata
-    /// outright, justified by "AniList carries fields a MyAnimeList export simply
-    /// does not" — an argument about gaps that the implementation applied as
-    /// last-write-wins. The distinction it was missing is the whole of D29: an
-    /// episode count nobody had is filled by whoever has it, while a media type the
-    /// two sources disagree about goes to the one the user named primary, so the
-    /// answer does not depend on which import ran last.
+    /// Filling a gap and settling a disagreement are different things. An episode
+    /// count nobody had is filled by whoever has it, while a media type the two
+    /// sources disagree about goes to the one the user named primary, so the answer
+    /// does not depend on which import ran last.
     /// </remarks>
     [Fact]
     public async Task A_blocked_source_fills_gaps_without_overruling_the_primary()

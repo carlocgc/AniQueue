@@ -97,12 +97,12 @@ public class JobRunStoreTests
     /// Every run that happened moves the clock, whatever it did.
     /// </summary>
     /// <remarks>
-    /// This is the whole reason due-ness moved off <c>SyncRun</c> in Phase 15b. That
+    /// This is the whole reason due-ness is not read from <c>SyncRun</c>. That
     /// table records only runs that reached a terminal state, so a cancelled run left
     /// no trace and the next tick started it again — which would have made cancelling
     /// a button that does nothing. A failure counts for the same reason: nothing
     /// reschedules itself any more, so a failing task waits out its ordinary cadence
-    /// rather than being retried immediately (D40).
+    /// rather than being retried immediately.
     /// </remarks>
     [Theory]
     [InlineData(JobOutcome.Succeeded)]

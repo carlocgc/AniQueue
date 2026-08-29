@@ -36,9 +36,9 @@ public sealed class RelationBackfillService(
     /// </summary>
     /// <remarks>
     /// AniList and only AniList, because it is the only source AniQueue reads that
-    /// publishes relations at all — a MyAnimeList export carries none (D10). A
+    /// publishes relations at all — a MyAnimeList export carries none. A
     /// library that has never synced AniList therefore gets nothing from this,
-    /// which D23 records as a real gap rather than an oversight.
+    /// which is a known gap rather than an oversight.
     /// </remarks>
     private const AnimeSource Source = AnimeSource.AniList;
 
@@ -121,7 +121,7 @@ public sealed class RelationBackfillService(
             return RelationBackfillResult.Idle;
         }
 
-        // The kill switch stops this as surely as it stops a sync (D25). Unattended
+        // The kill switch stops this as surely as it stops a sync. Unattended
         // outbound traffic is exactly what it exists to halt, and an operator who has
         // turned sync off because it is hammering something would not expect a second
         // thing to carry on talking to the same host.
@@ -152,7 +152,7 @@ public sealed class RelationBackfillService(
         TimeSpan? retryAfter = null;
 
         // Bounded by time rather than by count, so the pass finishes the work instead
-        // of a fixed slice of it (Phase 15a). The budget is checked between requests,
+        // of a fixed slice of it. The budget is checked between requests,
         // never inside one: abandoning a request in flight would waste the two seconds
         // already spent waiting for its slot.
         var startedAt = _time.GetTimestamp();
@@ -270,7 +270,7 @@ public sealed class RelationBackfillService(
     ///
     /// <b>Never ordered by the marker itself.</b> SQLite cannot <c>ORDER BY</c> a
     /// <c>DateTimeOffset</c>: EF stores it as text with an offset and throws at query
-    /// time rather than returning a wrong order (§8). Sorting on <i>whether</i> it is
+    /// time rather than returning a wrong order. Sorting on <i>whether</i> it is
     /// null is a boolean and translates fine, which is all the ordering this needs —
     /// within either group the key is an arbitrary but stable tiebreak, and a stale
     /// title that gets refreshed stops being eligible, so nothing starves.
@@ -333,7 +333,7 @@ public sealed class RelationBackfillService(
 
         var answered = titles.Select(t => t.ExternalId).ToHashSet();
 
-        // Scoped exactly as D19 scopes absence: the source's silence is authoritative
+        // Absence is scoped: the source's silence is authoritative
         // only where it spoke. A title this response did not mention keeps every edge
         // it had — the batch may simply not have covered it, and deleting on that
         // basis would be reading a gap as a statement.
@@ -374,7 +374,7 @@ public sealed class RelationBackfillService(
 
         // Catalogue fields ride along on the same request, and follow the import
         // path's rule exactly: a value replaces what is stored, a null leaves it
-        // alone. Enrichment may only add (D18, D25) — nothing here touches status,
+        // alone. Enrichment may only add — nothing here touches status,
         // progress or score, and none of those are even loaded.
         var byExternalId = titles.ToDictionary(t => t.ExternalId);
 

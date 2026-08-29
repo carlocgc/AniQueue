@@ -24,7 +24,7 @@ namespace AniQueue.Infrastructure.Import;
 ///
 /// The one thing an import does change about the queue is which slots are still
 /// needed, and it does that by asking the queue rather than by editing it — see
-/// the advancement step at the end of <see cref="CommitAsync"/> (D12).
+/// the advancement step at the end of <see cref="CommitAsync"/>.
 /// </summary>
 public sealed class ImportService(
     IDbContextFactory<AniQueueDbContext> contextFactory,
@@ -71,7 +71,7 @@ public sealed class ImportService(
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
 
         // Which title variant this profile reads, so the preview compares — and the
-        // commit writes — the name the user will actually see (D22).
+        // commit writes — the name the user will actually see.
         var preferredTitle = await LoadPreferredTitleAsync(context, profileId, cancellationToken);
 
         progress?.Report(new OperationProgress("Comparing against your library"));
@@ -83,7 +83,7 @@ public sealed class ImportService(
         // Identifiers this file has already used, and the title that used them.
         // A file claiming one identifier twice would violate the uniqueness index
         // at commit and abort the whole import, so it is caught here instead and
-        // reported against the entry that caused it (D17).
+        // reported against the entry that caused it.
         var claimed = new Dictionary<ExternalIdentifier, string>();
 
         foreach (var entry in parsed.Entries)
@@ -152,19 +152,14 @@ public sealed class ImportService(
         // import at the final save.
         var written = new HashSet<ExternalIdentifier>();
 
-        // Who outranks whom, for titles two sources both describe (D18). Empty until
+        // Who outranks whom, for titles two sources both describe. Empty until
         // somebody names a primary source, and an empty map means precedence never
-        // fires — so the single-tracker case behaves exactly as it did before any of
-        // this existed.
+        // fires — so a single-tracker setup is unaffected by any of this.
         //
-        // <b>The demotion is built, not implied.</b> Phase 10a replaced a rank per
-        // row with one key naming the winner, and the obvious reading of that — put
-        // the winner in the map and let everything else fall back — is wrong here.
-        // MayWriteTracking short-circuits when *either* source is missing a rank, on
-        // the deliberate grounds that an unranked source is not outranked by
-        // anything; so a map holding only the primary makes every contest permissive
-        // and precedence silently stops working. The old SetPrimarySourceAsync wrote
-        // the loser's row for exactly this reason.
+        // Every source gets an entry, not just the primary. MayWriteTracking
+        // short-circuits when either source is missing a rank, on the grounds that an
+        // unranked source is not outranked by anything, so a map holding only the
+        // winner would make every contest permissive.
         //
         // Manual is left out, as it always was. A hand-added row is the user's own
         // work, and ranking it would let a sync outrank them.
@@ -176,7 +171,7 @@ public sealed class ImportService(
 
         var preferredTitle = await LoadPreferredTitleAsync(context, profileId, cancellationToken);
 
-        // Both vocabularies, once, for the whole commit (D49).
+        // Both vocabularies, once, for the whole commit.
         var taxonomy = await TaxonomyCache.LoadAsync(context, cancellationToken);
 
         foreach (var item in preview.Items)
@@ -287,7 +282,7 @@ public sealed class ImportService(
 
 
     /// <summary>
-    /// The title to display for this entry, under this profile's preference (D22).
+    /// The title to display for this entry, under this profile's preference.
     /// </summary>
     /// <remarks>
     /// Resolved where the row is written rather than by the parser, so one parse
@@ -307,7 +302,7 @@ public sealed class ImportService(
     /// <remarks>
     /// <b>Empty incoming is silence and never differs</b>, which is the collection
     /// form of the rule <c>Merge</c> keeps for scalars: a source that does not carry
-    /// something has not said it is absent (D49). A MyAnimeList export publishes no
+    /// something has not said it is absent. A MyAnimeList export publishes no
     /// genres at all, so without this a re-import would report — and then apply —
     /// the removal of every genre AniList supplied.
     ///
@@ -439,9 +434,9 @@ public sealed class ImportService(
             }
 
             // Every identifier is tried, not just the one matching this parser's own
-            // service. That is the whole point of D17: an AniList entry carrying a
-            // MyAnimeList id matches a MyAnimeList-imported row instead of
-            // duplicating it, and the same holds in the other direction.
+            // service, so an AniList entry carrying a MyAnimeList id matches a
+            // MyAnimeList-imported row instead of duplicating it, and the same holds
+            // in the other direction.
             var resolved = entry.ExternalIds
                 .Where(library.ByIdentifier.ContainsKey)
                 .Select(id => library.ByIdentifier[id])
@@ -486,7 +481,7 @@ public sealed class ImportService(
             // would be answering a question nobody asked, and the row it picked would
             // be decided by query order. Reported without an id, which is also what
             // stops an unattended run from linking it — a resolution needs a
-            // candidate, and this deliberately has none (D21).
+            // candidate, and this deliberately has none.
             if (manualTwins.Count > 1)
             {
                 return new ImportPreviewItem
@@ -568,7 +563,7 @@ public sealed class ImportService(
         // Without this a library already synced under the old single-alternative
         // column would resolve to the same displayed title, count as unchanged, and
         // never record which language its titles are — leaving the preference unable
-        // to switch anything (D22).
+        // to switch anything.
         if (StoresNewVariants(entry, existing))
         {
             changes.Add("Records its title in each language");
@@ -598,27 +593,23 @@ public sealed class ImportService(
         //
         // A cover URL that merely changed is almost always the same picture behind
         // a rotated CDN path, and reporting it would turn an otherwise idle sync
-        // into a library-wide list of "updated" rows for the user to review — the
-        // exact churn D21 relies on not happening when it says an unchanged sync
-        // writes nothing. Gaining art where there was none is a real change and is
-        // shown.
+        // into a library-wide list of "updated" rows for the user to review. Gaining
+        // art where there was none is a real change and is shown.
         if (entry.CoverImageUrl is not null && !existing.HasThumbnail)
         {
             changes.Add("Adds cover art");
         }
 
-        // Reported separately because it is gained separately, and because every
-        // title already in the library gains exactly this on the first sync after
-        // Phase 9b (D48). Without this line those titles look unchanged, and an
-        // unchanged item is skipped outright at commit — so the full-size covers
-        // would never have been written at all.
+        // Reported separately because it is gained separately: a title that already
+        // has a thumbnail would otherwise look unchanged, and an unchanged item is
+        // skipped outright at commit, so its full-size cover would never be written.
         if (entry.CoverImageFullUrl is not null && !existing.HasFullCover)
         {
             changes.Add("Adds a full-size cover");
         }
 
         // Unlike the cover URL, a differing synopsis is never spurious, so it is
-        // reported whenever it differs rather than only when it is gained (D49).
+        // reported whenever it differs rather than only when it is gained.
         if (entry.Description is { Length: > 0 }
             && !string.Equals(entry.Description, existing.Description, StringComparison.Ordinal))
         {
@@ -627,7 +618,7 @@ public sealed class ImportService(
 
         // An empty incoming set is silence and is never a change — the same rule the
         // merge itself keeps, and the reason a MyAnimeList re-import does not report
-        // every AniList-sourced title as losing its genres (D49).
+        // every AniList-sourced title as losing its genres.
         if (Differs(entry.Genres, existing.Genres))
         {
             changes.Add(existing.Genres.Count == 0 ? "Adds genres" : "Updates genres");
@@ -648,9 +639,8 @@ public sealed class ImportService(
         }
 
         // Identifiers this record does not carry yet. Shown because it is a real
-        // change and the reason later syncs will match cleanly rather than
-        // conflict — this line is D17's bridge being written. Re-importing the
-        // same file adds nothing, so idempotency is unaffected.
+        // change, and it is what lets later syncs match cleanly rather than conflict.
+        // Re-importing the same file adds nothing, so idempotency is unaffected.
         foreach (var identifier in entry.ExternalIds.Where(id => !library.ByIdentifier.ContainsKey(id)))
         {
             changes.Add($"Links to {identifier.Source} id {identifier.Value}");
@@ -708,7 +698,7 @@ public sealed class ImportService(
     /// <remarks>
     /// <see cref="Anime.Source"/> is deliberately not reassigned. It records how the
     /// record came to exist, and a hand-added title that has since been linked was
-    /// still hand-added (D17). What changes is which services identify it, and that
+    /// still hand-added. What changes is which services identify it, and that
     /// is now a separate table — so the backlog's source filter, which asks "is this
     /// on MyAnimeList", finds it either way.
     /// </remarks>
@@ -737,7 +727,7 @@ public sealed class ImportService(
             // Four collections on one row multiply together in a single query — a
             // title with two identifiers, two renditions, four genres and five
             // studios comes back as eighty rows to build one entity from. Split, as
-            // EF itself warns to (D49).
+            // EF itself warns to.
             .AsSplitQuery()
             .FirstOrDefaultAsync(a => a.Id == existingId, cancellationToken);
         if (existing is null)
@@ -882,7 +872,7 @@ public sealed class ImportService(
     }
 
     /// <summary>
-    /// Records where the source says this title's cover is (D47).
+    /// Records where the source says this title's cover is.
     /// </summary>
     /// <remarks>
     /// <b>Not routed through <c>Merge</c>, and that is the point of the table.</b>
@@ -909,8 +899,8 @@ public sealed class ImportService(
     /// Records one size of one title's cover.
     /// </summary>
     /// <remarks>
-    /// Called once per rendition, and the two are entirely independent from here on
-    /// (D48): each has its own row, its own fetch, its own retry count and its own
+    /// Called once per rendition, and the two are entirely independent from here on:
+    /// each has its own row, its own fetch, its own retry count and its own
     /// failure state, so a full-size cover that has not arrived does not hold up the
     /// thumbnail that has, and a title showing a list thumbnail with no dialog poster
     /// is a normal intermediate state rather than a fault.
@@ -954,22 +944,10 @@ public sealed class ImportService(
     }
 
     /// <summary>
-    /// Refreshes catalogue metadata only. Nothing the user decided locally is
-    /// touched by an import.
-    /// </summary>
-    /// <remarks>
-    /// Every field here follows one rule: a value replaces what is stored, and a
-    /// null leaves it alone. That is what lets two sources of differing richness
-    /// describe one title without the poorer one erasing what the richer one knew —
-    /// a MyAnimeList export carries no duration, year or cover art, and re-importing
-    /// one after an AniList sync must not blank all three (D18 draws the same line
-    /// for tracking data, guarded by precedence rather than by nullness).
-    /// </remarks>
-    /// <summary>
     /// Every genre and studio already known, by name, for the length of one commit.
     /// </summary>
     /// <remarks>
-    /// <b>Loaded once rather than queried per title.</b> Both vocabularies are shared
+    /// Loaded once rather than queried per title. Both vocabularies are shared
     /// across the whole library — a few dozen genres and a few thousand studios for
     /// hundreds of titles — so resolving a name against the database per entry would
     /// be thousands of round trips to answer the same handful of questions. Rows
@@ -1000,11 +978,11 @@ public sealed class ImportService(
     }
 
     /// <summary>
-    /// Applies the genres and studios this source credits (D49).
+    /// Applies the genres and studios this source credits.
     /// </summary>
     /// <remarks>
-    /// <b>Separate from <see cref="ApplyCatalogueFields"/> because it needs the
-    /// database</b>, not because it obeys different rules — it obeys exactly the same
+    /// Separate from <see cref="ApplyCatalogueFields"/> because it needs the
+    /// database, not because it obeys different rules — it obeys exactly the same
     /// ones, restated for a shape <c>Merge</c> cannot express.
     ///
     /// <c>Merge</c> rests on "a source never erases a value by not carrying it", and a
@@ -1135,22 +1113,14 @@ public sealed class ImportService(
 
     /// <summary>
     /// Writes what a source says about the title itself, subject to whether it is
-    /// allowed to overwrite what another source already said (D18, D29).
+    /// allowed to overwrite what another source already said.
     /// </summary>
     /// <remarks>
-    /// <b>Filling a gap and settling a disagreement are different things</b>, and
-    /// this used to do both. D18 lets any source write catalogue metadata whatever
-    /// its rank, and the reason it gives is that AniList carries fields a
-    /// MyAnimeList export simply does not — an argument about *gaps*. Applied as
-    /// last-write-wins it also handed every disagreement to whichever import ran
-    /// most recently, so a title's media type depended on import order: AniList
-    /// calls something an OVA, MyAnimeList calls it a Special, and neither is
-    /// filling anything in.
-    ///
-    /// So <paramref name="mayOverwrite"/> splits them. A source that outranks every
-    /// other source describing this title still writes everything. One that does not
-    /// may only fill in what is missing, which is exactly the case D18 argued for and
-    /// no more.
+    /// Filling a gap and settling a disagreement are different things, and
+    /// <paramref name="mayOverwrite"/> splits them. A source that outranks every
+    /// other source describing this title writes everything. One that does not may
+    /// only fill in what is missing — so a title's media type does not depend on
+    /// which import ran most recently.
     /// </remarks>
     private static void ApplyCatalogueFields(
         Anime anime,
@@ -1159,14 +1129,10 @@ public sealed class ImportService(
         TitleLanguage preferredTitle,
         bool mayOverwrite)
     {
-        // Variants first, display title after, and the order is the whole fix. This
-        // resolved from the *entry's* variants, so a MyAnimeList export — which has
-        // none — fell through to its single unlabelled name and overwrote a display
-        // title that had been resolved from AniList's labelled ones. The row was then
-        // internally inconsistent, holding Title 'Spy x Family' beside TitleRomaji
-        // 'SPY×FAMILY', and the change did not even last: the title-language setting
-        // rewrites Title from the row's variants, so switching language and back
-        // undid it. That is D22's ambiguity reappearing one level up.
+        // Variants first, display title after, so the title is resolved from the
+        // merged row rather than from the incoming entry. A MyAnimeList export has no
+        // labelled variants, and resolving from it would overwrite a display title
+        // built from AniList's.
         anime.TitleRomaji = Merge(anime.TitleRomaji, entry.TitleRomaji, mayOverwrite);
         anime.TitleEnglish = Merge(anime.TitleEnglish, entry.TitleEnglish, mayOverwrite);
         anime.TitleNative = Merge(anime.TitleNative, entry.TitleNative, mayOverwrite);
@@ -1191,10 +1157,10 @@ public sealed class ImportService(
         anime.EpisodeDurationMinutes = Merge(anime.EpisodeDurationMinutes, entry.EpisodeDurationMinutes, mayOverwrite);
         anime.ReleaseYear = Merge(anime.ReleaseYear, entry.ReleaseYear, mayOverwrite);
 
-        // Stored exactly as the source published it (D49). Through Merge like every
+        // Stored exactly as the source published it. Through Merge like every
         // other catalogue scalar, which means a title both sources identify with
         // MyAnimeList ranked first keeps whichever synopsis landed first — the same
-        // behaviour EpisodeCount and ReleaseYear have always had (D18), and the
+        // behaviour EpisodeCount and ReleaseYear have always had, and the
         // consistency is worth more than a special case for one field.
         anime.Description = Merge(anime.Description, entry.Description, mayOverwrite);
 
@@ -1221,7 +1187,7 @@ public sealed class ImportService(
     /// </summary>
     /// <remarks>
     /// Asked per title rather than globally, because rank only means anything where
-    /// two sources describe the same row (D18). A title only one source knows about
+    /// two sources describe the same row. A title only one source knows about
     /// is always that source's to correct, whatever its rank — which is what keeps a
     /// single-tracker library, and a re-import of a corrected export, behaving as
     /// they always did.
@@ -1249,13 +1215,13 @@ public sealed class ImportService(
     private static int RankOf(AnimeSource source, IReadOnlyDictionary<AnimeSource, int> precedence) =>
         precedence.TryGetValue(source, out var rank) ? rank : UnconfiguredRank;
 
-    /// <summary>The rank that means primary. Exactly one source can hold it (D30).</summary>
+    /// <summary>The rank that means primary. Exactly one source can hold it.</summary>
     private const int PrimaryRank = 0;
 
     /// <summary>
     /// Where every source that is not the primary sits. One value rather than an
     /// ordering, because the seat is single: the losers tie with each other, which is
-    /// last-writer-wins between them and is what D29 already describes.
+    /// last-writer-wins between them.
     /// </summary>
     private const int DemotedRank = 1;
 
@@ -1298,8 +1264,8 @@ public sealed class ImportService(
 
         if (!MayWriteTracking(parsed.Source, entry.LastWrittenBySource, precedence))
         {
-            // A lower-ranked source has nothing to say about what the user watched
-            // (D18). It still reached here, and its catalogue metadata has already
+            // A lower-ranked source has nothing to say about what the user watched.
+            // It still reached here, and its catalogue metadata has already
             // been applied — precedence guards the user's tracking data, not facts
             // about the title.
             return;
@@ -1321,13 +1287,13 @@ public sealed class ImportService(
 
     /// <summary>
     /// Whether <paramref name="incoming"/> may overwrite tracking data that
-    /// <paramref name="lastWriter"/> recorded (D18).
+    /// <paramref name="lastWriter"/> recorded.
     /// </summary>
     /// <remarks>
     /// Permissive by default, and deliberately so. Precedence only decides
     /// contested rows — where two different sources both describe one title *and*
     /// both have been given a rank. Anything else is allowed through, which is what
-    /// makes this inert for the single-tracker setup D13 optimises for: the
+    /// makes this inert for a single-tracker setup: the
     /// behaviour is identical to unconditional last-writer-wins until someone
     /// configures a second source.
     /// </remarks>
@@ -1372,17 +1338,15 @@ public sealed class ImportService(
         // picture behind a rotated path, and the comment below on that is what these
         // flags exist to keep true now that the address lives on another table.
         //
-        // One flag per rendition, because they are gained independently: every title
-        // in a library that predates Phase 9b has a thumbnail and no full-size cover
-        // (D48), and a preview that could not see the difference would call those
-        // titles unchanged and skip them — which is the whole of how the new data
-        // would have failed to land.
+        // One flag per rendition, because they are gained independently: a title can
+        // have a thumbnail and no full-size cover, and a preview that could not see
+        // the difference would call it unchanged and skip it.
         bool HasThumbnail,
         bool HasFullCover,
         // Carried in full rather than as a flag, because a synopsis that has been
         // rewritten is a real change and unlike a rotated cover URL it is never
-        // spurious. The cost is bounded by §6's sizing and is smaller in practice
-        // than the four title variants above already are.
+        // spurious. The cost is bounded by the column's length cap and is smaller
+        // in practice than the four title variants above already are.
         string? Description,
         IReadOnlyList<string> Genres,
         IReadOnlyList<string> Studios,
@@ -1403,7 +1367,7 @@ public sealed class ImportService(
     /// <param name="ByIdentifier">Every external identifier in the catalogue, to the title it names.</param>
     /// <param name="Identified">
     /// Titles carrying at least one identifier. The complement is the hand-added
-    /// set, which used to be recognisable by a null identifier column.
+    /// set.
     /// </param>
     private sealed record MatchCandidates(
         IReadOnlyList<AnimeSnapshot> Anime,

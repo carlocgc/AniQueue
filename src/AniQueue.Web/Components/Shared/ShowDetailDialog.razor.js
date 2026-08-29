@@ -1,7 +1,7 @@
 /*
    Opening and closing a native <dialog>.
 
-   This is the whole of the JavaScript Phase 9c needs, and it exists because the one
+   The whole of the JavaScript this dialog needs. It exists because the one
    thing Blazor cannot do from C# is the part that matters most here. Rendering
    <dialog open> produces a *non-modal* dialog: no backdrop, no inert page behind it,
    no focus trap, and Escape does nothing. Only showModal() gives those, and only

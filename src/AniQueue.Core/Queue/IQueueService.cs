@@ -64,7 +64,7 @@ public sealed record QueueListItem
 
     public int EpisodesWatched { get; init; }
 
-    /// <summary>How this record came to exist here. Provenance, not identity (D17).</summary>
+    /// <summary>How this record came to exist here. Provenance, not identity.</summary>
     public AnimeSource Source { get; init; }
 
     /// <summary>Every service that identifies this title.</summary>
@@ -89,7 +89,7 @@ public sealed record QueueListItem
     public string? CoverImageColor { get; init; }
 
     /// <summary>
-    /// What this row should render for art (D47). See LibraryListItem.Cover, which
+    /// What this row should render for art. See LibraryListItem.Cover, which
     /// carries the argument for the full-size poster and for falling back to the
     /// thumbnail while it has not arrived.
     /// </summary>
@@ -107,18 +107,17 @@ public sealed record QueueListItem
 /// The manually ordered Up Next queue: the list of what to watch next, in the
 /// order the user put it in.
 ///
-/// Ordering is the whole point of the application (D11), so this is the service
+/// Ordering is the whole point of the application, so this is the service
 /// that has to be right. Positions are contiguous zero-based integers, and that is
-/// an invariant of this type alone — the database deliberately does not defend it
-/// (D2), because SQLite checks uniqueness per statement and any block shift would
+/// an invariant of this type alone — the database deliberately does not defend it,
+/// because SQLite checks uniqueness per statement and any block shift would
 /// collide against itself mid-transaction. Every mutation here therefore runs in
 /// one transaction and rewrites positions from the resulting order, which also
 /// repairs a queue that arrived non-contiguous for any other reason.
 ///
-/// Every slot is a single title (D15), and there is no other kind. Grouping was
-/// retired entirely by D23, so nothing here takes a set: a queue is built one
-/// title at a time, through one path, which is what keeps the contiguity
-/// invariant in a single place.
+/// Every slot is a single title, and there is no other kind: a queue is built one
+/// title at a time, through one path, which is what keeps the contiguity invariant
+/// in a single place.
 /// </summary>
 public interface IQueueService
 {
@@ -137,11 +136,9 @@ public interface IQueueService
     /// Anything already queued, already started or finished, or absent from the
     /// library is declined and counted, never added.
     ///
-    /// It does not prevent re-watching, and the way it doesn't is the point: set the
-    /// title back to Planning at the source and it becomes queueable again. D12 has
-    /// AniQueue observe watch status rather than author it, so a re-watch is
-    /// expressed where every other status change is, instead of as an exception
-    /// carved out here.
+    /// It does not prevent re-watching: set the title back to Planning at the source
+    /// and it becomes queueable again, which is where every other status change is
+    /// expressed too.
     ///
     /// Adding something twice remains a no-op rather than an error, because from the
     /// backlog the user cannot always see what is already queued.
@@ -175,11 +172,10 @@ public interface IQueueService
     /// itself. Making it look the slot up first would mean either a second round
     /// trip or a slot id carried through a listing that has no other use for one.
     ///
-    /// This is <b>not</b> the counterpart of <see cref="AdvanceAsync"/> and must not
-    /// grow into it. Advancement releases a slot because the title stopped being
-    /// planned, which is an observation (D12); this is the user saying they changed
-    /// their mind about the order, which is authorship — the one thing AniQueue does
-    /// own (D11). Neither touches the library entry.
+    /// This is not the counterpart of <see cref="AdvanceAsync"/> and must not grow
+    /// into it. Advancement releases a slot because the title stopped being planned;
+    /// this is the user changing their mind about the order. Neither touches the
+    /// library entry.
     /// </remarks>
     /// <returns>False when the title holds no slot in this profile's queue.</returns>
     Task<bool> RemoveAnimeAsync(
@@ -192,24 +188,17 @@ public interface IQueueService
     /// closes the gaps, so that whatever is next really is next.
     /// </summary>
     /// <remarks>
-    /// This is D12 made mechanical. AniQueue observes watched status rather than
-    /// authoring it, so there is no "start watching" button to dequeue anything —
-    /// starting a show is instead observed, as the entry ceasing to be Planning at
-    /// the source. Advancement is what turns that observation into a queue that
-    /// stays true without anyone maintaining it.
+    /// There is no "start watching" button: starting a show is observed, as the
+    /// entry ceasing to be Planning at the source. Advancement turns that
+    /// observation into a queue that stays true without anyone maintaining it.
     ///
     /// It lives here rather than in the importer because it is a property of the
-    /// queue, not of any one way of learning about a status change. Import calls it
-    /// today; the Phase 5 sync will call the same method, and changes only how often
-    /// it runs.
+    /// queue and not of any one way of learning about a status change. Both the
+    /// import and the sync call it.
     ///
-    /// Since D15 every slot is one title, so the rule is simply per title — watch
-    /// the second season of something and only that row leaves, with the third
-    /// rising to meet you. The bespoke "release a franchise once nothing in it is
-    /// still planned" rule this needed under the older model is gone, and so is
-    /// the franchise it was written for (D23).
-    ///
-    /// Idempotent, and safe to call when nothing has changed.
+    /// The rule is per title: watch the second season of something and only that row
+    /// leaves, with the third rising to meet it. Idempotent, and safe to call when
+    /// nothing has changed.
     /// </remarks>
     /// <returns>How many slots were released.</returns>
     Task<int> AdvanceAsync(

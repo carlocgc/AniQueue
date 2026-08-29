@@ -13,7 +13,7 @@ public sealed record ImportCommitResult
 
     /// <summary>
     /// Slots that left Up Next because the import showed their titles are no longer
-    /// waiting to be watched (D12).
+    /// waiting to be watched.
     /// </summary>
     /// <remarks>
     /// Reported rather than left silent. The queue shortening on its own is the

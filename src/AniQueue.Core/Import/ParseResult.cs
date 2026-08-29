@@ -26,14 +26,14 @@ public sealed record ParseResult
 
     /// <summary>
     /// Combines the results of parsing several payloads that together form one
-    /// fetch (§5).
+    /// fetch.
     /// </summary>
     /// <remarks>
     /// <b>One bad part rejects the whole.</b> A fetch that arrived in four responses
     /// and could only be read in three is not three-quarters of a library; it is a
     /// library with a quarter missing, and absence is exactly what a sync is
     /// entitled to act on. Reporting it as a partial success is how a chunking bug
-    /// turns into a mass deletion (D19).
+    /// turns into a mass deletion.
     ///
     /// Entries claiming an identifier an earlier part already claimed are dropped
     /// rather than concatenated. Within one payload a repeated identifier is a real

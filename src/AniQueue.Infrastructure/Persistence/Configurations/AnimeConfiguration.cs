@@ -18,7 +18,7 @@ public class AnimeConfiguration : IEntityTypeConfiguration<Anime>
         // Six hexadecimal digits behind a hash, and nothing else is ever stored.
         builder.Property(a => a.CoverImageColor).HasMaxLength(7);
 
-        // Sized the way §6 sizes the import limit and ImageSource.MaxByteCount:
+        // Sized the way the import limit and ImageSource.MaxByteCount are:
         // generously enough that nothing legitimate is refused — AniList's longest
         // synopses run to a couple of thousand characters — and bounded so a
         // malformed or hostile response cannot write unbounded text a row at a time.
@@ -28,14 +28,14 @@ public class AnimeConfiguration : IEntityTypeConfiguration<Anime>
 
         builder.HasIndex(a => a.Title);
 
-        // No CoverImageUrl any more (D47). Where a picture lives is a fact about the
+        // No CoverImageUrl any more. Where a picture lives is a fact about the
         // picture, and a title has more than one, so it is a row on AnimeImage. The
         // column could hold one address — and, being written through the import
         // merge, could not be changed to a different one without a data migration
         // nobody would have known to write.
 
         // No index over (Source, SourceAnimeId) any more. Deduplication is keyed on
-        // AnimeExternalId now (D17), because one column could only ever hold one
+        // AnimeExternalId now, because one column could only ever hold one
         // identity — and a library imported from one service then synced from
         // another matched nothing and conflicted on every title.
     }

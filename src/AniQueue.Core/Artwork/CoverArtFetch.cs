@@ -1,26 +1,21 @@
 namespace AniQueue.Core.Artwork;
 
-/// <summary>How an attempt to fetch one picture ended.</summary>
-/// <remarks>
-/// Three outcomes rather than success and failure, because the difference between the
-/// two failures is the whole retry policy (D47). Which one a given problem is gets
-/// decided once, where the response is read, rather than by every caller inspecting a
-/// status code again.
-/// </remarks>
+/// <summary>
+/// How an attempt to fetch one picture ended. Three outcomes rather than two,
+/// because the difference between the two failures is the whole retry policy, and
+/// it is decided once where the response is read rather than by every caller
+/// inspecting a status code again.
+/// </summary>
 public enum CoverArtFetchStatus
 {
     /// <summary>The bytes arrived and are a picture.</summary>
     Fetched,
 
     /// <summary>
-    /// Something true about this URL rather than about this moment.
+    /// Something true about this URL rather than about this moment: a 404, a body
+    /// that is not an image, one over the cap, a redirect, or a host that is not on
+    /// the allowlist. Only the URL changing makes the question worth asking again.
     /// </summary>
-    /// <remarks>
-    /// A 404, a body that is not an image, one over the cap, a redirect, or a host
-    /// that is not on the allowlist. All of them will still be true in fifteen
-    /// minutes, so retrying spends a request to be told the same thing. Only the URL
-    /// changing makes the question worth asking again.
-    /// </remarks>
     PermanentlyUnavailable,
 
     /// <summary>
@@ -45,12 +40,9 @@ public sealed record CoverArtFetch(
 }
 
 /// <summary>
-/// Fetches one picture from an address AniQueue is willing to reach (D47, §6).
+/// Fetches one picture from an address AniQueue is willing to reach. An interface
+/// so the guards can be tested against a stub transport with no database near them.
 /// </summary>
-/// <remarks>
-/// An interface so the guards can be tested against a stub transport with no database
-/// anywhere near them — which is where most of the behaviour worth testing lives.
-/// </remarks>
 public interface ICoverArtClient
 {
     Task<CoverArtFetch> FetchAsync(string remoteUrl, CancellationToken cancellationToken);

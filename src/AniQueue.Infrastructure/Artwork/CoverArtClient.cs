@@ -4,10 +4,10 @@ using Microsoft.Extensions.Logging;
 namespace AniQueue.Infrastructure.Artwork;
 
 /// <summary>
-/// Asks a CDN for one picture, and decides what its answer means (D47).
+/// Asks a CDN for one picture, and decides what its answer means.
 /// </summary>
 /// <remarks>
-/// <b>Every guard §6 asks for is in one method here.</b> The host is checked before a
+/// Every guard is in one method here. The host is checked before a
 /// socket is opened, the scheme must be https, a redirect is refused rather than
 /// followed, the body must declare itself an image, and the size is capped twice —
 /// once against the declared length and once by the transport, which refuses an

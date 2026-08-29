@@ -62,15 +62,13 @@ public sealed record ScoringRequestOptions
     public int? ReturnTop { get; init; }
 
     /// <summary>
-    /// Whether the user's own notes travel with the candidates (§6, opt in).
+    /// Whether the user's own notes travel with the candidates.
     /// </summary>
     /// <remarks>
-    /// Carried here rather than read from the database beside the candidates, which
-    /// is where it used to live. D36 moved it to <c>userconfig.json</c> with the
-    /// rest of the scoring settings — it describes what leaves the machine, which
-    /// is a property of the integration — and this is the only route by which the
-    /// service learns it. A caller that says nothing gets false, which is the answer
-    /// §6 requires when nobody has opted in.
+    /// Carried here rather than read from the database beside the candidates: it
+    /// lives in <c>userconfig.json</c> with the rest of the scoring settings, and
+    /// this is the only route by which the service learns it. A caller that says
+    /// nothing gets false, so notes never leave without an explicit opt-in.
     /// </remarks>
     public bool IncludePersonalNotes { get; init; }
 
@@ -96,7 +94,7 @@ public sealed record ScoringRequestOptions
 }
 
 /// <summary>
-/// How large a request would be, without building the one that would be sent (D53).
+/// How large a request would be, without building the one that would be sent.
 /// </summary>
 /// <remarks>
 /// Two numbers rather than one, because the size of a request is a straight line and
@@ -161,7 +159,7 @@ public sealed record ScoringPreviewItem
 /// A ranking read, checked against the library, and not yet written anywhere.
 /// </summary>
 /// <remarks>
-/// The same shape the import pipeline uses and for the same reason (D9): nothing
+/// The same shape the import pipeline uses and for the same reason: nothing
 /// touches the database until the user has seen what would happen. What differs is
 /// what a problem costs — an import loses one malformed record out of three
 /// thousand, while a ranking with a rank collision is not a partial order but a
@@ -216,13 +214,13 @@ public sealed record ScoringApplyResult(int RunId, int Applied, int Skipped);
 /// How much of the backlog carries a ranking worth trusting.
 /// </summary>
 /// <remarks>
-/// The read half of D39. A score is not wrong because time passed — it is wrong
-/// because the history it was predicted against has grown, so "stale" means rated
-/// titles have been added since this one was scored rather than that a clock ran out.
+/// A score is not wrong because time passed — it is wrong because the history it was
+/// predicted against has grown. "Stale" therefore means rated titles have been added
+/// since this one was scored.
 ///
-/// Phase 8d's sweep picks its batches from exactly these two groups, never-scored
-/// first and then stalest. Both halves therefore come from one query, so what the
-/// page reports and what the job does cannot describe different backlogs.
+/// The sweep picks its batches from exactly these two groups, never-scored first and
+/// then stalest. Both halves come from one query, so what the page reports and what
+/// the job does cannot describe different backlogs.
 /// </remarks>
 public sealed record ScoringCoverage
 {
@@ -262,19 +260,13 @@ public sealed record ScoringCoverage
 /// </summary>
 /// <remarks>
 /// Read from the run that produced it rather than from the columns denormalised
-/// onto the entry (D4). Those exist so the backlog can sort by score in one
+/// onto the entry. Those exist so the backlog can sort by score in one
 /// query; they deliberately do not carry which run wrote them, and the run is
 /// where "when" and "by what" live. Asking the run also means this cannot drift
 /// from the history the user can browse.
 /// </remarks>
 public sealed record RecommendationDetail
 {
-    // Rank, and the CandidateCount it was shown against, both stood here. Together
-    // they rendered "Ranked 3 of 50" on a title — a number meaningful only inside a
-    // batch the user never sees, and since D43 not a number at all. How many
-    // candidates a run weighed is still carried by RecommendationRunSummary, where
-    // it is a fact about the run rather than a claim about one title.
-
     public required double PredictedScore { get; init; }
 
     public required double Confidence { get; init; }
@@ -321,11 +313,9 @@ public sealed record RecommendationRunSummary
 /// <summary>
 /// Builds what a model is asked, and applies what it answers.
 ///
-/// The two halves of Phase 7's contract meet here, and nothing between them knows
-/// how the payload travelled: the manual copy-and-paste path and Phase 8's
-/// configured endpoint both produce the same string and hand it to the same
-/// <see cref="PreviewAsync"/> (D31). That is what makes the second additive rather
-/// than a second pipeline.
+/// Nothing here knows how the payload travelled: the manual copy-and-paste route
+/// and a configured endpoint both produce the same string and hand it to the same
+/// <see cref="PreviewAsync"/>.
 /// </summary>
 public interface IRecommendationService
 {
@@ -333,13 +323,10 @@ public interface IRecommendationService
     /// Assembles everything a model needs to rank this profile's backlog.
     /// </summary>
     /// <remarks>
-    /// Candidates are the Planning entries. Hidden ones used to be excluded on the
-    /// grounds that the user had said they did not want to see them; Phase 18b
-    /// deleted hiding, and a title nobody wants ranked comes off the source list it
-    /// arrived on (D11).
+    /// Candidates are the Planning entries.
     ///
     /// Personal notes travel only when
-    /// <see cref="ProfileSettings.IncludePersonalNotesInAiExport"/> is set (§6).
+    /// <see cref="ProfileSettings.IncludePersonalNotesInAiExport"/> is set.
     /// </remarks>
     /// <param name="history">
     /// A history read earlier and reused, or null to read it now. A sweep passes one
@@ -361,20 +348,13 @@ public interface IRecommendationService
         CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Measures what a request would cost without building the one that would be sent
-    /// (D53).
+    /// Measures what a request would cost without building the one that would be sent.
+
     /// </summary>
     /// <remarks>
     /// The page above the Remote card says how many tokens a run would be before anybody
     /// asks for one, and this is what answers it. It reads the backlog once and the
     /// history once, whatever the answer covers.
-    ///
-    /// <b>It used to be two calls to <see cref="BuildRequestAsync"/>, one for a request
-    /// of a single candidate and one for two.</b> That read and serialised the whole
-    /// history twice to render one number, on a page whose initialiser runs twice per
-    /// visit under prerendering — so four full history reads to show a figure nobody had
-    /// asked for yet. It also logged both of them at the level a real request logs at,
-    /// which is why they looked alarming in a server log.
     ///
     /// <paramref name="options"/> is read for its history size and its notes flag, which
     /// are what change the size of a request. Its candidate limit is ignored: the
@@ -398,7 +378,7 @@ public interface IRecommendationService
     /// </param>
     /// <remarks>
     /// Passed in rather than remembered, because the request is deliberately not
-    /// stored — it is derivable from the run that results (D4), and keeping one per
+    /// stored — it is derivable from the run that results, and keeping one per
     /// attempt would mean a second copy of the backlog for every reply, most of them
     /// abandoned.
     ///
@@ -410,7 +390,7 @@ public interface IRecommendationService
     /// </remarks>
     /// <param name="route">
     /// How the reply arrived, which decides whether it must name the database it was
-    /// built against (D50). No default: a caller that did not say would get the
+    /// built against. No default: a caller that did not say would get the
     /// lenient answer to the one question that stops a wrong reply being applied.
     /// </param>
     Task<ScoringPreview> PreviewAsync(
@@ -422,7 +402,7 @@ public interface IRecommendationService
 
     /// <summary>
     /// Writes a ranking: a <see cref="RecommendationRun"/> with its items, and the
-    /// current result denormalised onto each entry (D4).
+    /// current result denormalised onto each entry.
     /// </summary>
     /// <remarks>
     /// It touches <see cref="LibraryEntry.RecommendationScore"/>,
@@ -431,11 +411,10 @@ public interface IRecommendationService
     /// <see cref="LibraryEntry.RecommendationUpdatedAt"/>. Nothing else — not
     /// status, not progress, not the user's own score, and above all not
     /// <see cref="QueueItem.Position"/>. The model proposes an order and the user
-    /// owns one; D11 is why they are separate columns rather than one contested
-    /// column, and this method is where that separation is either kept or lost.
+    /// owns one; this method is where that separation is either kept or lost.
     ///
     /// Refuses a preview whose problems include an error. Nothing is applied in
-    /// part (D31).
+    /// part.
     /// </remarks>
     /// <param name="duration">
     /// How long the model took, when anything measured it.
@@ -481,28 +460,14 @@ public interface IRecommendationService
     /// How much of the backlog is ranked, and how much of that is worth trusting.
     /// </summary>
     /// <param name="staleAfterRatings">
-    /// How many further titles must be rated before a score counts as stale (D39).
+    /// How many further titles must be rated before a score counts as stale.
     /// </param>
     /// <remarks>
     /// Counted rather than listed, because the question it answers — "is there
     /// anything left to do?" — needs three numbers and not several hundred rows.
     /// </remarks>
-    // GetLastRunAtAsync was here, and answered what the sweep decided "due" against.
-    // Phase 15b took that question away: due-ness is read from JobRun, which every
-    // run writes. The reason it lost is worth keeping, because the argument for it
-    // was right — a schedule must survive a restart, so it cannot be a field on the
-    // job. What it got wrong was the table: this one records a run that *applied* a
-    // ranking, so a sweep that ran and scored nothing, failed, or was cancelled read
-    // as one that had never happened, and the next tick started it again.
-
     Task<ScoringCoverage> GetCoverageAsync(
         int profileId,
         int staleAfterRatings,
         CancellationToken cancellationToken = default);
-
-    // Reading and writing the request sizes used to live here, on ProfileSettings.
-    // D36 moved them to userconfig.json, and with them the last reason this service
-    // owned a setting: it already takes ScoringRequestOptions as an argument, so a
-    // caller now reads them from IUserSettingsStore and passes them in. The service
-    // is a function of what it is given again, which is what it always claimed to be.
 }

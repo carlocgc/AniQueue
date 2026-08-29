@@ -12,9 +12,9 @@ public sealed record ParsedRelation(RelationType Type, string RelatedExternalId)
 /// Everything the relation query returned about one title.
 /// </summary>
 /// <remarks>
-/// The catalogue fields ride along because the request is being made anyway (D25):
+/// The catalogue fields ride along because the request is being made anyway:
 /// <see cref="StartDate"/> is what release ordering needs and a year cannot give,
-/// and <see cref="CoverImageColor"/> is six bytes that Phase 9 will want.
+/// and <see cref="CoverImageColor"/> is six bytes that a card can be themed with.
 /// Both are null when the source did not publish them, and null means "leave what
 /// is stored alone" — the same rule the import path applies.
 /// </remarks>
@@ -46,16 +46,16 @@ public sealed record RelationParseResult
 /// <summary>
 /// Reads the relation query's response.
 ///
-/// Pure, like every parser here (D9): handed bytes, returns edges, and knows
+/// Pure, like every parser here: handed bytes, returns edges, and knows
 /// nothing about HTTP or rate limits — which is what lets AniList's whole relation
-/// vocabulary be tested against a committed fixture with no network (§8).
+/// vocabulary be tested against a committed fixture with no network.
 /// </summary>
 /// <remarks>
 /// It is deliberately stricter than the list parser in one respect and looser in
 /// another. Stricter: a relation type AniQueue does not store is dropped silently
 /// rather than recorded as a problem, because <c>CHARACTER</c> and <c>ADAPTATION</c>
-/// edges are on most titles and reporting them would be reporting the API working
-/// (D24). Looser: a title with no relations is not a problem either. Both of those
+/// edges are on most titles and reporting them would be reporting the API working.
+/// Looser: a title with no relations is not a problem either. Both of those
 /// are the normal case, and a parser that complains about the normal case teaches
 /// its caller to ignore it.
 /// </remarks>

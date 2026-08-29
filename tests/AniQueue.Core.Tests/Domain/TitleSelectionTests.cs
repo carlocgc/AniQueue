@@ -3,7 +3,7 @@ using AniQueue.Core.Domain;
 namespace AniQueue.Core.Tests.Domain;
 
 /// <summary>
-/// The fallback chain, which decides which of a title's names a reader sees (D22).
+/// The fallback chain, which decides which of a title's names a reader sees.
 ///
 /// Worth its own suite because two things must agree with it: the import resolving
 /// a title as it writes a row, and the SQL that recomputes every row when the

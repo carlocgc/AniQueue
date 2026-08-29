@@ -2,7 +2,7 @@ namespace AniQueue.Core.Import;
 
 /// <summary>
 /// Turns an import file into normalised entries. Implementations are pure: no
-/// database, no configuration, no I/O beyond the supplied stream (D9).
+/// database, no configuration, no I/O beyond the supplied stream.
 ///
 /// This is the extension point for new formats. Adding AniList means adding one
 /// implementation here — matching, preview and commit are format-agnostic and do

@@ -6,7 +6,7 @@
    the default is already that an open page holds still, and that default is the
    right one. Rearranging a list somebody is reading — or moving the row their
    cursor is over — is worse than showing them something a few minutes old, and
-   Phase 4 made the stale case safe on purpose: every queue mutation resolves
+   and the stale case is safe on purpose: every queue mutation resolves
    against the database inside its transaction and keys on QueueItemId, so acting
    on a stale row either does the right thing or returns false and logs. *@
 @if (_change is { } change)
@@ -47,7 +47,7 @@
     private void OnChanged(LibraryChangeNotification notification)
     {
         // Null means a job changed data without anything a page could usefully say
-        // about it — relations, or a ranking (D41). The banner offers a refresh in
+        // about it — relations, or a ranking. The banner offers a refresh in
         // words; with no words to offer there is nothing to interrupt anybody for.
         //
         // Origin is not consulted: a page is nobody's runner, so every announcement is

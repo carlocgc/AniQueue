@@ -4,7 +4,7 @@ using AniQueue.Core.Import;
 namespace AniQueue.Core.Tests.Import;
 
 /// <summary>
-/// Merging the parts of one fetch (§5).
+/// Merging the parts of one fetch.
 ///
 /// A sync may receive its list in several responses, and the preview takes one
 /// <see cref="ParseResult"/> — so this is the join, and the rules it enforces are
@@ -37,7 +37,7 @@ public class ParseResultTests
     {
         // Four responses of which three could be read is not three-quarters of a
         // library; it is a library with a quarter missing, and absence is what a
-        // sync is entitled to act on (D19).
+        // sync is entitled to act on.
         var merged = ParseResult.Merge([Part("1", "2"), ParseResult.Rejected("truncated")]);
 
         Assert.True(merged.IsFileRejected);

@@ -2,19 +2,9 @@ namespace AniQueue.Core.Domain;
 
 /// <summary>
 /// Chooses which title variant to display, and falls back when the preferred one
-/// does not exist (D22).
+/// does not exist. One implementation, because the import, the settings change and
+/// any surface showing an alternative must all resolve a title the same way.
 /// </summary>
-/// <remarks>
-/// One implementation, because there are three callers and they must agree: the
-/// import resolving a title as it writes a row, the settings change recomputing
-/// every row, and any future surface that wants to show an alternative. Two
-/// implementations of a fallback chain is how a library ends up displaying
-/// different languages on different pages.
-///
-/// The fallback is not defensive tidiness. English is absent for roughly one title
-/// in seven, so a preference for it without a chain behind it would leave a seventh
-/// of the library with no name at all.
-/// </remarks>
 public static class TitleSelection
 {
     /// <summary>
@@ -29,9 +19,8 @@ public static class TitleSelection
         string? native,
         string fallback)
     {
-        // The order after the preference is fixed rather than "whatever is
-        // present", so the same row resolves the same way every time regardless of
-        // which variants a particular fetch happened to include.
+        // Fixed rather than "whatever is present", so the same row resolves the
+        // same way regardless of which variants a particular fetch included.
         var chain = preferred switch
         {
             TitleLanguage.English => new[] { english, romaji, native },

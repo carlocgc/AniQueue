@@ -6,17 +6,13 @@ namespace AniQueue.Core.Import;
 /// <summary>
 /// Reads an AniList <c>MediaListCollection</c> GraphQL response.
 ///
-/// Pure, like every parser here (D9): it is handed bytes and returns entries, and
-/// knows nothing about HTTP, rate limits or which account they came from. That is
-/// what lets the whole of AniList's vocabulary be tested against a committed
-/// fixture with no network in sight (§8).
+/// Pure, like every parser here: it is handed bytes and returns entries, and knows
+/// nothing about HTTP, rate limits or which account they came from, so the whole of
+/// AniList's vocabulary can be tested against a committed fixture.
 ///
-/// Everything in the response is treated as untrusted, for the same reason the
-/// MyAnimeList parser does: the values that break an import are rarely malformed,
-/// they are well-formed values meaning something other than they appear. AniList's
-/// are a <c>score</c> whose scale depends on a server-side conversion, a FuzzyDate
-/// whose three components are independently nullable, and an <c>english</c> title
-/// that is absent for roughly one title in seven.
+/// Everything in the response is treated as untrusted. The values that break an
+/// import are rarely malformed — they are well-formed values meaning something
+/// other than they appear.
 /// </summary>
 public sealed class AniListJsonParser(ImportLimits? limits = null) : IAnimeListParser
 {
@@ -27,15 +23,8 @@ public sealed class AniListJsonParser(ImportLimits? limits = null) : IAnimeListP
     /// <summary>
     /// Parses the response. Every title variant it publishes is carried through;
     /// which one is displayed is decided where the row is written, from the
-    /// profile's preference (D22).
+    /// profile's preference.
     /// </summary>
-    /// <remarks>
-    /// The parser deliberately has no opinion about language. It used to take one,
-    /// which meant an overload the interface could not express and a second DI
-    /// registration to reach it — machinery that existed only because the storage
-    /// could not tell romaji from English. Now that it can, this is a plain parser
-    /// again.
-    /// </remarks>
     public async Task<ParseResult> ParseAsync(Stream input, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(input);
@@ -56,10 +45,9 @@ public sealed class AniListJsonParser(ImportLimits? limits = null) : IAnimeListP
             }
             catch (JsonException ex)
             {
-                // A truncated or non-JSON body. Rejected rather than thrown, because
-                // a sync must treat an unreadable response as "no information" and
-                // leave the library alone — never as an empty list, which is
-                // indistinguishable from the user having deleted everything (D19).
+                // Rejected rather than thrown: a sync must treat an unreadable
+                // response as "no information" and leave the library alone, never as
+                // an empty list.
                 return ParseResult.Rejected($"The response is not valid JSON: {ex.Message}");
             }
         }
@@ -67,9 +55,8 @@ public sealed class AniListJsonParser(ImportLimits? limits = null) : IAnimeListP
 
     private ParseResult Parse(JsonElement root)
     {
-        // GraphQL reports failure inside a 200. An errors array means the response
-        // is not a list — it is an explanation of why there is no list — and reading
-        // it as zero entries is the single most dangerous misreading available here.
+        // GraphQL reports failure inside a 200. An errors array is an explanation of
+        // why there is no list, and must never be read as zero entries.
         if (root.TryGetProperty("errors", out var errors) &&
             errors.ValueKind == JsonValueKind.Array &&
             errors.GetArrayLength() > 0)
@@ -83,8 +70,8 @@ public sealed class AniListJsonParser(ImportLimits? limits = null) : IAnimeListP
 
         // The ValueKind check on data is load-bearing: TryGetProperty throws rather
         // than returning false when the element is not an object, so a body of
-        // {"data": null} carrying no errors array left this method by exception
-        // instead of as the rejection every other malformed response produces.
+        // {"data": null} would otherwise leave by exception instead of as a
+        // rejection.
         if (!root.TryGetProperty("data", out var data) ||
             data.ValueKind != JsonValueKind.Object ||
             !data.TryGetProperty("MediaListCollection", out var collection) ||
@@ -98,10 +85,8 @@ public sealed class AniListJsonParser(ImportLimits? limits = null) : IAnimeListP
         var problems = new List<ImportProblem>();
 
         // AniList lets one entry be filed under its status list and any number of
-        // custom lists, so the collection is not guaranteed to be flat. De-duplicating
-        // by media id is the parser's job rather than the collection's promise: the
-        // library used to verify the API had no custom lists, so 753 entries arriving
-        // as 753 distinct ids proves only that it does not happen when none exist.
+        // custom lists, so the collection is not guaranteed to be flat and the
+        // parser de-duplicates by media id.
         var seen = new HashSet<int>();
         var duplicates = 0;
         var recordNumber = 0;
@@ -140,7 +125,7 @@ public sealed class AniListJsonParser(ImportLimits? limits = null) : IAnimeListP
         {
             // Summarised rather than one line per entry: a user who files their whole
             // list into custom lists would otherwise get a problem report as long as
-            // their library, describing something that is working correctly.
+            // their library.
             problems.Add(new ImportProblem(
                 $"{duplicates} {(duplicates == 1 ? "entry appeared" : "entries appeared")} in more than one "
                 + "list; each title was read once."));
@@ -148,10 +133,9 @@ public sealed class AniListJsonParser(ImportLimits? limits = null) : IAnimeListP
 
         if (recordNumber == 0)
         {
-            // Not a rejection. An account with an empty list is a real thing, and the
-            // preview showing nothing to do is the honest answer for it. What must
-            // never reach here is a *failed* fetch, which is why the paths above
-            // reject rather than fall through to this.
+            // Not a rejection: an account with an empty list is a real thing. A
+            // failed fetch must never reach here, which is why the paths above
+            // reject rather than fall through.
             problems.Add(new ImportProblem("The list is empty."));
         }
 
@@ -178,8 +162,7 @@ public sealed class AniListJsonParser(ImportLimits? limits = null) : IAnimeListP
         }
 
         // The query pins type: ANIME, so a manga format never arrives. Checked anyway
-        // because the alternative to a cheap guard is manga silently entering an
-        // anime backlog.
+        // so manga cannot silently enter an anime backlog.
         var type = Text(media, "type");
         if (type is not null && !string.Equals(type, "ANIME", StringComparison.OrdinalIgnoreCase))
         {
@@ -216,9 +199,8 @@ public sealed class AniListJsonParser(ImportLimits? limits = null) : IAnimeListP
             new(AnimeSource.AniList, mediaId.ToString(System.Globalization.CultureInfo.InvariantCulture))
         };
 
-        // Absent for roughly one title in 125, and its presence is the whole of D17's
-        // bridge: it is what matches a MyAnimeList-imported row instead of duplicating
-        // it. Its absence is ordinary, not a problem worth reporting.
+        // What matches a MyAnimeList-imported row instead of duplicating it. Absent
+        // for roughly one title in 125, which is ordinary rather than a problem.
         if (Number(media, "idMal") is { } malId && malId > 0)
         {
             identifiers.Add(new ExternalIdentifier(
@@ -229,9 +211,8 @@ public sealed class AniListJsonParser(ImportLimits? limits = null) : IAnimeListP
         var episodeCount = Positive(media, "episodes");
         var watched = Math.Max(0, Number(entry, "progress") ?? 0);
 
-        // The same contradiction the MyAnimeList parser guards: a watch count beyond
-        // the stated total. The count is the user's own record; the total is
-        // catalogue metadata, so the total is what gets dropped.
+        // A watch count beyond the stated total. The count is the user's own record
+        // and the total is catalogue metadata, so the total is what gets dropped.
         if (episodeCount is not null && watched > episodeCount)
         {
             problems.Add(new ImportProblem(
@@ -270,10 +251,8 @@ public sealed class AniListJsonParser(ImportLimits? limits = null) : IAnimeListP
 
     private static MediaType MapFormat(string? format) => format?.ToUpperInvariant() switch
     {
-        // A short-form TV series is still a TV series for every purpose AniQueue
-        // has: it is scheduled weekly and it is not a film. Its brevity is already
-        // carried by the episode duration, which is the field the runtime filters
-        // actually read.
+        // A short-form TV series is still a TV series here; its brevity is carried
+        // by the episode duration, which is what the runtime filters read.
         "TV" or "TV_SHORT" => MediaType.Tv,
         "MOVIE" => MediaType.Movie,
         "OVA" => MediaType.Ova,
@@ -293,10 +272,7 @@ public sealed class AniListJsonParser(ImportLimits? limits = null) : IAnimeListP
         {
             case "CURRENT":
 
-            // A re-watch in progress is watching. It is deliberately not Planning:
-            // AniQueue observes what the user is doing rather than authoring it
-            // (D12), and someone three episodes into a re-watch is watching the show
-            // whatever their intent was when they started (D15).
+            // A re-watch in progress is watching, not planning.
             case "REPEATING":
                 return LibraryStatus.Watching;
             case "COMPLETED":
@@ -319,20 +295,13 @@ public sealed class AniListJsonParser(ImportLimits? limits = null) : IAnimeListP
     /// Converts a <c>POINT_100</c> score into AniQueue's 1–10.
     /// </summary>
     /// <remarks>
-    /// The query asks for <c>POINT_100</c> and does the last step here, which is a
-    /// decision rather than an oversight. AniList users pick one of five scoring
-    /// systems and a raw <c>score</c> returns theirs, so an unconverted read gives
-    /// 87 for a 100-point user and violates <c>CK_LibraryEntries_UserScoreRange</c>
-    /// mid-transaction. Asking the server to convert is right; asking it for
-    /// <c>POINT_10</c> is not — it rounds during conversion, so a 100-point user's 4
-    /// comes back as 0, indistinguishable from unscored. The scale meant to protect
-    /// low scores is the one that destroys them.
+    /// The query asks AniList for <c>POINT_100</c> and does the last step here,
+    /// because asking it for <c>POINT_10</c> rounds during conversion and turns a
+    /// 100-point user's 4 into a 0, indistinguishable from unscored.
     ///
-    /// So: zero is excluded first and means unscored, then the division rounds away
-    /// from zero — .NET's default is banker's rounding, which would send 8.5 down —
-    /// and anything that survives is clamped up to 1. A 4/100 becomes a 1 rather
-    /// than vanishing, which matters because a 1 separates a disliked show from an
-    /// unrated one, and that distinction is what Phase 7 ranks on.
+    /// Zero is excluded first and means unscored; the division rounds away from zero
+    /// rather than using .NET's banker's rounding; anything that survives is clamped
+    /// up to 1, so a low score becomes a 1 rather than vanishing.
     /// </remarks>
     private static int? MapScore(
         JsonElement entry,
@@ -368,12 +337,9 @@ public sealed class AniListJsonParser(ImportLimits? limits = null) : IAnimeListP
     /// Reads a FuzzyDate, which is three independently nullable components.
     /// </summary>
     /// <remarks>
-    /// Only a complete date becomes a date. A year alone is real information, but
-    /// there is nowhere truthful to put it: <c>DateOnly</c> would have to invent a
-    /// month and a day, and "started on 1 January" is a fact the user never stated
-    /// and would see rendered as though they had. Null already means "not known"
-    /// throughout the pipeline, and <c>0000-00-00</c> from a MyAnimeList export is
-    /// treated exactly the same way.
+    /// Only a complete date becomes a date. A partial one would mean inventing a
+    /// month and a day the user never stated, and null already means "not known"
+    /// throughout the pipeline.
     /// </remarks>
     private static DateOnly? MapFuzzyDate(JsonElement entry, string property)
     {
@@ -401,32 +367,14 @@ public sealed class AniListJsonParser(ImportLimits? limits = null) : IAnimeListP
     }
 
     /// <summary>
-    /// Takes the cover image URL, and only if it is one AniQueue could safely render.
-    /// </summary>
-    /// <remarks>
-    /// The value is a remote string that AniQueue will itself request, so the scheme
-    /// is checked rather than assumed: anything that is not absolute http or https
-    /// is dropped. The host is checked too, but not here — that is a decision about
-    /// what the application may reach and belongs with the code that reaches it
-    /// (D47, §6).
-    ///
-    /// <b>Only <c>medium</c> is read, and it used to be <c>extraLarge</c>.</b> The
-    /// old choice reasoned that the sizes cost the same to ask for and nothing
-    /// rendered them, so the largest lost nothing — true until something rendered
-    /// them. The two differ by 9.7 KB against 83.3 KB for the same picture, which is
-    /// 486 KB or 4.2 MB of a fifty-row backlog page, to fill a column forty pixels
-    /// wide. A size per column is still refused (§10); this is one size, chosen for
-    /// the slot it goes in, and stored on a row that can simply be re-fetched if a
-    /// later layout wants another.
-    /// </remarks>
-    /// <summary>
     /// One named size of the cover, if the response carries it and it is a URL.
     /// </summary>
     /// <remarks>
-    /// The size is a parameter rather than two near-identical methods because the two
-    /// renditions differ in nothing but which key is read — and keeping them in one
-    /// place is what stops the thumbnail and the full-size cover drifting into
-    /// different validation (D48).
+    /// The scheme is checked rather than assumed, because this is a remote string
+    /// AniQueue will itself request. The host is checked too, but with the code that
+    /// makes the request. The size is a parameter rather than two near-identical
+    /// methods, so the thumbnail and the full-size cover cannot drift into different
+    /// validation.
     /// </remarks>
     private static string? MapCoverImage(JsonElement media, string size)
     {
@@ -448,18 +396,10 @@ public sealed class AniListJsonParser(ImportLimits? limits = null) : IAnimeListP
     }
 
     /// <summary>
-    /// The genres AniList names for this title, deduplicated and in order (D49).
+    /// The genres AniList names for this title, deduplicated and in order. An absent
+    /// or empty list is silence: it returns empty, and the merge leaves whatever the
+    /// title already has alone.
     /// </summary>
-    /// <remarks>
-    /// <b>An absent or empty list is silence, and returns empty.</b> Nothing here can
-    /// express "this title has no genres", because nothing downstream could act on the
-    /// difference without risking the erasure the merge exists to prevent — an empty
-    /// result reaching a title that already has genres leaves them alone.
-    ///
-    /// Deduplicated because a join keyed on the pair would otherwise throw on a
-    /// duplicate, and a source repeating itself is not worth failing an entire sync
-    /// over.
-    /// </remarks>
     private static List<string> MapGenres(JsonElement media)
     {
         if (!media.TryGetProperty("genres", out var genres) || genres.ValueKind != JsonValueKind.Array)
@@ -491,14 +431,11 @@ public sealed class AniListJsonParser(ImportLimits? limits = null) : IAnimeListP
     /// Every company credited, with the main-studio flag AniList puts on the edge.
     /// </summary>
     /// <remarks>
-    /// <b>The flag is on the edge and the animation-studio fact is on the node</b>,
-    /// which is why both are read here rather than one of them being inferred later:
-    /// AniList returns studios and producers in one undifferentiated list, and losing
-    /// either flag makes it impossible to say afterwards which was which.
-    ///
-    /// Deduplicated by name, keeping the first edge that claims to be main — a company
-    /// credited twice on one title is one row, and the stronger claim wins so that a
-    /// duplicate cannot demote the actual studio.
+    /// The main flag is on the edge and the animation-studio fact is on the node, so
+    /// both are read here: AniList returns studios and producers in one
+    /// undifferentiated list, and losing either makes it impossible to say afterwards
+    /// which was which. Deduplicated by name, with the main claim winning so a
+    /// duplicate edge cannot demote the actual studio.
     /// </remarks>
     private static List<ParsedStudio> MapStudios(JsonElement media)
     {
@@ -548,8 +485,8 @@ public sealed class AniListJsonParser(ImportLimits? limits = null) : IAnimeListP
     /// </summary>
     /// <remarks>
     /// Absent, null and non-boolean all mean false rather than throwing. These flags
-    /// only ever narrow what is displayed, so a missing one costs a studio line and
-    /// never a failed sync — D25's rule that enrichment degrades quietly.
+    /// only narrow what is displayed, so a missing one costs a studio line rather
+    /// than a sync.
     /// </remarks>
     private static bool Flag(JsonElement element, string property) =>
         element.TryGetProperty(property, out var value) && value.ValueKind == JsonValueKind.True;

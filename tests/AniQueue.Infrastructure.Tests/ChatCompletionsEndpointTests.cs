@@ -96,14 +96,14 @@ public class ChatCompletionsEndpointTests
         Assert.True(result.Succeeded);
 
         // Verbatim, because the parser is the only thing allowed to interpret it and it
-        // has to see what the model actually wrote (D31).
+        // has to see what the model actually wrote.
         Assert.Equal(reply, result.Reply);
     }
 
     [Fact]
     public async Task What_is_sent_is_the_prompt_and_the_payload_and_nothing_invented()
     {
-        // The claim D31 turns on: the two routes carry one contract. If this endpoint
+        // The claim it turns on: the two routes carry one contract. If this endpoint
         // composed its own instructions, the manual path and this one would be two
         // pipelines wearing one name.
         var request = Request();
@@ -244,11 +244,9 @@ public class ChatCompletionsEndpointTests
         Assert.Equal(ScoringEndpointFailure.Truncated, result.Failure);
         Assert.Contains("ran out of room", result.Message!, StringComparison.OrdinalIgnoreCase);
 
-        // It names AniQueue's own ceiling, and says so. The message used to end "raise
-        // your server's output limit", which was advice that could not work: max_tokens
-        // travels with every request, so the server's own setting is overridden before
-        // it can apply. Somebody following that instruction would change a setting,
-        // see no difference, and have no way to find out why.
+        // It names AniQueue's own ceiling, and says so. max_tokens travels with every
+        // request, so pointing at the server's own output limit would send somebody to
+        // change a setting that is overridden before it can apply.
         Assert.Contains("AniQueue allows", result.Message!, StringComparison.OrdinalIgnoreCase);
         Assert.Contains(
             ChatCompletionsEndpoint.MaxTokensFor(2).ToString(System.Globalization.CultureInfo.InvariantCulture),
@@ -271,7 +269,7 @@ public class ChatCompletionsEndpointTests
     public async Task An_http_error_carries_what_the_server_said()
     {
         // The diagnostic that makes somebody's own misconfiguration fixable, and the
-        // one D38 bounds because a settable address plus an unbounded echo is a way to
+        // one bounded because a settable address plus an unbounded echo is a way to
         // read things this application should not be reading.
         var (endpoint, _) = Create(_ => Json(
             """{ "error": { "message": "model 'qwen' not found" } }""",
@@ -299,7 +297,7 @@ public class ChatCompletionsEndpointTests
     [Fact]
     public async Task An_endpoint_the_guards_refuse_is_never_reached()
     {
-        // D38 checks what may be sent, so the handler must never see it.
+        // The guards check what may be sent, so the handler must never see it.
         var (endpoint, handler) = Create(
             _ => Json(Completion("""{ "results": [] }""")),
             o => o.Endpoint = "http://169.254.169.254");
@@ -374,7 +372,7 @@ public class ChatCompletionsEndpointTests
     [Fact]
     public async Task A_fenced_reply_survives_the_whole_journey()
     {
-        // The two halves of D37 and this phase meeting: the courier carries the reply
+        // The two halves meeting: the courier carries the reply
         // untouched, and the parser is what finds the ranking inside it.
         var (endpoint, _) = Create(_ => Json(Completion(
             """

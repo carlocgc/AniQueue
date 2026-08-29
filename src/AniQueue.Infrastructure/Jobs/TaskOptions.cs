@@ -3,19 +3,14 @@ using AniQueue.Core.Domain;
 namespace AniQueue.Infrastructure.Jobs;
 
 /// <summary>
-/// The <c>Tasks</c> configuration section: one cadence for all background work (D40).
+/// The <c>Tasks</c> configuration section: one cadence for all background work.
 /// </summary>
 /// <remarks>
-/// <b>One schedule where there were two.</b> Sync carried a per-source schedule and
-/// scoring carried its own, on two different pages, for a single-user application
-/// reading one list and one model — a control surface nobody was using and a second
-/// place to look when something had not run.
-///
-/// <b>It replaces the clock, not the gate.</b> Every task still decides for itself
-/// whether it has anything to do, and still returns immediately when it does not
-/// (D25). What is shared is only how often they are asked. D39's staleness rule and
-/// the relation backfill's thirty-day marker are untouched: those decide *what* is
-/// work, and this decides *when to look*.
+/// One schedule for every task, so there is one place to look when something has not
+/// run. It is the clock and not the gate: every task still decides for itself whether
+/// it has anything to do, and still returns immediately when it does not. Staleness
+/// rules and the relation backfill's thirty-day marker decide what is work; this
+/// decides when to look.
 /// </remarks>
 public class TaskOptions
 {
@@ -32,8 +27,8 @@ public class TaskOptions
     /// must not silently start fetching.
     ///
     /// <see cref="SyncSchedule.Off"/> does not mean nothing ever happens: a task still
-    /// runs when its data changes underneath it, and when somebody presses the button
-    /// (D41). What it stops is the clock.
+    /// runs when its data changes underneath it, and when somebody presses the button.
+    /// What it stops is the clock.
     /// </remarks>
     public SyncSchedule Schedule { get; set; } = SyncSchedule.Off;
 
@@ -41,11 +36,8 @@ public class TaskOptions
     /// Whether the related-titles pass takes part at all.
     /// </summary>
     /// <remarks>
-    /// <b>New in Phase 15c, and a small reversal.</b> The relation backfill had no
-    /// setting deliberately — "there is no decision to offer: a relation is a fact
-    /// about a title, and nobody wants fewer of them". That held while the job was
-    /// invisible. It has a row now, with a button on it, and a row carrying a button
-    /// and no switch invites the question of how to stop it (D40).
+    /// The pass has a row on the tasks page with a button on it, and a row carrying a
+    /// button and no switch invites the question of how to stop it.
     ///
     /// It lives here rather than in a section of its own because there is nothing
     /// else to configure about it: a whole <c>Relations</c> section holding one
@@ -65,7 +57,7 @@ public class TaskOptions
     ///
     /// It has a switch at all for the reason the relation pass gained one: it has a
     /// row with a button on it, and a row carrying a button and no way to stop it
-    /// invites the question of how (D40). Turning it off leaves what is already
+    /// invites the question of how. Turning it off leaves what is already
     /// cached serving — the pages read the table, not this.
     /// </remarks>
     public bool CoverArtEnabled { get; set; } = true;

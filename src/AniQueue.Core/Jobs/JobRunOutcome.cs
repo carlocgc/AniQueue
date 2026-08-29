@@ -1,19 +1,14 @@
 namespace AniQueue.Core.Jobs;
 
 /// <summary>
-/// What one run of one unit did, in the terms every task has in common (D40).
+/// What one run of one unit did, in the terms every task has in common.
 /// </summary>
 /// <remarks>
-/// <b>Returned by the job rather than computed by the runner</b>, which is the
-/// property that makes it safe to store. Phase 15b writes this to a run table
-/// alongside whatever typed record the job also keeps — <c>SyncRun</c> for a sync —
-/// and two independently counted versions of one event could disagree. These are the
-/// job's own numbers, so they cannot.
+/// Returned by the job rather than computed by the runner, so the run table and
+/// whatever typed record the job also keeps cannot disagree about one event.
 ///
-/// <b>It holds only what is shared.</b> A sync's conflicts-held and a relation pass's
-/// edges-removed mean nothing to each other, and folding both in would rebuild the
-/// wide row of nullable columns D7 rejected. What survives the generalisation is
-/// "how many did you look at, how many did you change, and did it work".
+/// It holds only what every task shares: how many did you look at, how many did you
+/// change, and did it work.
 /// </remarks>
 /// <param name="Outcome">How the run ended.</param>
 /// <param name="ItemsProcessed">How many things the run considered.</param>
@@ -25,7 +20,7 @@ namespace AniQueue.Core.Jobs;
 /// </param>
 /// <param name="FailureReason">
 /// Why a failed run failed, in plain words. Never a stack trace — this reaches a
-/// page (§6).
+/// page.
 /// </param>
 public sealed record JobRunOutcome(
     JobOutcome Outcome,
@@ -40,7 +35,7 @@ public sealed record JobRunOutcome(
     /// Deliberately distinct from a run that was not due, which is not a run at all
     /// and is never recorded. A converged task and a broken one are indistinguishable
     /// if the only thing a page can report is the last run that changed something —
-    /// relations in its steady state legitimately does nothing for weeks (D40).
+    /// relations in its steady state legitimately does nothing for weeks.
     /// </remarks>
     public static JobRunOutcome NothingToDo { get; } = new(JobOutcome.NothingToDo);
 
@@ -53,7 +48,7 @@ public sealed record JobRunOutcome(
     public static JobRunOutcome Failed(string reason, int processed = 0, int changed = 0) =>
         new(JobOutcome.Failed, processed, changed, reason);
 
-    /// <summary>Whether this run is worth a row (D40).</summary>
+    /// <summary>Whether this run is worth a row.</summary>
     public bool IsRecordable => Outcome is not JobOutcome.NotDue;
 }
 
@@ -73,7 +68,7 @@ public enum JobOutcome
     /// <summary>
     /// Somebody stopped it. Not a failure, and this distinction is load-bearing:
     /// counting a cancel as a failure would raise a stalled banner over a button the
-    /// user pressed on purpose (D40).
+    /// user pressed on purpose.
     /// </summary>
     Cancelled = 3,
 

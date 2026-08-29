@@ -4,7 +4,7 @@ using AniQueue.Core.Recommendations;
 namespace AniQueue.Core.Tests.Recommendations;
 
 /// <summary>
-/// The strict half of Phase 7's contract, tested without a database.
+/// The strict half of the scoring contract, tested without a database.
 ///
 /// Every case here is one a self-hosted model actually produces. The split these
 /// assert — errors reject the whole ranking, warnings do not — is the reason the
@@ -47,7 +47,7 @@ public class ScoringResponseParserTests
     [Fact]
     public void Orders_results_by_predicted_score_rather_than_by_position()
     {
-        // A model may emit them in any order, and since D43 there is no rank stating
+        // A model may emit them in any order, and there is no rank stating
         // one. The score is the only number it is asked for, so ordering by it is what
         // makes a preview read in the order the backlog will once it is applied.
         var result = Parser.Parse(Wrap(
@@ -65,7 +65,7 @@ public class ScoringResponseParserTests
     [Fact]
     public void A_rank_that_arrives_anyway_is_read_past_rather_than_refused()
     {
-        // D43 took rank out of the request, not out of the world: a model repeating a
+        // Rank is out of the request, not out of the world: a model repeating a
         // shape it saw in training still sends one. Failing the batch over a field
         // nothing reads would spend the sweep's error budget on the model being
         // old-fashioned — and here the rank contradicts the scores outright, so this
@@ -138,10 +138,10 @@ public class ScoringResponseParserTests
     [Fact]
     public void Prose_around_an_empty_ranking_is_unwrapped_and_then_still_refused()
     {
-        // This asserted the opposite until D37: prose around the JSON was an error,
+        // This asserted the opposite until : prose around the JSON was an error,
         // on the grounds that stripping a fence is the first step towards inferring
         // what a model meant. That held while a person was pasting the reply and could
-        // delete the backticks; Phase 8 removed the person, and fencing is what small
+        // delete the backticks; an endpoint has no person, and fencing is what small
         // models do most of the time — so the rule would have failed correct rankings
         // every night, forever, with nobody to fix them.
         //
@@ -225,7 +225,7 @@ public class ScoringResponseParserTests
     {
         // Two different scores for one title, with no honest way to pick between them.
         // The companion case — two titles claiming one rank — was a test here until
-        // D43 deleted the field, and it is not replaced: nothing else in the reply can
+        // The field is gone and not replaced: nothing else in the reply can
         // now contradict itself the way a numbering could.
         var result = Parser.Parse(Wrap(
             """
@@ -267,12 +267,8 @@ public class ScoringResponseParserTests
         Assert.Contains(result.Problems, p => p.Message.Contains("outside 0–1"));
     }
 
-    // A_rank_below_one_is_an_error and A_gap_in_the_ranks_is_a_warning_and_still_applies
-    // stood here. Both policed a numbering, and D43 removed the numbering; stripping
-    // the rank out of their fixtures would have left two tests whose setup no longer
-    // reaches the assertion they were written for, which is worse than not having them.
-    // A reply that is short is still reported, but against ExpectedCount in
-    // ScoringPreview rather than against the model's own count of itself.
+    // A short reply is reported against ExpectedCount in ScoringPreview rather than
+    // against the model's own count of itself.
 
     [Fact]
     public void An_overlong_reason_is_shortened_and_warned_about_rather_than_refused()
@@ -318,7 +314,7 @@ public class ScoringResponseParserTests
         Assert.Equal([7, 11], result.Response!.Results.Select(r => r.Id));
     }
 
-    // D37: a reply may be unwrapped, never reconstructed. Every case below is one a
+    // : a reply may be unwrapped, never reconstructed. Every case below is one a
     // self-hosted model produces routinely — and the phase that automated the carrying
     // is the phase these had to start passing, because the manual path had a person to
     // delete the backticks and a scheduled sweep has nobody.
@@ -359,7 +355,7 @@ public class ScoringResponseParserTests
     [Fact]
     public void Unwrapping_says_what_it_ignored()
     {
-        // The audit trail, and the reason unwrapping is not the black box D31 forbids:
+        // The audit trail, and the reason unwrapping is not a black box:
         // the preview states what was discarded, so a ranking read out of a mess is
         // still one somebody can check.
         var result = Parser.Parse(
@@ -461,7 +457,7 @@ public class ScoringResponseParserTests
     public void Prose_with_no_ranking_in_it_is_still_refused()
     {
         // The floor. A model that answered in sentences has not answered, and inventing
-        // a ranking from what it said is the guessing D31 exists to forbid.
+        // a ranking from what it said is the guessing this forbids.
         var result = Parser.Parse(
             "I would start with Hinamatsuri, then Dragon Maid. Lain is excellent but heavy.");
 
@@ -540,7 +536,7 @@ public class ScoringResponseParserTests
 
         // The three the parser refuses a result without. "reason" is deliberately absent:
         // a model that omits it has still answered the question. "rank" was a fourth
-        // until D43, and its absence from "properties" as well as from "required" is
+        // once, and its absence from "properties" as well as from "required" is
         // what this asserts next — the schema is open, so a model that sends one anyway
         // is not refused by the server before the parser ever sees it.
         Assert.Equal(["id", "predictedScore", "confidence"], required);
@@ -572,7 +568,7 @@ public class ScoringResponseParserTests
     public void Reads_the_library_a_reply_names()
     {
         // Read here and judged by IRecommendationService, which is the only thing
-        // holding the library it would have to be judged against (D50).
+        // holding the library it would have to be judged against.
         var result = Parser.Parse(
             """
             {

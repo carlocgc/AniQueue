@@ -4,30 +4,20 @@ using System.Net;
 namespace AniQueue.Core.Recommendations;
 
 /// <summary>
-/// Decides whether an address AniQueue was told to POST to may be POSTed to (D38).
+/// Decides whether an address AniQueue was told to POST to may be POSTed to.
 /// </summary>
 /// <remarks>
-/// §6 used to say every outbound endpoint is a constant held in code, so there was no
-/// request-forgery surface at all. D36 made the scoring endpoint a setting a page can
-/// write, because a self-hosted model has no address anybody but the operator knows —
-/// and this is what replaced the protection the constant gave.
+/// The scoring endpoint is a setting a page can write, because a self-hosted model
+/// has no address anybody but the operator knows. This is what stands in for the
+/// protection a hard-coded address would have given.
 ///
-/// <b>What it is protecting against, stated plainly.</b> AniQueue has no
-/// authentication, so whoever can reach the port can already read the library. What a
-/// settable outbound address adds is reach into places the surrounding network cannot
-/// touch — loopback, the container network, and the cloud metadata service — and the
-/// diagnostic that reports a failing endpoint turns that reach into a way to read the
-/// answers. Neither half is worth much alone.
+/// What it guards against is reach into places the surrounding network cannot touch
+/// — the container's own network and the cloud metadata service — combined with the
+/// diagnostic that reports what a failing endpoint said.
 ///
-/// <b>What it deliberately allows.</b> Loopback and private ranges, because that is
-/// exactly where a self-hosted model lives. Refusing them would be theatre: reaching
-/// the page at all means already being on that network, so the SSRF grants no reach
-/// the caller did not have. What it cannot grant is the container's own network and
-/// link-local — hence the one range that is refused.
-///
-/// <b>Honest limitation:</b> none of this is a boundary until Phase 12's optional
-/// login exists. It is taken now because it costs nothing while nobody has an endpoint
-/// saved, and because Phase 14 should find a decision rather than an open question.
+/// What it deliberately allows is loopback and private ranges, because that is
+/// exactly where a self-hosted model lives, and reaching the page at all means
+/// already being on that network. Link-local is the one range refused.
 /// </remarks>
 public static class ScoringEndpointAddress
 {

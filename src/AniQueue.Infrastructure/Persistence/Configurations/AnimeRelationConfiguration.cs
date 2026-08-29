@@ -22,7 +22,7 @@ public class AnimeRelationConfiguration : IEntityTypeConfiguration<AnimeRelation
             .IsUnique();
 
         // The reverse lookup, and it is not optional. Edges are stored exactly as
-        // fetched (D24), so half of any title's relations are rows where it is the
+        // fetched, so half of any title's relations are rows where it is the
         // *related* end — a title whose own relations have never been fetched is
         // reachable only this way.
         builder.HasIndex(r => new { r.Source, r.RelatedExternalId });

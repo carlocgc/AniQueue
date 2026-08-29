@@ -276,7 +276,7 @@ public class ImportServiceTests
         Assert.Equal(8.7, updatedEntry.RecommendationScore);
         Assert.Equal("Matches your comedy history", updatedEntry.RecommendationReason);
 
-        // The queue slot is the exception, and deliberately so (D12): the import
+        // The queue slot is the exception, and deliberately so: the import
         // reported this title as Completed, and a queue of things to watch next
         // should not still be offering something already watched. Note what did not
         // happen — the import did not reorder anything or overwrite a position. It
@@ -386,8 +386,8 @@ public class ImportServiceTests
         await using var context = fixture.Database.CreateContext();
         var anime = await context.Anime.SingleAsync();
 
-        // Provenance is unchanged by linking — the title really was hand-added
-        // (D17). What linking writes is the identifier, and that is what stops it
+        // Provenance is unchanged by linking — the title really was hand-added.
+        // What linking writes is the identifier, and that is what stops it
         // conflicting again.
         Assert.Equal(AnimeSource.Manual, anime.Source);
 

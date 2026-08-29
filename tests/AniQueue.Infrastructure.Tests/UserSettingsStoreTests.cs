@@ -9,7 +9,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 namespace AniQueue.Infrastructure.Tests;
 
 /// <summary>
-/// The file half of D36: what gets written, what a reload makes current, and what
+/// The file half of : what gets written, what a reload makes current, and what
 /// happens when the volume will not take a write.
 /// </summary>
 public class UserSettingsStoreTests : IDisposable
@@ -180,7 +180,7 @@ public class UserSettingsStoreTests : IDisposable
     public async Task Saving_makes_a_value_current_without_waiting_for_a_watcher()
     {
         // The reload is explicit precisely because the watcher is not dependable on the
-        // bind mounts this application is deployed onto (D20), so the assertion that
+        // bind mounts this application is deployed onto, so the assertion that
         // matters is that the value is live the moment the save returns.
         var (store, configuration) = Create();
 
@@ -274,7 +274,7 @@ public class UserSettingsStoreTests : IDisposable
     [Fact]
     public async Task A_directory_that_cannot_be_written_is_reported_rather_than_thrown()
     {
-        // §9's non-root container against a root-owned bind mount. A save button that
+        // A non-root container against a root-owned bind mount. A save button that
         // throws there turns a settings edit into an error page; this makes it a
         // sentence beside the control.
         Directory.CreateDirectory(_directory);
@@ -356,8 +356,8 @@ public class UserSettingsStoreTests : IDisposable
     /// The one cadence is off until somebody turns it on.
     /// </summary>
     /// <remarks>
-    /// This used to assert the same of a scoring-specific schedule. Phase 15c replaced
-    /// both that and the per-source one with a single key (D40); what has not changed
+    /// There is no scoring-specific schedule; one cadence replaced
+    /// both that and the per-source one with a single key; what has not changed
     /// is that it is off by default, so an installation upgrading with an account
     /// already configured does not silently start fetching.
     /// </remarks>

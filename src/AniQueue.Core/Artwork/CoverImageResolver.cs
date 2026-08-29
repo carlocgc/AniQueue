@@ -21,34 +21,18 @@ public readonly record struct CoverArt(string? Url, string? Colour)
 }
 
 /// <summary>
-/// Turns what the database knows about a title's art into what the page renders
-/// (D47).
-///
-/// Pure formatting, like <see cref="Library.SourceLinkBuilder"/> and for the same
-/// reason: the inputs are already loaded by the query the page is running anyway, so
-/// this needs no lookup, no configuration and no network.
+/// Turns what the database knows about a title's art into what the page renders.
+/// Pure formatting over values the page's own query already loaded, so it needs no
+/// lookup, no configuration and no network. Where the picture actually is belongs
+/// to <see cref="ArtworkPaths"/>.
 /// </summary>
-/// <remarks>
-/// <b>§5 called this <c>ICoverImageResolver</c>.</b> It is a static builder instead,
-/// because there is one implementation, no seam anything would substitute at, and
-/// nothing to inject — the same conclusion <c>SourceLinkBuilder</c> reached. The
-/// interface would have been a name with no behaviour behind it.
-///
-/// Where the picture actually is belongs to <see cref="ArtworkPaths"/>, which the job
-/// and the endpoint share. This decides only <i>what to show</i>.
-/// </remarks>
 public static class CoverImageResolver
 {
     /// <summary>
     /// The art for one title, given its cached image row and its dominant colour.
+    /// The URL carries the content hash, so replaced art arrives at a new address
+    /// and the endpoint can cache it forever.
     /// </summary>
-    /// <remarks>
-    /// <b>The URL carries the content hash, and that is what makes it cacheable
-    /// forever.</b> Replacing a title's art changes AniList's URL, which re-fetches,
-    /// which changes the hash, which changes this address — so the endpoint can send
-    /// a year's <c>max-age</c> with <c>immutable</c> and a fifty-row page spends no
-    /// requests revalidating images it already has.
-    /// </remarks>
     public static CoverArt ForAnime(
         int animeId,
         string? contentHash,
@@ -69,11 +53,9 @@ public static class CoverImageResolver
     /// </summary>
     /// <remarks>
     /// This value is published by AniList and ends up in inline CSS. Blazor escapes
-    /// the attribute, so it cannot break out of it — but it cannot stop
-    /// <c>red;background-image:url(…)</c> being a valid declaration inside one, and
-    /// that would be a third party choosing what a self-hosted page fetches. Six
-    /// hexadecimal digits behind a hash is the entire shape AniList publishes, so
-    /// requiring exactly that costs nothing and closes it.
+    /// the attribute but cannot stop <c>red;background-image:url(…)</c> being a
+    /// valid declaration inside one, so anything that is not six hexadecimal digits
+    /// behind a hash is dropped.
     /// </remarks>
     private static string? Palette(string? colour)
     {

@@ -26,7 +26,7 @@ internal static class SeedData
             Title = title,
             Source = source,
 
-            // An identifier is a row rather than a column now (D17), and a manual
+            // An identifier is a row rather than a column now, and a manual
             // entry has none at all rather than a null one.
             ExternalIds = sourceAnimeId is null
                 ? []

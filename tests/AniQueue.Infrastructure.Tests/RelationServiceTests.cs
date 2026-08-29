@@ -14,7 +14,7 @@ namespace AniQueue.Infrastructure.Tests;
 /// What an expansion shows, against a real graph in a real database.
 ///
 /// Two properties carry most of these. Edges are stored exactly as the source
-/// stated them (D24), so a title's relatives are found by searching <i>both</i>
+/// stated them, so a title's relatives are found by searching <i>both</i>
 /// columns and inverting what came back from the far end — and the count on the
 /// chevron has to mean exactly what the panel below it opens, or a badge promising
 /// three relatives opens onto one.
@@ -145,7 +145,7 @@ public class RelationServiceTests
 
         /// <summary>
         /// Reads positions straight from the table rather than through the ordered
-        /// read, which would hide exactly the corruption being checked for (D2).
+        /// read, which would hide exactly the corruption being checked for.
         /// </summary>
         public async Task AssertQueueContiguousAsync()
         {
@@ -230,9 +230,9 @@ public class RelationServiceTests
     /// <remarks>
     /// Both ends here call the other their side story, which inverts to "parent" read
     /// from the far end — so the two descriptions disagree while the pair is still
-    /// plainly the same work. The spin-off version of this disagreement is no longer
-    /// expressible in a set at all: D55 stopped following parent edges, so a pair
-    /// joined only by <c>SPIN_OFF</c> and <c>PARENT</c> is not in one.
+    /// plainly the same work. The spin-off version of this disagreement is not
+    /// expressible in a set at all: parent edges are not followed, so a pair joined
+    /// only by <c>SPIN_OFF</c> and <c>PARENT</c> is not in one.
     /// </remarks>
     [Fact]
     public async Task Edges_that_disagree_about_the_connection_are_labelled_related()
@@ -260,7 +260,7 @@ public class RelationServiceTests
 
         // 999 is a real title on AniList and absent here, which is the ordinary
         // case: the graph reaches thousands of titles nobody has expressed an
-        // interest in (D11).
+        // interest in.
         await fixture.RelateAsync("100", RelationType.Sequel, "999");
 
         Assert.Empty(await fixture.RelatedAsync(owned));
@@ -290,10 +290,9 @@ public class RelationServiceTests
 
     /// <summary>
     /// The set follows the same work as far as it goes, so season three is in season
-    /// one's set with a season between them (D55). This is the rule D24 wrote the
-    /// other way round, and the surface changed underneath it: one edge out was right
-    /// for a panel wedged into a table row, and wrong for a dialog answering "what am
-    /// I taking on if I start here".
+    /// one's set with a season between them. One edge out was right for a panel
+    /// wedged into a table row, and wrong for a dialog answering "what am I taking on
+    /// if I start here".
     /// </summary>
     [Fact]
     public async Task A_season_two_edges_away_is_still_in_the_set()
@@ -313,7 +312,7 @@ public class RelationServiceTests
     /// <summary>
     /// Only the neighbour carries a label. Nothing states how season one relates to
     /// season three, so naming it would be inventing a relationship the source did
-    /// not publish (D55).
+    /// not publish.
     /// </summary>
     [Fact]
     public async Task Only_a_title_one_edge_away_is_labelled()
@@ -336,8 +335,8 @@ public class RelationServiceTests
     /// <summary>
     /// What a box set does not hold. A spin-off is a separate work set in the same
     /// world and an alternative is the same story told again — neither is a season of
-    /// the show you opened, and neither is walked through to reach anything else
-    /// (D55).
+    /// the show you opened, and neither is walked through to reach anything else.
+
     /// </summary>
     [Theory]
     [InlineData(RelationType.SpinOff)]
@@ -361,7 +360,7 @@ public class RelationServiceTests
     /// <summary>
     /// A special hangs off the work it belongs to, and the edge is traversable from
     /// either end — so it is in the set read from the special as well as from the
-    /// show (D55).
+    /// show.
     /// </summary>
     [Fact]
     public async Task A_special_is_in_the_set_from_either_end()
@@ -380,7 +379,7 @@ public class RelationServiceTests
     /// <summary>
     /// A spin-off does not drag in the work it branches from, and this is the case
     /// that made the rule: <c>PARENT</c> is AniList's counterpart to both
-    /// <c>SIDE_STORY</c> and <c>SPIN_OFF</c> (D24), so following it cannot tell a
+    /// <c>SIDE_STORY</c> and <c>SPIN_OFF</c>, so following it cannot tell a
     /// special from a spin-off.
     /// </summary>
     /// <remarks>
@@ -410,7 +409,7 @@ public class RelationServiceTests
     /// <summary>
     /// The cost of the rule above, stated rather than discovered: a special whose only
     /// stored edge is its own <c>PARENT</c> is not in the set, because that row is
-    /// exactly the one that cannot be told from a spin-off (D55).
+    /// exactly the one that cannot be told from a spin-off.
     /// </summary>
     [Fact]
     public async Task A_special_that_only_names_its_parent_is_left_out()
@@ -428,7 +427,7 @@ public class RelationServiceTests
     /// <summary>
     /// Release order, and a date finer than the year: two halves of a split-cour
     /// series share one, which is exactly the case this ordering exists to get
-    /// right (D24).
+    /// right.
     /// </summary>
     [Fact]
     public async Task Relatives_are_ordered_by_release_date_with_unknown_dates_last()
@@ -509,7 +508,7 @@ public class RelationServiceTests
     //
     // The same walk the list above is built from, handed to the queue instead of to
     // the dialog. What differs is only what happens to each title once it is found:
-    // the list shows every status, and the queue takes the ones still planned (D55).
+    // the list shows every status, and the queue takes the ones still planned.
 
     [Fact]
     public async Task The_set_queues_a_title_and_everything_that_follows_it()
@@ -532,7 +531,7 @@ public class RelationServiceTests
 
     /// <summary>
     /// It goes backwards now, and status is what stops the walk proposing what has
-    /// already been watched (D55). The old rule was "forward only", which was the
+    /// already been watched. The old rule was "forward only", which was the
     /// same protection spelled as a direction — and it also hid the unwatched prequel
     /// that is the best reason not to start here.
     /// </summary>
@@ -606,7 +605,7 @@ public class RelationServiceTests
 
     /// <summary>
     /// Release order, not walk order. AniList publishes no viewing sequence, and the
-    /// edges alone would give story order — frequently the wrong watch order (D24).
+    /// edges alone would give story order — frequently the wrong watch order.
     /// </summary>
     [Fact]
     public async Task The_set_appends_in_release_order_rather_than_the_order_it_found_them()
@@ -758,7 +757,7 @@ public class RelationServiceTests
     /// <summary>
     /// A MyAnimeList-only title carries no identifier the graph speaks in, so there
     /// is nothing that can be said to follow it — the action is not offered rather
-    /// than offered and queueing one title (D23).
+    /// than offered and queueing one title.
     /// </summary>
     [Fact]
     public async Task A_title_with_no_anilist_identifier_has_no_chain_at_all()

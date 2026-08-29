@@ -5,8 +5,8 @@ namespace AniQueue.Core.Library;
 /// <summary>
 /// What the library actually contains, used to decide which filters to offer.
 ///
-/// The brief is explicit that a filter should only appear when the metadata behind
-/// it exists (§7). A "Movie" filter in a library with no films, or an "under two
+/// A filter only appears when the metadata behind it exists. A "Movie" filter in a
+/// library with no films, or an "under two
 /// hours" filter where no title records an episode length, is a control that can
 /// only ever return nothing — worse than absent, because the user reasonably reads
 /// an empty result as "I own none of these" rather than "this filter is useless".
@@ -44,7 +44,7 @@ public sealed record LibraryFacets
     /// here yet", which a page cannot tell from an empty result: the backlog
     /// defaults to Planning, so a brand new install has a filter applied and its
     /// first screen said *nothing matches those filters* — offering to clear a
-    /// filter that was not the reason (D27). Invisible for as long as a seeder
+    /// filter that was not the reason. Invisible for as long as a seeder
     /// guaranteed there was data.
     /// </remarks>
     public bool IsEmpty => CountByStatus.Count == 0;
@@ -63,14 +63,11 @@ public sealed record LibraryFacets
     /// </remarks>
     public required bool HasSequelEdges { get; init; }
 
-    /// <summary>Count per status, for the status filter's labels.</summary>
-    /// <remarks>
-    /// A number in a picker is a promise about what choosing that option shows, so
-    /// it counts exactly what the listing behind it lists. It used to exclude hidden
-    /// entries while the listing did too, and "Planning (8)" produced seven rows
-    /// whenever the two disagreed; Phase 18b deleted hiding, so there is nothing
-    /// left for the two to disagree about.
-    /// </remarks>
+    /// <summary>
+    /// Count per status, for the status filter's labels. A number in a picker is a
+    /// promise about what choosing that option shows, so it counts exactly what the
+    /// listing behind it lists.
+    /// </summary>
     public required IReadOnlyDictionary<LibraryStatus, int> CountByStatus { get; init; }
 
     public static LibraryFacets Empty { get; } = new()

@@ -4,7 +4,7 @@ using AniQueue.Infrastructure.Artwork;
 namespace AniQueue.Web.Endpoints;
 
 /// <summary>
-/// Serves the cached pictures under <c>/data</c> (D47).
+/// Serves the cached pictures under <c>/data</c>.
 /// </summary>
 /// <remarks>
 /// <b>An endpoint rather than static file middleware</b>, for three reasons that all
@@ -19,8 +19,8 @@ namespace AniQueue.Web.Endpoints;
 /// title's id, the content hash and the extension — so a backlog page with fifty
 /// covers costs fifty file reads and no queries. That is only safe because every
 /// segment is matched against a whitelist rather than sanitised: one of four kind
-/// names, an integer, and hexadecimal followed by a known image extension. §6 forbids
-/// user-supplied file paths, and this is how that is kept true.
+/// names, an integer, and hexadecimal followed by a known image extension. No
+/// user-supplied string ever becomes a file path.
 /// </remarks>
 public static class CoverArtEndpoint
 {

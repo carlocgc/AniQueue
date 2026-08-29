@@ -29,7 +29,7 @@ public sealed record LibraryListItem
 
     public double? RecommendationConfidence { get; init; }
 
-    /// <summary>How this record came to exist here. Provenance, not identity (D17).</summary>
+    /// <summary>How this record came to exist here. Provenance, not identity.</summary>
     public AnimeSource Source { get; init; }
 
     /// <summary>Every service that identifies this title.</summary>
@@ -57,24 +57,14 @@ public sealed record LibraryListItem
     /// What this row should render for art: a served picture, a colour, or nothing.
     /// </summary>
     /// <remarks>
-    /// Computed here rather than in markup for the reason §3 gives about components —
-    /// no logic in a <c>.razor</c> file — and the columns above are what the query
-    /// carries so that the page needs no second lookup per row. Nothing here reaches
-    /// the filesystem: the endpoint answers a miss with a 404 and the job repairs the
+    /// Computed here rather than in markup, over columns the row's own query already
+    /// carries, so the page needs no second lookup per row. Nothing here reaches the
+    /// filesystem: the endpoint answers a miss with a 404 and the job repairs the
     /// row, which keeps I/O out of a render that happens on every paint.
     ///
-    /// <b>The full-size poster first, the thumbnail while it has not arrived.</b>
-    /// D47 chose the thumbnail for a list and was right about the list it was
-    /// looking at: fifty rows of a wide table, each showing a 40px sliver. 18d made
-    /// the picture the leading element of a card, and a 64px slot on a three-times
-    /// phone screen wants around 192px of image against the thumbnail's 100 —
-    /// visibly soft at exactly the element being promoted. Both renditions are
-    /// already on disk, and this is served over a LAN.
-    ///
-    /// The fallback is the same four steps the dialog takes, and the second one
-    /// matters as much here: a fresh install has thumbnails for minutes before it
-    /// has posters, and a page of colour blocks during that window would look broken
-    /// rather than pending (D48).
+    /// The full-size poster first, then the thumbnail, then the colour, then
+    /// nothing. The thumbnail step matters: a fresh install has thumbnails for
+    /// minutes before it has posters.
     /// </remarks>
     public CoverArt Cover => PosterContentHash is { Length: > 0 }
         ? CoverImageResolver.ForAnime(
@@ -90,7 +80,7 @@ public sealed record LibraryListItem
 }
 
 /// <summary>
-/// Everything the detail dialog argues with (D49).
+/// Everything the detail dialog argues with.
 /// </summary>
 /// <remarks>
 /// <b>A second query rather than more columns on the list.</b> The backlog carries
@@ -129,17 +119,16 @@ public sealed record TitleDetail
     /// <remarks>
     /// Not formatted here. <see cref="SynopsisFormatter"/> turns it into runs the page
     /// renders as text, and keeping the two apart is what lets the formatting be
-    /// tested exhaustively without a database anywhere near it (D49).
+    /// tested exhaustively without a database anywhere near it.
     /// </remarks>
     public string? Synopsis { get; init; }
 
     public IReadOnlyList<string> Genres { get; init; } = [];
 
-    /// <summary>The studio AniList marks as primary, where it marks one.</summary>
-    /// <remarks>
-    /// Null is common and is rendered as no studio line at all rather than as a
-    /// placeholder — D25's silent degradation, which every other field here follows.
-    /// </remarks>
+    /// <summary>
+    /// The studio AniList marks as primary, where it marks one. Null is common, and
+    /// is rendered as no studio line rather than as a placeholder.
+    /// </summary>
     public string? MainStudio { get; init; }
 
     public double? RecommendationScore { get; init; }
@@ -169,12 +158,10 @@ public sealed record TitleDetail
     /// The picture to show, at the best size that has actually arrived.
     /// </summary>
     /// <remarks>
-    /// <b>Four steps down, and every one of them is reachable.</b> The full-size
-    /// cover, then the thumbnail the list is already showing, then the colour block
-    /// Phase 6 banked, then nothing. The second step is the one that matters in
-    /// practice: a fresh install has thumbnails for minutes before it has posters
-    /// (D48), and a dialog that showed a colour block during that window would look
-    /// broken beside a list row showing art for the same title.
+    /// Four steps down, all reachable: the full-size cover, then the thumbnail the
+    /// list is already showing, then the colour, then nothing. A fresh install has
+    /// thumbnails for minutes before it has posters, so the second step is the one
+    /// that matters in practice.
     /// </remarks>
     public CoverArt Poster => PosterContentHash is { Length: > 0 }
         ? CoverImageResolver.ForAnime(
@@ -234,7 +221,7 @@ public interface ILibraryService
     /// <remarks>
     /// Null rather than an exception, because the row a user clicked can be deleted by
     /// a sync between the page rendering and the dialog opening — and a missing title
-    /// is a dialog that does not open, not an error worth showing (D25).
+    /// is a dialog that does not open, not an error worth showing.
     /// </remarks>
     Task<TitleDetail?> GetTitleDetailAsync(
         int profileId,
@@ -242,8 +229,4 @@ public interface ILibraryService
         CancellationToken cancellationToken = default);
 
     Task<LibraryFacets> GetFacetsAsync(int profileId, CancellationToken cancellationToken = default);
-
-    // No SetHiddenAsync (Phase 18b). Hiding was a local way to say "stop offering me
-    // this" beside the one D11 already settled — the list this title came from. Two
-    // answers to one question, and only one of them survives a sync.
 }

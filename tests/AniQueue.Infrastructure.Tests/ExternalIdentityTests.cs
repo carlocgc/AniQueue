@@ -5,9 +5,9 @@ using Microsoft.EntityFrameworkCore;
 namespace AniQueue.Infrastructure.Tests;
 
 /// <summary>
-/// D17's bridge, tested through the pipeline rather than the schema.
+/// The identifier bridge, tested through the pipeline rather than the schema.
 ///
-/// These are the tests that stop Phase 5 regressing into the failure it was
+/// These are the tests that stop a sync regressing into the failure it was
 /// designed around: a library imported from one service, met by a sync speaking
 /// another, matching nothing and conflicting on every title. Against a real
 /// 752-entry export that would be 750 hand decisions, with nobody present to make
@@ -15,7 +15,7 @@ namespace AniQueue.Infrastructure.Tests;
 ///
 /// They go through <see cref="IImportService.PreviewAsync(ParseResult, string, int, IProgress{Core.Progress.OperationProgress}?, CancellationToken)"/>
 /// rather than a stream, because no parser yet emits two identifiers — the AniList
-/// one lands in Phase 5b. That overload is exactly the seam a sync will use, so
+/// one lands. That overload is exactly the seam a sync uses, so
 /// exercising it here tests the path rather than a stand-in for it.
 /// </summary>
 public class ExternalIdentityTests

@@ -183,7 +183,7 @@ public sealed class MyAnimeListXmlParser(ImportLimits? limits = null) : IAnimeLi
         }
 
         // One identifier, because a MyAnimeList export knows only about
-        // MyAnimeList. An AniList response will supply two (D17); nothing
+        // MyAnimeList. An AniList response will supply two; nothing
         // downstream needs to know which parser produced how many.
         var malId = NullIfBlank(Value(fields, "series_animedb_id"));
 

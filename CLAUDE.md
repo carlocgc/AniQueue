@@ -131,9 +131,10 @@ That is how the test project gets `Microsoft.Extensions.Configuration.Json`.
 
 - One branch per phase part: `feature/phase-N<letter>-slug` → PR into `development`. `main` is
   release-only. Delete branches once merged.
-- **Comments explain why, not what**, and cite their `D`-number. When a decision is reversed,
-  replace the old comment with the reason it lost rather than deleting it — the argument that
-  failed is worth leaving legible.
+- **Comments say what the code is for.** They do not record decisions, cite `D`-numbers, or
+  narrate what the code used to be — that history belongs in the roadmap and in git. A comment
+  that a reader has to parse before reaching the code it sits above is noise; if nothing needs
+  explaining, write none.
 - Commit messages and PR bodies are prose, not bullet dumps: what changed, what it cost, what was
   found while doing it. Say plainly what could not be verified.
 

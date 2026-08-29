@@ -79,7 +79,7 @@
         }
         else if (!status.IsConfigured)
         {
-            @* Editable here rather than only in a file, which D36 changed: an account
+            @* Editable here rather than only in a file: an account
                name is the first thing a new installation needs and "edit some JSON and
                restart" is a poor first screen. The file stays the way in when this page
                cannot be reached — the same value, the same key, one home. *@
@@ -117,7 +117,7 @@
             @* A source AniQueue cannot go and read, so the user brings it. It sits
                here rather than on a page of its own because it is a source in every
                sense that matters — it names titles, it ranks against the other, and
-               its export is how most libraries arrive (D30). What made it look like
+               its export is how most libraries arrive. What made it look like
                something else was only that it has no account to configure. *@
             <p class="muted">
                 Upload an export. In MyAnimeList, go to <strong>List → Export</strong> and
@@ -137,10 +137,9 @@
                 <a href="settings">Settings</a> page
             </p>
 
-            @* Only when a run held something. Sync now used to live here and start a
-               fetch anybody could press at any time; running a sync is the tasks
-               page's job now, and what is left on this card is the one thing that
-               needs a person — the review D21 requires (D40, D42).
+            @* Only when a run held something. Running a sync is the tasks page's job;
+               what is left on this card is the one thing that needs a person, which
+               is the review.
 
                It still fetches, because review persists nothing: a held preview is
                stale within the hour, so the visit re-fetches and recomputes and
@@ -176,7 +175,7 @@
                synced 3 hours ago, last attempt failed because the profile is
                private" is actionable where either half alone is not. The failure
                stays until a later run reaches the source, because a sync that
-               stopped working must never read as up to date (§4). *@
+               stopped working must never read as up to date. *@
             @if (status.LastFailure is { FailureReason: { } reason } failure
                  && (status.LastSuccess is null || failure.Id > status.LastSuccess.Id))
             {
@@ -226,7 +225,7 @@
             }
 
             @* One line, and only while there is something outstanding. Enrichment
-               degrades silently (D25): a backfill still working through a library is
+               degrades silently: a backfill still working through a library is
                not a problem, and a page that announced it would be announcing the
                application doing its job. What it does answer is the question a user
                with a new library actually asks — why some rows have no related
@@ -251,11 +250,8 @@
                         }
                     </span>
 
-                    @* Refresh related titles was here and did two things under one
-                       innocuous name: it forgot every marker and then ran a pass. The
-                       pass belongs to the tasks page now, which leaves this as what it
-                       always was underneath — throwing the graph away — so it says so
-                       and asks (D40).
+                    @* Throwing the relation graph away. Refilling it belongs to the
+                       tasks page, so this says what it does and asks first.
 
                        It is the only destructive action on this page, which is why it
                        confirms in place rather than behind a dialog: the sentence
@@ -301,13 +297,12 @@
             @* Configured, not merely fetchable. An unconfigured source already offers
                this field in the card above, where it is the one thing to do, and
                drawing it here as well would be two controls over one setting — which
-               is the bug D30's single primary seat was written against, reappearing on
-               a text box. Once an account exists the card shows what it is reading and
+               is the same bug a single primary seat avoids, on a text box. Once an account exists the card shows what it is reading and
                this is where changing it belongs. *@
             @if (status.CanFetch && status.IsConfigured)
             {
                 @* The one control on this page that writes to userconfig.json rather
-                   than to the database (D36), and deliberately indistinguishable from
+                   than to the database, and deliberately indistinguishable from
                    the ones that do: which store holds a value is AniQueue's problem,
                    not the reader's. *@
                 <div class="field">
@@ -338,7 +333,7 @@
             @if (status.CanFetch)
             {
                 @* A power button rather than a tick box, because this is a state the
-                   source is in rather than something being included (Phase 18a). The
+                   source is in rather than something being included. The
                    preferences below it stay tick boxes for the same reason. *@
                 <div class="field power-field">
                     <PowerToggle On="status.Settings.IsEnabled"
@@ -349,9 +344,9 @@
             }
 
             @* A radio rather than a per-source dropdown, and the difference is the
-               point (D30). Primary is a single seat: two dropdowns could both say
-               "Primary", and two primaries tie — which D29 settles by letting the
-               last import win, the behaviour the setting exists to end. A radio
+               point. Primary is a single seat: two dropdowns could both say
+               "Primary", and two primaries tie, which is resolved by letting the
+               last import win — the behaviour the setting exists to end. A radio
                cannot express that state, and choosing one here demotes the other
                without the user having to go and do it.
 
@@ -388,7 +383,7 @@
                 </p>
 
                 @* How often this runs is set on the Settings page now, once for every
-                   background task (D40). What stays here is what a run may *do*,
+                   background task. What stays here is what a run may *do*,
                    which is the part that differs per source. *@
 
                 <div class="field">
@@ -434,14 +429,11 @@
                        account and a profile turned private all look identical to "the
                        user deleted everything", and an emptied library taking the
                        hand-built queue with it is the one failure here with no recovery
-                       path in the product (D19).
+                       path in the product.
 
-                       This used to promise an in-application backup as the thing that
-                       would make it survivable. D33 declined that — the recovery path is
-                       the database file itself — so what it now waits on is the guards
-                       D19 lists, and the copy is the operator's to keep. Saying so is
-                       more useful than a promise: it tells the one person who can make
-                       the removal survivable what to actually do. *@
+                       The recovery path is the database file itself, and the copy is
+                       the operator's to keep. Saying so tells the one person who can
+                       make the removal survivable what to actually do. *@
                     <p class="muted">
                         Deleting them here as well is not offered yet: an unlucky sync would
                         have nothing inside AniQueue to undo it. Your library lives in a single
@@ -459,7 +451,7 @@
    card. It is a profile preference rather than a fact about a source — it decides
    how every title is displayed, whichever list it came from — and with a second
    card on the page it would otherwise have been drawn twice, as two controls over
-   one setting (D30). Hidden while a preview is up, like everything else that is not
+   one setting. Hidden while a preview is up, like everything else that is not
    an answer to it. *@
 @if (!IsPreviewing && _applied is null)
 {
@@ -553,7 +545,7 @@
     // Two ways in, one review surface. A fetch is kept whole because applying one
     // needs the absence count and the source it came from; a file has nothing to
     // remember beyond the preview itself. Which of the two is set is also what
-    // decides how the preview gets committed (D30).
+    // decides how the preview gets committed.
     private SyncFetchResult? _fetch;
     private ImportPreview? _filePreview;
 
@@ -579,7 +571,7 @@
     /// A flag rather than <c>BusyScope</c>, because this one is not modal. Sync now
     /// blocked the page behind a dialog; a review is something the user chose to look
     /// at, everything else on the card stays true while it reads, and the fetch is
-    /// seconds (D42).
+    /// seconds.
     /// </remarks>
     private bool _reviewing;
     private bool _nothingToDo;
@@ -719,7 +711,7 @@
     /// <remarks>
     /// The same fetch <c>Sync now</c> made, for a different reason and with a
     /// different name. What changed is who starts a sync: the tasks page does, and
-    /// this exists only because D21's review persists nothing — a held preview is
+    /// this exists only because review persists nothing — a held preview is
     /// stale within the hour, so the visit re-fetches and everything an earlier run
     /// applied returns as <c>Unchanged</c>.
     ///
@@ -768,9 +760,8 @@
     /// The two differ only in what records the attempt. A sync writes a
     /// <c>SyncRun</c> — it is a scheduled thing that can fail unattended, and the
     /// page has to be able to say when it last worked — while a file import has no
-    /// history worth keeping, because the file was here and the user watched it
-    /// happen. Everything after that is the same commit through the same pipeline
-    /// (D30), which is why the result type is shared.
+    /// history worth keeping, because the user was watching it happen. Everything after that is the same commit through the same pipeline,
+    /// which is why the result type is shared.
     /// </remarks>
     private async Task ApplyAsync()
     {
@@ -804,7 +795,7 @@
             // both were being left out: any other page open on this library learns it
             // has gone stale, and the enrichment jobs get a tick now rather than at
             // the next quarter hour — which is what stops "refresh related titles"
-            // being the only way to fill in several hundred new titles (D25).
+            // being the only way to fill in several hundred new titles.
             Changes.Publish(new LibraryChange
             {
                 Source = _pendingSource ?? AnimeSource.MyAnimeList,
@@ -838,7 +829,7 @@
     /// </summary>
     /// <remarks>
     /// Takes a function rather than an action because <c>SourceSyncSettings</c> stopped
-    /// being a mutable entity in Phase 10a — the settings are a value read from
+    /// being a mutable entity: the settings are a value read from
     /// <c>userconfig.json</c>, so a change produces a new one rather than editing the
     /// instance the page happens to be holding.
     /// </remarks>
@@ -850,8 +841,8 @@
 
         var result = await SyncService.SaveSettingsAsync(change(status.Settings));
 
-        // Reported rather than swallowed, because since Phase 10a this writes a file
-        // and §9's non-root container writing to a root-owned bind mount cannot. A
+        // Reported rather than swallowed, because this writes a file and a non-root
+        // container writing to a root-owned bind mount cannot. A
         // checkbox left showing a value nothing kept is the worst of the three
         // outcomes available here.
         if (!result.Saved)
@@ -896,7 +887,7 @@
     /// reported beside it instead of replacing it. A single line that flips to "last
     /// attempt failed" the moment anything goes wrong loses the fact a user most
     /// needs while it is going wrong: how old the data they are looking at actually
-    /// is (§4).
+    /// is.
     /// </remarks>
     private static string LastRunText(SyncRun? run) => run switch
     {
@@ -938,7 +929,7 @@
             : $"{text}.";
     }
 
-    /// <summary>Explains a queue that just got shorter (D12).</summary>
+    /// <summary>Explains a queue that just got shorter.</summary>
     private static string? AdvancementText(ImportCommitResult result) =>
         result.QueueSlotsReleased switch
         {
@@ -952,7 +943,7 @@
     /// </summary>
     /// <remarks>
     /// The same review surface a sync gets, because the difference between the two
-    /// is the trigger rather than the logic (§5). What is specific to a file is only
+    /// is the trigger rather than the logic. What is specific to a file is only
     /// getting the bytes: the default <c>OpenReadStream</c> cap is 512 KB, far below
     /// a real export, and the parser enforces the same ceiling again on what it
     /// reads so the limit holds whichever way in was used.
@@ -992,7 +983,7 @@
     }
 
     /// <summary>
-    /// Promotes one source, which is the only way to change who is primary (D30).
+    /// Promotes one source, which is the only way to change who is primary.
     /// </summary>
     /// <remarks>
     /// There is no matching demote. The seat is single, so taking it away from the
@@ -1029,10 +1020,8 @@
     /// Throws the relation graph away, so that it is fetched again from nothing.
     /// </summary>
     /// <remarks>
-    /// What <c>Refresh related titles</c> did underneath, said out loud. That button
-    /// forgot every marker and immediately ran a pass, which made sense while this
-    /// page was the only way to make anything happen; the tasks page runs passes now,
-    /// so the honest description of what is left is a delete (Phase 15e).
+    /// Refilling belongs to the relation task, so what is left here is a delete and
+    /// it says so.
     ///
     /// No dialog and no waiting: two statements against the database, and the
     /// refilling belongs to a task the user can start or leave alone.
@@ -1045,13 +1034,4 @@
         _relations = await RelationBackfill.GetCoverageAsync();
     }
 
-    // RefreshBudget and RefreshText were here, and both belonged to a button that
-    // read the source. The budget was three minutes, deliberately shorter than the
-    // job's ten, because somebody was watching a dialog; and RefreshText had five
-    // arms to describe what a pass had found, of which the interesting one said
-    // "Nothing had changed" plainly — relations change rarely, and that is the
-    // feature working rather than the button failing.
-    //
-    // Nothing on this page reads a source any more (Phase 15e), so both go. What
-    // replaced them says how many relations were deleted, which needs one sentence.
 }

@@ -1,10 +1,10 @@
-# Production image for AniQueue (Phase 11). Multi-stage on purpose: the SDK is
+# Production image for AniQueue. Multi-stage on purpose: the SDK is
 # nearly ten times the size of the runtime and carries a compiler, so it builds
-# and is then left behind (§13).
+# and is then left behind.
 #
-# **Written here, not generated.** §13 says not to accept the Dockerfile Visual
-# Studio's Container Tools offers to write, and that still holds — this file is
-# the production one and VS points at it rather than replacing it. What VS does
+# Written here rather than generated. Visual Studio's Container Tools offers to
+# write one; this is the production Dockerfile and VS points at it rather than
+# replacing it. What VS does
 # need is the stage order below: its fast-mode debugging targets the *first*
 # stage in the file, so `base` comes first and is the runtime image. Put `build`
 # first and pressing F5 on the Docker profile would debug inside the SDK image.
@@ -29,11 +29,11 @@ ENV ASPNETCORE_HTTP_PORTS=8080
 EXPOSE 8080
 
 # The volume holding everything that must outlive the container: the SQLite
-# database, the userconfig.json written beside it (D20), the cached cover art
-# under /data/art (D47) and the signing keys under /data/keys. Created and owned
+# database, the userconfig.json written beside it, the cached cover art
+# under /data/art and the signing keys under /data/keys. Created and owned
 # here so that a *named* volume inherits the ownership from the image — a bind
 # mount does not, and its host directory has to be chowned to this UID by hand
-# (§9). That is the Unraid case, and the README says so.
+#. That is the Unraid case, and the README says so.
 #
 # APP_UID is defined by the base image as 1654. Named explicitly rather than
 # assumed, so the number the README tells people to chown to comes from the same
@@ -55,7 +55,7 @@ ARG BUILD_CONFIGURATION=Release
 WORKDIR /src
 
 # Project files first, so a source-only change reuses the restore layer. The two
-# Directory.*.props come with them because central package management (D6) puts
+# Directory.*.props come with them because central package management puts
 # every version in Directory.Packages.props — without it restore has no versions
 # to resolve and fails before it reads a single package reference.
 COPY Directory.Build.props Directory.Packages.props ./

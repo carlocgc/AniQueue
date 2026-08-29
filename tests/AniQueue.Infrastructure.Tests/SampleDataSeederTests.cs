@@ -52,7 +52,7 @@ public class SampleDataSeederTests
     [Fact]
     public async Task The_queue_interleaves_seasons_of_one_series_with_unrelated_titles()
     {
-        // The arrangement D15 exists for: two seasons of one series with something
+        // The arrangement a one-title slot exists for: two seasons of one series with something
         // else deliberately between them. If this cannot be seeded, the queue model
         // has taken the ordering away from the user.
         //
@@ -85,7 +85,7 @@ public class SampleDataSeederTests
     [Fact]
     public async Task The_applied_recommendation_run_is_mirrored_onto_library_entries()
     {
-        // D4: the columns on LibraryEntry are a read cache of the applied run.
+        // : the columns on LibraryEntry are a read cache of the applied run.
         // If they drift from the run, backlog sorting shows something the
         // recommendation history cannot explain.
         await using var database = await SeededDatabaseAsync();
@@ -95,7 +95,7 @@ public class SampleDataSeederTests
         Assert.True(run.WasApplied);
 
         // No filtering: every ranked item is a title now, so every one of them must
-        // have been mirrored. Skipping any was previously unavoidable (D16).
+        // have been mirrored. Skipping any was previously unavoidable.
         Assert.NotEmpty(run.Items);
 
         foreach (var item in run.Items)
@@ -111,7 +111,7 @@ public class SampleDataSeederTests
     /// <summary>
     /// The seed has to contain a graph, or the detail dialog's set cannot be looked
     /// at without syncing a real account first — and the inner loop is F5, not a
-    /// network round trip (§13).
+    /// network round trip.
     /// </summary>
     [Fact]
     public async Task Seeding_produces_a_relation_graph_the_dialog_can_show()
@@ -133,7 +133,7 @@ public class SampleDataSeederTests
         // goes with it — the half of the graph a tidier seed would never exercise.
         //
         // The film and the special hang off season one rather than off this title, so
-        // they are here because the set follows the same work as far as it goes (D55)
+        // they are here because the set follows the same work as far as it goes
         // — and they carry no label, because nothing in the graph states how they
         // relate to season two.
         Assert.Equal(
@@ -170,13 +170,13 @@ public class SampleDataSeederTests
     /// <remarks>
     /// Sample titles carry identifiers AniList does not issue, so a real list coming
     /// back without them is — correctly — reported as those titles having gone
-    /// missing (D19). That is what got the automatic seeder deleted (D27). Sample
+    /// missing. That is what got the automatic seeder deleted. Sample
     /// data and a real account are alternatives, and this is the seeder saying so in
     /// the only place that can stop an unattended run: the database.
     /// </remarks>
     // A_seeded_database_leaves_anilist_sync_switched_off was deleted here rather than
     // rewritten, and the reason is worth keeping. It asserted a settings row the
-    // seeder wrote; Phase 10a moved that setting into userconfig.json, which a seeder
+    // seeder wrote; that setting lives in userconfig.json, which a seeder
     // writing a database cannot reach — and must not, because the sample and real
     // profiles shared one settings file, so seeding it would have switched off the
     // user's actual sync.

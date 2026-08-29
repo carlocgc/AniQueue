@@ -17,7 +17,7 @@ public sealed record SyncFetchResult
     public string? FailureReason { get; init; }
 
     /// <summary>
-    /// Titles this source has stopped listing, marked during the fetch (D19).
+    /// Titles this source has stopped listing, marked during the fetch.
     /// </summary>
     /// <remarks>
     /// Already written by the time this is read, unlike everything else on a
@@ -104,7 +104,7 @@ public sealed record SourceSyncStatus
     /// </summary>
     /// <remarks>
     /// The one real difference between the two sources on the page, and the reason
-    /// they can otherwise share a card (D30). Everything else about them — ranking,
+    /// they can otherwise share a card. Everything else about them — ranking,
     /// what a preview looks like, what applying one does — is identical, so the
     /// split is a fetch button against a file picker rather than two pages.
     ///
@@ -114,24 +114,23 @@ public sealed record SourceSyncStatus
     public required bool CanFetch { get; init; }
 
     /// <summary>
-    /// Whether this source outranks the others when two of them describe one title
-    /// (D18, D29, D30).
+    /// Whether this source outranks the others when two of them describe one title.
+
     /// </summary>
     /// <remarks>
     /// A flag rather than a rank compared against a constant. The seat is single, so
-    /// naming its occupant in one setting says that directly — where a rank per
-    /// source could represent two primaries or none, and needed a transaction across
-    /// every row to stop it (Phase 10a).
+    /// naming its occupant in one setting says that directly, where a rank per source
+    /// could represent two primaries or none.
     /// </remarks>
     public required bool IsPrimary { get; init; }
 
-    /// <summary>Whether an account has been configured for this source (D20).</summary>
+    /// <summary>Whether an account has been configured for this source.</summary>
     public required bool IsConfigured { get; init; }
 
     /// <summary>The account being read, for display. Never a credential — a public username.</summary>
     public string? Account { get; init; }
 
-    /// <summary>How many of this profile's titles the source has stopped listing (D19).</summary>
+    /// <summary>How many of this profile's titles the source has stopped listing.</summary>
     public int AbsentCount { get; init; }
 
     /// <summary>
@@ -184,16 +183,16 @@ public sealed record SourceSyncStatus
 }
 
 /// <summary>
-/// Runs a source's fetch through the import pipeline (§5).
+/// Runs a source's fetch through the import pipeline.
 ///
 /// The difference between an upload and a sync is the trigger, not the logic: this
 /// fetches, parses and hands the result to <see cref="IImportService"/> for exactly
 /// the same matching, preview, commit and queue advancement a file gets. Nothing
 /// about reconciliation is duplicated here.
 ///
-/// Two calls rather than one, for the same reason import has two: in Phase 5b every
-/// run is user-initiated, and the preview is the review surface (D21). Phase 5c's
-/// unattended runner calls both in sequence without a human between them.
+/// Two calls rather than one, for the same reason import has two: the preview is
+/// the review surface for a run somebody asked for. The unattended runner calls both
+/// in sequence with nobody between them.
 /// </summary>
 public interface ISyncService
 {
@@ -229,7 +228,7 @@ public interface ISyncService
 
     /// <summary>
     /// Runs a source end to end with nobody present: fetches, applies what this
-    /// profile's settings allow, holds the rest, and records the run (D21).
+    /// profile's settings allow, holds the rest, and records the run.
     /// </summary>
     /// <remarks>
     /// Returns without doing anything — and without recording a run — when the
@@ -259,10 +258,10 @@ public interface ISyncService
     /// the first time the user has said anything about it.
     /// </summary>
     /// <remarks>
-    /// Returns the file write's result rather than <c>Task</c>, because since Phase
-    /// 10a this writes <c>userconfig.json</c> and §9's non-root container writing to
-    /// a root-owned bind mount is a real deployment. A save that silently failed
-    /// would leave a toggle showing the value it did not keep.
+    /// Returns the file write's result rather than <c>Task</c>, because this writes
+    /// <c>userconfig.json</c> and a non-root container writing to a root-owned bind
+    /// mount is a real deployment. A save that silently failed would leave a toggle
+    /// showing the value it did not keep.
     /// </remarks>
     Task<UserSettingsSaveResult> SaveSettingsAsync(
         SourceSyncSettings settings,
@@ -272,16 +271,13 @@ public interface ISyncService
     /// Makes one source primary and demotes every other, in one transaction.
     /// </summary>
     /// <remarks>
-    /// <b>Promotion rather than assignment, because primary is a single seat.</b>
-    /// The rank was a per-source number anyone could set independently, so two
-    /// sources could both be rank 0 — and D29 resolves a tie by letting the last
-    /// write win, which is the behaviour it exists to end. A control that can
-    /// express an unreachable state is a control that will.
+    /// Promotion rather than assignment, because primary is a single seat. A control
+    /// that can express two primaries or none is a control that eventually will.
     ///
     /// There is deliberately no way to say "this one is not primary": demoting the
     /// only primary would leave nobody holding the seat. Somebody else is promoted
     /// instead, which is the same decision stated in the form that always leaves the
-    /// setting meaningful (D30).
+    /// setting meaningful.
     ///
     /// Rows are created for sources that have none, because a demotion has to be
     /// recorded to be worth anything — an absent row is a default, and defaults are
@@ -293,13 +289,12 @@ public interface ISyncService
         CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Stores the preferred title language (D22).
+    /// Stores the preferred title language.
     /// </summary>
     /// <remarks>
     /// A profile-wide preference living behind the sync service, because a sync is
-    /// the only thing that acts on it and the Sources page is where it is set until
-    /// Phase 10 moves it onto the settings page. Changing it does not rewrite anything:
-    /// the next fetch does, through the same path that wrote the titles originally.
+    /// the only thing that acts on it. Changing it does not rewrite anything: the
+    /// next fetch does, through the same path that wrote the titles originally.
     /// </remarks>
     Task SavePreferredTitleLanguageAsync(
         int profileId,

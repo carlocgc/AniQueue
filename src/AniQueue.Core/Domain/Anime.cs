@@ -4,15 +4,6 @@ namespace AniQueue.Core.Domain;
 /// A single anime title — the catalogue record, independent of any user's opinion
 /// of it. What the user thinks and whether they have watched it lives on
 /// <see cref="LibraryEntry"/>.
-///
-/// This type is never coupled to a MyAnimeList or AniList DTO. Importers map into
-/// it; it does not mirror any external schema.
-///
-/// Nothing here says which group a title belongs to, and nothing will (D24).
-/// Titles are related to one another rather than gathered into groups: what a
-/// title's relatives are is a fact AniList publishes about that title, so it is
-/// stored as edges elsewhere rather than as membership of a set AniQueue invented
-/// and a user had to maintain.
 /// </summary>
 public class Anime
 {
@@ -21,35 +12,11 @@ public class Anime
     /// <summary>
     /// The title as displayed: resolved from the variants below through the
     /// profile's preferred language, and the only title anything else reads.
+    /// Recomputed when the language preference changes.
     /// </summary>
-    /// <remarks>
-    /// Denormalised deliberately. The backlog searches, sorts and pages on this
-    /// column in SQL, the queue and the AI export read it, and pushing a
-    /// per-profile language choice into every one of those queries would buy
-    /// nothing: recomputing this column when the preference changes is one
-    /// statement, and it happens about as often as someone changes their theme.
-    ///
-    /// For a manual entry or a MyAnimeList import this is the only title there is
-    /// — those sources publish one name — and the variants below stay null.
-    /// </remarks>
     public required string Title { get; set; }
 
-    /// <summary>
-    /// The romanised title, where the source published one.
-    /// </summary>
-    /// <remarks>
-    /// Three typed columns rather than one <c>AlternativeTitle</c>, which is what
-    /// this replaced. That column held whichever variant happened to differ, with
-    /// nothing recording which language it was, so nothing could ever switch
-    /// between them without guessing — changing the displayed language meant
-    /// re-fetching the entire list from the source (D22).
-    ///
-    /// Typed columns rather than a title-per-row table for the reason D7 gives
-    /// about settings: the set is fixed and known — <see cref="TitleLanguage"/>
-    /// has three members and no plan for a fourth — so columns stay migratable and
-    /// keep the search above trivial, where a key/value bag would be stringly
-    /// typed and would drag a join into every query.
-    /// </remarks>
+    /// <summary>The romanised title, where the source published one.</summary>
     public string? TitleRomaji { get; set; }
 
     /// <summary>The official English title. Absent for roughly one title in seven.</summary>
@@ -64,110 +31,52 @@ public class Anime
     public int? EpisodeCount { get; set; }
 
     /// <summary>
-    /// Typical episode length. Null when unknown — runtime is then not estimated
-    /// at all rather than guessed (ROADMAP.md §7, Phase 5).
+    /// Typical episode length. Null when unknown, in which case runtime is not
+    /// estimated at all.
     /// </summary>
     public int? EpisodeDurationMinutes { get; set; }
 
+    /// <summary>The year of first airing. What the decade filter groups on.</summary>
     public int? ReleaseYear { get; set; }
 
     /// <summary>
-    /// The date the title first aired, where the source published one.
+    /// The date the title first aired, where the source published one. Orders
+    /// related titles, which a year alone cannot do for split-cour seasons.
     /// </summary>
-    /// <remarks>
-    /// A year is not enough to order by (D24). Split-cour seasons share one, and
-    /// putting two halves of the same series in an arbitrary order is exactly the
-    /// case relation ordering exists to get right. <see cref="ReleaseYear"/> stays
-    /// beside it because the decade filter groups on it in SQL and a MyAnimeList
-    /// import supplies nothing finer.
-    ///
-    /// Populated by the relation pass rather than the list sync, which visits every
-    /// title anyway and can carry it for no extra request.
-    /// </remarks>
     public DateOnly? StartDate { get; set; }
 
-    /// <summary>
-    /// Every picture of this title, by kind and source (D47).
-    /// </summary>
-    /// <remarks>
-    /// This replaced a single <c>CoverImageUrl</c> column, and the reason is the one
-    /// D17 already paid for identity: one column holds one thing, and a title has a
-    /// poster, a banner and later a logo and a backdrop. It also replaced a column
-    /// that could not be corrected — it was written through the import merge, which
-    /// preserves what is already stored, so pointing it at a different image size
-    /// would have updated titles arriving afterwards and silently left every existing
-    /// row behind.
-    ///
-    /// Empty for a manual entry, and empty for a MyAnimeList import: that export
-    /// publishes no art at all.
-    /// </remarks>
+    /// <summary>Every picture of this title, by kind, source and rendition.</summary>
     public ICollection<AnimeImage> Images { get; set; } = [];
 
     /// <summary>
     /// The dominant colour of the cover art, as <c>#rrggbb</c>, where the source
-    /// published one.
+    /// published one. Lets a card be themed with no image loaded.
     /// </summary>
-    /// <remarks>
-    /// Six bytes, present for 92% of titles, and it gives a themed card with no
-    /// image loading at all — which is both a decision aid on its own and the
-    /// degradation Phase 9 needs for a cover that is missing or still downloading
-    /// (D25). Taken here because the relation pass is already asking about every
-    /// title; nothing renders it yet.
-    /// </remarks>
     public string? CoverImageColor { get; set; }
 
     /// <summary>
-    /// The synopsis, as AniList's own markdown (D49).
+    /// The synopsis, as AniList's own markdown. Kept unrendered so that spoilers
+    /// keep their <c>~!...!~</c> delimiters and no third-party HTML reaches the DOM.
     /// </summary>
-    /// <remarks>
-    /// <b>Stored verbatim, and deliberately not as <c>asHtml</c>.</b> AniList
-    /// descriptions carry spoilers wrapped in <c>~!...!~</c>, and keeping them as a
-    /// delimiter is what lets the detail dialog mask them; the HTML form has already
-    /// expanded them into markup that would have to be parsed back out. It is also
-    /// text any AniList user can edit, so rendering the HTML form would mean
-    /// <c>MarkupString</c> — unescaped third-party markup in the DOM.
-    ///
-    /// Storing what the source said rather than a transformation of it is D47's
-    /// lesson repeated: the cover parser stored the wrong rendition, the merge
-    /// preserved it, and it could not be corrected without a migration. Every
-    /// rendering decision stays a code change.
-    ///
-    /// §10 declined this field outright — "read once and never filtered on, so the
-    /// source links already answer it" — which was an argument about a list row,
-    /// where a synopsis is a wall of text in a column with no room for it. The
-    /// argument lost to a dialog whose whole job is the pitch (D49). The column
-    /// existed unwritten from Phase 1 until then.
-    /// </remarks>
     public string? Description { get; set; }
 
-    /// <summary>Genres AniList publishes for this title (D49).</summary>
-    /// <remarks>
-    /// Empty for a manual entry and for a MyAnimeList import, which publishes none —
-    /// and empty there means <i>the source did not say</i>, never "this title has no
-    /// genres". The merge depends on that distinction; without it, re-importing a
-    /// MyAnimeList export would strip the genres off every title the two sources
-    /// share.
-    /// </remarks>
+    /// <summary>
+    /// Genres AniList publishes for this title. Empty means the source did not
+    /// say, never that the title has no genres.
+    /// </summary>
     public ICollection<AnimeGenre> Genres { get; set; } = [];
 
-    /// <summary>Studios and producers, with the main one flagged (D49).</summary>
+    /// <summary>Studios and producers, with the main one flagged.</summary>
     public ICollection<AnimeStudio> Studios { get; set; } = [];
 
+    /// <summary>How the record came to be here. Identity lives on <see cref="ExternalIds"/>.</summary>
     public AnimeSource Source { get; set; } = AnimeSource.Manual;
 
     /// <summary>
-    /// Every external service that identifies this title (D17).
+    /// Every external service that identifies this title. Empty for manual
+    /// entries; more than one is normal, since AniList publishes a MyAnimeList id
+    /// alongside its own.
     /// </summary>
-    /// <remarks>
-    /// Empty for manual entries. More than one is the normal case for anything
-    /// AniList knows, since it publishes a MyAnimeList id alongside its own — and
-    /// that second identifier is what lets a sync match a MyAnimeList-imported row
-    /// rather than duplicate it.
-    ///
-    /// This replaced a single <c>SourceAnimeId</c> column. One column could hold
-    /// one identity, so a library imported from one service and synced from another
-    /// matched nothing and conflicted on every title.
-    /// </remarks>
     public ICollection<AnimeExternalId> ExternalIds { get; set; } = [];
 
     public DateTimeOffset CreatedAt { get; set; }

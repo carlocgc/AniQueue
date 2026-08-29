@@ -12,20 +12,14 @@ namespace AniQueue.Infrastructure.Persistence.Seeding;
 /// seasons, and an applied AI ranking.
 /// </summary>
 /// <remarks>
-/// <b>Only ever on request (D27).</b> This shipped as an automatic development
-/// seeder and was deleted for it: sample titles carrying invented AniList
-/// identifiers are indistinguishable, to D19's absence policy, from titles a source
-/// has stopped listing, so the first real sync reported five of them as missing.
-/// It is back because the alternative turned out to cost more — a queue crash went
-/// unverified for want of any offline way to put rows in a queue — but it is back
-/// behind two locks: the <c>SeedSampleData</c> switch, and a development-environment
-/// check that stops production even resolving the type.
+/// Only ever on request, behind two locks: the <c>SeedSampleData</c> switch, and a
+/// development-environment check that stops production even resolving the type.
 ///
-/// <b>Sample data and a real account are alternatives, not complements.</b> Seed a
-/// database or sync one; a library holding both will report the sample titles as
-/// absent, and that report is correct. To make the honest case easy, this leaves
-/// AniList sync switched off in the database it seeds, so nothing unattended goes
-/// looking. Pressing <i>Sync now</i> afterwards is a deliberate choice to mix them.
+/// Sample data and a real account are alternatives, not complements. Sample titles
+/// carry invented AniList identifiers, so a library holding both reports them as
+/// absent the first time a real list comes back without them — and that report is
+/// correct. The sample launch profile has its own data directory and its own
+/// settings file with no AniList account in it, so nothing goes looking on its own.
 ///
 /// Idempotent: it does nothing if any title already exists.
 /// </remarks>
@@ -47,11 +41,11 @@ public sealed class SampleDataSeeder(
         var profileId = Profile.DefaultProfileId;
 
         // Several seasons of one series, plus a film and an OVA. They are ordinary
-        // titles like every other row here (D23) — what makes them a series is the
+        // titles like every other row here — what makes them a series is the
         // relations AniList publishes about them, not anything stored locally.
         //
         // Which is why they carry AniList identifiers: the relation graph is keyed
-        // by them (D24), so without one there is nothing for the edges below to
+        // by them, so without one there is nothing for the edges below to
         // attach to and the backlog's expansion cannot be seen in the inner loop at
         // all.
         //
@@ -89,9 +83,6 @@ public sealed class SampleDataSeeder(
         var dragonMaid = NewAnime("Miss Kobayashi's Dragon Maid", MediaType.Tv, 13, 24, 2017, source: AnimeSource.MyAnimeList, sourceId: "33206");
         var unknownRuntime = NewAnime("Serial Experiments Lain", MediaType.Tv, 13, null, 1998, source: AnimeSource.MyAnimeList, sourceId: "339");
 
-        // A tenth title used to sit here, seeded hidden so that the hidden view and
-        // its status-picker option were reachable without hiding a row by hand. Phase
-        // 18b deleted hiding, and with it the only reason that title existed.
         context.Anime.AddRange(slayersEntries);
         context.Anime.AddRange(
             goldenBoy, gunbuster, nichijou, konosuba, mediocre,
@@ -119,13 +110,11 @@ public sealed class SampleDataSeeder(
         // dialog has a set to show without anyone having to sync a real account.
         //
         // The OVA is stated as the film is — from the main work's side, as a side
-        // story. It was a Parent edge from the OVA's own side until D55 stopped
-        // following those, and then the OVA quietly left the set. Real data carries
-        // both halves; a seed with only the half that is no longer read is a seed
-        // that hides a surface rather than exercising one.
+        // story — because a parent edge from the OVA's own side is not followed and
+        // the OVA would quietly leave the set.
         //
         // Written the way the source states them rather than tidied into one
-        // direction (D24), and the untidiness is the point: the edge from Try is
+        // direction, and the untidiness is the point: the edge from Try is
         // stored *only* from Try's side, so Next finds its own sequel through the
         // reverse index and inverts it. That path carries half a real graph and is
         // the half a hand-written seed would otherwise never exercise.
@@ -135,27 +124,14 @@ public sealed class SampleDataSeeder(
             Edge("900001", RelationType.SideStory, "900004"),
             Edge("900001", RelationType.SideStory, "900005"));
 
-        // Sample data and a real account are still alternatives rather than
-        // complements (D27): a library holding both reports the sample titles as
-        // absent the first time a real list comes back without them, and that report
-        // is correct (D19).
-        //
-        // This used to seed a settings row saying "do not read AniList", which Phase
-        // 10a made impossible — the setting lives in userconfig.json now, and the
-        // seeder writes a database. Disabling it there would have been worse than
-        // useless: the sample profile shared one settings file with the real one, so
-        // seeding would have switched off the user's actual sync.
-        //
-        // What replaces it is stronger and simpler. The sample launch profile points
-        // at ./data/sample/, so it gets its own database *and* its own settings file
-        // — with no AniList account in it, and therefore nothing for any sync to read
-        // whether it is scheduled, pressed, or woken. The two worlds no longer share
-        // anything at all, which is what the row was reaching for by hand.
+        // Nothing here switches AniList sync off, because that setting lives in
+        // userconfig.json and the seeder writes a database. The sample launch profile
+        // points at ./data/sample/, so it has its own settings file with no AniList
+        // account in it and no sync has anything to read.
 
         // A hand-ordered queue with an unrelated title deliberately sitting between
-        // two seasons of the same series. That arrangement is the point of D15: a
-        // slot is one title, so the user can space a long series out instead of
-        // committing to it in one block.
+        // two seasons of the same series: a slot is one title, so a long series can
+        // be spaced out rather than committed to in one block.
         context.QueueItems.AddRange(
             new QueueItem { ProfileId = profileId, Position = 0, AnimeId = hinamatsuri.Id, AddedAt = now },
             new QueueItem { ProfileId = profileId, Position = 1, AnimeId = slayersEntries[0].Id, AddedAt = now },
@@ -188,7 +164,7 @@ public sealed class SampleDataSeeder(
         await context.SaveChangesAsync(cancellationToken);
 
         // Mirror the applied run onto the library entries, which is what the
-        // backlog actually sorts on (D4).
+        // backlog actually sorts on.
         await ApplyRunToLibraryAsync(context, run, cancellationToken);
 
         logger.LogInformation(
@@ -263,12 +239,12 @@ public sealed class SampleDataSeeder(
 
                 // Written for the titles that are related to something, because that
                 // is the only place it is read: an expansion orders by air date, and
-                // a year cannot separate two halves of a split cour (D24).
+                // a year cannot separate two halves of a split cour.
                 StartDate = startDate,
 
-                // A colour but no cover URL, which is exactly the state 9a degrades
-                // into and the only one this profile can reach. The sample run has no
-                // AniList account (D27), so nothing will ever fetch a picture here —
+                // A colour but no cover URL, which is exactly the state the artwork
+                // path degrades into and the only one this profile can reach. The
+                // sample run has no AniList account, so nothing fetches a picture here
                 // and without this the artwork column would render as an empty box in
                 // the one place it can be looked at without touching the network.
                 //
@@ -328,9 +304,6 @@ public sealed class SampleDataSeeder(
         RecommendationRun run,
         CancellationToken cancellationToken)
     {
-        // Every item is a title, so there is nothing to filter out. This used to skip
-        // items with no AnimeId — the group case, and the fact that applying a run
-        // had to discard those is what D16 acted on.
         foreach (var item in run.Items)
         {
             var entry = await context.LibraryEntries

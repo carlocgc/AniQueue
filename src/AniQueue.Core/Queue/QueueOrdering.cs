@@ -4,10 +4,10 @@ namespace AniQueue.Core.Queue;
 /// Where a slot lands after a move, and what the queue looks like afterwards.
 ///
 /// This is pure index arithmetic over a list length, deliberately separated from
-/// the service that persists the result. D2 gave up the database's help with the
-/// contiguity invariant, which makes this arithmetic load-bearing — and having it
-/// in Core means it can be exercised exhaustively in milliseconds instead of once
-/// per case against SQLite.
+/// the service that persists the result. Nothing in the database defends
+/// contiguity, so this arithmetic is load-bearing — and keeping it in Core means it
+/// can be exercised exhaustively in milliseconds rather than once per case against
+/// SQLite.
 ///
 /// Both entry points return null for a move that changes nothing, so callers can
 /// skip the write rather than committing a transaction that rewrites a queue into

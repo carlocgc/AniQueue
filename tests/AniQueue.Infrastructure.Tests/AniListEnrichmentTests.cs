@@ -5,7 +5,7 @@ using Microsoft.EntityFrameworkCore;
 namespace AniQueue.Infrastructure.Tests;
 
 /// <summary>
-/// What Phase 9b writes, and what it must refuse to unwrite (D49).
+/// What enrichment writes, and what it must refuse to unwrite.
 ///
 /// The centre of this file is a rule that has no scalar equivalent: <c>Merge</c>
 /// rests on "a source never erases a value by not carrying it", and a set has no
@@ -197,7 +197,7 @@ public class AniListEnrichmentTests
     [Fact]
     public async Task A_library_that_predates_the_full_size_cover_gains_one_without_changing_otherwise()
     {
-        // Every existing installation on the morning Phase 9b ships: a thumbnail row
+        // A library that already has thumbnails and no full-size covers: a thumbnail row
         // per title and nothing else new. The preview has to see the missing
         // rendition, or the commit skips the title and the dialog never gets a poster.
         await using var fixture = await ImportFixture.CreateAsync();
@@ -311,14 +311,14 @@ public class AniListEnrichmentTests
     [Fact]
     public async Task A_source_that_does_not_outrank_another_may_fill_a_gap_but_not_overwrite()
     {
-        // D18's precedence, reaching the collections. AniList fills genres a
+        // Precedence, reaching the collections. AniList fills genres a
         // MyAnimeList-primary library does not have, because filling a gap is what
         // a demoted source is always allowed to do — and then stops, because the
         // second sync is an overwrite rather than a gap.
         await using var fixture = await ImportFixture.CreateAsync();
 
         // One row both sources identify, which is the only situation where rank means
-        // anything at all (D18).
+        // anything at all.
         await SyncAsync(fixture, Fetched(genres: []));
         await BridgeToMyAnimeListAsync(fixture);
 

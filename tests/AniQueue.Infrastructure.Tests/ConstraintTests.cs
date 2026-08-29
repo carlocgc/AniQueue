@@ -14,8 +14,8 @@ public class ConstraintTests
     [Fact]
     public async Task A_queue_slot_holds_one_title()
     {
-        // Since D15 that is all a slot can be. The XOR check constraint that let it
-        // hold a group instead is gone, and since D23 so is the group.
+        // That is all a slot can be. The XOR check constraint that let it
+        // hold a group instead is gone, and so is the group.
         await using var database = await SqliteTestDatabase.CreateAsync();
         await using var context = database.CreateContext();
 
@@ -47,10 +47,10 @@ public class ConstraintTests
     }
 
     /// <summary>
-    /// Values on a run item come from an external model, which §6 treats as untrusted
+    /// Values on a run item come from an external model and are untrusted
     /// data. These constraints are the last line if validation upstream ever has a
     /// gap, so they are worth asserting rather than assuming — the entity had no
-    /// coverage at all until D16 touched its configuration.
+    /// coverage at all until its configuration changed.
     /// </summary>
     [Theory]
     [InlineData(-0.1)]        // confidence is a probability
@@ -58,7 +58,7 @@ public class ConstraintTests
     public async Task A_run_item_outside_the_permitted_ranges_is_rejected(double confidence)
     {
         // The rank cases — 0 and -1 against CK_RecommendationRunItems_RankPositive —
-        // went with the column in D43. Confidence is the range left at this boundary,
+        // went with the column. Confidence is the range left at this boundary,
         // and the boundary is still worth a test: these values arrive from an external
         // model, so a validation gap upstream must not be able to persist nonsense.
         await using var database = await SqliteTestDatabase.CreateAsync();
@@ -79,7 +79,7 @@ public class ConstraintTests
     [Fact]
     public async Task A_valid_run_item_is_stored_against_its_title()
     {
-        // Since D16 a score is always against one title; there is no group variant and
+        // A score is always against one title; there is no group variant and
         // no exclusive-or constraint to satisfy.
         await using var database = await SqliteTestDatabase.CreateAsync();
         await using var context = database.CreateContext();
@@ -150,10 +150,8 @@ public class ConstraintTests
     [Fact]
     public async Task Many_manual_entries_without_a_source_identifier_are_allowed()
     {
-        // This used to be the reason the uniqueness index needed a filter: with a
-        // nullable identifier column, every manual entry collided with every other
-        // one on (Manual, NULL). A hand-added title now has no identifier row at
-        // all, so the collision cannot occur and the index needs no filter (D17).
+        // A hand-added title has no identifier row at all, so manual entries cannot
+        // collide with each other and the uniqueness index needs no filter.
         await using var database = await SqliteTestDatabase.CreateAsync();
         await using var context = database.CreateContext();
 
@@ -189,7 +187,7 @@ public class ConstraintTests
     [Fact]
     public async Task One_title_may_be_identified_by_several_services()
     {
-        // The point of D17. A title AniList knows carries a MyAnimeList id too, and
+        // A title AniList knows carries a MyAnimeList id too, and
         // holding both is what lets an import in either order match rather than
         // duplicate.
         await using var database = await SqliteTestDatabase.CreateAsync();

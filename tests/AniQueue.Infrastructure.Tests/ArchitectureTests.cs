@@ -5,7 +5,7 @@ namespace AniQueue.Infrastructure.Tests;
 /// <summary>
 /// Infrastructure is allowed to depend on EF Core and SQLite, but not on the UI.
 /// Business logic drifting into components is the failure mode the brief calls
-/// out (§37); this catches the reverse drift, where rendering concerns leak down
+/// out; this catches the reverse drift, where rendering concerns leak down
 /// into the data layer.
 /// </summary>
 public class ArchitectureTests

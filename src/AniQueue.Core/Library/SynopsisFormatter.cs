@@ -3,7 +3,7 @@ using System.Text;
 namespace AniQueue.Core.Library;
 
 /// <summary>
-/// One run of a synopsis, and whether it gives something away (D49).
+/// One run of a synopsis, and whether it gives something away.
 /// </summary>
 /// <param name="Text">
 /// Plain text. Line breaks are <c>\n</c>; there is no markup left in here, which is
@@ -13,17 +13,17 @@ namespace AniQueue.Core.Library;
 public readonly record struct SynopsisSegment(string Text, bool IsSpoiler);
 
 /// <summary>
-/// Turns AniList's synopsis markdown into runs a page can render as text (D49).
+/// Turns AniList's synopsis markdown into runs a page can render as text.
 /// </summary>
 /// <remarks>
-/// <b>Nothing here escapes anything, because nothing downstream renders HTML.</b> The
+/// Nothing here escapes anything, because nothing downstream renders HTML. The
 /// output is text, Blazor encodes it, and <c>MarkupString</c> is never involved — so
 /// this is a formatter rather than a sanitiser, and dropping a tag it does not
 /// recognise is a cosmetic decision rather than a security one. That is the whole
-/// reason 9b stored AniList's markdown rather than its <c>asHtml</c> form: the
-/// dangerous version was never taken in.
+/// reason the synopsis is stored as AniList markdown rather than as its
+/// <c>asHtml</c> form: the dangerous version was never taken in.
 ///
-/// <b>What it actually has to handle was measured, not guessed.</b> Across the 810
+/// What it actually has to handle was measured, not guessed. Across the 810
 /// synopses this library stores: <c>&lt;br&gt;</c> in 1,538 places, <c>&lt;i&gt;</c>
 /// in 213, <c>&lt;b&gt;</c> in 44, <c>&lt;strong&gt;</c> in 12, and no anchors at all.
 /// AniList's users write HTML into a markdown field, so a formatter that only knew
@@ -43,8 +43,7 @@ public static class SynopsisFormatter
     /// </summary>
     /// <remarks>
     /// An empty or absent synopsis yields no segments, and the dialog then shows no
-    /// synopsis at all rather than an empty panel — D25's silent degradation, which
-    /// every other field on that surface also follows.
+    /// synopsis at all rather than an empty panel.
     /// </remarks>
     public static IReadOnlyList<SynopsisSegment> Parse(string? synopsis)
     {

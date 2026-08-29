@@ -11,10 +11,10 @@ public sealed record LibraryChange
 
     public int Updated { get; init; }
 
-    /// <summary>Queue slots released because their titles are no longer waiting (D12).</summary>
+    /// <summary>Queue slots released because their titles are no longer waiting.</summary>
     public int SlotsReleased { get; init; }
 
-    /// <summary>Titles the source has stopped listing (D19).</summary>
+    /// <summary>Titles the source has stopped listing.</summary>
     public int AbsentFlagged { get; init; }
 }
 
@@ -28,18 +28,9 @@ public sealed record LibraryChange
 /// The key of the job that published it, or null when a page did.
 /// </param>
 /// <remarks>
-/// <b>Origin exists so that a job never wakes itself.</b> D41 said every job announces
-/// what it changed and warned that publishing carelessly makes jobs wake each other in
-/// a ring; it left that as a discipline — publish only when something actually changed
-/// — and the discipline is not enough. A job that changes something on nearly every
-/// run wakes its own runner on nearly every run, which is exactly what the relation
-/// backfill did: a manual pass that wrote 826 edges immediately produced a second run
-/// triggered by "the library changed", finding nothing.
-///
-/// It terminated, because the second pass had nothing to do. That is the whole of what
-/// the discipline bought, and it is not worth the wasted pass or the history row that
-/// says a task ran for no reason. Nothing is served by a job hearing its own news, so
-/// the runner discards it.
+/// Origin exists so that a job never wakes itself. A job that changes something on
+/// nearly every run would otherwise wake its own runner on nearly every run, costing
+/// a wasted pass and a history row saying a task ran for no reason.
 /// </remarks>
 public sealed record LibraryChangeNotification(LibraryChange? Change, string? Origin);
 
@@ -51,12 +42,10 @@ public sealed record LibraryChangeNotification(LibraryChange? Change, string? Or
 /// left open during an unattended sync shows yesterday's library indefinitely and
 /// has no way to know. This is the channel that says otherwise.
 ///
-/// <b>It carries a fact, not a command.</b> Subscribers are expected to offer a
-/// refresh rather than reload themselves: a page that rearranges under the cursor
-/// while somebody is reading it is worse than a stale one, and Phase 4 made
-/// staleness safe on purpose — every queue mutation resolves against the database
-/// inside its transaction and keys on <c>QueueItemId</c>, so acting on a stale Up
-/// Next either does the right thing or returns false and logs.
+/// It carries a fact, not a command. Subscribers offer a refresh rather than
+/// reloading themselves: a page that rearranges under the cursor is worse than a
+/// stale one, and staleness is safe here because every queue mutation resolves
+/// against the database inside its own transaction.
 /// </summary>
 public interface ILibraryChangeNotifier
 {
@@ -73,21 +62,11 @@ public interface ILibraryChangeNotifier
     /// Says something changed, with as much detail as the publisher has.
     /// </summary>
     /// <remarks>
-    /// <b>Null is a real argument, not a missing one.</b> D41 makes every job announce
-    /// what it changed, and the two audiences want different things from that: a page
-    /// wants a sentence it can show, while a runner wants only "go and check your
-    /// precondition" — which is why <c>BackgroundJobRunner</c> has always discarded
-    /// the payload outright.
-    ///
-    /// Generalising <see cref="LibraryChange"/> to describe relations and scoring was
-    /// the obvious alternative and it is the wrong shape: it would make every job
-    /// invent counts for the benefit of a listener that ignores them, and force
-    /// <c>StaleLibraryNotice</c> to grow a sentence for each new kind of work. So a
-    /// job with nothing a page could usefully render says so by passing nothing, the
-    /// notice stays quiet, and every runner still wakes.
-    ///
-    /// This does not weaken D41's rule. The signal is still "data changed" and never
-    /// "run X next"; what varies is how much the publisher can say about it.
+    /// Null is a real argument, not a missing one. The two audiences want different
+    /// things: a page wants a sentence it can show, while a runner wants only "go and
+    /// check your precondition" and discards the payload. A job with nothing a page
+    /// could render says so by passing nothing, the notice stays quiet, and every
+    /// runner still wakes.
     /// </remarks>
     /// <param name="origin">
     /// The publishing job's key, so its own runner can ignore it. Null from a page,

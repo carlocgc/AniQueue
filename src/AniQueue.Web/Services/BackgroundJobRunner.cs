@@ -22,14 +22,14 @@ namespace AniQueue.Web.Services;
 /// backlog of syncs firing at once. One timeout turning a five-minute interval into
 /// concurrent syncs racing each other is precisely the failure this shape prevents.
 ///
-/// It is also what will make <i>Run now</i> safe when Phase 15c adds it: a manual
+/// It is also what makes <i>Run now</i> safe: a manual
 /// run enters this loop like any other rather than starting work beside it.
 ///
 /// <b>A scope per tick</b>, because the job resolves scoped services that open
-/// short-lived database contexts (D3). A scope held for the process lifetime would
+/// short-lived database contexts. A scope held for the process lifetime would
 /// accumulate tracked entities for as long as the application runs.
 ///
-/// <b>Units run one at a time, in order.</b> The job is asked once per unit (D40),
+/// <b>Units run one at a time, in order.</b> The job is asked once per unit,
 /// which is what lets a row on the tasks page mean one source rather than all of
 /// them — and what will let one be cancelled without stopping the rest.
 ///
@@ -42,15 +42,13 @@ namespace AniQueue.Web.Services;
 /// This is deliberately <i>not</i> the sync calling the backfill. Nothing here knows
 /// which job it is running or what any other job does: the signal says data changed,
 /// every runner hears it, and each one still gates on its own precondition and finds
-/// nothing if it has nothing to do (D25, D41). A job woken with no work is a no-op,
+/// nothing if it has nothing to do. A job woken with no work is a no-op,
 /// which is what makes a shared signal safe to broadcast.
 ///
-/// <b>Nothing reschedules itself.</b> A failing job used to have its interval
-/// stretched to sixteen ticks, on the reasoning that a rate limit or an outage does
-/// not improve for being asked again on the dot. D40 deletes that: what it cost was
-/// a schedule the user chose being rewritten invisibly, and a model served from a
-/// machine that is on for a few hours a day fails most of the time by design. A
-/// failure is logged and the cadence decides when to try again.
+/// Nothing reschedules itself. A failing job is not made to wait longer: that
+/// would rewrite a schedule the user chose, invisibly, and a model served from a
+/// machine that is on for a few hours a day fails most of the time by design.
+/// A failure is logged and the cadence decides when to try again.
 /// </remarks>
 public sealed class BackgroundJobRunner<TJob>(
     IServiceScopeFactory scopeFactory,
@@ -78,7 +76,7 @@ public sealed class BackgroundJobRunner<TJob>(
             // Registered before the first tick, so every task has a row from startup
             // rather than from whenever it first happens to run. A page that only
             // listed tasks that had already done something would be least useful on a
-            // fresh install, which is where it is most needed (D27).
+            // fresh install, which is where it is most needed.
             registry.Register(key, job.Units);
         }
 
@@ -96,7 +94,7 @@ public sealed class BackgroundJobRunner<TJob>(
 
         void OnLibraryChanged(LibraryChangeNotification notification)
         {
-            // A job never wakes itself. Every job announces what it changed (D41), and
+            // A job never wakes itself. Every job announces what it changed, and
             // a job that changes something on most runs would otherwise wake its own
             // runner on most runs — one wasted pass and one history row per run saying
             // a task ran for no reason. Seen for real: a relation pass that wrote 826
@@ -243,7 +241,7 @@ public sealed class BackgroundJobRunner<TJob>(
             {
                 // Somebody pressed stop. Not a failure, and recorded so that the
                 // cadence clock moves — which is what makes cancelling mean "skip this
-                // cycle" rather than "try again on the next tick" (D40).
+                // cycle" rather than "try again on the next tick".
                 logger.LogInformation("{Job} / {Unit} was cancelled", name, current.Name);
 
                 outcome = new JobRunOutcome(JobOutcome.Cancelled);
@@ -253,7 +251,7 @@ public sealed class BackgroundJobRunner<TJob>(
                 // Everything a job expects to go wrong it reports itself, as a failed
                 // outcome. Reaching here means something unforeseen — so it is logged
                 // with its stack, and recorded as a failure with a reason that is not
-                // one, because §6 forbids a stack trace reaching a page.
+                // one, because a stack trace must never reach a page.
                 //
                 // Caught at all because an escaping exception ends the hosted service
                 // and by default takes the host down with it. A background job failing
@@ -274,13 +272,12 @@ public sealed class BackgroundJobRunner<TJob>(
     /// Writes down what a run did, and says it in the log.
     /// </summary>
     /// <remarks>
-    /// <b>Recording a run that threw is what allows the backoff to be gone.</b>
+    /// Recording a run that threw is what allows there to be no backoff.
     /// Due-ness is measured from the last recorded run, so a job that fails before it
     /// reports anything would leave that clock unmoved and be asked again on the very
-    /// next tick, forever. The old runner absorbed that by stretching its own
-    /// interval; D40 deletes the stretching, so the row has to exist instead.
+    /// next tick, forever, so the row has to exist.
     ///
-    /// <b>The store failing must not take the job down with it.</b> A run that
+    /// The store failing must not take the job down with it. A run that
     /// happened and could not be written is worse remembered than not remembered at
     /// all — but it is not a reason to stop the loop, so it is logged and the next
     /// tick carries on.

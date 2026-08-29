@@ -1,6 +1,5 @@
-@* Named for what it does rather than for what it returns (Phase 18a). It scores a
-   backlog; "Recommendations" promised a shortlist, which D32 declined, and it was
-   also two characters too long to sit in a bar of five tabs on a phone. *@
+@* Named for what it does rather than for what it returns: it scores a backlog,
+   where "Recommendations" would promise a shortlist. *@
 @page "/scoring"
 @using System.Globalization
 @using AniQueue.Core.Domain
@@ -13,15 +12,15 @@
 @* The sizes in effect, and where they are written. Two injections rather than one
    because reading and writing are genuinely different: the monitor reports what any
    configuration source currently says, while the store is the only thing that
-   changes the file (D36). *@
+   changes the file. *@
 @inject IOptionsMonitor<ScoringOptions> ScoringOptions
 @inject IUserSettingsStore Settings
-@* The second courier (D31). Injected even when nothing is configured, because
+@* The second courier. Injected even when nothing is configured, because
    whether an endpoint exists is a question the card asks it. *@
 @inject IScoringEndpoint Endpoint
 @* One model, one request at a time, and Test connection is the only thing here that
    still talks to it. Asked of the registry so the button can stand aside while the
-   scoring task is running rather than queueing behind it (D42). *@
+   scoring task is running rather than queueing behind it. *@
 @inject ITaskRegistry Tasks
 @inject IJSRuntime JS
 @inject ILogger<Scoring> Logger
@@ -31,7 +30,7 @@
 <div class="page-header">
     <h1>Scoring</h1>
     @* Says up front that this ranks and does not reorder. The queue shortening by
-       itself already surprises people (D12); a second thing writing to the backlog
+       itself already surprises people; a second thing writing to the backlog
        is easier to accept when its limits were stated before it ran, not after. *@
     <p>
         Hand your backlog to a model, and bring its ranking back. It scores what you
@@ -56,7 +55,7 @@
     <div class="notice success" role="status">@_applied</div>
 }
 
-@* Two ways to get a ranking, and one surface for what comes back (D35). The shape
+@* Two ways to get a ranking, and one surface for what comes back. The shape
    is the Sources page's, deliberately: a card per route, its settings behind a
    disclosure, and a preview that replaces the cards rather than joining them. Two
    pages answering one question in two idioms is worse than either idiom. *@
@@ -67,7 +66,7 @@
        are only wanted when it is no — and coloured, because that answer should be
        readable without reading.
 
-       Stale is D39's sense of the word: a score is not wrong because time passed, it
+       Stale has a particular sense here: a score is not wrong because time passed, it
        is wrong because the history it was predicted against has grown. So this goes
        amber when there is work, and green only when every waiting title carries a
        ranking made against the taste the user has now. *@
@@ -309,7 +308,7 @@
 
                 @if (test.Diagnostic is { } diagnostic)
                 {
-                    @* Bounded, body only, and behind a disclosure (D38). It is what
+                    @* Bounded, body only, and behind a disclosure. It is what
                        somebody debugging their own server needs and very little of
                        what anything else does. *@
                     <details>
@@ -325,15 +324,14 @@
            instead — a choice that only existed because somebody was about to wait for
            the answer. The sweep asks in batches by construction and halves one that
            will not fit, so the hazard is handled where the request is made rather than
-           in front of the person making it (D42). *@
+           in front of the person making it. *@
 
         <div class="toolbar">
             @* The one outbound call left outside the runner, so it is the one thing
                that can collide with a sweep. A self-hosted model answers one request at
                a time, and a test fired into a batch queues behind it and looks like a
-               timeout — which is what IScoringGate used to arbitrate. Asking the
-               registry is smaller than a lock and more honest: the user learns the
-               model is busy instead of watching a test hang (D42). *@
+               timeout. Asking the registry is smaller than a lock and more honest:
+               the user learns the model is busy instead of watching a test hang. *@
             <button disabled="@(_busy.IsRunning || !Endpoint.IsConfigured || IsRanking)"
                     @onclick="TestAsync">
                 Test connection
@@ -412,7 +410,7 @@
                 </p>
 
                 @* How often is set on the Settings page now, once for every background
-                   task (D40). What stays here is what a run may do when it happens. *@
+                   task. What stays here is what a run may do when it happens. *@
                 <p class="muted">
                     How often it looks is set on the <a href="settings">Settings</a> page, along
                     with every other kind of background work. A run stops as soon as there
@@ -470,9 +468,8 @@
     </div>
 
     @* Lifted out of both cards, because it governs a run down either route. Drawn in
-       one card it would otherwise be drawn in two, which is D30's two-controls-over-
-       one-setting exactly. Same lift, same reason, as the title language control on
-       Sources. *@
+       one card it would otherwise be drawn in two, which is two controls over one
+       setting. Same lift, same reason, as the title language control on Sources. *@
     <div class="card">
         @* Bounded by the library rather than by an arbitrary ceiling. These offered
            anything up to five thousand — the clamp the storage happens to apply — on a
@@ -506,7 +503,7 @@
             <div class="field">
                 <label for="return-top">Rankings to ask for back</label>
                 @* "All N of them", the same sentence the two fields either side of it use
-                   when empty (D51). It read "One for every title", which is the same fact
+                   when empty. It read "One for every title", which is the same fact
                    said a different way — and three controls that all mean everything when
                    left alone should not need three readings to establish that. The number
                    is what a limit here is measured against, so saying it is also what makes
@@ -596,7 +593,7 @@ else
             @* Always asked now. This was skipped for a remote run, which knew what had
                answered because the server said so in its own reply; there is no such
                run any more, so anything previewed here came out of somebody else's
-               chat window and only they can say which model it was (D42).
+               chat window and only they can say which model it was.
 
                <b>Deliberately left empty, and deliberately not asked of the model.</b>
                Both shortcuts fill this in by themselves and both fill it in wrongly.
@@ -642,7 +639,7 @@ else
                 <table class="ranking">
                     <thead>
                         <tr>
-                            @* No Rank column since D43. The rows arrive ordered by
+                            @* No Rank column. The rows arrive ordered by
                                predicted score, which is the order the backlog will
                                show them in, so the position is readable off the table
                                without a number claiming to be the model's own. *@
@@ -727,7 +724,7 @@ else
 
         @* Kept because a ranking is the one thing here written by something that is
            not the user, and "when did this score arrive, and from what" is the
-           question asked when one looks wrong (D4). *@
+           question asked when one looks wrong. *@
         <div class="table-wrap">
             <table>
                 <thead>
@@ -780,21 +777,16 @@ else
     /// <remarks>
     /// Held by the page rather than carried on <c>ScoringPreview</c>, which stays
     /// ignorant of how its reply arrived — that ignorance is what makes the two routes
-    /// one contract (D31). The page needs it anyway to render only the card that
+    /// one contract. The page needs it anyway to render only the card that
     /// produced the preview, so asking the model name of a manual run costs nothing
     /// extra.
     /// </remarks>
-    // ScoringRoute was here, distinguishing a preview that came from the endpoint from
-    // one that was pasted in. There is one route left (D42), so the question no longer
-    // has two answers and every surface that asked it has stopped.
-
     /// <summary>What a run records about how it was carried.</summary>
     /// <remarks>
-    /// Free text on <c>RecommendationRun</c>, shown to users in its own column. The
-    /// vocabulary was Manual, Remote and Scheduled; D42 deleted the route that wrote
-    /// "Remote", so anything this page produces arrived by hand. Old runs keep the
-    /// value they were written with, which is why <c>Past rankings</c> can still show
-    /// it and nothing rewrites history.
+    /// Free text on <c>RecommendationRun</c>, shown to users in its own column.
+    /// The vocabulary is Manual and Scheduled: anything this page produces arrived by
+    /// hand. Old runs keep the value they were written with, so <c>Past rankings</c>
+    /// can still show a route that no longer exists.
     /// </remarks>
     private const string ProviderName = "Manual";
 
@@ -807,7 +799,7 @@ else
     /// Asked of the registry rather than held here, because what is running is the
     /// runner's business and this page is one of several that could be open. It
     /// replaces IScoringGate, which arbitrated between a sweep and a run started from
-    /// this page — and there is no such run any more (D42).
+    /// this page — and there is no such run any more.
     /// </remarks>
     private bool IsRanking =>
         Tasks.Snapshot().Any(task => task.TaskKey == "scoring" && task.IsRunning);
@@ -906,7 +898,7 @@ else
         }
     }
 
-    /// <summary>What a request would cost, measured once per load (D53).</summary>
+    /// <summary>What a request would cost, measured once per load.</summary>
     private ScoringSizeEstimate? _estimate;
 
     /// <summary>
@@ -982,12 +974,6 @@ else
     /// <summary>What the user says produced the ranking. Recorded with the run.</summary>
     private string? _modelIdentifier;
 
-    // _showSizes is gone with the button that drove it. 7b used a button rather than a
-    // disclosure because a triangle above a request summary did not read as "settings
-    // you can change" — an argument about a page with no card structure, which is what
-    // this replaced. The sizes now sit behind a <summary> in a card of their own, where
-    // every other setting in this application already lives.
-
     /// <summary>
     /// How many rows of a ranking to draw at once.
     /// </summary>
@@ -1026,7 +1012,7 @@ else
     protected override async Task OnInitializedAsync()
     {
         // Read from the settings file rather than from the service, which no longer
-        // owns a setting (D36). The monitor gives the value currently in effect,
+        // owns a setting. The monitor gives the value currently in effect,
         // including one an environment variable supplied, so the inputs show what a
         // request would actually use rather than only what this page last wrote.
         var current = ScoringOptions.CurrentValue;
@@ -1060,7 +1046,7 @@ else
     /// </remarks>
     private async Task CountWaitingAsync()
     {
-        // One call, and it is the service that decides how to answer it (D53). This was
+        // One call, and it is the service that decides how to answer it. This was
         // two BuildRequestAsync calls, which read and serialised every rated title twice
         // to render one number — four times a visit, because this page prerenders and
         // initialises again when its circuit connects.
@@ -1111,31 +1097,9 @@ else
             + _payload;
     }
 
-    /// <summary>
-    /// Builds a request, sends it, and turns the reply into a preview.
-    /// </summary>
-    /// <remarks>
-    /// <b>Its own request, built here rather than shared with the Manual card.</b> 7b
-    /// holds one built request so that the file, the clipboard and the text on screen
-    /// are three views of one string — and nothing is reading this one, so the only
-    /// thing sharing would add is a way to send a payload built before a sync landed.
-    ///
-    /// <b>One request, not batches.</b> The scheduled sweep works through a backlog in
-    /// batches because nobody is waiting; a run somebody pressed is one question and
-    /// one answer they look at. The guard below is what keeps that from being a bad
-    /// bet on a large library.
-    /// </remarks>
-    // RankRemotelyAsync, its soft guard, its elapsed-time reporting and its cancel
-    // were here — about a hundred and twenty lines of making a ten-minute wait
-    // bearable. D42 deleted the wait instead. A ranking now arrives from the sweep
-    // with nobody present, or by hand through the paste route below; nothing on this
-    // page opens an outbound scoring request that somebody is waiting on.
-    //
-    // LastRemoteDuration went with it. It read the newest recorded duration so a
-    // second run could say "your last one took six minutes" while somebody watched a
-    // dialog with nothing else to report. RecommendationRun still records the
-    // duration and Past rankings still shows it — what has gone is the audience.
-
+    // A ranking arrives from the sweep with nobody present, or by hand through the
+    // paste route below. Nothing on this page opens an outbound scoring request that
+    // somebody is waiting on.
 
     private async Task TestAsync()
     {
@@ -1246,8 +1210,8 @@ else
 
     private async Task DownloadDocumentAsync()
     {
-        // Plain text rather than .json, because it is no longer only JSON: a file named
-        // .json that opens with a paragraph of English is a file that lies about itself,
+        // Plain text rather than .json, because it is no longer only JSON: a file named.
+        // json that opens with a paragraph of English is a file that lies about itself,
         // and some upload boxes decide what they will accept from the extension.
         var name = $"aniqueue-prompt-{DateTime.Now:yyyy-MM-dd}.txt";
 
@@ -1325,7 +1289,7 @@ else
             "Checking the reply",
             // Pasted, for both ways in: the upload route reads the file into the textarea
             // and comes through here, so what is checked is always a document a person
-            // carried. That is the route D50 requires a reply to name its database on.
+            // carried, which is the route a reply has to name its database on.
             _ => Recommender.PreviewAsync(Profile.DefaultProfileId, ScoringRoute.Pasted, json, request));
 
         // A new ranking starts at its own beginning. Left alone, checking a second
@@ -1338,7 +1302,7 @@ else
     {
         // Whatever the user typed, or nothing. A run carried by hand has no server to
         // ask what answered it — that was the remote route's advantage and it went
-        // with the route (D42).
+        // with the route.
         var model = string.IsNullOrWhiteSpace(_modelIdentifier) ? null : _modelIdentifier.Trim();
 
         var result = await _busy.RunAsync(
@@ -1390,25 +1354,13 @@ else
     private async Task LoadRunsAsync() =>
         _runs = await Recommender.GetRunsAsync(Profile.DefaultProfileId, RunsShown);
 
-    // This briefly carried the previous run's model forward, on the grounds that
-    // almost nobody changes model between rankings. It is not there any more, and the
-    // argument against it is the same one that keeps the schema from asking a model
-    // its own name: a wrong answer in this field costs more than no answer.
-    //
-    // "Almost nobody" is the whole problem. Someone who ranked with ChatGPT last week
-    // and is trying a local model today would have had the old name applied silently,
-    // and the field they would consult later to explain a bad score would be lying
-    // — with no way to tell, because a pre-filled value looks exactly like a typed one.
-    // Saving a few keystrokes is not worth a provenance record nobody can trust.
+    // The model name is never carried forward from the previous run. A pre-filled
+    // value looks exactly like a typed one, so a wrong answer in this field costs
+    // more than no answer.
 
     /// <summary>
     /// An example of what to type, rather than a note that typing is optional.
     /// </summary>
-    /// <remarks>
-    /// The old placeholder said "Which model? (optional)", which described the field's
-    /// importance instead of its content — and "optional" is the word the eye uses to
-    /// decide to skip something.
-    /// </remarks>
     private const string ModelPlaceholder = "e.g. GPT-5, or qwen2.5-14b";
 
     /// <summary>

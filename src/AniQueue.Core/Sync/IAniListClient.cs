@@ -7,11 +7,11 @@ namespace AniQueue.Core.Sync;
 /// A result rather than an exception, because failure is an outcome a sync has to
 /// record rather than an accident: <c>SyncRun</c> stores why a run failed, and a
 /// user looking at the Sources page needs "AniList said the account does not
-/// exist" rather than a stack trace they cannot see (§6).
+/// exist" rather than a stack trace they cannot see.
 ///
-/// <b>There is no partial success.</b> A fetch that could not be completed carries
+/// There is no partial success. A fetch that could not be completed carries
 /// no payloads at all, because a truncated list is indistinguishable from the user
-/// having deleted most of their library — which is the population D19's absence
+/// having deleted most of their library, which is the population absence
 /// handling acts on.
 /// </remarks>
 public sealed record AniListFetch
@@ -76,11 +76,11 @@ public sealed record AniListRelationsFetch
 /// Declared in Core and implemented in Infrastructure, like every other service
 /// boundary here. It deliberately returns bytes rather than parsed entries: parsing
 /// is pure and lives in Core where it can be tested without a network, and this
-/// side is the part that cannot be (D9, §5).
+/// side is the part that cannot be.
 ///
 /// Authentication is absent by design. Public lists are readable unauthenticated —
 /// verified against the live API — which is what keeps OAuth out of the MVP
-/// entirely (D13).
+/// entirely.
 /// </remarks>
 public interface IAniListClient
 {
@@ -95,7 +95,7 @@ public interface IAniListClient
     /// </summary>
     /// <remarks>
     /// A separate query rather than a field on the list, and that separation is the
-    /// point (D24): relations are near-static while a list changes constantly, so
+    /// point: relations are near-static while a list changes constantly, so
     /// inlining them would refetch an immutable graph on every poll, inside the
     /// response that also carries the data that does change.
     ///

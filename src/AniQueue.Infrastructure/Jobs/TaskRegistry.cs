@@ -5,7 +5,7 @@ using AniQueue.Core.Jobs;
 namespace AniQueue.Infrastructure.Jobs;
 
 /// <summary>
-/// The rendezvous between the tasks page and the runners (D40).
+/// The rendezvous between the tasks page and the runners.
 /// </summary>
 /// <remarks>
 /// A singleton, like <c>ILibraryChangeNotifier</c> and for the same reason: it joins

@@ -23,7 +23,7 @@ public static class PersistenceServiceCollectionExtensions
 
         services.Configure(configureOptions);
 
-        // A factory, not a scoped context (D3). Under Blazor Interactive Server a
+        // A factory, not a scoped context. Under Blazor Interactive Server a
         // scoped service lives for the whole SignalR circuit, so a scoped DbContext
         // would accumulate tracked entities for hours and fail as soon as two
         // components rendered concurrently.
@@ -44,12 +44,12 @@ public static class PersistenceServiceCollectionExtensions
 
         // Registered beside the library rather than with the sync services, because
         // it reads the graph rather than fills it: the backfill is outbound traffic
-        // gated on a kill switch, this is a query the backlog makes (D24).
+        // gated on a kill switch, this is a query the backlog makes.
         services.AddScoped<Core.Library.IRelationService, Library.RelationService>();
 
         services.AddScoped<Core.Queue.IQueueService, Queue.QueueService>();
 
-        // Parsers are pure and stateless, so a singleton is sufficient (D9), and
+        // Parsers are pure and stateless, so a singleton is sufficient, and
         // they are registered under a key rather than as a bare IAnimeListParser.
         // An unkeyed second registration would silently rebind the first, and the
         // symptom would be the import page quietly feeding XML to whichever parser
@@ -75,8 +75,8 @@ public static class PersistenceServiceCollectionExtensions
     /// the type, let alone runs it. The second is the switch that decides whether to
     /// call it — an empty database is the default, because sample titles carrying
     /// invented identifiers are indistinguishable from ones a source has stopped
-    /// listing, and nobody should meet that on a first run they did not ask for
-    /// (D27).
+    /// listing, and nobody should meet that on a first run they did not ask for.
+
     /// </remarks>
     public static IServiceCollection AddAniQueueSampleData(this IServiceCollection services)
     {

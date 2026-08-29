@@ -11,7 +11,7 @@ public enum LibrarySort
     /// <summary>Highest AI predicted score first. Unranked entries sort last.</summary>
     RecommendationDescending = 2,
 
-    // 3 was PriorityDescending, removed with ManualPriority (D14). The value is
+    // 3 was PriorityDescending, removed with ManualPriority. The value is
     // not reused: these are persisted in settings later, and silently changing
     // what a stored number means is how a saved preference becomes a wrong one.
 
@@ -51,10 +51,6 @@ public sealed record LibraryQuery
     /// <summary>Case-insensitive substring match on either title.</summary>
     public string? Search { get; init; }
 
-    // No HiddenOnly (Phase 18b). It listed only the entries somebody had set aside,
-    // and setting entries aside is gone: the source list is where "stop offering me
-    // this" is said (D11), so there is no local slice left to look at.
-
     public MediaType? MediaType { get; init; }
 
     /// <summary>Start of a decade, e.g. 1990 matches 1990–1999.</summary>
@@ -73,11 +69,7 @@ public sealed record LibraryQuery
     /// Only titles with no prequel and no sequel — something self-contained.
     /// </summary>
     /// <remarks>
-    /// The surviving half of the brief's franchise/standalone pair, redefined by
-    /// D24: there are no franchises to filter for, but "is this a commitment or an
-    /// evening" is a real decision, and it sits naturally beside the runtime filter.
-    ///
-    /// Counted over <b>all</b> edges rather than only owned ones. A series whose
+    /// Counted over all edges rather than only owned ones. A series whose
     /// later seasons the user does not own is still a series, and calling it
     /// standalone because of what happens to be in the library would answer a
     /// question about the show with a fact about the collection.

@@ -130,14 +130,14 @@ public class UnattendedSyncJobTests
             sync,
             notifier,
 
-            // Due-ness comes from the run record since Phase 15b, so the elapsed time
+            // Due-ness comes from the run record, so the elapsed time
             // a test wants to express is set here rather than on the status.
             new FakeJobRunStore
             {
                 LastRunAt = status.LastRun is { } last ? last.StartedAt : null
             },
 
-            // The cadence is one setting for every task since Phase 15c, so what used
+            // The cadence is one setting for every task, so what
             // to be a per-source schedule on the status is passed here instead.
             new StaticOptionsMonitor<TaskOptions>(new TaskOptions { Schedule = schedule }),
             NullLogger<UnattendedSyncJob>.Instance);
@@ -210,7 +210,7 @@ public class UnattendedSyncJobTests
     /// been failing.
     /// </summary>
     /// <remarks>
-    /// This asserted the opposite until D40. The interval used to double per
+    /// A failing source is not made to wait longer. The interval would otherwise double per
     /// consecutive failure to a cap of sixteen, reasoning that a rate limit or an
     /// unreadable account does not improve for being asked again on the dot — true,
     /// and outweighed. Asking again costs one request; not asking costs a schedule
@@ -243,7 +243,7 @@ public class UnattendedSyncJobTests
     /// Sync is what <i>publishes</i> a library change, and every runner including its
     /// own hears the broadcast — so a sync that treated the signal as a reason to
     /// fetch would schedule its own next run, forever. The jobs that bypass their
-    /// cadence on that signal are the ones consuming it (D41).
+    /// cadence on that signal are the ones consuming it.
     /// </remarks>
     [Theory]
     [InlineData(JobTrigger.Timer, false)]
@@ -274,7 +274,7 @@ public class UnattendedSyncJobTests
         var published = Assert.Single(notifier.Published);
 
         // Not null: a sync is the one job with something a page can render, so it
-        // always publishes a payload (D41).
+        // always publishes a payload.
         var change = Assert.IsType<LibraryChange>(published.Change);
         Assert.Equal(2, change.Created);
         Assert.Equal(1, change.SlotsReleased);

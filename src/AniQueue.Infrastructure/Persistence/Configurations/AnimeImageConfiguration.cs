@@ -20,12 +20,10 @@ public class AnimeImageConfiguration : IEntityTypeConfiguration<AnimeImage>
 
         builder.Property(x => x.FileExtension).HasMaxLength(8);
 
-        // One picture of each kind, at each size, from each source. It was written
-        // for the TVDB and TMDB rows Phase 9b would add of the same kind; D48
-        // declined both, and what actually gives a title two rows is rendition — the
-        // thumbnail a list slot wants and the full-size cover the detail dialog
-        // wants. The rule it states survives that unchanged: "one poster per source
-        // per size" is what keeps a title from accumulating a new row on every fetch
+        // One picture of each kind, at each size, from each source. What gives a
+        // title two rows in practice is rendition — the thumbnail a list slot wants
+        // and the full-size cover the detail dialog wants. One poster per source per
+        // size is what keeps a title from accumulating a new row on every fetch
         // when a source changes its URL.
         builder
             .HasIndex(x => new { x.AnimeId, x.Kind, x.Source, x.Rendition })
@@ -36,7 +34,7 @@ public class AnimeImageConfiguration : IEntityTypeConfiguration<AnimeImage>
         // "FetchedUrl and RemoteUrl disagree", which is a comparison between two
         // columns and not something an index or a filtered index can express. It is a
         // scan over one row per title per kind, in a background job, on a database
-        // §6 sizes at several thousand titles — which is cheaper than the index that
+        // of several thousand titles, which is cheaper than the index that
         // could not answer the question anyway.
 
         builder

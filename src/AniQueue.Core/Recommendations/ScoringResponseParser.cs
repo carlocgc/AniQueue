@@ -5,7 +5,7 @@ namespace AniQueue.Core.Recommendations;
 
 /// <summary>Bounds on what a response is allowed to consume.</summary>
 /// <remarks>
-/// A reply is untrusted input whether a person pasted it or Phase 8's endpoint
+/// A reply is untrusted input whether a person pasted it or an endpoint
 /// returned it, and an unbounded parse is a denial of service on a machine that is
 /// also somebody's media server. The same argument <see cref="Import.ImportLimits"/>
 /// makes, at a smaller scale: a ranking is bounded by the backlog that produced it.
@@ -43,9 +43,9 @@ public sealed record ScoringParseResult
 /// <remarks>
 /// Read defensively through <see cref="JsonDocument"/> rather than deserialised
 /// into the records, the same way <see cref="Import.AniListJsonParser"/> reads an
-/// external response, and for a stronger reason here: §6 forbids executing or
-/// evaluating AI content, and D31 makes the reply data that fails rather than data
-/// that gets repaired. Deserialisation would silently accept a missing field as a
+/// external response, and for a stronger reason here: a model's reply is data that
+/// fails rather than data that gets repaired, and it is never executed or
+/// evaluated. Deserialisation would silently accept a missing field as a
 /// default — a predicted score of 0, a confidence of 0 — and write it to the database as
 /// though the model had said it.
 ///
@@ -89,7 +89,7 @@ public sealed class ScoringResponseParser(ScoringLimits? limits = null)
             // Not JSON as it stands, which is the ordinary case rather than the sad one:
             // a small model told to return only JSON very often returns it inside a
             // markdown fence, or after a sentence of introduction. So look for the
-            // answer inside the text before giving up (D37).
+            // answer inside the text before giving up.
             if (!TryUnwrap(json, out document!, out unwrapped))
             {
                 // The original message, not one about unwrapping. It carries the line
@@ -125,21 +125,19 @@ public sealed class ScoringResponseParser(ScoringLimits? limits = null)
     /// Finds a ranking inside text that is not JSON, and reports what it ignored.
     /// </summary>
     /// <remarks>
-    /// <b>This unwraps; it never reconstructs (D37).</b> Each <c>{</c> is offered to
+    /// This unwraps; it never reconstructs. Each <c>{</c> is offered to
     /// <see cref="Utf8JsonReader"/>, which either reads one complete value from it or
     /// does not — so what comes out is bytes the model actually emitted, parsed by the
     /// same reader that would have parsed the whole reply. Nothing is repaired, no
     /// braces are counted by hand, and a <c>{</c> inside a title cannot start a
     /// candidate because the reader is inside a string when it reaches it.
     ///
-    /// <b>What makes a candidate ours is a <c>results</c> array</b>, which is the same
-    /// question <see cref="Read"/> asks of a reply that arrived clean. D37 said the
-    /// envelope, and the envelope will not do: <see cref="ReadEnvelope"/> deliberately
-    /// tolerates its absence, because models return the array reliably and the wrapper
-    /// around it unreliably — so requiring it here would reject exactly the replies 7a
-    /// went out of its way to accept.
+    /// What makes a candidate ours is a <c>results</c> array, which is the same
+    /// question <see cref="Read"/> asks of a reply that arrived clean. The envelope
+    /// around it will not do: <see cref="ReadEnvelope"/> tolerates its absence,
+    /// because models return the array reliably and the wrapper unreliably.
     ///
-    /// <b>The last match wins.</b> The prompt shows a worked example carrying this
+    /// The last match wins. The prompt shows a worked example carrying this
     /// shape, so a model that restates the question before answering it produces two
     /// candidates; a model that thinks aloud does the same. In both, the answer is the
     /// one at the end.
@@ -312,10 +310,6 @@ public sealed class ScoringResponseParser(ScoringLimits? limits = null)
             // Checked here rather than after the loop so the message can name where the
             // second one was. A title scored twice is an error because there is no
             // reading of two different scores for one title that is safe to pick.
-            //
-            // The companion check — two titles claiming one rank — went with the field
-            // in D43, along with the gap warning beside it. Both existed to police a
-            // numbering nothing asks for or stores any more.
             if (!seenIds.Add(result.Id))
             {
                 problems.Add(ScoringProblem.Error(
@@ -334,7 +328,7 @@ public sealed class ScoringResponseParser(ScoringLimits? limits = null)
             // enforced.
             // Ordered by the score, descending, because that is the only number the
             // model is now asked to produce — so a preview reads top-down in the order
-            // the backlog will show once it is applied (D43). Until then this was the
+            // the backlog will show once it is applied. Until then this was the
             // model's own numbering, which is exactly the field that went.
             Response = new ScoringResponse
             {
@@ -384,7 +378,7 @@ public sealed class ScoringResponseParser(ScoringLimits? limits = null)
                 $"The response is version {number}; this build reads version {ScoringRequest.CurrentVersion}."));
         }
 
-        // Returned rather than judged (D50). A key that is present and belongs to
+        // Returned rather than judged. A key that is present and belongs to
         // another library is the one thing here that cannot be decided without the
         // database, so this reads it and stops. A key of the wrong *shape* is not
         // rejected either: whatever it is, it either matches this library's key or it
@@ -408,7 +402,7 @@ public sealed class ScoringResponseParser(ScoringLimits? limits = null)
         var predictedScore = ReadDouble(element, "predictedScore", position, problems);
         var confidence = ReadDouble(element, "confidence", position, problems);
 
-        // A "rank" alongside these is simply not read (D43). Not an error: a model
+        // A "rank" alongside these is simply not read. Not an error: a model
         // reproducing a shape from training has still answered the question, and
         // failing a batch over a field nothing consumes would spend the sweep's error
         // budget on the model being old-fashioned.
@@ -472,13 +466,6 @@ public sealed class ScoringResponseParser(ScoringLimits? limits = null)
         return text[.._limits.MaxReasonLength];
     }
 
-    // WarnOnRankGaps stood here. It reported a numbering that started above 1 or
-    // ended below the count, on the reasoning that the usual cause is a model
-    // dropping entries it had already numbered. The signal was real and D43 removed
-    // what it read: with no rank in the reply there is no sequence to find a hole in,
-    // and a short reply is already reported against ExpectedCount by ScoringPreview,
-    // which measures it against what was asked for rather than against the model's
-    // own count of itself.
 
     private static int? ReadInt(JsonElement element, string name, int position, List<ScoringProblem> problems)
     {

@@ -139,7 +139,7 @@ public sealed class DatabaseInitializer(
 
     /// <summary>
     /// Gives every profile a library key, which is what lets a scoring reply say
-    /// which library it was generated against (D50).
+    /// which library it was generated against.
     /// </summary>
     /// <remarks>
     /// Separate from the profile creation above because it has to reach rows that

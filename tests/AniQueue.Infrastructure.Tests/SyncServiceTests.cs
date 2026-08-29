@@ -19,7 +19,7 @@ namespace AniQueue.Infrastructure.Tests;
 /// What is worth asserting is not that the import pipeline works — it has its own
 /// suite — but that a sync reuses it rather than growing a second one, and that
 /// the run record tells the truth about what happened. A stalled sync rendering as
-/// "up to date" is the failure this table exists to prevent (§4).
+/// "up to date" is the failure this table exists to prevent.
 /// </summary>
 public class SyncServiceTests
 {
@@ -28,7 +28,7 @@ public class SyncServiceTests
     public async Task A_fetch_previews_without_writing_anything()
     {
         // The same rule an upload obeys: nothing reaches the database until someone
-        // has seen what it would do (D21 makes the preview the review surface).
+        // has seen what it would do.
         await using var fixture = await SyncFixture.CreateAsync(
             new StubAniListClient(Response(900101, "Sora no Kakera")));
 
@@ -70,7 +70,7 @@ public class SyncServiceTests
     [Fact]
     public async Task The_bridge_holds_through_a_sync()
     {
-        // D17 through the real path rather than the seam: a MyAnimeList-imported row
+        // The identifier bridge through the real path rather than the seam: a MyAnimeList-imported row
         // met by an AniList sync is one title, not two. This is the test that stops
         // a first sync turning a 750-entry library into 750 conflicts.
         await using var fixture = await SyncFixture.CreateAsync(
@@ -133,7 +133,7 @@ public class SyncServiceTests
     {
         // The dangerous misreading, at the level that would act on it. An errors
         // array parsed as zero entries looks exactly like the user having deleted
-        // their list, which is the population D19's absence handling touches.
+        // their list, which is the population the absence handling touches.
         await using var fixture = await SyncFixture.CreateAsync(
             new StubAniListClient("""{ "errors": [{ "message": "Too Many Requests" }], "data": null }"""));
 
@@ -150,7 +150,7 @@ public class SyncServiceTests
     public async Task The_kill_switch_stops_the_sync_and_records_nothing()
     {
         // Nothing was attempted, so there is nothing to audit — and a log full of
-        // runs that never ran would bury the failures that did (D20).
+        // runs that never ran would bury the failures that did.
         var client = new StubAniListClient(Response(900101, "Sora no Kakera"));
         await using var fixture = await SyncFixture.CreateAsync(client, Configured(enabled: false));
 
@@ -195,8 +195,8 @@ public class SyncServiceTests
         // The point of storing each title against its language. Before, the setting
         // only landed when a later sync happened to rewrite the row — so a library
         // already up to date could not change language at all without re-fetching
-        // the entire list, which is a data migration wearing a preference's clothes
-        // (D22).
+        // the entire list, which is a data migration wearing a preference's clothes.
+
         await using var fixture = await SyncFixture.CreateAsync(
             new StubAniListClient(Response(900101, "Sora no Kakera", english: "Fragments of Sky")));
 
@@ -261,7 +261,7 @@ public class SyncServiceTests
     [Fact]
     public async Task The_title_preference_decides_which_name_the_library_shows()
     {
-        // D22 in one assertion: the same response writes a different Title depending
+        // The title preference in one assertion: the same response writes a different Title depending
         // on a setting, and the other variant is kept beside it rather than lost.
         await using var fixture = await SyncFixture.CreateAsync(
             new StubAniListClient(Response(900101, "Sora no Kakera", english: "Fragments of Sky")));
@@ -292,7 +292,7 @@ public class SyncServiceTests
     [Fact]
     public async Task A_sync_releases_queue_slots_and_says_how_many()
     {
-        // Queue advancement is the import pipeline's (D12), and reusing it is the
+        // Queue advancement is the import pipeline's, and reusing it is the
         // point — the difference between an upload and a sync is the trigger. The
         // count is on the run record so an unattended one can report it later.
         await using var fixture = await SyncFixture.CreateAsync(
@@ -379,7 +379,7 @@ public class SyncServiceTests
     /// Every setting a save carries comes back on the next read.
     /// </summary>
     /// <remarks>
-    /// The hazard this guards moved in Phase 10a but did not go away. It used to be
+    /// The hazard this guards is
     /// an update that copied the entity field by field, where a property missing from
     /// the copy worked exactly once — the first save wrote the whole row — and then
     /// silently stopped. It is now a mapping from <c>SourceSyncSettings</c> into
@@ -423,8 +423,8 @@ public class SyncServiceTests
     /// A save that cannot reach the file says so rather than reporting success.
     /// </summary>
     /// <remarks>
-    /// §9's non-root container writing to a root-owned bind mount is a real
-    /// deployment, and since Phase 10a these settings live in a file. A toggle that
+    /// A non-root container writing to a root-owned bind mount is a real
+    /// deployment, and these settings live in a file. A toggle that
     /// reported "Saved" over a failed write would show a value nothing kept.
     /// </remarks>
     [Fact]
@@ -449,7 +449,7 @@ public class SyncServiceTests
     /// MyAnimeList has no settings to save, because nothing runs on its behalf.
     /// </summary>
     /// <remarks>
-    /// A tightening from Phase 10a. Every value here describes something a run does,
+    /// Every value here describes something a run does,
     /// and the file has no MyAnimeList section to write them to — so a save is a
     /// programming error rather than a no-op that looks like it worked.
     /// </remarks>
@@ -495,7 +495,7 @@ public class SyncServiceTests
             fixture.Service.FetchAsync(Profile.DefaultProfileId, AnimeSource.MyAnimeList));
     }
 
-    // --- Sources, and which one is primary (D30) -------------------------
+    // --- Sources, and which one is primary -------------------------
 
     /// <summary>
     /// Every source the page accounts for is reported, whether or not anything can
@@ -526,7 +526,7 @@ public class SyncServiceTests
     /// </summary>
     /// <remarks>
     /// The entity defaults the rank to zero, so every unconfigured source used to
-    /// report itself primary — two of them at once, which is the tie D29 resolves by
+    /// report itself primary — two of them at once, which is the tie resolved by
     /// letting the last import win. The page has to be able to say "not chosen".
     /// </remarks>
     [Fact]
@@ -560,10 +560,8 @@ public class SyncServiceTests
     /// Promoting one source demotes the other, and cannot fail to.
     /// </summary>
     /// <remarks>
-    /// This used to assert that a demotion row was written, because an absent row was
-    /// a default and a default is what a promotion overrides. Phase 10a made the seat
-    /// one key naming its occupant, so the demotion is not a write that could be
-    /// missed — it is the same value read the other way round. What is left worth
+    /// The seat is one key naming its occupant, so the demotion is not a write that
+    /// could be missed — it is the same value read the other way round. What is worth
     /// asserting is that exactly one source claims it.
     /// </remarks>
     [Fact]
@@ -619,7 +617,7 @@ public class SyncServiceTests
 
     /// <summary>
     /// The AniList status specifically, because the page now accounts for every
-    /// source rather than only the ones something can be fetched from (D30).
+    /// source rather than only the ones something can be fetched from.
     /// </summary>
     private static async Task<SourceSyncStatus> AniListStatusAsync(SyncFixture fixture) =>
         (await fixture.Service.GetStatusAsync(Profile.DefaultProfileId))

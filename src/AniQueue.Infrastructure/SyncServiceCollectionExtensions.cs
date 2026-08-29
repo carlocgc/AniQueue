@@ -28,7 +28,7 @@ public static class SyncServiceCollectionExtensions
         // Keyed like every other parser, and only keyed. It briefly needed a second,
         // concrete registration so a sync could pass the title-language preference to
         // an overload the interface could not express; storing each title against its
-        // language removed the reason for both (D22).
+        // language removed the reason for both.
         services.AddKeyedSingleton<IAnimeListParser, AniListJsonParser>(AnimeSource.AniList);
 
         services.AddSingleton<IAniListClient>(serviceProvider => new AniListClient(
@@ -36,14 +36,14 @@ public static class SyncServiceCollectionExtensions
             serviceProvider.GetRequiredService<ILogger<AniListClient>>()));
 
         // Scoped like the import service it delegates to: it opens short-lived
-        // contexts through the factory (D3) and holds nothing between calls.
+        // contexts through the factory and holds nothing between calls.
         services.AddScoped<ISyncService, Sync.SyncService>();
 
         // The settings file this section's options are read from is no longer written
-        // here: D36 made one component read and write it for every feature that has a
+        // here: one component reads and writes it for every feature that has a
         // setting, and AddAniQueueSettings registers it.
 
-        // What every task's runs are written to and its cadence measured from (D40).
+        // What every task's runs are written to and its cadence measured from.
         // Scoped like everything else that opens a context, and registered here
         // because the jobs beside it are its only writers.
         services.AddScoped<IJobRunStore, Jobs.JobRunStore>();
@@ -53,13 +53,13 @@ public static class SyncServiceCollectionExtensions
         // is in the run record, which survives a restart where a field would not.
         services.AddScoped<Sync.UnattendedSyncJob>();
 
-        // The second job, and the first of D25's enrichment passes. It needs no run
+        // The second job, and the first enrichment pass. It needs no run
         // record and no schedule setting: what it has left to do is a count of rows
         // with no marker, which is a question the database answers.
         services.AddScoped<IRelationBackfill, Sync.RelationBackfillService>();
         services.AddScoped<Sync.RelationBackfillJob>();
 
-        // The third, and the first that fetches something other than JSON (D47). The
+        // The third, and the first that fetches something other than JSON. The
         // store is a singleton because it is a path and nothing else; the service is
         // scoped like every other job body.
         services.AddSingleton<Artwork.CoverArtStore>();
@@ -83,7 +83,7 @@ public static class SyncServiceCollectionExtensions
         // A singleton for the same reason, and one object behind two interfaces: the
         // page reads rows and asks for runs, the runner waits for those requests and
         // says what it is doing. Neither should be able to do the other's half, and
-        // both are looking at one piece of state (D40).
+        // both are looking at one piece of state.
         services.AddSingleton<Jobs.TaskRegistry>();
         services.AddSingleton<ITaskRegistry>(s => s.GetRequiredService<Jobs.TaskRegistry>());
         services.AddSingleton<ITaskRunnerBridge>(s => s.GetRequiredService<Jobs.TaskRegistry>());
@@ -97,8 +97,8 @@ public static class SyncServiceCollectionExtensions
     /// <remarks>
     /// Constructed here rather than through <c>AddHttpClient</c>, which would mean
     /// taking <c>Microsoft.Extensions.Http</c> as a dependency of Infrastructure to
-    /// manage a single long-lived client to a single host — and §12 requires
-    /// approval for a new package. The two things the factory would have given us
+    /// manage a single long-lived client to a single host, and a new package needs
+    /// approval. The two things the factory would have given us
     /// are done explicitly instead: a pooled connection lifetime so a long-running
     /// container still notices DNS changes, and one shared instance rather than a
     /// socket-exhausting one per call.
@@ -126,7 +126,7 @@ public static class SyncServiceCollectionExtensions
             Timeout = TimeSpan.FromSeconds(30),
 
             // 424 KB carried 753 entries at full fidelity, so a few thousand titles
-            // is a few megabytes. Sized with headroom rather than tightly (§6), and
+            // is a few megabytes. Sized with headroom rather than tightly, and
             // enforced by HttpClient itself so an oversized body is refused while it
             // is still arriving.
             MaxResponseContentBufferSize = 16 * 1024 * 1024
@@ -149,14 +149,14 @@ public static class SyncServiceCollectionExtensions
     /// Separate because almost every setting differs, and two of them are load
     /// bearing rather than tuning. <b>Redirects are not followed</b>: the host
     /// allowlist vouches for the address that was asked for and can vouch for nothing
-    /// about where that address points, so a 3xx is a refusal rather than a hop
-    /// (D47, §6). And the buffer limit is the size cap enforced by the transport, so
+    /// about where that address points, so a 3xx is a refusal rather than a hop.
+    /// And the buffer limit is the size cap enforced by the transport, so
     /// an oversized body is refused while it is still arriving rather than after it
     /// has been read into memory.
     ///
     /// Built by hand for the same reason the other one is: <c>AddHttpClient</c> would
-    /// mean taking <c>Microsoft.Extensions.Http</c> as a dependency, and §12 requires
-    /// approval for a package to manage two long-lived clients.
+    /// mean taking <c>Microsoft.Extensions.Http</c> as a dependency, which needs
+    /// approval, to manage two long-lived clients.
     /// </remarks>
     private static HttpClient CreateImageHttpClient()
     {

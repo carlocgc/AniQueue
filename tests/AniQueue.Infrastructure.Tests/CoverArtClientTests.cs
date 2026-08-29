@@ -7,7 +7,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 namespace AniQueue.Infrastructure.Tests;
 
 /// <summary>
-/// The guards §6 asks for, against a stub transport (D47).
+/// The fetch guards, against a stub transport.
 /// </summary>
 /// <remarks>
 /// Which addresses are acceptable is decided in Core and tested there exhaustively.

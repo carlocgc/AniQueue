@@ -3,7 +3,7 @@ using AniQueue.Core.Sync;
 namespace AniQueue.Core.Tests.Sync;
 
 /// <summary>
-/// Pacing, tested as arithmetic and without a clock — the same reason §8 gives for
+/// Pacing, tested as arithmetic and without a clock, for the same reason as
 /// testing the sync schedule that way. Pacing that needed real time to test would
 /// be pacing nobody could test, and a test suite that sleeps to prove it waits is
 /// a suite people stop running.

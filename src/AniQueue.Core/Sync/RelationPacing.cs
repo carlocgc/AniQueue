@@ -3,12 +3,12 @@ namespace AniQueue.Core.Sync;
 /// <summary>
 /// How long to wait before the next relation request.
 ///
-/// Arithmetic over what the last response reported, with no clock in it, for the
-/// reason §8 gives about scheduling: pacing that needed real time to test would be
-/// pacing nobody could test. The job does the waiting; this decides how long.
+/// Arithmetic over what the last response reported, with no clock in it, so that
+/// pacing can be tested without real time passing. The job does the waiting; this
+/// decides how long.
 /// </summary>
 /// <remarks>
-/// <b>The measured limit is 30 requests a minute, not the documented 90.</b> A
+/// The measured limit is 30 requests a minute, not the documented 90. A
 /// fifteen-request backfill is therefore half a minute's budget spent in one burst
 /// if it is issued as fast as the socket allows — which is how an application
 /// discovers a rate limit through 429s rather than through the header that was

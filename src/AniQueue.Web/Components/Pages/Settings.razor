@@ -1,4 +1,4 @@
-@* Named for what it will hold rather than for what it holds today (Phase 18a). Five
+@* Named for what it will hold rather than for what it holds today. Five
    tabs is what fits across a phone, so the sixth destination had to be a place other
    settings can move to rather than a page about one feature. Background work is all
    that lives here so far. *@
@@ -70,8 +70,7 @@
     }
     else
     {
-        @* Cards, by the same rule that took the two lists out of tables in 18d and
-           not as a special case: a table that scrolls sideways is the right answer
+        @* Cards, by the same rule as the two lists and not as a special case: a table that scrolls sideways is the right answer
            for something read and the wrong answer for something acted on, and the
            test is whether a control and the thing it acts on fit on screen together.
            This one was table-layout: fixed with a 40rem minimum in a 309px window,
@@ -105,7 +104,7 @@
 
                         @* In words, under the task it belongs to. The log has the rest,
                            and a user should not have to open it to learn that an account
-                           went private (D40). *@
+                           went private. *@
                         @if (row.LastRun?.FailureReason is { } reason)
                         {
                             <p class="muted failure">@reason</p>
@@ -119,9 +118,8 @@
                            pair reads better as a pair: same size, same shape, side by
                            side.
 
-                           The glyph carries the whole meaning here, which 18a said a
-                           word had to. That held for Save, where a floppy disc is a
-                           guess; a circling arrow for "run this again" and a cross for
+                           The glyph carries the whole meaning here. That would not do
+                           for Save, where a floppy disc is a guess; a circling arrow for "run this again" and a cross for
                            "stop" are not guesses, and the accessible name says both in
                            full either way. *@
                         @if (row.State.IsRunning)
@@ -147,7 +145,7 @@
 
                         @* The "off" badge beside the name went with the table. The power
                            button says the same thing in the same place it is changed
-                           from, and says it in a label a screen reader reads (18a). *@
+                           from, and says it in a label a screen reader reads. *@
                         <PowerToggle On="IsEnabled(row.State)"
                                      Label="@($"Let {row.State.Name} run on its own")"
                                      OnChange="on => ToggleAsync(row.State, on)" />
@@ -235,10 +233,9 @@
     /// It exists so a change to a background task can be watched happening rather
     /// than waited an hour for, which is a developer's need. The shortest interval a
     /// shipped installation is offered is an hour, and that number is a promise about
-    /// load — on somebody else's API, and since D40 on the same cadence, somebody's
-    /// GPU.
+    /// load, on somebody else's API and on somebody's GPU.
     ///
-    /// <b>Also shown when it is already in effect</b>, whatever the environment. A
+    /// Also shown when it is already in effect, whatever the environment. A
     /// select whose current value is not among its options renders as though
     /// something else were selected, so hiding it would misreport the setting to the
     /// one person who had deliberately written it into <c>userconfig.json</c> — and
@@ -341,7 +338,7 @@
         _error = null;
 
         // Queued to the runner that owns the job rather than started here, so a manual
-        // run enters the same sequential loop a tick does and cannot race one (D40).
+        // run enters the same sequential loop a tick does and cannot race one.
         if (!Registry.RequestRun(state.TaskKey, state.UnitKey))
         {
             _error = $"{state.Name} is no longer registered.";
@@ -386,7 +383,7 @@
     /// <remarks>
     /// Read per task rather than from one place, because each switch is the one that
     /// feature already had: sync's is per source, scoring's is its kill switch, and
-    /// relations gained one when it gained a row (D40).
+    /// relations gained one when it gained a row.
     /// </remarks>
     private bool IsEnabled(TaskState state)
     {
