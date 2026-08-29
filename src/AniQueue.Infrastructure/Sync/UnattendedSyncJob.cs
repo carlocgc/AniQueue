@@ -196,27 +196,19 @@ public sealed class UnattendedSyncJob(
         // One cadence for every background task. Read on each
         // tick rather than captured, so a change on the tasks page takes effect
         // without a restart.
-        if (tasks.CurrentValue.Schedule.ToInterval() is not { } interval)
-        {
-            logger.LogDebug(
-                "{Source} is not due: the task cadence is switched off", status.Source);
-
-            return false;
-        }
-
         var lastRun = await runs.LastRunAtAsync(Key, context.Unit, cancellationToken);
 
-        if (lastRun is { } last && DateTimeOffset.UtcNow - last < interval)
+        if (JobCadence.IsDue(tasks.CurrentValue.Schedule, lastRun, DateTimeOffset.UtcNow))
         {
-            logger.LogDebug(
-                "{Source} is not due: last run {LastRun:u}, cadence {Interval}",
-                status.Source,
-                last,
-                interval);
-
-            return false;
+            return true;
         }
 
-        return true;
+        logger.LogDebug(
+            "{Source} is not due: last run {LastRun:u}, cadence {Cadence}",
+            status.Source,
+            lastRun,
+            tasks.CurrentValue.Schedule);
+
+        return false;
     }
 }
