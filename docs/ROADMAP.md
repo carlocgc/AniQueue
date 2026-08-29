@@ -26,7 +26,7 @@ Problems in scope:
 | Document | Role |
 |---|---|
 | [`BUILD-PROMPT.md`](BUILD-PROMPT.md) | Original brief, preserved verbatim. Historical reference. |
-| [`DECISIONS.md`](DECISIONS.md) | Every architectural decision and deviation, numbered `D1`–`D56`. |
+| [`DECISIONS.md`](DECISIONS.md) | Every architectural decision and deviation, numbered `D1`–`D58`. |
 | `ROADMAP.md` (this file) | **Authoritative.** Brief + agreed deviations + phase plan. |
 
 Where this file and the build prompt disagree, this file wins, and `DECISIONS.md` records why.
@@ -297,6 +297,7 @@ would invalidate every reply a user is holding.
 |---|---|---|
 | `ILibraryService` | Infrastructure | CRUD, status transitions, progress, scoring, filter/page |
 | `IQueueService` | Infrastructure | add/remove/reorder, normalise positions, transactional |
+| `ILibraryMaintenance` | Infrastructure | **Phase 10** — the one destructive operation the application offers: deleting the library with its queue, scores, pictures and run history, keeping the profile row and the settings file (D58). Relations and artwork already have theirs — `IRelationBackfill.ForgetAsync` and `CoverArtStore.RemoveUnclaimed` — and this reuses both rather than repeating them |
 | `IRelationBackfill` | Infrastructure | fills the relation graph in, and reports how much of it is known |
 | `IRelationService` | Infrastructure | the set a title comes with, ordered, and queueing it (D24, D55) |
 | `IImportService` | Infrastructure | orchestrates the import pipeline |
@@ -461,7 +462,7 @@ row order says what has happened. What happens next is the first row without a t
 | 9a | Cover art | ✅ | Covers cached under `/data` by a job that idles, served immutably, and rendered on the backlog and Up Next |
 | 9b | AniList enrichment | ✅ | Genres, studios, synopsis and a full-size cover landed from one selection-set change, on the next sync, with no backfill job |
 | 9c | Show detail dialog | ✅ | A row opens a dialog that argues for the title: poster, synopsis, genres, studio, and the score with its reason |
-| 10 | Settings page | ▢ **next** | One page for preferences; operator configuration shown and not editable |
+| 10 | Settings page | ▢ **next** | Theme and title language edited in one place; a primary source chosen; a destructive section that deletes relations, artwork, or everything but the settings (D57, D58) |
 | 10a | Per-source settings to the file | ✅ | `SourceSyncSettings` deleted; every sync setting read from `userconfig.json` |
 | 11 | Docker + README | ✅ | Migrations squashed to one baseline; compose up, health check, container recreated without data loss |
 | 12 | Optional auth | ▢ | A single-user login can be turned on; off by default, and off is still a supported deployment |
@@ -485,38 +486,43 @@ in the code, in its pull request, and in the decisions it produced.
 
 ### Phase 10 — Settings page
 
-> **Smaller than it was, and split.** `Phase 10a` takes the per-source move out of it and runs
-> first, ahead of Phase 15 (D36). The single task cadence and the per-task toggles have found a
-> home on the tasks page rather than here (D40). What is left is the display preferences still in
-> `ProfileSettings` — theme, date format, default queue size, backlog defaults — and showing
-> operator configuration read-only.
+> **Smaller than it was, three times over.** `Phase 10a` took the per-source move out of it and
+> ran first, ahead of Phase 15 (D36). The task cadence and the per-task toggles found a home on
+> this page early, built by 15c (D40), so the page itself already exists. D57 then cut most of
+> what was left: three of the four preference columns are dropped rather than surfaced, and the
+> register of `userconfig.json` is declined.
 
-Creates `/settings` as the one place preferences are changed. Phase 8 was to have created it and
-does not (D35) — remote scoring lives on a card beside the route it serves, in the shape Sources
-already uses — so this page starts from nothing rather than expanding something. Its contents are
-unchanged, and it still has to hold two kinds of setting without letting them look alike (D36):
+The page exists and holds background work. What this phase adds is the other half — the
+preferences that describe how AniQueue reads to one person — and the surface for managing the
+data underneath it. Both halves are argued in full by D57 and D58; what follows is what lands.
 
-- **Preferences**, on `ProfileSettings`, edited here: displayed title language — moved from the
-  Sources page, where Phase 5b left it sitting under a source it has nothing to do with (D22) —
-  theme, date format, default queue size, and the backlog's default sort and filters. The last
-  of those has no columns yet and needs a migration; Phase 11 squashes the history immediately
-  afterwards, so adding one here costs nothing.
-- **The per-source sync settings move to `userconfig.json`** — schedule, absence policy,
-  conflict policy and precedence. D36 assigned them to the file and 8a deliberately did not move
-  them; the same migration that adds the sort and filter columns drops `SourceSyncSettings`. It
-  has to answer what a flat file does with a `(ProfileId, Source)` key, which is the one-profile
-  question D36 already accepted for scoring, arriving somewhere it is load-bearing.
-- **A register of everything in `userconfig.json`**, and where each value came from: the AniList
-  account, the model endpoint, sync frequency, absence policy, the scoring schedule. D36 makes
-  these editable, but on the cards that use them — the point of this half is not a second set of
-  controls (D30) but the one place that answers "what is actually in effect, and which file do I
-  edit when the pages cannot be reached". Naming the file and quoting the effective value is what
-  makes a misconfiguration diagnosable without shell access, and it is the answer to the failure
-  mode a layered settings system otherwise has: a value set in two places and nothing saying
-  which won.
+- **Theme, and nothing else from `ProfileSettings`.** `DateFormat`, `DefaultQueueSize` and
+  `DefaultRecommendationMode` are columns nothing reads, so the migration drops them along with
+  `RecommendationMode`, and the backlog's default sort and filters are not added. Theme is
+  resolved during the server-side render and written as `data-theme` on `<html>`, so the first
+  paint is already correct.
+- **Displayed title language moves here** from the Sources page, where D30 left it after Phase 5b
+  left it under a source it has nothing to do with (D22).
+- **The primary source becomes a dropdown** on this page, defaulting to AniList, replacing D30's
+  radio pair. **The per-source *Sync this source* toggle is deleted**, because it wrote the same
+  `Sync:AniList:Enabled` key as the sync task's power button.
+- **The cadence card is renamed** for what it drives: *Scheduled tasks*, with a *Frequency*
+  field. One cadence runs four tasks, so it is not named after sync.
+- **A destructive section at the bottom** (D58): delete all title relationships — the existing
+  Sources control, moved — delete all artwork, and delete all, which empties the library, the
+  queue, the scores, the pictures and the run history while keeping the profile row and
+  `userconfig.json`. Each confirms in a dialog naming what it is about to delete, and each is
+  refused while a background task is running.
+- **Sources is left holding what a run reads**: the AniList username, the MyAnimeList file
+  picker, the review of held changes, and the three settings deciding what an unattended run may
+  do. Its collapsed *Settings* disclosure goes.
 
-Destructive actions confirm explicitly. The accessibility and responsive passes happen here,
-after Phase 9, so they run against the layout that ships rather than one about to gain images.
+This is the first migration after Phase 11's squash, and the first a published `dev` image's
+database will have to apply (D56). It drops three unread columns and adds none.
+
+The accessibility and responsive passes ran in Phase 18, against every page that existed then.
+What this phase adds meets the same bar rather than deferring it: 375px with no sideways scroll,
+nothing under 44px, and a destructive control that is reachable by keyboard and says what it does.
 
 ### Phase 12 — Optional single-user authentication
 A login that can be switched on, off by default, and **off remains a supported deployment** —
@@ -1031,10 +1037,11 @@ modelling genres at all.
 **Hybrid ranking is a stretch goal, not a gap.** D14 left two meaningful orderings —
 `QueueItem.Position`, which the user authors, and `RecommendationScore`, which a model
 proposes — and a formula blending them was carried as `IRankingCalculator` until D32 removed
-its only consumers. `RecommendationMode` and `ProfileSettings.DefaultRecommendationMode`
-remain in the schema against the day somebody wants the blend. Reinstating it is a pure
-function in Core and one more `LibrarySort` member, which is why it is safe to leave undone:
-nothing has to be built now to keep it cheap later.
+its only consumers. `RecommendationMode` and `ProfileSettings.DefaultRecommendationMode` were
+kept in the schema against the day somebody wants the blend, and **D57 deletes them**: an enum
+and a column that nothing had read for eight phases were holding a place, not a design.
+Reinstating it is a pure function in Core, one more `LibrarySort` member and one column, which
+is why it is safe to leave undone: nothing has to be built now to keep it cheap later.
 
 AniList *read* access is no longer here — D13 moved it into the MVP as Phase 5, because with
 D11 and D12 it is the only remaining manual step in the loop. **Write-back stays post-MVP**
