@@ -250,38 +250,7 @@
                         }
                     </span>
 
-                    @* Throwing the relation graph away. Refilling it belongs to the
-                       tasks page, so this says what it does and asks first.
-
-                       It is the only destructive action on this page, which is why it
-                       confirms in place rather than behind a dialog: the sentence
-                       explaining what is about to happen and the button that does it
-                       should be readable at the same time. *@
-                    @if (_forgetting)
-                    {
-                        <span class="muted">
-                            This deletes all @coverage.Total titles' relations. They rebuild
-                            when the related-titles task next runs.
-                        </span>
-                        <button class="danger" @onclick="ForgetRelationsAsync">Delete them</button>
-                        <button @onclick="() => _forgetting = false">Keep them</button>
-                    }
-                    else
-                    {
-                        <button @onclick="() => _forgetting = true">
-                            Delete all title relationships
-                        </button>
-                    }
                 </div>
-
-                @if (_forgot is { } forgot)
-                {
-                    <div class="notice success" role="status">
-                        Deleted @forgot @(forgot == 1 ? "relation" : "relations"). They will be
-                        fetched again when the related-titles task next runs — start it now from
-                        the <a href="settings">Settings</a> page.
-                    </div>
-                }
             }
         }
 
@@ -486,12 +455,6 @@
 
     private SyncApplyResult? _applied;
     private RelationCoverage? _relations;
-
-    /// <summary>How many relations the last delete removed, until the page moves on.</summary>
-    private int? _forgot;
-
-    /// <summary>Whether the destructive relation delete is asking for confirmation.</summary>
-    private bool _forgetting;
 
     /// <summary>
     /// Whether a review fetch is in flight.
@@ -905,26 +868,6 @@
         _applied = null;
         _nothingToDo = false;
         _error = null;
-        _forgot = null;
-        _forgetting = false;
-    }
-
-    /// <summary>
-    /// Throws the relation graph away, so that it is fetched again from nothing.
-    /// </summary>
-    /// <remarks>
-    /// Refilling belongs to the relation task, so what is left here is a delete and
-    /// it says so.
-    ///
-    /// No dialog and no waiting: two statements against the database, and the
-    /// refilling belongs to a task the user can start or leave alone.
-    /// </remarks>
-    private async Task ForgetRelationsAsync()
-    {
-        Reset();
-
-        _forgot = await RelationBackfill.ForgetAsync();
-        _relations = await RelationBackfill.GetCoverageAsync();
     }
 
 }

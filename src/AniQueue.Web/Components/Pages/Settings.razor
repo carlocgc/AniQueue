@@ -14,11 +14,14 @@
 @inject IUserSettingsStore UserSettings
 @inject IAppearance Appearance
 @inject ISyncService SyncService
+@inject ILibraryMaintenance Maintenance
+@inject IRelationBackfill RelationBackfill
 @inject NavigationManager Navigation
+@inject IJSRuntime JS
 @inject IOptionsMonitor<TaskOptions> TaskConfiguration
 @inject IWebHostEnvironment Environment
 
-@implements IDisposable
+@implements IAsyncDisposable
 
 <PageTitle>Settings — AniQueue</PageTitle>
 
@@ -273,6 +276,63 @@
     }
 </div>
 
+@* Last on the page, deliberately. Nothing here is reached by accident on the way to
+   something else. *@
+<div class="card">
+    <h2>Delete data</h2>
+
+    <p class="muted">
+        None of this can be undone from inside AniQueue. Your library lives in a single
+        database file, so a copy of it is the way back from any of them.
+    </p>
+
+    @if (_deleted is { } report)
+    {
+        <div class="notice success" role="status">@report</div>
+    }
+
+    <ul class="delete-list">
+        @foreach (var row in DeleteRows)
+        {
+            <li class="delete-row">
+                <div>
+                    <h3>@row.Name</h3>
+                    <p class="muted">@row.Summary</p>
+                </div>
+
+                @* Disabled rather than allowed to queue behind the run. Deleting the
+                   library from under a sync can throw mid-run or have its rows put
+                   back the moment it finishes, and the reason is in the accessible
+                   name because "greyed out" is not one. *@
+                <button class="danger"
+                        disabled="@(AnyTaskRunning || _busy)"
+                        title="@ReasonFor(row)"
+                        aria-label="@ReasonFor(row)"
+                        @onclick="() => ConfirmAsync(row.Kind)">@row.Action</button>
+            </li>
+        }
+    </ul>
+</div>
+
+@* The same module ShowDetailDialog uses, and the same reason: only showModal() gives
+   a backdrop, an inert page, a focus trap and Escape, and only from script. It is
+   written against a dialog element rather than against that component. *@
+<dialog @ref="_confirmDialog" class="confirm-dialog" aria-labelledby="confirm-title">
+    @if (_pending is { } pending)
+    {
+        <article>
+            <h2 id="confirm-title">@pending.Name</h2>
+
+            <p>@ConfirmText(pending.Kind)</p>
+
+            <div class="toolbar">
+                <button autofocus @onclick="CancelAsync">Keep it</button>
+                <button class="danger" disabled="@_busy" @onclick="RunDeleteAsync">@pending.Action</button>
+            </div>
+        </article>
+    }
+</dialog>
+
 @code {
     /// <summary>How many runs the history card shows.</summary>
     /// <remarks>
@@ -345,6 +405,7 @@
         _titleLanguage = await SyncService.GetPreferredTitleLanguageAsync(Profile.DefaultProfileId);
 
         await LoadAsync();
+        await LoadCountsAsync();
     }
 
     /// <summary>
@@ -619,12 +680,204 @@
         };
     }
 
-    public void Dispose()
+    // Deleting -------------------------------------------------------------
+
+    /// <summary>Which of the three deletes a row and its dialog are about.</summary>
+    private enum DeleteKind
+    {
+        Relations,
+        Artwork,
+        Everything
+    }
+
+    /// <summary>One destructive row: what it is called, and what it says it will do.</summary>
+    private sealed record DeleteRow(DeleteKind Kind, string Name, string Action, string Summary);
+
+    private LibraryContents _contents = LibraryContents.Empty;
+
+    private RelationCoverage _relations = RelationCoverage.None;
+
+    private DeleteRow? _pending;
+
+    /// <summary>What the last delete removed, until the page is left.</summary>
+    private string? _deleted;
+
+    /// <summary>Latches across the delete itself, so a second press cannot start one.</summary>
+    private bool _busy;
+
+    private ElementReference _confirmDialog;
+
+    private IJSObjectReference? _dialogModule;
+
+    private bool AnyTaskRunning => _rows.Exists(r => r.State.IsRunning);
+
+    private IEnumerable<DeleteRow> DeleteRows =>
+    [
+        new(DeleteKind.Relations,
+            "Title relationships",
+            "Delete relationships",
+            "Which titles are sequels, prequels and side stories of which. The related-titles "
+            + "task fetches them again from nothing on its next run."),
+
+        new(DeleteKind.Artwork,
+            "Artwork",
+            "Delete artwork",
+            "Every cached picture file. The cover-art task fetches whatever is missing again, "
+            + "so this reclaims the space rather than turning the pictures off."),
+
+        new(DeleteKind.Everything,
+            "Everything",
+            "Delete everything",
+            "Your whole library, and with it the queue, the scores, the pictures and the run "
+            + "history. Your settings stay.")
+    ];
+
+    /// <summary>
+    /// Why a delete button cannot be pressed, or what it does when it can.
+    /// </summary>
+    private string ReasonFor(DeleteRow row) =>
+        AnyTaskRunning
+            ? $"A task is running, so {row.Name.ToLowerInvariant()} cannot be deleted yet"
+            : row.Action;
+
+    /// <summary>The sentence in front of the click, naming what is about to go.</summary>
+    private string ConfirmText(DeleteKind kind) => kind switch
+    {
+        DeleteKind.Relations =>
+            $"Deletes the relationships between all {_relations.Total} titles AniQueue has asked "
+            + "about. The related-titles task rebuilds them on its next run, or when you run it "
+            + "by hand.",
+
+        DeleteKind.Artwork =>
+            $"Deletes {Count(_contents.Pictures, "cached picture", "cached pictures")} from disk. "
+            + "The cover-art task fetches them again, so they come back — this is for reclaiming "
+            + "the space now.",
+
+        _ =>
+            $"Deletes {Count(_contents.Titles, "title", "titles")}, "
+            + $"{_contents.Queued} of them queued, and "
+            + $"{Count(_contents.Pictures, "picture", "pictures")}. Your theme, title language "
+            + "and every other setting stay. Syncing stays switched on, so AniList titles come "
+            + "back on the next run — the queue, the scores and anything imported from a file do "
+            + "not."
+    };
+
+    private static string Count(int value, string singular, string plural) =>
+        $"{value} {(value == 1 ? singular : plural)}";
+
+    /// <summary>
+    /// Reads the counts, then opens the dialog on them.
+    /// </summary>
+    /// <remarks>
+    /// Read at the moment of asking rather than with the page, because a background
+    /// task may have changed the library since it loaded — and a number somebody has
+    /// to read is the guard here, so a stale one would be worse than none.
+    /// </remarks>
+    private async Task ConfirmAsync(DeleteKind kind)
+    {
+        _error = null;
+        _deleted = null;
+
+        await LoadCountsAsync();
+
+        _pending = DeleteRows.First(row => row.Kind == kind);
+
+        // Rendered before showModal, so the dialog the platform focuses into already
+        // has its buttons in it.
+        StateHasChanged();
+
+        _dialogModule ??= await JS.InvokeAsync<IJSObjectReference>(
+            "import", "./Components/Shared/ShowDetailDialog.razor.js");
+
+        await _dialogModule.InvokeVoidAsync("showModal", _confirmDialog);
+    }
+
+    private async Task CancelAsync()
+    {
+        _pending = null;
+
+        if (_dialogModule is not null)
+        {
+            await _dialogModule.InvokeVoidAsync("close", _confirmDialog);
+        }
+    }
+
+    private async Task RunDeleteAsync()
+    {
+        if (_pending is not { } pending || _busy)
+        {
+            return;
+        }
+
+        // Re-checked here rather than trusted from the render that opened the dialog:
+        // a task can start while it is open, and the disabled button is the guard for
+        // the press before it rather than for this one.
+        if (AnyTaskRunning)
+        {
+            _error = "A task started while that was open, so nothing was deleted. Try again once it finishes.";
+            await CancelAsync();
+            return;
+        }
+
+        _busy = true;
+
+        try
+        {
+            _deleted = pending.Kind switch
+            {
+                DeleteKind.Relations =>
+                    $"Deleted {Count(await RelationBackfill.ForgetAsync(), "relationship", "relationships")}. "
+                    + "They come back when the related-titles task next runs.",
+
+                DeleteKind.Artwork =>
+                    $"Deleted {Count(await Maintenance.DeleteArtworkAsync(), "picture", "pictures")}. "
+                    + "The cover-art task fetches them again.",
+
+                _ => DeletedText(await Maintenance.DeleteEverythingAsync(Profile.DefaultProfileId))
+            };
+        }
+        finally
+        {
+            _busy = false;
+        }
+
+        await CancelAsync();
+
+        // The history card is reading rows that have just gone, and the counts behind
+        // the next dialog have all changed.
+        await LoadAsync();
+        await LoadCountsAsync();
+    }
+
+    private static string DeletedText(LibraryContents gone) =>
+        $"Deleted {Count(gone.Titles, "title", "titles")}, {gone.Queued} queued and "
+        + $"{Count(gone.Pictures, "picture", "pictures")}. Your settings are untouched.";
+
+    private async Task LoadCountsAsync()
+    {
+        _contents = await Maintenance.GetContentsAsync(Profile.DefaultProfileId);
+        _relations = await RelationBackfill.GetCoverageAsync();
+    }
+
+    public async ValueTask DisposeAsync()
     {
         // The registry is a singleton and outlives every circuit, so a handler left
         // subscribed here would hold this component for the life of the process.
         Registry.Changed -= OnRegistryChanged;
 
         _ticker?.Dispose();
+
+        if (_dialogModule is not null)
+        {
+            try
+            {
+                await _dialogModule.DisposeAsync();
+            }
+            catch (JSDisconnectedException)
+            {
+                // The circuit has already gone, which is the ordinary way a page ends.
+                // There is nothing left to dispose on the other side of it.
+            }
+        }
     }
 }

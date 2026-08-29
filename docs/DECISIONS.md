@@ -3108,8 +3108,14 @@ accumulates with no way to clear it: a library imported from the wrong account, 
 titles long gone, a queue built against a backlog somebody no longer wants.
 
 **Three rows, in a destructive section at the bottom of the settings page.** Delete all title
-relationships, delete all artwork, and delete all. Each is a card row with a red trash button and
-a dialog that says what is about to happen. The relations row is the existing control, moved.
+relationships, delete all artwork, and delete all. Each is a card row with a red button and a
+dialog that says what is about to happen. The relations row is the existing control, moved.
+
+*The button says what it does rather than showing a trash glyph.* The vendored sprite has no
+trash symbol, and adding one would buy a picture beside a label that already reads "Delete
+artwork" — where the icon buttons elsewhere on this page are icon-**only** and need a glyph to
+mean anything at all. The relations control this row absorbs was a text button for the same
+reason.
 
 **It is called *Delete all*, not *clear the backlog*.** The backlog is a view of the library, so
 emptying it means deleting titles — and a title takes its queue slot, its score and its pictures

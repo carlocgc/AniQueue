@@ -462,12 +462,12 @@ row order says what has happened. What happens next is the first row without a t
 | 9a | Cover art | ✅ | Covers cached under `/data` by a job that idles, served immutably, and rendered on the backlog and Up Next |
 | 9b | AniList enrichment | ✅ | Genres, studios, synopsis and a full-size cover landed from one selection-set change, on the next sync, with no backfill job |
 | 9c | Show detail dialog | ✅ | A row opens a dialog that argues for the title: poster, synopsis, genres, studio, and the score with its reason |
-| 10 | Settings page | ◐ | Theme and title language edited in one place; a primary source chosen; a destructive section that deletes relations, artwork, or everything but the settings (D57, D58) |
+| 10 | Settings page | ✅ | Theme and title language edited in one place; a primary source chosen; a destructive section that deletes relations, artwork, or everything but the settings (D57, D58) |
 | 10a | Per-source settings to the file | ✅ | `SourceSyncSettings` deleted; every sync setting read from `userconfig.json` |
 | 10b | Preferences on the settings page | ✅ | Theme, title language and the primary seat edited in one place; three unread columns dropped; the sources page holds only what a run reads (D57) |
-| 10c | Deleting data | ▢ **next** | Relations, artwork and everything-but-the-settings each deleted from one section, each naming its counts and refused while a task runs (D58) |
+| 10c | Deleting data | ✅ | Relations, artwork and everything-but-the-settings each deleted from one section, each naming its counts and refused while a task runs (D58) |
 | 11 | Docker + README | ✅ | Migrations squashed to one baseline; compose up, health check, container recreated without data loss |
-| 12 | Optional auth | ▢ | A single-user login can be turned on; off by default, and off is still a supported deployment |
+| 12 | Optional auth | ▢ **next** | A single-user login can be turned on; off by default, and off is still a supported deployment |
 | 13 | CI | ✅ | Build and tests on every push and PR; `dev` published on every merge, a version and `latest` only from a tag on `main` (D56) |
 | 14 | Security pass | ▢ | §6's high-risk surfaces reviewed against the finished application; release gate opens |
 | 15a | Job contract | ✅ | Jobs take a trigger and return an outcome; the runner drives units and reschedules nothing |
@@ -476,7 +476,7 @@ row order says what has happened. What happens next is the first row without a t
 | 15d | Scoring demolition | ✅ | No outbound scoring request has anybody waiting on it |
 | 15e | Sources reshape | ✅ | Sources is configuration, one review button and a file import |
 | 16 | Scoring without a rank | ✅ | The model returns scores and no ordering; nothing asks for, stores or shows a rank |
-| 17 | Improve remote model scoring | ▢ *held, next* | A sweep gets past a batch it cannot score, reports itself as one run, and cannot be defeated by a history that outgrew the context |
+| 17 | Improve remote model scoring | ▢ *held* | A sweep gets past a batch it cannot score, reports itself as one run, and cannot be defeated by a history that outgrew the context |
 | 18 | Mobile first | ✅ | Every page usable at 375px with no sideways scroll and no control under 44px; five thumb-reachable tabs; the lists show a poster, a title, one score and one action |
 
 **✅ done · ◐ part landed · ▢ not started.** *next* is what the running order reaches first;
@@ -485,47 +485,6 @@ characterise (D45).
 
 Only the phases that have not been built are described below. What a finished phase did is
 in the code, in its pull request, and in the decisions it produced.
-
-### Phase 10 — Settings page
-
-> **Smaller than it was, three times over.** `Phase 10a` took the per-source move out of it and
-> ran first, ahead of Phase 15 (D36). The task cadence and the per-task toggles found a home on
-> this page early, built by 15c (D40), so the page itself already exists. D57 then cut most of
-> what was left: three of the four preference columns are dropped rather than surfaced, and the
-> register of `userconfig.json` is declined.
-
-The page exists and holds background work. What this phase adds is the other half — the
-preferences that describe how AniQueue reads to one person — and the surface for managing the
-data underneath it. Both halves are argued in full by D57 and D58; what follows is what lands.
-The first half is `10b` and has landed; `10c` is the destructive section.
-
-- **Theme, and nothing else from `ProfileSettings`.** `DateFormat`, `DefaultQueueSize` and
-  `DefaultRecommendationMode` are columns nothing reads, so the migration drops them along with
-  `RecommendationMode`, and the backlog's default sort and filters are not added. Theme is
-  resolved during the server-side render and written as `data-theme` on `<html>`, so the first
-  paint is already correct.
-- **Displayed title language moves here** from the Sources page, where D30 left it after Phase 5b
-  left it under a source it has nothing to do with (D22).
-- **The primary source becomes a dropdown** on this page, defaulting to AniList, replacing D30's
-  radio pair. **The per-source *Sync this source* toggle is deleted**, because it wrote the same
-  `Sync:AniList:Enabled` key as the sync task's power button.
-- **The cadence card is renamed** for what it drives: *Scheduled tasks*, with a *Frequency*
-  field. One cadence runs four tasks, so it is not named after sync.
-- **A destructive section at the bottom** (D58): delete all title relationships — the existing
-  Sources control, moved — delete all artwork, and delete all, which empties the library, the
-  queue, the scores, the pictures and the run history while keeping the profile row and
-  `userconfig.json`. Each confirms in a dialog naming what it is about to delete, and each is
-  refused while a background task is running.
-- **Sources is left holding what a run reads**: the AniList username, the MyAnimeList file
-  picker, the review of held changes, and the three settings deciding what an unattended run may
-  do. Its collapsed *Settings* disclosure goes.
-
-This is the first migration after Phase 11's squash, and the first a published `dev` image's
-database will have to apply (D56). It drops three unread columns and adds none.
-
-The accessibility and responsive passes ran in Phase 18, against every page that existed then.
-What this phase adds meets the same bar rather than deferring it: 375px with no sideways scroll,
-nothing under 44px, and a destructive control that is reachable by keyboard and says what it does.
 
 ### Phase 12 — Optional single-user authentication
 A login that can be switched on, off by default, and **off remains a supported deployment** —
