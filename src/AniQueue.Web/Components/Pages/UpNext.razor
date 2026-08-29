@@ -487,10 +487,10 @@ else
                 "Removing from Up Next",
                 () => QueueService.RemoveAsync(Profile.DefaultProfileId, item.QueueItemId)))
         {
-            // Worth saying plainly. Removing from the queue is a decision about
-            // order, not about the library, and the row simply vanishing does not
-            // distinguish the two.
-            await _toasts.ShowAsync($"Removed {item.Title}. It is still in your library.");
+            // The same words the dialog used, because they describe the same move.
+            // Removing from the queue is a decision about order rather than about the
+            // library, and a row that simply vanishes does not distinguish the two.
+            await _toasts.ShowAsync($"Removed {item.Title}. It is still in your backlog.");
         }
     }
 
