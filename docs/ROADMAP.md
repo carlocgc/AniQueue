@@ -3043,10 +3043,13 @@ Phase 13 wrote one rule for publishing: nothing reaches Docker Hub until Phase 1
 because an image on a registry is the moment a defect stops being local. That rule was written
 against a single tag. There are three, and they do not have the same audience.
 
+*A fourth was tried and withdrawn.* Each merge also pushed `dev-<sha>`, on the theory that
+somebody bisecting would want it. Nobody did, and it doubled the tag list on Docker Hub to say
+what the commit history already says.
+
 | Tag | Written by | Who pulls it |
 |---|---|---|
 | `dev` | every merge into `development` | the author, on their own machine |
-| `dev-<sha>` | the same run | anyone bisecting which merge broke something |
 | `vX.Y.Z` and `latest` | a `vX.Y.Z` tag on a commit contained in `main` | a self-hoster's compose file |
 
 **Decision:** `dev` publishes from today. `latest` and the version tag still wait for Phase 14,
@@ -4700,7 +4703,7 @@ merge into `development`, because nothing else exercises the container path — 
 | Workflow | Fires on | Does |
 |---|---|---|
 | `pr-build.yml` | pull request into `development` | restore, build, test, build the image and throw it away |
-| `dev-image.yml` | push to `development` | the same, then push `dev` and `dev-<sha>` |
+| `dev-image.yml` | push to `development` | the same, then push `dev`, overwriting it |
 | `release-docker.yml` | a `vX.Y.Z` tag | validate the tag is on `main`, test, push the version and `latest`, write the GitHub release |
 
 The tag validation is the part worth keeping: a tag can be pushed from any branch, and `latest`
