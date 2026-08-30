@@ -26,7 +26,7 @@ Problems in scope:
 | Document | Role |
 |---|---|
 | [`BUILD-PROMPT.md`](BUILD-PROMPT.md) | Original brief, preserved verbatim. Historical reference. |
-| [`DECISIONS.md`](DECISIONS.md) | Every architectural decision and deviation, numbered `D1`–`D58`. |
+| [`DECISIONS.md`](DECISIONS.md) | Every architectural decision and deviation, numbered `D1`–`D59`. |
 | `ROADMAP.md` (this file) | **Authoritative.** Brief + agreed deviations + phase plan. |
 
 Where this file and the build prompt disagree, this file wins, and `DECISIONS.md` records why.
@@ -536,6 +536,11 @@ below was found while establishing that, and none of it is worth building until 
 sample of models to build against — several of these have a right answer that depends on what
 "typical" turns out to mean. The phase exists so the findings are not re-derived.
 
+**17a is exempt from that hold, and is built first.** What a wider sample would settle is how much
+history to send and which models can answer at all. Whether a sweep can get past a batch it
+already failed depends on neither: the title that breaks a reply blocks the backlog behind it on
+every model, including the one that works.
+
 **Ordered by whether the application is currently telling the truth**, which is a different order
 from how much each one hurts.
 
@@ -553,12 +558,22 @@ The consequence is the failure the comment promises cannot happen. One title tha
 sits at the front of the never-scored ordering permanently, is in every batch of every sweep, and
 the backlog behind it is never reached.
 
-**Rotate on failure.** A failed batch advances an offset into the neediest-first ordering, so the
-next batch takes the *next* N rather than the same N. No persistent state — the offset lives for
-the sweep. It needs no new column and no attempt counter, and it makes the error budget mean
-something it does not mean today: three failures become three different questions, which
-distinguishes one poisonous title from a model that cannot do this at all. A model that genuinely
-cannot still fails three times and stops, exactly as now.
+**Set the failed batch aside** (D59). Its candidate ids go into a set that is created with the
+sweep and thrown away with it, and the picker leaves them out of every later batch. No column, no
+attempt counter, nothing persisted. It makes the error budget mean something it does not mean
+today: three failures become three different questions, which distinguishes one poisonous title
+from a model that cannot do this at all. A model that genuinely cannot still fails three times and
+stops, exactly as now.
+
+*An offset into the neediest-first ordering was the first answer, and D59 records why it was
+dropped:* it drifts whenever a reply is short, which 17e below establishes is the common case
+rather than the corner.
+
+**A host that cannot be reached ends the sweep instead** (D59). Nothing was asked, so no title is
+implicated, and three attempts at a dead address are three ways of learning one fact. The run says
+*Failed*, names the address and still counts what it scored — where today any sweep that applied
+one score reports *Succeeded* however it ended, so a backlog that has quietly stopped being scored
+looks like one that is finished.
 
 #### 17b — One sweep is one run
 
