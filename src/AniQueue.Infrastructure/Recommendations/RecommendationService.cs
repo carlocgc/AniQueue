@@ -674,42 +674,51 @@ public sealed class RecommendationService(
 
         var ranked = scoredAt.Count;
 
-        // The moment before which a score no longer reflects this person's taste.
+        // The day before which a score no longer reflects this person's taste: the day
+        // the Nth most recent rated title was finished.
         //
-        // Found as the timestamp of the Nth most recent rating rather than by counting
-        // ratings per title: one scalar and one indexed comparison, instead of a
-        // correlated subquery for every row in the backlog. The two say the same thing —
-        // a score is stale exactly when N titles have been rated since it was written.
-        // Sorted here rather than in SQL because SQLite cannot ORDER BY a
-        // DateTimeOffset at all — the same limitation BuildRequestAsync works around
-        // when it orders history by DateOnly and Id instead. There is no such stand-in
-        // for "when was this rated", so the timestamps come back and are ordered in
-        // memory: one column of a few hundred rows, against a query that runs when a
-        // page is opened.
-        var rated = staleAfterRatings <= 0
-            ? []
-            : await context.LibraryEntries
+        // <b>Finished, not written.</b> This used to read <c>LastUpdated</c>, which is
+        // the moment the row was last saved by anything at all — so five rated titles
+        // touched by one sync moved the line to that sync and marked a whole backlog
+        // stale, with nobody having rated a thing. <c>DateCompleted</c> is the date the
+        // user finished the title, and no sync moves it. It is also the column
+        // <c>ReadHistoryAsync</c> already treats as when a rating happened, so the two
+        // halves of "recent taste" now agree.
+        //
+        // One row rather than a column read into memory, which the old comparison could
+        // not do: SQLite cannot ORDER BY a DateTimeOffset, and can order a DateOnly.
+        //
+        // Nothing is stale until enough has been rated to make it so, which falls out
+        // rather than being a special case — fewer than N rated titles leaves no Nth
+        // row and the query returns null.
+        DateOnly? staleBefore = null;
+
+        if (staleAfterRatings > 0)
+        {
+            staleBefore = await context.LibraryEntries
                 .AsNoTracking()
                 .Where(e => e.ProfileId == profileId
                     && e.Status == LibraryStatus.Completed
-                    && e.UserScore != null)
-                .Select(e => e.LastUpdated)
-                .ToListAsync(cancellationToken);
-
-        // Nothing is stale until enough has been rated to make it so, which is the
-        // right answer for a new library rather than a special case: a backlog scored
-        // against three ratings has not been overtaken by anything.
-        var staleBefore = staleAfterRatings <= 0 || rated.Count < staleAfterRatings
-            ? (DateTimeOffset?)null
-            : rated.OrderByDescending(when => when).Skip(staleAfterRatings - 1).First();
+                    && e.UserScore != null
+                    && e.DateCompleted != null)
+                .OrderByDescending(e => e.DateCompleted)
+                .Skip(staleAfterRatings - 1)
+                .Select(e => e.DateCompleted)
+                .FirstOrDefaultAsync(cancellationToken);
+        }
 
         // A score with no timestamp counts as stale. Nothing writes one that way today,
         // but a score whose age cannot be established is exactly the score worth making
         // again — the alternative is a row that can never be picked up and never
         // refreshed.
-        var stale = staleBefore is null
+        //
+        // A score made on the day itself is not stale. The finishes that day may have
+        // come after it, and calling a score stale on the strength of a maybe is the
+        // failure this comparison was changed to end.
+        var stale = staleBefore is not { } cutoff
             ? 0
-            : scoredAt.Count(when => when is null || when < staleBefore);
+            : scoredAt.Count(when => when is null
+                || DateOnly.FromDateTime(when.Value.UtcDateTime) < cutoff);
 
         return new ScoringCoverage { Waiting = total, Ranked = ranked, Stale = stale };
     }
