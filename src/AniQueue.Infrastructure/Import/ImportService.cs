@@ -380,7 +380,7 @@ public sealed class ImportService(
                 a.Description,
                 a.Genres.Select(g => g.Genre!.Name).ToList(),
                 a.Studios.Select(s => s.Studio!.Name).ToList(),
-                a.Studios.Where(s => s.IsMain).Select(s => s.Studio!.Name).FirstOrDefault()))
+                a.Studios.Where(s => s.IsMain).Select(s => s.Studio!.Name).ToList()))
             .ToListAsync(cancellationToken);
 
         // Loaded whole for the same reason the catalogue is: an IN clause built
@@ -629,14 +629,22 @@ public sealed class ImportService(
         }
 
         // Two questions, because the answer to one does not imply the other: which
-        // companies are credited, and which of them is the studio. A title recredited
+        // companies are credited, and which of them made it. A title recredited
         // from Wit Studio to MAPPA credits both before and after.
+        //
+        // Both are sets. A co-production names two companies as the makers and an
+        // anthology names seven, so comparing whichever came back first would compare
+        // two orderings rather than two answers — and report a change that applying
+        // cannot settle, because every one of them is already marked as a maker.
         if (entry.Studios.Count > 0)
         {
-            var incomingMain = entry.Studios.FirstOrDefault(s => s.IsMain).Name;
+            var incomingMain = entry.Studios
+                .Where(studio => studio.IsMain)
+                .Select(studio => studio.Name)
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
 
             if (Differs(entry.Studios.Select(s => s.Name).ToList(), existing.Studios)
-                || !string.Equals(incomingMain, existing.MainStudio, StringComparison.OrdinalIgnoreCase))
+                || !incomingMain.SetEquals(existing.MainStudios))
             {
                 changes.Add(existing.Studios.Count == 0 ? "Adds studios" : "Updates studios");
             }
@@ -1354,11 +1362,14 @@ public sealed class ImportService(
         string? Description,
         IReadOnlyList<string> Genres,
         IReadOnlyList<string> Studios,
-        // Carried alongside the names because which company is the main one can
-        // change without the set of companies changing at all — a title recredited
-        // from Wit Studio to MAPPA credits both either way. Comparing names alone
-        // would call that unchanged, and an unchanged item is never applied.
-        string? MainStudio);
+        // Carried alongside the names because which companies made it can change
+        // without the set of companies changing at all — a title recredited from Wit
+        // Studio to MAPPA credits both either way. Comparing names alone would call
+        // that unchanged, and an unchanged item is never applied.
+        //
+        // A list rather than one name: SPY×FAMILY is made by two studios and Star
+        // Wars: Visions by seven, so there is no single answer to reduce this to.
+        IReadOnlyList<string> MainStudios);
 
     private sealed record EntrySnapshot(
         int AnimeId,
