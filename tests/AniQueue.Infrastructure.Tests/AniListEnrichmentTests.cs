@@ -314,6 +314,62 @@ public class AniListEnrichmentTests
         Assert.Equal(2, await context.AnimeStudios.CountAsync());
     }
 
+    /// <summary>
+    /// A title made by two studios is not a title that changes every sync.
+    /// </summary>
+    /// <remarks>
+    /// Found in a real library: nine of ten reported changes said <i>Updates studios</i>
+    /// on every run, and applying them settled nothing. Every one of the nine is made
+    /// by more than one studio — a co-production or an anthology — and the comparison
+    /// took whichever came back first on each side. Two orderings of one answer are not
+    /// a difference, and no commit can resolve one.
+    /// </remarks>
+    [Fact]
+    public async Task A_title_with_two_lead_studios_does_not_change_on_every_sync()
+    {
+        await using var fixture = await ImportFixture.CreateAsync();
+
+        ParsedStudio[] made =
+        [
+            new ParsedStudio("CloverWorks", IsMain: true, IsAnimationStudio: true),
+            new ParsedStudio("WIT STUDIO", IsMain: true, IsAnimationStudio: true)
+        ];
+
+        await SyncAsync(fixture, Fetched(studios: made));
+
+        // The same answer, in the order the next response happened to give it.
+        var preview = await fixture.Service.PreviewAsync(
+            Fetched(studios: [made[1], made[0]]), AniListFormat, Profile.DefaultProfileId);
+
+        Assert.Equal(ImportAction.Unchanged, preview.Items[0].Action);
+    }
+
+    [Fact]
+    public async Task One_of_two_lead_studios_dropping_out_is_still_a_change()
+    {
+        // The other side of the rule above, so comparing sets does not become silence:
+        // two makers becoming one is a real answer and has to be seen.
+        await using var fixture = await ImportFixture.CreateAsync();
+
+        await SyncAsync(fixture, Fetched(studios:
+        [
+            new ParsedStudio("CloverWorks", IsMain: true, IsAnimationStudio: true),
+            new ParsedStudio("WIT STUDIO", IsMain: true, IsAnimationStudio: true)
+        ]));
+
+        var preview = await fixture.Service.PreviewAsync(
+            Fetched(studios:
+            [
+                new ParsedStudio("CloverWorks", IsMain: true, IsAnimationStudio: true),
+                new ParsedStudio("WIT STUDIO", IsMain: false, IsAnimationStudio: true)
+            ]),
+            AniListFormat,
+            Profile.DefaultProfileId);
+
+        Assert.Equal(ImportAction.Update, preview.Items[0].Action);
+        Assert.Contains("Updates studios", preview.Items[0].Changes);
+    }
+
     [Fact]
     public async Task A_source_that_does_not_outrank_another_may_fill_a_gap_but_not_overwrite()
     {
