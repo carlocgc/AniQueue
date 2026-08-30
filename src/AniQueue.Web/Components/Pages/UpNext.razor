@@ -31,12 +31,11 @@
 
 <BusyDialog State="_busy" />
 
-@* Outside the branches below: removing the last slot empties the queue, and the
-   message explaining what that did must survive the page becoming empty. *@
-@if (_actionMessage is not null)
-{
-    <div class="notice success" role="status">@_actionMessage</div>
-}
+@* A toast rather than a notice at the top of the page, which is where this used to
+   be. The queue is a long list and removing happens partway down it, so a message
+   pinned above the first row was written for somebody who had already scrolled past
+   it. A toast is fixed to the corner and arrives where the eye already is. *@
+<Toast State="_toasts" />
 
 @if (Queue is null)
 {
@@ -151,7 +150,7 @@ else
                 <button class="icon remove entry-action"
                         title="Remove from Up Next"
                         aria-label="@($"Remove {item.Title} from Up Next")"
-                        @onclick="() => RemoveAsync(item)"><Icon Name="x" /></button>
+                        @onclick="() => AskToRemoveAsync(item)"><Icon Name="x" /></button>
             </li>
         }
     </ul>
@@ -161,6 +160,33 @@ else
    at a time, so fifty dialogs in the markup would be forty-nine that can never
    open. *@
 <ShowDetailDialog @ref="_detailDialog" OnChanged="RefreshAsync" />
+
+@* The remove button sits alongside four reorder buttons, and a mis-aimed press
+   costs the position this page exists to curate: putting a title back adds it to
+   the end of the queue, wherever it was before. So it asks first, and the sentence
+   says where the title goes — removing is a decision about order rather than about
+   the library, and a row that simply vanishes does not distinguish the two.
+
+   The same module the detail dialog uses. Only showModal gives a backdrop, an inert
+   page, a focus trap and Escape, and only from script. *@
+<dialog @ref="_confirmDialog" class="confirm-dialog" aria-labelledby="remove-dialog-title">
+    @if (_pendingRemoval is { } pending)
+    {
+        <article>
+            <h2 id="remove-dialog-title">Remove from Up Next</h2>
+
+            <p>
+                <strong>@pending.Title</strong> leaves your watch order and stays in your
+                backlog.
+            </p>
+
+            <div class="toolbar">
+                <button autofocus @onclick="CancelRemoveAsync">Keep it</button>
+                <button class="danger" @onclick="ConfirmRemoveAsync">Remove</button>
+            </div>
+        </article>
+    }
+</dialog>
 
 @code {
     private ShowDetailDialog? _detailDialog;
@@ -186,8 +212,14 @@ else
     // once the queue has been read and found empty.
     private bool _libraryIsEmpty;
 
-    private string? _actionMessage;
     private BusyScope _busy = null!;
+    private ToastScope _toasts = null!;
+
+    /// <summary>Which row the confirmation dialog is open on, or null.</summary>
+    private QueueListItem? _pendingRemoval;
+
+    private ElementReference _confirmDialog;
+    private IJSObjectReference? _dialogModule;
 
     private ElementReference _rows;
     private DotNetObjectReference<UpNext>? _self;
@@ -201,8 +233,11 @@ else
 
     private bool HasRows => Queue is { Count: > 0 };
 
-    protected override void OnInitialized() =>
+    protected override void OnInitialized()
+    {
         _busy = new BusyScope(() => InvokeAsync(StateHasChanged));
+        _toasts = new ToastScope(() => InvokeAsync(StateHasChanged));
+    }
 
     protected override Task OnInitializedAsync() => RefreshAsync();
 
@@ -277,8 +312,6 @@ else
             return;
         }
 
-        _actionMessage = null;
-
         await ApplyAsync(
             "Reordering Up Next",
             () => QueueService.ReorderAsync(
@@ -304,14 +337,22 @@ else
             {
                 await _module.DisposeAsync();
             }
+
+            if (_dialogModule is not null)
+            {
+                await _dialogModule.DisposeAsync();
+            }
         }
         catch (JSDisconnectedException)
         {
         }
 
         _module = null;
+        _dialogModule = null;
         _self?.Dispose();
         _self = null;
+
+        _toasts.Dispose();
     }
 
     /// <summary>
@@ -400,25 +441,56 @@ else
 
     private Task MoveAsync(QueueListItem item, QueueMove move)
     {
-        // The new order is the feedback; a message saying so as well would be noise
-        // on every click.
-        _actionMessage = null;
-
+        // No confirmation, because the new order is the confirmation. A message on
+        // every press of four buttons would be noise over the thing it describes.
         return ApplyAsync(
             "Reordering Up Next",
             () => QueueService.MoveAsync(Profile.DefaultProfileId, item.QueueItemId, move));
     }
 
-    private async Task RemoveAsync(QueueListItem item)
+    private async Task AskToRemoveAsync(QueueListItem item)
     {
+        _pendingRemoval = item;
+
+        // Rendered before showModal, so the dialog the platform focuses into already
+        // has its title and its buttons in it.
+        StateHasChanged();
+
+        _dialogModule ??= await JS.InvokeAsync<IJSObjectReference>(
+            "import", "./Components/Shared/ShowDetailDialog.razor.js");
+
+        await _dialogModule.InvokeVoidAsync("showModal", _confirmDialog);
+    }
+
+    private async Task CancelRemoveAsync()
+    {
+        _pendingRemoval = null;
+
+        if (_dialogModule is not null)
+        {
+            await _dialogModule.InvokeVoidAsync("close", _confirmDialog);
+        }
+    }
+
+    private async Task ConfirmRemoveAsync()
+    {
+        if (_pendingRemoval is not { } item)
+        {
+            return;
+        }
+
+        // Closed before the work starts, because the work puts up a modal of its own
+        // and two of them at once leaves the second behind the first's backdrop.
+        await CancelRemoveAsync();
+
         if (await ApplyAsync(
                 "Removing from Up Next",
                 () => QueueService.RemoveAsync(Profile.DefaultProfileId, item.QueueItemId)))
         {
-            // Worth saying plainly. Removing from the queue is a decision about
-            // order, not about the library, and the row simply vanishing does not
-            // distinguish the two.
-            _actionMessage = $"Removed {item.Title} from Up Next. It is still in your library.";
+            // The same words the dialog used, because they describe the same move.
+            // Removing from the queue is a decision about order rather than about the
+            // library, and a row that simply vanishes does not distinguish the two.
+            await _toasts.ShowAsync($"Removed {item.Title}. It is still in your backlog.");
         }
     }
 
