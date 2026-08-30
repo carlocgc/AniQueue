@@ -1054,23 +1054,22 @@ public class RecommendationServiceTests
         var waiting = await AddAsync(context, fixture.ProfileId, "Waiting");
         await ScoreAsync(context, waiting.Id, Now.AddDays(-30));
 
-        // Four ratings since. One short of the threshold, so nothing has moved yet.
+        // Four finished and rated since. One short of the threshold, so nothing has
+        // moved yet.
         for (var i = 0; i < 4; i++)
         {
-            var rated = await AddAsync(
-                context, fixture.ProfileId, $"Rated {i}", LibraryStatus.Completed, userScore: 8);
-
-            await TouchAsync(context, rated.Id, Now.AddDays(-1));
+            await AddAsync(
+                context, fixture.ProfileId, $"Rated {i}", LibraryStatus.Completed,
+                userScore: 8, completed: Day(1));
         }
 
         Assert.Equal(
             0,
             (await fixture.Recommendations.GetCoverageAsync(fixture.ProfileId, staleAfterRatings: 5)).Stale);
 
-        var fifth = await AddAsync(
-            context, fixture.ProfileId, "Rated 5", LibraryStatus.Completed, userScore: 9);
-
-        await TouchAsync(context, fifth.Id, Now.AddDays(-1));
+        await AddAsync(
+            context, fixture.ProfileId, "Rated 5", LibraryStatus.Completed,
+            userScore: 9, completed: Day(1));
 
         var coverage = await fixture.Recommendations.GetCoverageAsync(fixture.ProfileId, staleAfterRatings: 5);
 
@@ -1090,10 +1089,9 @@ public class RecommendationServiceTests
 
         for (var i = 0; i < 6; i++)
         {
-            var rated = await AddAsync(
-                context, fixture.ProfileId, $"Rated {i}", LibraryStatus.Completed, userScore: 8);
-
-            await TouchAsync(context, rated.Id, Now.AddDays(-10));
+            await AddAsync(
+                context, fixture.ProfileId, $"Rated {i}", LibraryStatus.Completed,
+                userScore: 8, completed: Day(10));
         }
 
         var waiting = await AddAsync(context, fixture.ProfileId, "Waiting");
@@ -1104,6 +1102,43 @@ public class RecommendationServiceTests
         Assert.Equal(0, coverage.Stale);
         Assert.Equal(1, coverage.UpToDate);
         Assert.True(coverage.IsSettled);
+    }
+
+    /// <summary>
+    /// A sync rewriting rated rows does not age a single score.
+    /// </summary>
+    /// <remarks>
+    /// Found in a real library reporting its whole backlog out of date after the user
+    /// had finished one title and rated none. The rule read <c>LastUpdated</c>, which
+    /// is when the row was last saved by anything — so six rated titles touched by one
+    /// sync put the line at that sync, ahead of every score in the library. What the
+    /// page promises is titles finished and rated, and that is a date no sync writes.
+    /// </remarks>
+    [Fact]
+    public async Task A_sync_rewriting_rated_titles_does_not_make_a_score_stale()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        await using var context = fixture.Database.CreateContext();
+
+        var waiting = await AddAsync(context, fixture.ProfileId, "Waiting");
+        await ScoreAsync(context, waiting.Id, Now.AddDays(-1));
+
+        // Six titles finished long before the score, so none of them overtakes it.
+        for (var i = 0; i < 6; i++)
+        {
+            var rated = await AddAsync(
+                context, fixture.ProfileId, $"Rated {i}", LibraryStatus.Completed,
+                userScore: 8, completed: Day(400));
+
+            // ...and all six rewritten just now, as one sync applying a change to each
+            // of them would.
+            await TouchAsync(context, rated.Id, Now);
+        }
+
+        var coverage = await fixture.Recommendations.GetCoverageAsync(fixture.ProfileId, staleAfterRatings: 5);
+
+        Assert.Equal(0, coverage.Stale);
+        Assert.Equal(1, coverage.UpToDate);
     }
 
     [Fact]
@@ -1138,10 +1173,9 @@ public class RecommendationServiceTests
 
         for (var i = 0; i < 20; i++)
         {
-            var rated = await AddAsync(
-                context, fixture.ProfileId, $"Rated {i}", LibraryStatus.Completed, userScore: 8);
-
-            await TouchAsync(context, rated.Id, Now);
+            await AddAsync(
+                context, fixture.ProfileId, $"Rated {i}", LibraryStatus.Completed,
+                userScore: 8, completed: Day(0));
         }
 
         var coverage = await fixture.Recommendations.GetCoverageAsync(fixture.ProfileId, staleAfterRatings: 0);
@@ -1164,7 +1198,13 @@ public class RecommendationServiceTests
         Assert.True(coverage.IsUntouched);
     }
 
-    /// <summary>Moves an entry's last-updated stamp, which is what "rated since" means.</summary>
+    /// <summary>The day a title was finished, relative to the fixture's fixed clock.</summary>
+    private static DateOnly Day(int daysAgo) => DateOnly.FromDateTime(Now.AddDays(-daysAgo).UtcDateTime);
+
+    /// <summary>
+    /// Rewrites an entry's last-updated stamp, the way any sync that touches the row
+    /// does. It says when the row was saved and nothing about when it was rated.
+    /// </summary>
     private static async Task TouchAsync(AniQueueDbContext context, int animeId, DateTimeOffset when)
     {
         var entry = await context.LibraryEntries.SingleAsync(e => e.AnimeId == animeId);
