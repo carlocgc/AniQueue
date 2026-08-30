@@ -31,9 +31,31 @@ public class ScoringSweepJobTests
     /// <summary>A backlog that shrinks as it is scored, and counts what it was asked.</summary>
     private sealed class FakeRecommendations(int unranked) : IRecommendationService
     {
-        public int Unranked { get; set; } = unranked;
+        /// <summary>
+        /// The titles still wanting a score, by id.
+        /// </summary>
+        /// <remarks>
+        /// Identity rather than a count, because a sweep that sets a failed batch
+        /// aside has to be shown asking about <i>different</i> titles next time, and a
+        /// fake handing back the same made-up ten every batch cannot show that.
+        /// </remarks>
+        private readonly List<int> _waiting = [.. Enumerable.Range(1, unranked)];
+
+        public int Unranked
+        {
+            get => _waiting.Count;
+
+            set
+            {
+                _waiting.Clear();
+                _waiting.AddRange(Enumerable.Range(1, value));
+            }
+        }
 
         public List<int> BatchSizes { get; } = [];
+
+        /// <summary>Which titles each batch was asked about, in order.</summary>
+        public List<int[]> BatchIds { get; } = [];
 
         public List<string> Applied { get; } = [];
 
@@ -50,6 +72,17 @@ public class ScoringSweepJobTests
         public Action? BeforeEachRequest { get; set; }
 
         public bool PreviewApplicable { get; set; } = true;
+
+        /// <summary>
+        /// Whether a scored title stops being outstanding.
+        /// </summary>
+        /// <remarks>
+        /// True for an ordinary backlog. False is the real library that found the
+        /// loop: what a sweep has outstanding is a count, a title held back still
+        /// counts, and a picker offered nothing better hands back what was scored a
+        /// moment ago.
+        /// </remarks>
+        public bool ScoringClearsTheBacklog { get; set; } = true;
 
         public Task<ScoringCoverage> GetCoverageAsync(int profileId, int staleAfterRatings, CancellationToken ct = default) =>
             Task.FromResult(new ScoringCoverage { Waiting = 100, Ranked = 100 - Unranked, Stale = 0 });
@@ -74,16 +107,25 @@ public class ScoringSweepJobTests
         {
             BeforeEachRequest?.Invoke();
 
-            var size = Math.Min(options?.MaxCandidates ?? Unranked, Unranked);
+            // The picker's job, in one line: what is waiting, less whatever the caller
+            // has set aside, neediest first.
+            var excluded = options?.ExcludeCandidates ?? new HashSet<int>();
+            var offered = _waiting.Where(id => !excluded.Contains(id)).ToList();
+
+            var size = Math.Min(options?.MaxCandidates ?? offered.Count, offered.Count);
+            var chosen = offered.Take(size).ToArray();
 
             BatchSizes.Add(size);
+            BatchIds.Add(chosen);
             HistoryPerBatch.Add(history);
 
             return Task.FromResult(new ScoringRequest
             {
                 GeneratedAt = DateTimeOffset.UnixEpoch,
-                Candidates = [.. Enumerable.Range(1, size)
-                    .Select(i => new ScoringCandidate { Id = i, Title = $"#{i}" })],
+                Candidates = [.. chosen.Select(id => new ScoringCandidate { Id = id, Title = $"#{id}" })],
+
+                // The whole backlog, not what this batch may ask about. A sweep setting
+                // titles aside must not tell the model its library shrank.
                 CandidatesAvailable = Unranked,
                 History = history?.Entries ?? [],
                 HistoryAvailable = history?.Available ?? 0
@@ -126,7 +168,15 @@ public class ScoringSweepJobTests
             CancellationToken ct = default)
         {
             Applied.Add(providerName);
-            Unranked = Math.Max(Unranked - preview.ApplicableCount, 0);
+
+            if (ScoringClearsTheBacklog)
+            {
+                // By id, so a title that was scored leaves the waiting set and a title
+                // the reply left out stays in it.
+                var scored = preview.Items.Select(item => item.Result.Id).ToHashSet();
+
+                _waiting.RemoveAll(scored.Contains);
+            }
 
             return Task.FromResult(new ScoringApplyResult(1, preview.ApplicableCount, 0));
         }
@@ -259,9 +309,26 @@ public class ScoringSweepJobTests
 
         public int Calls { get; private set; }
 
+        /// <summary>
+        /// A stop, so a sweep that will not end fails a test rather than hanging one.
+        /// </summary>
+        /// <remarks>
+        /// Far above any batch count these tests produce. A sweep's own guards are its
+        /// time budget and its error budget, and a fixed clock disables the first of
+        /// them — so a loop that neither fails nor runs out of work would run for ever
+        /// here.
+        /// </remarks>
+        public int MostCallsAllowed { get; set; } = 50;
+
         public Task<ScoringEndpointResult> AskAsync(ScoringRequest request, CancellationToken ct = default)
         {
             Calls++;
+
+            if (Calls > MostCallsAllowed)
+            {
+                throw new InvalidOperationException(
+                    $"The sweep asked {Calls} times without stopping, which means it is not ending.");
+            }
 
             return Task.FromResult(
                 Respond?.Invoke(request)
@@ -544,6 +611,130 @@ public class ScoringSweepJobTests
         await job.RunAsync(new JobRunContext(JobTrigger.Timer), CancellationToken.None);
 
         Assert.Equal(3, endpoint.Calls);
+    }
+
+    /// <summary>
+    /// The bug this was written for: a sweep that asked the same question until its
+    /// budget ran out.
+    /// </summary>
+    /// <remarks>
+    /// A failed batch applies nothing, so its titles keep a null score date, and the
+    /// picker orders never-scored first with a stable tiebreak — so the next batch
+    /// took exactly the same titles and the three the error budget allows were three
+    /// attempts at one request. One title that breaks a reply then sat at the front of
+    /// every batch of every sweep, and nothing behind it was ever reached.
+    /// </remarks>
+    [Fact]
+    public async Task A_batch_the_model_could_not_score_is_not_asked_again()
+    {
+        var (job, library, endpoint, _, _) = Create(unranked: 100);
+
+        // One title the model cannot answer for, anywhere in the request.
+        endpoint.Respond = request => request.Candidates.Any(candidate => candidate.Id == 3)
+            ? ScoringEndpointResult.Failed(ScoringEndpointFailure.Rejected, "No.")
+            : ScoringEndpointResult.Success("{ \"results\": [] }", "m", TimeSpan.Zero);
+
+        var outcome = await job.RunAsync(new JobRunContext(JobTrigger.Timer), CancellationToken.None);
+
+        // The first batch carried it and failed; the second asked about different
+        // titles rather than the same ones.
+        Assert.Contains(3, library.BatchIds[0]);
+        Assert.DoesNotContain(3, library.BatchIds[1]);
+
+        // And the rest of the backlog was reached: three batches of twenty-five
+        // scored, with only the set-aside batch left waiting.
+        Assert.Equal(25, library.Unranked);
+        Assert.Equal(4, endpoint.Calls);
+        Assert.Equal(JobOutcome.Succeeded, outcome.Outcome);
+    }
+
+    /// <summary>
+    /// A sweep puts each title to the model once and then stops.
+    /// </summary>
+    /// <remarks>
+    /// Found by running it against a real library, not by reading the code. Holding
+    /// back only what had <i>failed</i> was not enough: what a sweep has outstanding is
+    /// a count of the backlog, a title held back still counts towards it, and the
+    /// picker — offered nothing better — handed back titles the same sweep had scored
+    /// seconds earlier. Four thousand runs were recorded before it was stopped.
+    /// </remarks>
+    [Fact]
+    public async Task A_sweep_asks_about_each_title_once_even_when_scoring_leaves_it_outstanding()
+    {
+        var (job, library, endpoint, _, _) = Create(unranked: 10, o => o.BatchSize = 5);
+
+        library.ScoringClearsTheBacklog = false;
+
+        var outcome = await job.RunAsync(new JobRunContext(JobTrigger.Timer), CancellationToken.None);
+
+        // Two batches of five, and then nothing this sweep has not already asked.
+        Assert.Equal(2, endpoint.Calls);
+        Assert.Equal([5, 5], library.BatchSizes.Take(2));
+
+        // And no title was put to the model twice.
+        Assert.Equal(10, library.BatchIds.SelectMany(ids => ids).Distinct().Count());
+        Assert.Equal(JobOutcome.Succeeded, outcome.Outcome);
+    }
+
+    [Fact]
+    public async Task Nothing_listening_ends_the_sweep_rather_than_spending_the_budget()
+    {
+        // No title is implicated by an address nobody answers, so there is nothing to
+        // set aside and nothing to learn from asking twice more.
+        var (job, _, endpoint, _, _) = Create(unranked: 100);
+
+        endpoint.Respond = _ => ScoringEndpointResult.Failed(
+            ScoringEndpointFailure.Unreachable,
+            "Nothing answered at http://192.168.0.240:1234.");
+
+        var outcome = await job.RunAsync(new JobRunContext(JobTrigger.Timer), CancellationToken.None);
+
+        Assert.Equal(1, endpoint.Calls);
+        Assert.Equal(JobOutcome.Failed, outcome.Outcome);
+        Assert.Equal("Nothing answered at http://192.168.0.240:1234.", outcome.FailureReason);
+    }
+
+    /// <summary>
+    /// A sweep that ranked forty titles and then lost the endpoint has not finished.
+    /// </summary>
+    /// <remarks>
+    /// One applied score used to make the row green whatever happened afterwards,
+    /// which is how a backlog that had quietly stopped being scored came to look like
+    /// one that was complete.
+    /// </remarks>
+    [Fact]
+    public async Task A_sweep_that_scored_something_and_then_lost_the_endpoint_has_failed()
+    {
+        var (job, _, endpoint, _, _) = Create(unranked: 100);
+
+        var answers = 0;
+
+        endpoint.Respond = _ => ++answers == 1
+            ? ScoringEndpointResult.Success("{ \"results\": [] }", "m", TimeSpan.Zero)
+            : ScoringEndpointResult.Failed(ScoringEndpointFailure.Unreachable, "Nothing answered.");
+
+        var outcome = await job.RunAsync(new JobRunContext(JobTrigger.Timer), CancellationToken.None);
+
+        Assert.Equal(JobOutcome.Failed, outcome.Outcome);
+        Assert.Equal("Nothing answered.", outcome.FailureReason);
+
+        // The row still says what it managed before it stopped.
+        Assert.Equal(25, outcome.ItemsChanged);
+    }
+
+    [Fact]
+    public async Task A_sweep_stops_once_everything_left_has_been_set_aside()
+    {
+        // Not a failure and not a batch: the picker had nothing to offer, which is a
+        // sweep that has run out of work rather than one that asked and was refused.
+        var (job, library, endpoint, _, _) = Create(unranked: 25);
+
+        endpoint.Respond = _ => ScoringEndpointResult.Failed(ScoringEndpointFailure.Rejected, "No.");
+
+        await job.RunAsync(new JobRunContext(JobTrigger.Timer), CancellationToken.None);
+
+        Assert.Equal(1, endpoint.Calls);
+        Assert.Empty(library.Applied);
     }
 
     [Fact]

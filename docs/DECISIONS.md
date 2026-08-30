@@ -3176,7 +3176,7 @@ phrase trains the habit of typing the phrase.
 copy is the operator's to keep, which is the same sentence the absence policy needs and for the
 same reason.
 
-### D59 — A sweep sets aside what it could not score, and an unreachable host ends it
+### D59 — A sweep asks about a title once, and an unreachable host ends it
 
 *Answers a promise `ScoringSweepJob` has made since it was written and has never kept. Nothing
 else is amended: D42 still says the model is only ever asked with nobody waiting, and D45 still
@@ -3193,13 +3193,26 @@ error budget's three failures are three attempts at one request. One title that 
 sits at the front of the never-scored ordering permanently, is in every batch of every sweep, and
 the backlog behind it is never reached.
 
-**Decision: a failed batch's candidate ids are set aside for the rest of the sweep.** A
-`HashSet<int>` that is created with the sweep and thrown away with it — no column, no attempt
-counter, nothing persisted — reaching the picker through `ScoringRequestOptions`, which already
-travels there and already carries how many titles to take. The paste route passes nothing and is
-unchanged. Three failures become three different questions, which is what distinguishes one
-poisonous title from a model that cannot do this at all; a model that genuinely cannot still fails
-three times and stops, exactly as it does today.
+**Decision: a sweep asks about a title at most once, and holds back everything it has already
+put to the model.** A `HashSet<int>` that is created with the sweep and thrown away with it — no
+column, no attempt counter, nothing persisted — reaching the picker through
+`ScoringRequestOptions`, which already travels there and already carries how many titles to take.
+The paste route passes nothing and is unchanged. Three failures become three different questions,
+which is what distinguishes one poisonous title from a model that cannot do this at all; a model
+that genuinely cannot still fails three times and stops, exactly as it does today.
+
+**Holding back only the *failures* was the first version of that rule, and running it showed why
+it is not enough.** What a sweep has outstanding is a count of the backlog, which knows nothing of
+one sweep, so a title held back still counts as work to do — and the picker, asked for a batch and
+offered nothing better, hands back titles the same sweep scored seconds earlier. Against the
+sample library it scored the same three titles about four thousand times before it was stopped,
+and would have done so until the time budget expired. Asking once per title per sweep is what
+makes the empty batch below reachable, and what makes a sweep a pass over the backlog rather than
+a loop over whatever is left.
+
+*The titles a short reply left out therefore wait for the next sweep* rather than being asked
+again by this one. That is what the job already promised — everything offered has to come back,
+and what does not is picked up on the next tick.
 
 **An offset was the first answer and it is the wrong one.** Advancing a counter into the
 neediest-first ordering is marginally less code and drifts as soon as a reply is short: a model
@@ -3225,10 +3238,11 @@ the count and the reason, so the row can say *Failed*, name the address, and sho
 Nothing outside the settings page reads a failed outcome, so this raises no banner and no
 alarm anywhere else.
 
-**An empty batch ends the sweep, and is not a failure.** Once everything outstanding has been set
-aside the picker has nothing left to offer, and the picker is the authority on what is left to
-try. Today that path increments the failure counter, which would spend two further iterations
-proving the same thing. It is a sweep that has run out of work, which is how it is recorded.
+**An empty batch ends the sweep, and is not a failure.** Once a sweep has asked about everything
+it can reach, the picker has nothing left to offer, and the picker is the authority on that rather
+than the count. Today that path increments the failure counter, which would spend two further
+iterations proving the same thing. It is a sweep that has run out of work, which is how it is
+recorded.
 
 *Nothing here touches the schema, the settings file or any page.* The one interface change is a
 field on `ScoringRequestOptions`, and it is absent from `From`, which exists to clamp values a

@@ -476,12 +476,12 @@ row order says what has happened. What happens next is the first row without a t
 | 15d | Scoring demolition | ✅ | No outbound scoring request has anybody waiting on it |
 | 15e | Sources reshape | ✅ | Sources is configuration, one review button and a file import |
 | 16 | Scoring without a rank | ✅ | The model returns scores and no ordering; nothing asks for, stores or shows a rank |
-| 17 | Improve remote model scoring | ▢ *held* | A sweep gets past a batch it cannot score, reports itself as one run, and cannot be defeated by a history that outgrew the context |
+| 17 | Improve remote model scoring | ◐ *17a landed; the rest held* | A sweep gets past a batch it cannot score, reports itself as one run, and cannot be defeated by a history that outgrew the context |
 | 18 | Mobile first | ✅ | Every page usable at 375px with no sideways scroll and no control under 44px; five thumb-reachable tabs; the lists show a poster, a title, one score and one action |
 
 **✅ done · ◐ part landed · ▢ not started.** *next* is what the running order reaches first;
 *held* waits on something outside the repository — for 17, a wider sample of models to
-characterise (D45).
+characterise (D45), which 17a did not need and did not wait for.
 
 Only the phases that have not been built are described below. What a finished phase did is
 in the code, in its pull request, and in the decisions it produced.
@@ -544,7 +544,7 @@ every model, including the one that works.
 **Ordered by whether the application is currently telling the truth**, which is a different order
 from how much each one hurts.
 
-#### 17a — A failed batch is skipped, which it currently is not
+#### 17a — A failed batch is skipped, which it was not ✅
 
 `ScoringSweepJob` says *"a failed batch is recorded and skipped rather than ending the sweep — one
 odd title must not block everything behind it"*. **Nothing skips.** A failed batch applies nothing,
@@ -558,12 +558,17 @@ The consequence is the failure the comment promises cannot happen. One title tha
 sits at the front of the never-scored ordering permanently, is in every batch of every sweep, and
 the backlog behind it is never reached.
 
-**Set the failed batch aside** (D59). Its candidate ids go into a set that is created with the
-sweep and thrown away with it, and the picker leaves them out of every later batch. No column, no
-attempt counter, nothing persisted. It makes the error budget mean something it does not mean
-today: three failures become three different questions, which distinguishes one poisonous title
-from a model that cannot do this at all. A model that genuinely cannot still fails three times and
-stops, exactly as now.
+**Ask about a title once per sweep** (D59). Every candidate put to the model goes into a set that
+is created with the sweep and thrown away with it, and the picker leaves them out of every later
+batch. No column, no attempt counter, nothing persisted. It makes the error budget mean something
+it does not mean today: three failures become three different questions, which distinguishes one
+poisonous title from a model that cannot do this at all. A model that genuinely cannot still fails
+three times and stops, exactly as now.
+
+*Holding back only the failures is not enough, and running it is what showed that:* what is
+outstanding is a count of the backlog, a title held back still counts towards it, and the picker
+then hands back titles the same sweep scored seconds earlier — four thousand runs against the
+sample library before it was stopped.
 
 *An offset into the neediest-first ordering was the first answer, and D59 records why it was
 dropped:* it drifts whenever a reply is short, which 17e below establishes is the common case
