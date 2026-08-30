@@ -72,6 +72,19 @@ public sealed record ScoringRequestOptions
     /// </remarks>
     public bool IncludePersonalNotes { get; init; }
 
+    /// <summary>Titles to leave out of the request, whatever their turn would be.</summary>
+    /// <remarks>
+    /// A sweep fills this with everything it has already put to the model, so each
+    /// batch asks a new question. Without it the picker is stable by design —
+    /// never-scored first, keyed on the title — and a batch that failed is taken again
+    /// on every attempt, which leaves everything behind it unreachable.
+    ///
+    /// Deliberately absent from <see cref="From"/>: that exists to clamp values
+    /// somebody typed, and this is never one of them. Empty for every caller but the
+    /// sweep.
+    /// </remarks>
+    public IReadOnlySet<int> ExcludeCandidates { get; init; } = new HashSet<int>();
+
     /// <summary>The bounds a stored preference is clamped into before it is used.</summary>
     /// <remarks>
     /// Applied where the settings are read rather than where they are written, so a

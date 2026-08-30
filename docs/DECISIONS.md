@@ -3175,3 +3175,75 @@ phrase trains the habit of typing the phrase.
 **None of this is a backup or an undo.** D33 already says the database file is the backup and the
 copy is the operator's to keep, which is the same sentence the absence policy needs and for the
 same reason.
+
+### D59 — A sweep asks about a title once, and an unreachable host ends it
+
+*Answers a promise `ScoringSweepJob` has made since it was written and has never kept. Nothing
+else is amended: D42 still says the model is only ever asked with nobody waiting, and D45 still
+says the remote route is experimental. This is about a sweep reaching the end of a backlog, not
+about how well a model answers once it gets there.*
+
+The job says of a failed batch that it is *"recorded and skipped rather than ending the sweep —
+one odd title must not block everything behind it"*. **Nothing skips.** A failed batch applies
+nothing, so its titles keep a null `RecommendationUpdatedAt`, and `ChooseAsync` orders
+never-scored first with `AnimeId` as a tiebreak — chosen deliberately *"so two runs over an
+unscored backlog take the same titles rather than an arbitrary overlap"*. That stability is right
+everywhere else and a trap here: the next batch re-selects **exactly the same titles**, so the
+error budget's three failures are three attempts at one request. One title that breaks a reply
+sits at the front of the never-scored ordering permanently, is in every batch of every sweep, and
+the backlog behind it is never reached.
+
+**Decision: a sweep asks about a title at most once, and holds back everything it has already
+put to the model.** A `HashSet<int>` that is created with the sweep and thrown away with it — no
+column, no attempt counter, nothing persisted — reaching the picker through
+`ScoringRequestOptions`, which already travels there and already carries how many titles to take.
+The paste route passes nothing and is unchanged. Three failures become three different questions,
+which is what distinguishes one poisonous title from a model that cannot do this at all; a model
+that genuinely cannot still fails three times and stops, exactly as it does today.
+
+**Holding back only the *failures* was the first version of that rule, and running it showed why
+it is not enough.** What a sweep has outstanding is a count of the backlog, which knows nothing of
+one sweep, so a title held back still counts as work to do — and the picker, asked for a batch and
+offered nothing better, hands back titles the same sweep scored seconds earlier. Against the
+sample library it scored the same three titles about four thousand times before it was stopped,
+and would have done so until the time budget expired. Asking once per title per sweep is what
+makes the empty batch below reachable, and what makes a sweep a pass over the backlog rather than
+a loop over whatever is left.
+
+*The titles a short reply left out therefore wait for the next sweep* rather than being asked
+again by this one. That is what the job already promised — everything offered has to come back,
+and what does not is picked up on the next tick.
+
+**An offset was the first answer and it is the wrong one.** Advancing a counter into the
+neediest-first ordering is marginally less code and drifts as soon as a reply is short: a model
+may return five results out of ten with `finish_reason: "stop"`, which applies five scores and
+counts as a success, leaving five titles still unscored at the front of that ordering. An offset
+then steps over them for the rest of the sweep. Short replies are not a corner case here — they
+are the largest remaining source of unscored titles on a model that otherwise works — so the
+mechanism that cannot drift is worth the set it has to carry.
+
+**A batch that reached the server is set aside. A host that could not be reached ends the sweep.**
+A timeout, an HTTP error, a truncated answer and a reply the checker rejects all mean the model
+was asked and the batch is the thing to move past — including the timeout, because one title that
+makes a model ramble is a plausible cause of it. `AddressRefused` and `Unreachable` mean nothing
+was asked at all: the address is wrong or nothing is listening, no title is implicated, and three
+identical attempts at a dead address are three ways of learning the same fact. The sweep stops and
+the next tick tries again.
+
+**A sweep that stopped early says so, and still counts what it scored.** Today a sweep that
+applied at least one score reports `Succeeded` whatever happened afterwards, so a run that scored
+forty titles and then lost the endpoint is a green row — and a backlog that has quietly stopped
+being scored looks like a backlog that is finished. `JobRunOutcome.Failed` already carries both
+the count and the reason, so the row can say *Failed*, name the address, and show the forty.
+Nothing outside the settings page reads a failed outcome, so this raises no banner and no
+alarm anywhere else.
+
+**An empty batch ends the sweep, and is not a failure.** Once a sweep has asked about everything
+it can reach, the picker has nothing left to offer, and the picker is the authority on that rather
+than the count. Today that path increments the failure counter, which would spend two further
+iterations proving the same thing. It is a sweep that has run out of work, which is how it is
+recorded.
+
+*Nothing here touches the schema, the settings file or any page.* The one interface change is a
+field on `ScoringRequestOptions`, and it is absent from `From`, which exists to clamp values a
+user typed.

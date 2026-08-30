@@ -68,12 +68,16 @@ public sealed class RecommendationService(
             .AsNoTracking()
             .Where(e => e.ProfileId == profileId && e.Status == LibraryStatus.Planning);
 
+        // Counted before anything is set aside, because this is a fact about the
+        // library rather than about one request: a sweep excluding a batch it could
+        // not score must not tell the model its backlog shrank.
         var candidatesAvailable = await waiting.CountAsync(cancellationToken);
 
         var candidates = await ReadCandidatesAsync(
             waiting,
             options.IncludePersonalNotes,
             options.MaxCandidates,
+            options.ExcludeCandidates,
             cancellationToken);
 
         // Read now, or reused from a snapshot the caller took earlier. A sweep passes
@@ -747,8 +751,23 @@ public sealed class RecommendationService(
         IQueryable<LibraryEntry> waiting,
         bool includeNotes,
         int? limit,
+        IReadOnlySet<int> exclude,
         CancellationToken cancellationToken)
     {
+        // Before the picker rather than after it, so a set-aside title does not take
+        // a place in the batch and then vanish from it — which would make a batch of
+        // ten arrive as a batch of seven.
+        if (exclude.Count > 0)
+        {
+            // Copied to an array first. EF translates Enumerable.Contains over a
+            // sequence and does not translate IReadOnlySet's own Contains, and the
+            // difference is a query that throws at run time rather than one that
+            // fails to compile. The set is a batch or three, so the copy is nothing.
+            var excluded = exclude.ToArray();
+
+            waiting = waiting.Where(e => !excluded.Contains(e.AnimeId));
+        }
+
         if (limit is { } take)
         {
             var chosen = await ChooseAsync(waiting, take, cancellationToken);

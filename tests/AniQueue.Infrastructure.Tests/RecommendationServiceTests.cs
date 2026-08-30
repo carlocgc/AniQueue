@@ -292,6 +292,41 @@ public class RecommendationServiceTests
         Assert.Equal("Zebra, scored long ago", request.Candidates[1].Title);
     }
 
+    /// <summary>
+    /// A sweep hands back the candidates of a batch it could not score, and they take
+    /// no further part in it.
+    /// </summary>
+    /// <remarks>
+    /// Asserted against real SQLite rather than in the job's own tests, because the
+    /// exclusion is a clause in the query that reads the backlog — and a clause EF
+    /// cannot translate fails when it runs rather than when it is built.
+    /// </remarks>
+    [Fact]
+    public async Task A_title_set_aside_is_left_out_of_the_next_request()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        await using var context = fixture.Database.CreateContext();
+
+        var first = await AddAsync(context, fixture.ProfileId, "Never scored, asked first");
+        var second = await AddAsync(context, fixture.ProfileId, "Never scored, asked second");
+
+        var request = await fixture.Recommendations.BuildRequestAsync(
+            fixture.ProfileId,
+            new ScoringRequestOptions
+            {
+                MaxCandidates = 1,
+                ExcludeCandidates = new HashSet<int> { first.Id }
+            });
+
+        // The one it would have taken is gone, and the batch is still full: a set-aside
+        // title does not take a place and then vanish from it.
+        Assert.Equal([second.Id], request.Candidates.Select(c => c.Id));
+
+        // And the backlog is still reported whole, because how many titles are waiting
+        // is a fact about the library rather than about one request.
+        Assert.Equal(2, request.CandidatesAvailable);
+    }
+
     [Fact]
     public async Task A_capped_request_says_how_much_it_left_out()
     {

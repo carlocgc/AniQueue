@@ -143,6 +143,33 @@ public sealed class ScoringSweepJob(
         var applied = 0;
         var batches = 0;
 
+        // The budget counts failures in a row and is reset by a success, which is the
+        // right question for whether to carry on and the wrong one for the log: a sweep
+        // that failed once and then worked reported no failures at all.
+        var failed = 0;
+
+        // Every title this sweep has already asked about, whatever came back.
+        //
+        // The picker is stable by design — never-scored first, keyed on the title — so
+        // without this a failed batch is re-selected in full on the next attempt: the
+        // error budget buys three attempts at one request, and everything behind one
+        // awkward title is unreachable for as long as it stays unscored.
+        //
+        // <b>Asked, rather than failed, and that is the difference between a sweep that
+        // ends and one that does not.</b> What is outstanding is a count of the backlog
+        // and knows nothing of this sweep, so a title held back here still counts as
+        // work — and the picker, offered nothing better, would hand back titles this
+        // sweep had scored a moment earlier and score them again, for as long as the
+        // time budget allowed. One question per title per sweep; the ones a short reply
+        // left out are the next sweep's to ask.
+        //
+        // It lives for the sweep and is thrown away with it.
+        var asked = new HashSet<int>();
+
+        // Set when nothing answered at the address. Distinct from the error budget,
+        // which counts questions the model was actually asked.
+        var unreachable = false;
+
         // Read once for the whole sweep, and reused by every batch below. A sweep is
         // many requests and should be one opinion: re-reading the history per batch
         // would let a sync landing mid-sweep move the evidence underneath it, and
@@ -195,13 +222,33 @@ public sealed class ScoringSweepJob(
                 current,
                 Math.Min(batchSize, outstanding),
                 history,
+                asked,
                 cancellationToken);
+
+            // Nothing left this sweep has not already put to the model. The picker is
+            // the authority on that rather than the count above, which is a total of
+            // the backlog and knows nothing of this sweep.
+            if (outcome.NothingToOffer)
+            {
+                break;
+            }
 
             batches++;
 
             if (outcome.Failure is { } failure)
             {
                 lastFailure = failure;
+            }
+
+            // Nothing was asked: the address is wrong, or nothing is listening. No
+            // title is implicated and three attempts at a dead address are three ways
+            // of learning one fact, so the sweep ends and the next tick tries again.
+            if (outcome.Unreachable)
+            {
+                unreachable = true;
+                failed++;
+
+                break;
             }
 
             if (outcome.TooLarge && batchSize > MinimumBatchSize)
@@ -218,6 +265,12 @@ public sealed class ScoringSweepJob(
                 continue;
             }
 
+            // Put to the model, so this sweep is done with them either way. On a
+            // failure that is what makes the next batch a different question — three
+            // failures are then three questions, which is what tells one poisonous
+            // title apart from a model that cannot do this at all.
+            asked.UnionWith(outcome.Candidates);
+
             if (outcome.Applied > 0)
             {
                 applied += outcome.Applied;
@@ -226,6 +279,7 @@ public sealed class ScoringSweepJob(
             else
             {
                 failures++;
+                failed++;
             }
         }
 
@@ -253,7 +307,7 @@ public sealed class ScoringSweepJob(
             applied == 1 ? "title" : "titles",
             batches,
             batches == 1 ? "batch" : "batches",
-            failures);
+            failed);
 
         // A score is library data, so the signal goes out like any other job's.
         // Nothing downstream consumes it today, and saying so here would be the
@@ -270,24 +324,50 @@ public sealed class ScoringSweepJob(
         // ended the sweep having achieved nothing and were recorded as a success. A run
         // that scored nothing and failed at least once has failed, whatever the error
         // budget thought about carrying on.
-        return applied == 0 && lastFailure is { } reason
-            ? JobRunOutcome.Failed(reason, batches)
+        //
+        // <b>So has one that stopped because nothing was listening</b>, however much it
+        // scored first. A sweep that ranked forty titles and then lost the endpoint is
+        // not a sweep that finished, and reporting it green is how a backlog that has
+        // quietly stopped being scored comes to look like one that is complete.
+        return lastFailure is { } reason && (applied == 0 || unreachable)
             // Titles for both, rather than batches considered against titles applied.
             // A batch is this job's own bookkeeping and means nothing on a row beside
             // a sync counting titles; how many were scored is the answer to what a
-            // sweep did.
+            // sweep did, and a failed run has to answer it too.
+            ? JobRunOutcome.Failed(reason, applied, applied)
             : JobRunOutcome.Succeeded(applied, applied);
     }
 
+    /// <summary>What one batch did, in the terms the sweep loop has to act on.</summary>
+    /// <param name="Applied">Scores written. Zero and no failure means nothing was asked.</param>
+    /// <param name="TooLarge">The request did not fit, so the batch is worth halving.</param>
+    /// <param name="Unreachable">Nothing answered at the address, so no title is implicated.</param>
+    /// <param name="NothingToOffer">
+    /// The picker had no titles left to send, this sweep having asked about them all.
+    /// </param>
+    /// <param name="Failure">
+    /// Why it failed, in the endpoint's own words, because that is what the row has to show.
+    /// </param>
+    private sealed record BatchOutcome(
+        int Applied = 0,
+        bool TooLarge = false,
+        bool Unreachable = false,
+        bool NothingToOffer = false,
+        string? Failure = null)
+    {
+        /// <summary>
+        /// What was asked about, so the caller holding the sweep's own state can note
+        /// that these have now had their turn.
+        /// </summary>
+        public IReadOnlyList<int> Candidates { get; init; } = [];
+    }
+
     /// <summary>Asks for one batch, and applies it if the whole of it is sound.</summary>
-    /// <returns>
-    /// What it applied, whether the request was refused for size, and why it failed if
-    /// it did — in the endpoint's own words, because that is what the row has to show.
-    /// </returns>
-    private async Task<(int Applied, bool TooLarge, string? Failure)> RunBatchAsync(
+    private async Task<BatchOutcome> RunBatchAsync(
         ScoringOptions current,
         int batchSize,
         ScoringHistorySnapshot history,
+        IReadOnlySet<int> asked,
         CancellationToken cancellationToken)
     {
         // The candidate limit is the batch, and the return limit is deliberately not
@@ -303,7 +383,13 @@ public sealed class ScoringSweepJob(
             current.HistorySize,
             batchSize,
             returnTop: null,
-            current.IncludePersonalNotes);
+            current.IncludePersonalNotes) with
+        {
+            // What this sweep has already put to the model. Set on the options rather
+            // than filtered out of the reply, so a title held back never takes a place
+            // in the batch: ten asked for is ten sent.
+            ExcludeCandidates = asked
+        };
 
         // Candidates are read fresh every batch and must be: they shrink as the sweep
         // scores them, and a title that left the backlog mid-sweep should not be sent
@@ -313,8 +399,10 @@ public sealed class ScoringSweepJob(
 
         if (request.Candidates.Count == 0)
         {
-            return (0, false, null);
+            return new BatchOutcome(NothingToOffer: true);
         }
+
+        var candidates = request.Candidates.Select(candidate => candidate.Id).ToArray();
 
         var answer = await endpoint.AskAsync(request, cancellationToken);
 
@@ -322,7 +410,19 @@ public sealed class ScoringSweepJob(
         {
             logger.LogWarning("Scoring sweep batch failed: {Reason}", answer.Message);
 
-            return (0, answer.Failure == ScoringEndpointFailure.TooLarge, answer.Message);
+            return new BatchOutcome(
+                TooLarge: answer.Failure == ScoringEndpointFailure.TooLarge,
+
+                // Refused before anything was sent, or nothing listening at all. The
+                // batch reached no model, so nothing about these titles is implicated
+                // and setting them aside would punish rows nobody has looked at.
+                Unreachable: answer.Failure
+                    is ScoringEndpointFailure.AddressRefused
+                    or ScoringEndpointFailure.Unreachable,
+                Failure: answer.Message)
+            {
+                Candidates = candidates
+            };
         }
 
         // Endpoint rather than Pasted: this reply came back from the request built
@@ -342,7 +442,11 @@ public sealed class ScoringSweepJob(
                 "Scoring sweep batch produced nothing applicable: {Problems}",
                 string.Join("; ", preview.Problems.Select(p => p.Message)));
 
-            return (0, false, "The model answered, but not with a ranking AniQueue could apply.");
+            return new BatchOutcome(
+                Failure: "The model answered, but not with a ranking AniQueue could apply.")
+            {
+                Candidates = candidates
+            };
         }
 
         var result = await recommendations.ApplyAsync(
@@ -354,6 +458,9 @@ public sealed class ScoringSweepJob(
             answer.Duration,
             cancellationToken);
 
-        return (result.Applied, false, null);
+        // Carried here too, for the reply that passed every check and still wrote
+        // nothing. The loop counts that as a failure, and a failure it cannot set
+        // aside is one it would ask again.
+        return new BatchOutcome(result.Applied) { Candidates = candidates };
     }
 }

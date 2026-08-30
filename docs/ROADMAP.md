@@ -26,7 +26,7 @@ Problems in scope:
 | Document | Role |
 |---|---|
 | [`BUILD-PROMPT.md`](BUILD-PROMPT.md) | Original brief, preserved verbatim. Historical reference. |
-| [`DECISIONS.md`](DECISIONS.md) | Every architectural decision and deviation, numbered `D1`–`D58`. |
+| [`DECISIONS.md`](DECISIONS.md) | Every architectural decision and deviation, numbered `D1`–`D59`. |
 | `ROADMAP.md` (this file) | **Authoritative.** Brief + agreed deviations + phase plan. |
 
 Where this file and the build prompt disagree, this file wins, and `DECISIONS.md` records why.
@@ -476,12 +476,12 @@ row order says what has happened. What happens next is the first row without a t
 | 15d | Scoring demolition | ✅ | No outbound scoring request has anybody waiting on it |
 | 15e | Sources reshape | ✅ | Sources is configuration, one review button and a file import |
 | 16 | Scoring without a rank | ✅ | The model returns scores and no ordering; nothing asks for, stores or shows a rank |
-| 17 | Improve remote model scoring | ▢ *held* | A sweep gets past a batch it cannot score, reports itself as one run, and cannot be defeated by a history that outgrew the context |
+| 17 | Improve remote model scoring | ◐ *17a landed; the rest held* | A sweep gets past a batch it cannot score, reports itself as one run, and cannot be defeated by a history that outgrew the context |
 | 18 | Mobile first | ✅ | Every page usable at 375px with no sideways scroll and no control under 44px; five thumb-reachable tabs; the lists show a poster, a title, one score and one action |
 
 **✅ done · ◐ part landed · ▢ not started.** *next* is what the running order reaches first;
 *held* waits on something outside the repository — for 17, a wider sample of models to
-characterise (D45).
+characterise (D45), which 17a did not need and did not wait for.
 
 Only the phases that have not been built are described below. What a finished phase did is
 in the code, in its pull request, and in the decisions it produced.
@@ -536,10 +536,15 @@ below was found while establishing that, and none of it is worth building until 
 sample of models to build against — several of these have a right answer that depends on what
 "typical" turns out to mean. The phase exists so the findings are not re-derived.
 
+**17a is exempt from that hold, and is built first.** What a wider sample would settle is how much
+history to send and which models can answer at all. Whether a sweep can get past a batch it
+already failed depends on neither: the title that breaks a reply blocks the backlog behind it on
+every model, including the one that works.
+
 **Ordered by whether the application is currently telling the truth**, which is a different order
 from how much each one hurts.
 
-#### 17a — A failed batch is skipped, which it currently is not
+#### 17a — A failed batch is skipped, which it was not ✅
 
 `ScoringSweepJob` says *"a failed batch is recorded and skipped rather than ending the sweep — one
 odd title must not block everything behind it"*. **Nothing skips.** A failed batch applies nothing,
@@ -553,12 +558,27 @@ The consequence is the failure the comment promises cannot happen. One title tha
 sits at the front of the never-scored ordering permanently, is in every batch of every sweep, and
 the backlog behind it is never reached.
 
-**Rotate on failure.** A failed batch advances an offset into the neediest-first ordering, so the
-next batch takes the *next* N rather than the same N. No persistent state — the offset lives for
-the sweep. It needs no new column and no attempt counter, and it makes the error budget mean
-something it does not mean today: three failures become three different questions, which
-distinguishes one poisonous title from a model that cannot do this at all. A model that genuinely
-cannot still fails three times and stops, exactly as now.
+**Ask about a title once per sweep** (D59). Every candidate put to the model goes into a set that
+is created with the sweep and thrown away with it, and the picker leaves them out of every later
+batch. No column, no attempt counter, nothing persisted. It makes the error budget mean something
+it does not mean today: three failures become three different questions, which distinguishes one
+poisonous title from a model that cannot do this at all. A model that genuinely cannot still fails
+three times and stops, exactly as now.
+
+*Holding back only the failures is not enough, and running it is what showed that:* what is
+outstanding is a count of the backlog, a title held back still counts towards it, and the picker
+then hands back titles the same sweep scored seconds earlier — four thousand runs against the
+sample library before it was stopped.
+
+*An offset into the neediest-first ordering was the first answer, and D59 records why it was
+dropped:* it drifts whenever a reply is short, which 17e below establishes is the common case
+rather than the corner.
+
+**A host that cannot be reached ends the sweep instead** (D59). Nothing was asked, so no title is
+implicated, and three attempts at a dead address are three ways of learning one fact. The run says
+*Failed*, names the address and still counts what it scored — where today any sweep that applied
+one score reports *Succeeded* however it ended, so a backlog that has quietly stopped being scored
+looks like one that is finished.
 
 #### 17b — One sweep is one run
 
