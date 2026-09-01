@@ -93,7 +93,12 @@ public static class CoverArtEndpoint
             // Nothing here reads or writes anything a form could be forged into, and
             // an image element cannot carry a token — so the antiforgery middleware
             // has nothing to check and would refuse every request if it tried.
-            .DisableAntiforgery();
+            .DisableAntiforgery()
+
+            // A poster is library data, so it is behind the lock with the pages that
+            // show it. The default policy lets it through untouched while no password
+            // is set, which is every installation that never asked for one.
+            .RequireAuthorization();
 
         return endpoints;
     }

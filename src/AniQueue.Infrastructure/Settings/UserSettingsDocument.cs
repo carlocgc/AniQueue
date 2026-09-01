@@ -184,7 +184,14 @@ internal static class UserSettingsDocument
         new(
             "Scoring:SweepMinutes",
             ["How long one unattended run may keep your model busy."],
-            s => s.ScoringSweepMinutes)
+            s => s.ScoringSweepMinutes),
+
+        new(
+            "Auth:ClearPassword",
+            ["The way back in if you forget the password you set on the settings page.",
+             "true clears it on the next start, and that start sets this back to false.",
+             "AniQueue is unlocked again until you set a new one."],
+            s => s.AuthClearPassword)
     ];
 
     /// <summary>The keys this document writes, for the test that guards the list.</summary>

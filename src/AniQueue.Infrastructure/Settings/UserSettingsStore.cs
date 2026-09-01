@@ -106,7 +106,12 @@ public sealed class UserSettingsStore(
 
         ScoringSweepMinutes = Number(
                 ScoringKey(nameof(ScoringOptions.SweepMinutes)))
-            ?? UserSettings.Defaults.ScoringSweepMinutes
+            ?? UserSettings.Defaults.ScoringSweepMinutes,
+
+        // A literal section name rather than one taken from an options type, because
+        // nothing binds this to options: it is read once at startup, acted on, and
+        // written back.
+        AuthClearPassword = Bool("Auth:ClearPassword", UserSettings.Defaults.AuthClearPassword)
     };
 
     private static string SyncKey(string key) => $"{SyncOptions.SectionName}:{key}";

@@ -211,6 +211,53 @@ public class UserSettingsStoreTests : IDisposable
     }
 
     [Fact]
+    public async Task Every_setting_saved_reads_back_as_the_value_that_was_saved()
+    {
+        // The reader is written key by key like the writer, and nothing had been
+        // checking that the two lists agree. A setting the file can hold and the
+        // reader never looks at is invisible: it is written, it survives a restart,
+        // and the application behaves as though it were never set.
+        //
+        // Structural equality on the record is what makes this a guard rather than a
+        // list to keep up to date — a property added to one side and not the other
+        // fails here.
+        var (store, _) = Create();
+
+        var everything = new UserSettings
+        {
+            SyncEnabled = false,
+            AniListUserName = "hibari",
+            SyncPrimarySource = AnimeSource.MyAnimeList,
+            AniListEnabled = false,
+            TasksSchedule = SyncSchedule.Daily,
+            RelationsEnabled = false,
+            AniListApplyUnattended = false,
+            AniListConflictPolicy = SyncConflictPolicy.LinkToExisting,
+            AniListAbsencePolicy = SyncAbsencePolicy.Remove,
+            ScoringHistorySize = 25,
+            ScoringCandidateLimit = 50,
+            ScoringReturnTop = 20,
+            ScoringEndpoint = "http://192.168.1.50:1234",
+            ScoringModel = "a-model-name",
+            ScoringTimeoutSeconds = 90,
+            ScoringUseStructuredOutput = false,
+            ScoringStaleAfterRatings = 9,
+            ScoringEnabled = true,
+            ScoringBatchSize = 4,
+            ScoringSweepMinutes = 15,
+            AuthClearPassword = true
+        };
+
+        // Every one of them differs from its default, so a property the reader
+        // forgets cannot pass by coincidence.
+        Assert.NotEqual(UserSettings.Defaults, everything);
+
+        await store.SaveAsync(everything);
+
+        Assert.Equal(everything, store.Read());
+    }
+
+    [Fact]
     public async Task An_unset_value_is_written_as_null_and_reads_back_as_unset()
     {
         // "No limit" has to survive the round trip as null rather than as a number, or

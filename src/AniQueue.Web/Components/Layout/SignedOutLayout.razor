@@ -1,0 +1,13 @@
+@inherits LayoutComponentBase
+
+@* The five-tab bar is the whole of MainLayout and every one of its destinations is
+   behind the lock, so a sign-in page wearing it would be a page of links that all
+   bounce back here. This is the layout for the two pages somebody can be standing
+   on while signed out. *@
+<div class="signed-out">
+    <main class="card">
+        <a class="brand" href="">AniQueue</a>
+
+        @Body
+    </main>
+</div>

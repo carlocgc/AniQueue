@@ -17,6 +17,13 @@ public class ProfileConfiguration : IEntityTypeConfiguration<Profile>
         // would be wrong rather than truncated.
         builder.Property(p => p.LibraryKey).HasMaxLength(32);
 
+        // Sized to the format rather than to the value: a stored password is
+        // version, work factor and two base64 fields, and a later format with a
+        // higher cost would be longer. The stamp is a GUID without its hyphens.
+        builder.Property(p => p.PasswordHash).HasMaxLength(256);
+
+        builder.Property(p => p.SecurityStamp).HasMaxLength(64);
+
         builder.HasIndex(p => p.Name).IsUnique();
 
         builder

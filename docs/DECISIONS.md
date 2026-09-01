@@ -3340,11 +3340,19 @@ request already is, so it works on both and is protected on the one that can be.
 has to say plainly is the trade: on a plain HTTP LAN the password crosses the network in clear,
 and anybody exposing AniQueue beyond their own network wants a reverse proxy in front of it.
 
-**The sign-in page is statically rendered, and it has to be.** A cookie is set on an HTTP
-response, and an interactive Server component has already sent its response by the time it runs —
-so the form is a plain post to an endpoint, not a `@rendermode InteractiveServer` page with a
-button handler. This is recorded because the rest of the application is interactive and the
-obvious change is the one that cannot work.
+**The sign-in and password pages are statically rendered, and they have to be.** A cookie is set
+on an HTTP response, and an interactive Server component has already sent its response by the
+time a click reaches it — so both are plain form posts rather than pages with button handlers.
+This is recorded because the rest of the application is interactive and the obvious change is the
+one that cannot work.
+
+*Opting out is not the default, and leaving it to the page is not enough:* `App.razor` gives the
+router one render mode for every route, so a page with no `@rendermode` of its own is still
+interactive. Both pages therefore carry `[ExcludeFromInteractiveRouting]`, and `App.razor` asks
+`HttpContext.AcceptsInteractiveRouting()` which mode to use. Without it they render twice — once
+against the request, then again on a circuit where there is no request to read — and the second
+render is a `NullReferenceException` that kills the circuit while the first render's form still
+works, which is exactly as confusing as it sounds. Found by running it.
 
 **The way back in is the settings file, not a restore.** `Auth:ClearPassword` clears the stored
 password on the next start, and the same start unsets the key, so the escape hatch cannot quietly

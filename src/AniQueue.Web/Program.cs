@@ -1,6 +1,7 @@
 using AniQueue.Core.Artwork;
 using AniQueue.Core.Domain;
 using AniQueue.Core.Recommendations;
+using AniQueue.Core.Security;
 using AniQueue.Core.Settings;
 using AniQueue.Infrastructure;
 using AniQueue.Infrastructure.Artwork;
@@ -12,7 +13,11 @@ using AniQueue.Infrastructure.Settings;
 using AniQueue.Infrastructure.Sync;
 using AniQueue.Web.Components;
 using AniQueue.Web.Endpoints;
+using AniQueue.Web.Security;
 using AniQueue.Web.Services;
+using Microsoft.AspNetCore.Authentication.Cookies;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Components.Authorization;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.Extensions.Options;
 
@@ -151,6 +156,56 @@ builder.Services.AddAniQueueSettings();
 // a question the card asks the service, not one this file answers by leaving it out.
 builder.Services.AddAniQueueScoringEndpoint();
 
+// The optional lock. Registered whether or not a password is set, because whether
+// this installation is locked is a question about the database that the policy
+// below asks per request — not one this file can answer at startup and cache for
+// the life of the process.
+builder.Services.AddAniQueueSecurity();
+
+builder.Services.AddAuthentication(AniQueueAuth.Scheme)
+    .AddCookie(AniQueueAuth.Scheme, options =>
+    {
+        options.Cookie.Name = AniQueueAuth.CookieName;
+        options.Cookie.HttpOnly = true;
+        options.Cookie.SameSite = SameSiteMode.Lax;
+
+        // Secure when the request already is, and not otherwise. The published
+        // compose file serves plain HTTP on a home network, so a cookie that
+        // insisted on TLS would be a cookie no existing deployment could receive —
+        // it would lock every one of them out on the day the login landed. What
+        // this costs is in the README: on plain HTTP the password crosses the
+        // network in clear, and anything reachable from outside wants a proxy.
+        options.Cookie.SecurePolicy = CookieSecurePolicy.SameAsRequest;
+
+        options.LoginPath = "/login";
+        options.AccessDeniedPath = "/login";
+        options.ReturnUrlParameter = "ReturnUrl";
+
+        // Thirty days, renewed on use. There is no "stay signed in" tick box: one
+        // obvious answer needs no control, and an application that asks for a
+        // password every day on a phone is one whose owner turns the lock off.
+        options.ExpireTimeSpan = TimeSpan.FromDays(30);
+        options.SlidingExpiration = true;
+
+        options.Events.OnValidatePrincipal = AniQueueAuth.ValidateStampAsync;
+    });
+
+// One policy, and it is the default, so nothing has to remember to name it. It
+// passes when no password is set, which is what makes the lock optional rather
+// than a switch somebody has to find.
+builder.Services.AddAuthorization(options =>
+    options.DefaultPolicy = new AuthorizationPolicyBuilder()
+        .AddRequirements(new UnlockedRequirement())
+        .Build());
+
+builder.Services.AddScoped<IAuthorizationHandler, UnlockedHandler>();
+
+// Authorisation is decided on the request that delivered a page; a circuit then
+// holds that principal for as long as the tab is open. These two are what carry a
+// password change into a tab that is already there.
+builder.Services.AddCascadingAuthenticationState();
+builder.Services.AddScoped<AuthenticationStateProvider, StampAuthenticationStateProvider>();
+
 // The timer half of unattended sync. Registered here rather than inside
 // AddAniQueueSync because hosting is the web project's business: Infrastructure
 // supplies the job, this decides that something runs it.
@@ -284,6 +339,45 @@ if (!string.IsNullOrEmpty(dataDirectory))
         .EnsureExistsAsync(app.Lifetime.ApplicationStopping);
 }
 
+// The way back in after a forgotten password, acted on before anything can serve a
+// request. Deliberately here rather than on a page: the whole point of it is that
+// the pages are the thing somebody cannot reach.
+//
+// The same start that acts on it writes the line back to false. Left true it would
+// clear the password again on the next restart — silently, and long after the
+// operator had set a new one and forgotten they ever opened the file.
+{
+    var settingsStore = app.Services.GetRequiredService<IUserSettingsStore>();
+    var settings = settingsStore.Read();
+
+    if (settings.AuthClearPassword)
+    {
+        var clearLogger = app.Services.GetRequiredService<ILogger<Program>>();
+
+        await app.Services
+            .GetRequiredService<IAuthService>()
+            .ClearPasswordAsync(app.Lifetime.ApplicationStopping);
+
+        var written = await settingsStore.SaveAsync(
+            settings with { AuthClearPassword = false },
+            app.Lifetime.ApplicationStopping);
+
+        clearLogger.LogWarning(
+            "Auth:ClearPassword was set, so the login password has been cleared and AniQueue is "
+            + "open to anybody who can reach it. Set a new one on the settings page");
+
+        if (!written.Saved)
+        {
+            // Worse than an ordinary failed save: the line is still true, so the
+            // next start clears whatever password has been set by then.
+            clearLogger.LogError(
+                "Auth:ClearPassword could not be set back to false in {UserConfigPath}: {Reason}. "
+                + "Edit it by hand, or the next start will clear the password again",
+                written.Path,
+                written.Error);
+        }
+    }
+}
 // One block naming everything an operator would otherwise have to guess at from
 // inside a container: where the data is, and what this installation is configured
 // to do. Almost every support question about a self-hosted deployment is answered
@@ -351,9 +445,11 @@ if (!app.Environment.IsDevelopment())
 }
 
 app.UseStatusCodePagesWithReExecute("/not-found", createScopeForStatusCodePages: true);
+app.UseAuthentication();
+app.UseAuthorization();
 app.UseAntiforgery();
 
-// Unauthenticated, and it has to stay that way if a login is ever added: a compose
+// Unauthenticated, and it stays that way now that a login exists: a compose
 // health check reaches this before anybody has logged in, and a lock that shuts
 // the orchestrator out of the liveness probe is worse than no lock.
 app.MapHealthChecks("/health");
@@ -361,6 +457,10 @@ app.MapHealthChecks("/health");
 app.MapStaticAssets();
 app.MapCachedCoverArt();
 app.MapRazorComponents<App>()
+    // Every page except the one a signed-out person has to be able to stand on,
+    // which carries [AllowAnonymous]. The default policy waves all of it through
+    // while no password is set.
+    .RequireAuthorization()
     .AddInteractiveServerRenderMode();
 
 await app.RunAsync();

@@ -161,6 +161,18 @@ public sealed record UserSettings
     /// <summary>How long one sweep may keep going, in minutes.</summary>
     public int ScoringSweepMinutes { get; init; } = 60;
 
+    /// <summary>
+    /// Clears the login password on the next start. The way back in when it has
+    /// been forgotten.
+    /// </summary>
+    /// <remarks>
+    /// The start that acts on it writes this back to false, so the escape hatch
+    /// cannot quietly wipe the new password on the restart after. It is here rather
+    /// than beside the password itself because the file is what somebody can reach
+    /// when the pages are the thing locking them out.
+    /// </remarks>
+    public bool AuthClearPassword { get; init; }
+
     // Scoring:IncludePersonalNotes is not written to the file, because no surface
     // fills LibraryEntry.PersonalNotes yet and a control over an always-empty field
     // would send a reader looking for where to write one. The key still binds, so an

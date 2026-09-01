@@ -5,6 +5,7 @@
 
 @using AniQueue.Core.Domain
 @using AniQueue.Core.Jobs
+@using AniQueue.Core.Security
 @using AniQueue.Core.Settings
 @using AniQueue.Infrastructure.Jobs
 @using Microsoft.Extensions.Options
@@ -15,6 +16,7 @@
 @inject IAppearance Appearance
 @inject ISyncService SyncService
 @inject ILibraryMaintenance Maintenance
+@inject IAuthService Auth
 @inject IRelationBackfill RelationBackfill
 @inject NavigationManager Navigation
 @inject IJSRuntime JS
@@ -276,6 +278,36 @@
     }
 </div>
 
+@* Above the destructive section and below the preferences, because it is neither:
+   it changes what somebody standing in front of this address is allowed to do.
+
+   A link rather than the form itself. Setting a password re-issues this browser's
+   own cookie, and a cookie is set on an HTTP response that this page — which is
+   interactive — has long since sent. *@
+<div class="card">
+    <h2>Password</h2>
+
+    @if (_locked)
+    {
+        <p class="muted">
+            AniQueue asks for a password before it shows anything. Changing or removing
+            it signs out every device that is signed in now.
+        </p>
+
+        <a class="button" href="password">Change or remove it</a>
+    }
+    else
+    {
+        <p class="muted">
+            AniQueue has no password, so anybody who can reach this address can read
+            your library and change it. Setting one is what turns the lock on, and
+            removing it later opens things up again.
+        </p>
+
+        <a class="button" href="password">Set a password</a>
+    }
+</div>
+
 @* Last on the page, deliberately. Nothing here is reached by accident on the way to
    something else. *@
 <div class="card">
@@ -348,6 +380,9 @@
 
     private SyncSchedule _cadence;
 
+    /// <summary>Whether a password is set, which is the whole of whether anything is locked.</summary>
+    private bool _locked;
+
     private ThemePreference _theme;
 
     private TitleLanguage _titleLanguage;
@@ -400,6 +435,8 @@
 
         _cadence = TaskConfiguration.CurrentValue.Schedule;
         _primarySource = UserSettings.Read().SyncPrimarySource;
+
+        _locked = await Auth.IsLockedAsync();
 
         _theme = await Appearance.GetThemeAsync(Profile.DefaultProfileId);
         _titleLanguage = await SyncService.GetPreferredTitleLanguageAsync(Profile.DefaultProfileId);

@@ -44,11 +44,11 @@
     <link rel="stylesheet" href="@Assets["app.css"]" />
     <link rel="stylesheet" href="@Assets["AniQueue.Web.styles.css"]" />
     <ImportMap />
-    <HeadOutlet @rendermode="InteractiveServer" />
+    <HeadOutlet @rendermode="@RouteRenderMode" />
 </head>
 
 <body>
-    <Routes @rendermode="InteractiveServer" />
+    <Routes @rendermode="@RouteRenderMode" />
     <ReconnectModal />
     <script src="@Assets["_framework/blazor.web.js"]"></script>
 </body>
@@ -56,6 +56,26 @@
 </html>
 
 @code {
+    /// <summary>
+    /// Interactive everywhere except on a page that has asked not to be.
+    /// </summary>
+    /// <remarks>
+    /// The sign-in and password pages set a cookie, which is written on an HTTP
+    /// response — so they are form posts, and a form post cannot be handled by a
+    /// component whose response was sent when the circuit opened. Marked with
+    /// <c>[ExcludeFromInteractiveRouting]</c>, they render statically and their
+    /// <c>HttpContext</c> is there when the form arrives.
+    ///
+    /// Without this the router is interactive for everything, and those pages render
+    /// twice: once against a request, then again on a circuit where there is no
+    /// request to read. The second render is where it fails.
+    /// </remarks>
+    private IComponentRenderMode? RouteRenderMode
+        => HttpContext.AcceptsInteractiveRouting() ? InteractiveServer : null;
+
+    [CascadingParameter]
+    private HttpContext HttpContext { get; set; } = default!;
+
     /// <summary>The theme as an attribute value, or null to write no attribute.</summary>
     private string? _theme;
 
