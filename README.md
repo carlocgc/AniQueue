@@ -55,6 +55,12 @@ time. It is the author's own moving edge, not something to keep data in.
 - **Run it on your own hardware.** One container, one SQLite file, no cloud
   dependency.
 
+<div align="center">
+
+<img src="docs/images/up-next.png" alt="Three phone screens: the Up Next queue in watch order, a title opened on its cover and details, and the same panel scrolled down to its score out of ten and the reason the model gave for it.">
+
+</div>
+
 ## Running it
 
 ```bash
