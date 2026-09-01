@@ -3373,6 +3373,14 @@ against the request, then again on a circuit where there is no request to read â
 render is a `NullReferenceException` that kills the circuit while the first render's form still
 works, which is exactly as confusing as it sounds. Found by running it.
 
+**A form that finishes lands you in the application, not back on itself.** Setting the first
+password and being returned to a page headed *Password*, under a green message about needing it on
+your other devices, reads as having locked yourself out with the thing you just switched on â€” so
+all three outcomes go to the queue and say what happened in a toast. The confirmation travels as a
+name in the address rather than as wording, so the page that lands carries no copy about a feature
+it knows nothing about, and it is cleared from the address on arrival: a refresh should not repeat
+it and a bookmark of that moment is a bookmark of the queue.
+
 **The way back in is the settings file, not a restore.** A start that finds `Auth:Enabled` off
 forgets any stored password, so an operator who cannot get past the sign-in page edits one line
 and restarts. Nothing is written back: off is the state they asked for, and leaving it that way
