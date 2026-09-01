@@ -1811,6 +1811,11 @@ html:has(dialog.detail-dialog[open]) { overflow: hidden; }
 
 /* One line per option, under the control they belong to. Bulleted rather than run
    together as a paragraph, because the reader is comparing them. */
-.choices { margin: 0.3rem 0 0.4rem 1.1rem; padding: 0; }
+.choices { margin: 0.3rem 0 0.4rem; padding-left: 1.2rem; }
 
 .choices li { margin-bottom: 0.15rem; }
+
+/* The two policy pickers on a source card are one pair of questions, so they take
+   one width rather than each sizing to its longest option. A minimum rather than a
+   fixed width: content still decides if an option ever outgrows it. */
+.field select.policy { min-width: 14rem; }

@@ -405,28 +405,40 @@ else if (_completed is { AbsentFlagged: > 0 } flagged)
                     </p>
                 </div>
 
+                @* The two policies below are one pair of questions and read as one:
+                   the same shape of label, the same plain options, and the same
+                   width, so neither looks like the more important of the two. What
+                   an option costs is in the list under it rather than in its own
+                   label, which keeps the labels short enough to compare. *@
                 <div class="field">
-                    <label for="@($"conflicts-{status.Source}")">Conflicts</label>
-                    <select id="@($"conflicts-{status.Source}")" value="@status.Settings.ConflictPolicy"
+                    <label for="@($"conflicts-{status.Source}")">
+                        When a title changes on @status.Source
+                    </label>
+                    <select class="policy" id="@($"conflicts-{status.Source}")"
+                            value="@status.Settings.ConflictPolicy"
                             @onchange="e => Update(status, s => s with { ConflictPolicy = Parse(e.Value, s.ConflictPolicy) })">
-                        <option value="@SyncConflictPolicy.HoldForReview">Hold for me to decide</option>
-                        <option value="@SyncConflictPolicy.LinkToExisting">Link when the titles match exactly</option>
+                        <option value="@SyncConflictPolicy.HoldForReview">Let me decide</option>
+                        <option value="@SyncConflictPolicy.LinkToExisting">Merge them</option>
                     </select>
-                    <p class="muted">
-                        Linking automatically is opting into merging by title. The test is exact,
-                        letter for letter, and an ambiguous match is still held.
-                    </p>
+                    <ul class="muted choices">
+                        <li>
+                            <strong>Let me decide</strong> holds it for you, and a sync run
+                            on its own changes nothing until you have looked.
+                        </li>
+                        <li>
+                            <strong>Merge them</strong> joins it to the title you already
+                            have, and only when the two names match letter for letter.
+                            Anything less certain than that is still held for you.
+                        </li>
+                    </ul>
                 </div>
 
-                @* Each option says what happens, in the order a user weighs them:
-                   the careful one first, then the two that need no attention. The
-                   help below is one line per option, because the question here is
-                   "which of these three" and anything else is answered elsewhere. *@
                 <div class="field">
                     <label for="@($"absence-{status.Source}")">
                         When a title disappears from @status.Source
                     </label>
-                    <select id="@($"absence-{status.Source}")" value="@status.Settings.AbsencePolicy"
+                    <select class="policy" id="@($"absence-{status.Source}")"
+                            value="@status.Settings.AbsencePolicy"
                             @onchange="e => ChangeAbsencePolicyAsync(status, e.Value)">
                         <option value="@SyncAbsencePolicy.Flag">Let me decide</option>
                         <option value="@SyncAbsencePolicy.Ignore">Keep them</option>
