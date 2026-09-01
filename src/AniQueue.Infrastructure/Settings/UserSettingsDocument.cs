@@ -104,7 +104,9 @@ internal static class UserSettingsDocument
             "Sync:AniList:AbsencePolicy",
             [
                 "A title AniList used to list and no longer does.",
-                "Flag marks it for you to look at; Ignore says nothing. Nothing is ever deleted."
+                "Flag holds it for you to answer; Ignore says nothing; Remove deletes.",
+                "Remove drops the library entry and its Up Next slot, and cannot be undone.",
+                "It stops at 5 or a tenth of the list; above that it deletes none and flags all."
             ],
             s => s.AniListAbsencePolicy.ToString()),
 
