@@ -26,7 +26,7 @@ Problems in scope:
 | Document | Role |
 |---|---|
 | [`BUILD-PROMPT.md`](BUILD-PROMPT.md) | Original brief, preserved verbatim. Historical reference. |
-| [`DECISIONS.md`](DECISIONS.md) | Every architectural decision and deviation, numbered `D1`–`D59`. |
+| [`DECISIONS.md`](DECISIONS.md) | Every architectural decision and deviation, numbered `D1`–`D60`. |
 | `ROADMAP.md` (this file) | **Authoritative.** Brief + agreed deviations + phase plan. |
 
 Where this file and the build prompt disagree, this file wins, and `DECISIONS.md` records why.
@@ -281,8 +281,10 @@ within 0.0–1.0, because these values arrive from an external model.
 
 ### Profile / ProfileSettings
 
-Single default local profile; no registration, no OAuth, no auth in MVP. All library data
-carries `ProfileId` so multi-user — post-MVP per §10 — stays possible. Settings per D7 and D20.
+Single default local profile; no registration and no OAuth. Phase 12 adds an optional single-user
+login, so this row also carries the password hash and the stamp that retires a cookie (D60), and
+holds neither until somebody sets a password. All library data carries `ProfileId` so multi-user
+— post-MVP per §10 — stays possible. Settings per D7 and D20.
 
 `LibraryKey` names this profile's library so a scoring reply can say which one it was built
 for (D50). Twelve hex characters, minted by `DatabaseInitializer` when the row is created and
@@ -467,7 +469,7 @@ row order says what has happened. What happens next is the first row without a t
 | 10b | Preferences on the settings page | ✅ | Theme, title language and the primary seat edited in one place; three unread columns dropped; the sources page holds only what a run reads (D57) |
 | 10c | Deleting data | ✅ | Relations, artwork and everything-but-the-settings each deleted from one section, each naming its counts and refused while a task runs (D58) |
 | 11 | Docker + README | ✅ | Migrations squashed to one baseline; compose up, health check, container recreated without data loss |
-| 12 | Optional auth | ▢ **next** | A single-user login can be turned on; off by default, and off is still a supported deployment |
+| 12 | Optional auth | ▢ **next** | A password set on the settings page locks every page; `/health` and the static assets stay open; clearing it unlocks the application again (D60) |
 | 13 | CI | ✅ | Build and tests on every push and PR; `dev` published on every merge, a version and `latest` only from a tag on `main` (D56) |
 | 14 | Security pass | ▢ | §6's high-risk surfaces reviewed against the finished application; release gate opens |
 | 15a | Job contract | ✅ | Jobs take a trigger and return an outcome; the runner drives units and reschedules nothing |
@@ -490,7 +492,8 @@ in the code, in its pull request, and in the decisions it produced.
 A login that can be switched on, off by default, and **off remains a supported deployment** —
 this is a lock for people who want one, not a requirement discovered late. Single user only;
 multi-user accounts, roles and per-profile libraries stay out of scope, and nothing here should
-make them harder later.
+make them harder later. D60 settles the shape of it; what follows is the plan that decision
+produces.
 
 **It fills the number D31 left vacant**, and lands before Phase 14 rather than after it, because
 the security pass reviews §6's high-risk surfaces against the finished application and this is
@@ -502,15 +505,28 @@ endpoint are cheap insurance while there is no trust boundary and become an actu
 there is; the capped diagnostic echo is the same. Nothing in Phase 8 assumes this exists, and
 nothing in it has to change when it does.
 
-**Enabling it is a setting like any other** (D36), which means the credential is the one value
-that cannot follow the rule: a password is not written to a file in plain text and is not shown
-back. Storing a hash in the database rather than in `userconfig.json` is the exception D36 has to
-carve, and the settings file names the account without holding the secret.
+**The password is the switch** (D60). There is no separate "require a login" setting to
+contradict it and no account name to type, because a single-user application has exactly one
+account: a password set on the settings page turns the lock on, and clearing it turns the lock
+off. The hash and a stamp live on the `Profile` row, which is D36's one carve-out — a credential
+is not written to a file in plain text and is not shown back — and `userconfig.json` holds
+neither.
+
+**The way back in is the file, not a rebuild.** `Auth:ClearPassword` clears the stored password
+on the next start and is unset by the same start that acted on it, so a forgotten password costs
+a restart rather than a restore of the operator's database copy. It is the pattern `Sync:Enabled`
+already uses and exists for the same reason: the file is reachable when the pages are not.
 
 **What it must not break:** the unattended jobs, which run without a session and must keep doing
-so; `/health`, which a compose health check reaches before anybody has logged in; and the kill
-switches, whose whole purpose is to work when the UI cannot be reached. A lock that locks the
-operator out of their own escape hatches is worse than none.
+so; `/health`, which a compose health check reaches before anybody has logged in; the static
+assets, without which the login page renders unstyled; and the kill switches, whose whole purpose
+is to work when the UI cannot be reached. A lock that locks the operator out of their own escape
+hatches is worse than none.
+
+*Exit:* a password set from the settings page locks every page and the artwork endpoint behind a
+sign-in; `/health` and the static assets answer without one; clearing the password unlocks the
+application again; changing it signs every other device out; and a run with no password set
+behaves exactly as the application does today.
 
 ### Phase 14 — Security pass and stabilisation
 A deliberate pass over what §6 names as high-risk, against the finished application rather than
@@ -958,8 +974,11 @@ points; nothing speculative gets built behind them. **No fake AniList integratio
 **Post-MVP** (brief §42, amended by D13 and D25): metadata enrichment beyond what a sync already
 hands over, richer artwork keyed to TMDB/TVDB, genres and studios ·
 optional AI providers, OpenAI-compatible endpoints, Ollama/LM Studio, scheduled re-ranking ·
-MAL API sync · **write-back to AniList or MAL** · multi-user, authentication, household
-profiles.
+MAL API sync · **write-back to AniList or MAL** · multi-user and household profiles.
+
+*Authentication left this list when Phase 12 took it.* A single-user login is in the MVP and is
+optional; accounts, roles and a library per person are what stays out here, and D60 was taken so
+that none of them is made harder by the lock.
 
 **Four post-MVP phases are stubbed here rather than numbered**, because they are wanted and none
 of them is designed. They are recorded so that decisions taken before the MVP ships know what is
@@ -1132,6 +1151,13 @@ maintained.
   both declined. YamlDotNet was declined by D20 in favour of the in-box JSON configuration
   provider; a GraphQL client library was declined because a GraphQL request is an HTTP POST with
   a JSON body, and `HttpClient` plus `System.Text.Json` are in the box.
+- **Phase 12 needs no new dependency either**, and the alternative that would have needed one is
+  worth naming. ASP.NET Core Identity brings user and role tables, a store package and a UI this
+  application has no use for; cookie sign-in, authorisation and `AuthenticationStateProvider` are
+  already in the shared framework the web project has by virtue of being one, so the login adds
+  nothing to the manifest and nothing to the project file. The hashing is PBKDF2 from the base
+  class library, which is what keeps it in Core rather than in a layer that had to reach for
+  ASP.NET to hold it (D60).
 - **LF line endings everywhere**, in the repository and in the working tree on every
   platform, enforced by `.gitattributes` (`* text=auto eol=lf`) with `.editorconfig`
   matching it. `.gitattributes` is the enforcement point rather than `core.autocrlf`

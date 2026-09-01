@@ -3274,3 +3274,85 @@ recorded.
 *Nothing here touches the schema, the settings file or any page.* The one interface change is a
 field on `ScoringRequestOptions`, and it is absent from `From`, which exists to clamp values a
 user typed.
+
+### D60 — The password is the switch, and there is nothing else to turn on
+
+*Settles Phase 12. D36 said enabling a login would be "a setting like any other"; this is where
+that stops being true and why. Nothing here makes multi-user harder and nothing here anticipates
+it: every decision below is the single-user one taken deliberately.*
+
+**The lock covers every page and the artwork endpoint. Two things answer without it.** `/health`
+is one, and `Program.cs` has said so in a comment since Phase 11: a compose health check reaches
+it before anybody has logged in, and a lock that shuts the orchestrator out of the liveness probe
+is worse than no lock. The static assets are the other, which is not a concession but arithmetic
+— a stylesheet behind the login is a stylesheet the login page cannot load, so the first thing a
+locked installation would show is an unstyled form. Locking only the actions that change
+something was the alternative and it protects the wrong half: the library is the part worth
+reading.
+
+**A password is the switch.** Setting one locks the application; clearing it unlocks it. There is
+no separate *require a login* setting, because *on with no password* is a state that must not
+exist and a second control is precisely what creates it. Setting the first password signs the
+person who set it in, rather than throwing them out of the page they were standing on.
+
+**There is no account name.** A single-user application has one account, so a username field has
+one possible value, cannot be wrong, and defends nothing — it is a box to fill in on every
+sign-in for the appearance of a login form. *This amends the Phase 12 paragraph that said the
+settings file would name the account without holding the secret: there is no account to name, and
+the file holds neither half.*
+
+**The credential is the one carve-out D36 has to make.** The hash lives on the `Profile` row —
+not in `userconfig.json`, which is a plain-text file an operator opens in an editor, and not on
+`ProfileSettings`, which describes how AniQueue looks to somebody rather than who they are. It is
+never read back to a page; the settings section offers *set*, *change* and *clear*, and shows
+only whether a password exists.
+
+**The hashing is PBKDF2 from the base class library, and it lives in Core.** `PasswordHasher<T>`
+is in the shared framework and would be the obvious answer, but reaching it means giving a
+reference to ASP.NET to a project that has none: Core's architecture test forbids
+`Microsoft.AspNetCore` outright, and Infrastructure taking the reference instead would erode the
+same line one project further down. Web already has it and is the one place no test project
+reaches. `Rfc2898DeriveBytes.Pbkdf2` needs no reference at all, is the same construction
+`PasswordHasher<T>` performs, and leaves hashing and verification in the suite that runs in
+milliseconds. A salt per password, and `CryptographicOperations.FixedTimeEquals` for the
+comparison, because a byte-by-byte one leaks its answer in the time it takes.
+
+**Sign-in is a cookie, persistent, thirty days, renewed on use.** There is no *remember me* tick
+box: one obvious answer does not need a control, and an installation that asks for a password
+every day on a phone is an installation whose owner turns the lock off. The keys that sign the
+cookie already persist to `/data` beside the database, so recreating the container does not sign
+everybody out — the same wiring Phase 11 added for antiforgery.
+
+**A stamp on the profile is what signs the other devices out.** The cookie carries it, every
+request checks it, and setting, changing or clearing the password mints a new one. Without it a
+password change leaves every existing session working, which is the opposite of what somebody
+changing a password is trying to achieve.
+
+**A wrong password costs a second, and nothing locks out.** PBKDF2 is deliberately slow, so the
+pause is the cheaper half of a defence that mostly already exists. A lockout after several
+attempts, on an application with exactly one account, locks out the only person who could clear
+it — it manufactures the outage it is defending against.
+
+**HTTPS is not required, and the README says what that costs.** The published compose file serves
+plain HTTP on 8377, so a login that insisted on TLS would lock out every existing deployment on
+the day it landed. The cookie is `HttpOnly`, `SameSite=Lax`, and marked secure only when the
+request already is, so it works on both and is protected on the one that can be. What the README
+has to say plainly is the trade: on a plain HTTP LAN the password crosses the network in clear,
+and anybody exposing AniQueue beyond their own network wants a reverse proxy in front of it.
+
+**The sign-in page is statically rendered, and it has to be.** A cookie is set on an HTTP
+response, and an interactive Server component has already sent its response by the time it runs —
+so the form is a plain post to an endpoint, not a `@rendermode InteractiveServer` page with a
+button handler. This is recorded because the rest of the application is interactive and the
+obvious change is the one that cannot work.
+
+**The way back in is the settings file, not a restore.** `Auth:ClearPassword` clears the stored
+password on the next start, and the same start unsets the key, so the escape hatch cannot quietly
+wipe the new password on the restart after it. It is the pattern `Sync:Enabled` already
+establishes and exists for the same reason: the file sits beside the database in the operator's
+own volume and is reachable when the pages are not. D33's answer — the operator's copy of the
+database file — remains the recovery path for data, and is far too heavy for a forgotten
+password.
+
+*One pull request.* The parts are individually small and collectively one feature; half a lock
+on `development` is a door with no handle.
