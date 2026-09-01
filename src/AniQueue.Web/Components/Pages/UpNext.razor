@@ -8,6 +8,7 @@
 @inject IQueueService QueueService
 @inject IJSRuntime JS
 @inject ILogger<UpNext> Logger
+@inject NavigationManager Navigation
 
 <PageTitle>Up Next — AniQueue</PageTitle>
 
@@ -215,6 +216,17 @@ else
     private BusyScope _busy = null!;
     private ToastScope _toasts = null!;
 
+    /// <summary>
+    /// A confirmation raised by whichever page sent the user here.
+    /// </summary>
+    /// <remarks>
+    /// The name of one, not its wording, so this page carries no copy about features
+    /// it knows nothing about and a bookmarked address cannot put arbitrary text on
+    /// somebody's screen.
+    /// </remarks>
+    [SupplyParameterFromQuery(Name = Confirmation.Parameter)]
+    private string? Saved { get; set; }
+
     /// <summary>Which row the confirmation dialog is open on, or null.</summary>
     private QueueListItem? _pendingRemoval;
 
@@ -291,6 +303,19 @@ else
         else if (!HasRows && _sortable is not null)
         {
             await DetachAsync();
+        }
+
+        // A confirmation from a page that could not show one itself. Here rather than
+        // in OnInitializedAsync because a toast takes itself away on a timer, and the
+        // timer needs a circuit — during prerendering there is none, so the message
+        // would be baked into the first response and never leave.
+        if (firstRender && Confirmation.MessageFor(Saved) is { } confirmation)
+        {
+            // The address is cleaned first, so a refresh does not say it again and a
+            // bookmark of this moment is a bookmark of the queue.
+            Navigation.NavigateTo("/", replace: true);
+
+            await _toasts.ShowAsync(confirmation);
         }
     }
 

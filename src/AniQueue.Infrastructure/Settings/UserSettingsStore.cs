@@ -1,6 +1,7 @@
 using System.Globalization;
 using AniQueue.Core.Domain;
 using AniQueue.Core.Recommendations;
+using AniQueue.Core.Security;
 using AniQueue.Core.Settings;
 using AniQueue.Infrastructure.Jobs;
 using AniQueue.Infrastructure.Sync;
@@ -106,7 +107,11 @@ public sealed class UserSettingsStore(
 
         ScoringSweepMinutes = Number(
                 ScoringKey(nameof(ScoringOptions.SweepMinutes)))
-            ?? UserSettings.Defaults.ScoringSweepMinutes
+            ?? UserSettings.Defaults.ScoringSweepMinutes,
+
+        AuthEnabled = Bool(
+            $"{AuthOptions.SectionName}:{nameof(AuthOptions.Enabled)}",
+            UserSettings.Defaults.AuthEnabled)
     };
 
     private static string SyncKey(string key) => $"{SyncOptions.SectionName}:{key}";

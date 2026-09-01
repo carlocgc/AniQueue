@@ -41,5 +41,40 @@ public class Profile
     /// </summary>
     public static string NewLibraryKey() => Guid.NewGuid().ToString("N")[..12];
 
+    /// <summary>
+    /// The optional login's password, hashed. Null means no password, which means
+    /// nothing is locked — the state a fresh installation is in and stays in until
+    /// somebody sets one.
+    /// </summary>
+    /// <remarks>
+    /// Here rather than in <c>userconfig.json</c>, which is the one exception the
+    /// one-home-per-setting rule has to make: a credential is not written to a file
+    /// an operator opens in an editor, and is never read back to a page. It is on
+    /// the profile rather than on its settings because it says who somebody is
+    /// rather than how AniQueue looks to them.
+    /// </remarks>
+    public string? PasswordHash { get; set; }
+
+    /// <summary>
+    /// What a sign-in cookie carries so it can be retired. Changed whenever the
+    /// password is set, changed or cleared, which is what signs the other devices
+    /// out.
+    /// </summary>
+    /// <remarks>
+    /// Present whether or not a password is, so that nothing on a sign-in path has
+    /// to write to mint one. Null only until the initializer fills it on the next
+    /// start of a database that predates the column.
+    /// </remarks>
+    public string? SecurityStamp { get; set; }
+
+    /// <summary>Mints a value for <see cref="SecurityStamp"/>.</summary>
+    /// <remarks>
+    /// A whole GUID rather than the truncated one <see cref="NewLibraryKey"/> uses.
+    /// A library key is copied between two documents by hand and wants to be short;
+    /// this is only ever compared, and its job is that a cookie issued before a
+    /// password change cannot match one issued after.
+    /// </remarks>
+    public static string NewSecurityStamp() => Guid.NewGuid().ToString("N");
+
     public ProfileSettings? Settings { get; set; }
 }

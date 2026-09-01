@@ -1,6 +1,7 @@
 using AniQueue.Core.Artwork;
 using AniQueue.Core.Domain;
 using AniQueue.Core.Recommendations;
+using AniQueue.Core.Security;
 using AniQueue.Core.Settings;
 using AniQueue.Infrastructure;
 using AniQueue.Infrastructure.Artwork;
@@ -12,7 +13,11 @@ using AniQueue.Infrastructure.Settings;
 using AniQueue.Infrastructure.Sync;
 using AniQueue.Web.Components;
 using AniQueue.Web.Endpoints;
+using AniQueue.Web.Security;
 using AniQueue.Web.Services;
+using Microsoft.AspNetCore.Authentication.Cookies;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Components.Authorization;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.Extensions.Options;
 
@@ -140,6 +145,11 @@ builder.Services.Configure<ScoringOptions>(
 builder.Services.Configure<TaskOptions>(
     builder.Configuration.GetSection(TaskOptions.SectionName));
 
+// The lock's switch, bound to the live section like the others, so turning it on
+// or off from the settings page reaches a running application without a restart.
+builder.Services.Configure<AuthOptions>(
+    builder.Configuration.GetSection(AuthOptions.SectionName));
+
 builder.Services.AddAniQueueSync();
 
 // The one reader and writer of userconfig.json. Registered after the section
@@ -150,6 +160,74 @@ builder.Services.AddAniQueueSettings();
 // normal state of a fresh install is no endpoint at all: whether one is configured is
 // a question the card asks the service, not one this file answers by leaving it out.
 builder.Services.AddAniQueueScoringEndpoint();
+
+// The optional lock. Registered whether or not a password is set, because whether
+// this installation is locked is a question about the database that the policy
+// below asks per request — not one this file can answer at startup and cache for
+// the life of the process.
+builder.Services.AddAniQueueSecurity();
+
+builder.Services.AddAuthentication(AniQueueAuth.Scheme)
+    .AddCookie(AniQueueAuth.Scheme, options =>
+    {
+        options.Cookie.Name = AniQueueAuth.CookieName;
+        options.Cookie.HttpOnly = true;
+        options.Cookie.SameSite = SameSiteMode.Lax;
+
+        // Secure when the request already is, and not otherwise. The published
+        // compose file serves plain HTTP on a home network, so a cookie that
+        // insisted on TLS would be a cookie no existing deployment could receive —
+        // it would lock every one of them out on the day the login landed. What
+        // this costs is in the README: on plain HTTP the password crosses the
+        // network in clear, and anything reachable from outside wants a proxy.
+        options.Cookie.SecurePolicy = CookieSecurePolicy.SameAsRequest;
+
+        options.LoginPath = AniQueueAuth.LoginPath;
+        options.AccessDeniedPath = AniQueueAuth.LoginPath;
+        options.ReturnUrlParameter = "ReturnUrl";
+
+        // Thirty days, renewed on use. There is no "stay signed in" tick box: one
+        // obvious answer needs no control, and an application that asks for a
+        // password every day on a phone is one whose owner turns the lock off.
+        options.ExpireTimeSpan = TimeSpan.FromDays(30);
+        options.SlidingExpiration = true;
+
+        options.Events.OnValidatePrincipal = AniQueueAuth.ValidateStampAsync;
+
+        // The switch can be on with no password set, and a sign-in form is no use to
+        // somebody in that state. They are sent to set one instead.
+        options.Events.OnRedirectToLogin = AniQueueAuth.RedirectToLoginAsync;
+    });
+
+// Two policies, and the first is a *fallback* rather than a default: it applies to
+// every endpoint that names no policy of its own, which is every page, and leaves
+// alone the two that do. Applying it with RequireAuthorization instead would stack
+// it on top of the password page's policy, and both would have to pass — so the one
+// state that sends everybody to that page would refuse them when they arrived.
+//
+// It passes untouched while the switch is off, which is what makes the lock optional
+// rather than something an installation has to be configured out of.
+builder.Services.AddAuthorization(options =>
+{
+    options.FallbackPolicy = new AuthorizationPolicyBuilder()
+        .AddRequirements(new UnlockedRequirement())
+        .Build();
+
+    options.DefaultPolicy = options.FallbackPolicy;
+
+    options.AddPolicy(
+        AniQueueAuth.PasswordPolicy,
+        policy => policy.AddRequirements(new PasswordPageRequirement()));
+});
+
+builder.Services.AddScoped<IAuthorizationHandler, UnlockedHandler>();
+builder.Services.AddScoped<IAuthorizationHandler, PasswordPageHandler>();
+
+// Authorisation is decided on the request that delivered a page; a circuit then
+// holds that principal for as long as the tab is open. These two are what carry a
+// password change into a tab that is already there.
+builder.Services.AddCascadingAuthenticationState();
+builder.Services.AddScoped<AuthenticationStateProvider, StampAuthenticationStateProvider>();
 
 // The timer half of unattended sync. Registered here rather than inside
 // AddAniQueueSync because hosting is the web project's business: Infrastructure
@@ -284,6 +362,21 @@ if (!string.IsNullOrEmpty(dataDirectory))
         .EnsureExistsAsync(app.Lifetime.ApplicationStopping);
 }
 
+// The way back in after a forgotten password, acted on before anything can serve a
+// request. Deliberately here rather than on a page: the whole point of it is that
+// the pages are the thing somebody cannot reach.
+//
+// Nothing is written back to the file. Auth:Enabled false is a state rather than a
+// trigger, so an operator who turns it off and forgets they did is left with an
+// application that is open, which is what they asked for.
+if (await app.Services.GetRequiredService<IAuthService>()
+        .ForgetPasswordIfDisabledAsync(app.Lifetime.ApplicationStopping))
+{
+    app.Services.GetRequiredService<ILogger<Program>>().LogWarning(
+        "Auth:Enabled is off, so the stored login password has been forgotten and AniQueue "
+        + "is open to anybody who can reach it. Set a password on the settings page to lock it again");
+}
+
 // One block naming everything an operator would otherwise have to guess at from
 // inside a container: where the data is, and what this installation is configured
 // to do. Almost every support question about a self-hosted deployment is answered
@@ -343,6 +436,20 @@ if (!string.IsNullOrEmpty(dataDirectory))
         tasks.Schedule,
         tasks.RelationsEnabled ? "enabled" : "switched off",
         tasks.CoverArtEnabled ? "enabled" : "switched off");
+
+    // Whether this installation asks for a password, said plainly for the same
+    // reason as the rest: "it is asking me to log in and I never set that up" and
+    // "anyone on my network can open it" are both support questions, and neither is
+    // answerable from a page somebody cannot reach.
+    startupLogger.LogInformation(
+        "Login {AuthState}",
+        await app.Services.GetRequiredService<IAuthService>()
+            .GetStateAsync(app.Lifetime.ApplicationStopping) switch
+        {
+            AuthState.Locked => "required",
+            AuthState.NeedsPassword => "switched on with no password set; every page asks for one to be set",
+            _ => "switched off"
+        });
 }
 
 if (!app.Environment.IsDevelopment())
@@ -351,14 +458,19 @@ if (!app.Environment.IsDevelopment())
 }
 
 app.UseStatusCodePagesWithReExecute("/not-found", createScopeForStatusCodePages: true);
+app.UseAuthentication();
+app.UseAuthorization();
 app.UseAntiforgery();
 
-// Unauthenticated, and it has to stay that way if a login is ever added: a compose
+// Unauthenticated, and it stays that way now that a login exists: a compose
 // health check reaches this before anybody has logged in, and a lock that shuts
 // the orchestrator out of the liveness probe is worse than no lock.
-app.MapHealthChecks("/health");
+app.MapHealthChecks("/health").AllowAnonymous();
 
-app.MapStaticAssets();
+// The stylesheet the login page needs, which is not a concession but arithmetic: a
+// stylesheet behind the lock is a stylesheet the sign-in page cannot load, so the
+// first thing a locked installation would show is an unstyled form.
+app.MapStaticAssets().AllowAnonymous();
 app.MapCachedCoverArt();
 app.MapRazorComponents<App>()
     .AddInteractiveServerRenderMode();

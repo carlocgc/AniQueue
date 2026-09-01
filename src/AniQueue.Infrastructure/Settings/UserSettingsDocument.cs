@@ -184,7 +184,15 @@ internal static class UserSettingsDocument
         new(
             "Scoring:SweepMinutes",
             ["How long one unattended run may keep your model busy."],
-            s => s.ScoringSweepMinutes)
+            s => s.ScoringSweepMinutes),
+
+        new(
+            "Auth:Enabled",
+            ["Ask for a password before showing anything. Off by default.",
+             "Setting a password on the settings page turns this on; removing one turns it off.",
+             "false here with a password already set clears it on the next start, which is",
+             "the way back in if you forget it. true with none set asks you for one."],
+            s => s.AuthEnabled)
     ];
 
     /// <summary>The keys this document writes, for the test that guards the list.</summary>

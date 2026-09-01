@@ -23,12 +23,17 @@ those tools answer badly: *what do I actually watch next?*
 
 ## ⚠️ Do not expose AniQueue to the internet
 
-**AniQueue has had no security audit, and it has no authentication of any kind.**
-Anyone who can reach the port can read and change everything in it.
+**AniQueue has had no security audit.** It does have an optional password — set one on
+the settings page and every page asks for it — but that is a lock on the door, not a
+reason to move the door onto the street.
+
+**AniQueue serves plain HTTP.** On a network somebody else can listen to, the password
+you type and the cookie you get back both cross it in clear. The password protects you
+from the other people on your home network; it does not protect you from the internet.
 
 Run it on a network you trust — a home LAN, or behind a VPN such as Tailscale or
 WireGuard. Do not put it on a public IP, and do not publish it through a reverse proxy
-or a tunnel without putting your own authentication in front of it first.
+or a tunnel unless that proxy terminates HTTPS in front of it.
 
 There is also no release yet. The only published image is `carlocgc/aniqueue:dev`,
 which is rebuilt from the `development` branch on every merge and overwritten each
@@ -97,6 +102,33 @@ save, so anything else you put in it will not survive.
 
 The compose file holds the container's concerns only: the port, the volume and the
 log limits.
+
+### The password
+
+AniQueue has no password until you set one, and setting one is the whole of turning
+the lock on: go to **Settings → Password**. Every page and every cover image then asks
+for it. Removing the password opens things up again. There is no username, because
+there is one account.
+
+A sign-in lasts thirty days and renews as you use it. Changing or removing the
+password signs out every other device, including the phone in your pocket.
+
+`/health` is never behind the password, so a container health check still works.
+
+**If you forget it**, put this in `userconfig.json` in your volume and restart:
+
+```json
+"Auth:Enabled": false
+```
+
+That start forgets the password and says so in the log. AniQueue is then open to
+anybody who can reach it until you set a new one. The sign-in page tells you the
+file's full path, so you do not have to go looking.
+
+Setting a password writes `"Auth:Enabled": true` for you and removing one writes
+`false`, so you never have to touch that line yourself. Turning it on by hand before
+you have set a password is allowed and is not a lockout: every page then sends you to
+the form that sets one.
 
 ### Logs
 

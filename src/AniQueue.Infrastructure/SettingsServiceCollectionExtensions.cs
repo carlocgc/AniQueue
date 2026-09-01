@@ -4,6 +4,8 @@ using AniQueue.Infrastructure.Recommendations;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using AniQueue.Core.Settings;
+using AniQueue.Core.Security;
+using AniQueue.Infrastructure.Security;
 using AniQueue.Infrastructure.Settings;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -31,6 +33,23 @@ public static class SettingsServiceCollectionExtensions
         // Scoped, unlike the store beside it: this one reads the database, and a
         // context factory hands out a context per call rather than per process.
         services.AddScoped<IAppearance, Appearance>();
+
+        return services;
+    }
+
+    /// <summary>
+    /// Registers the optional lock: whether a password is set, and everything that
+    /// changes one.
+    /// </summary>
+    /// <remarks>
+    /// <b>Singleton</b>, unlike the other services here that read the database. It
+    /// holds the stored password and stamp in memory because every request asks
+    /// about both, and it owns the only writes to them — so the copy cannot fall
+    /// behind the row it came from.
+    /// </remarks>
+    public static IServiceCollection AddAniQueueSecurity(this IServiceCollection services)
+    {
+        services.AddSingleton<IAuthService, AuthService>();
 
         return services;
     }

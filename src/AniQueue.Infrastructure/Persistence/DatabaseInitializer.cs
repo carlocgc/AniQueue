@@ -30,6 +30,7 @@ public sealed class DatabaseInitializer(
         await EnableWriteAheadLoggingAsync(context, cancellationToken);
         await EnsureDefaultProfileAsync(context, cancellationToken);
         await EnsureLibraryKeysAsync(context, cancellationToken);
+        await EnsureSecurityStampsAsync(context, cancellationToken);
     }
 
     /// <summary>
@@ -128,6 +129,7 @@ public sealed class DatabaseInitializer(
             Name = "Default",
             CreatedAt = now,
             LibraryKey = Profile.NewLibraryKey(),
+            SecurityStamp = Profile.NewSecurityStamp(),
             Settings = new ProfileSettings { DisplayName = "Default" }
         };
 
@@ -173,5 +175,40 @@ public sealed class DatabaseInitializer(
         logger.LogInformation(
             "Assigned a library key to {ProfileCount} profile(s) that had none",
             unnamed.Count);
+    }
+
+    /// <summary>
+    /// Gives every profile a security stamp, so no sign-in path ever has to write
+    /// to mint one.
+    /// </summary>
+    /// <remarks>
+    /// Filled whether or not a password is set. A stamp is what a cookie carries so
+    /// it can be retired, and minting one lazily would mean a database write on the
+    /// path that checks a password — which is the path a wrong password takes too.
+    ///
+    /// Unlike a library key this may be replaced, and setting or clearing a password
+    /// is what replaces it. This only ever fills an empty one.
+    /// </remarks>
+    private async Task EnsureSecurityStampsAsync(AniQueueDbContext context, CancellationToken cancellationToken)
+    {
+        var unstamped = await context.Profiles
+            .Where(p => p.SecurityStamp == null || p.SecurityStamp == "")
+            .ToListAsync(cancellationToken);
+
+        if (unstamped.Count == 0)
+        {
+            return;
+        }
+
+        foreach (var profile in unstamped)
+        {
+            profile.SecurityStamp = Profile.NewSecurityStamp();
+        }
+
+        await context.SaveChangesAsync(cancellationToken);
+
+        logger.LogInformation(
+            "Assigned a security stamp to {ProfileCount} profile(s) that had none",
+            unstamped.Count);
     }
 }

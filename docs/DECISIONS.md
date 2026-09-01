@@ -3274,3 +3274,125 @@ recorded.
 *Nothing here touches the schema, the settings file or any page.* The one interface change is a
 field on `ScoringRequestOptions`, and it is absent from `From`, which exists to clamp values a
 user typed.
+
+### D60 — The password is the switch, and there is nothing else to turn on
+
+*Settles Phase 12. D36 said enabling a login would be "a setting like any other"; this is where
+that stops being true and why. Nothing here makes multi-user harder and nothing here anticipates
+it: every decision below is the single-user one taken deliberately.*
+
+**The lock covers every page and the artwork endpoint. Two things answer without it.** `/health`
+is one, and `Program.cs` has said so in a comment since Phase 11: a compose health check reaches
+it before anybody has logged in, and a lock that shuts the orchestrator out of the liveness probe
+is worse than no lock. The static assets are the other, which is not a concession but arithmetic
+— a stylesheet behind the login is a stylesheet the login page cannot load, so the first thing a
+locked installation would show is an unstyled form. Locking only the actions that change
+something was the alternative and it protects the wrong half: the library is the part worth
+reading.
+
+**`Auth:Enabled` is the switch, off by default, and the password keeps it in step.** Setting a
+password on the settings page turns it on; removing one turns it off. So the ordinary user never
+sees the setting at all, and the two halves of the lock — a flag in `userconfig.json` and a hash
+on the profile row — agree unless somebody edits the file by hand. Setting the first password
+signs the person who set it in, rather than throwing them out of the page they were standing on.
+
+*It was `Auth:ClearPassword` first, and that was the wrong name.* One key that turns the lock off
+does what two keys were doing, and every other feature in that file already says `Enabled` —
+`Sync:Enabled`, `Sync:AniList:Enabled`, `Tasks:RelationsEnabled`, `Scoring:Enabled`. An imperative
+key was also the only one in the file the application rewrote behind the operator, flipping itself
+back to `false` after it fired; a switch is a state and needs no such trick.
+
+**Both hand-edited readings have an answer, so neither is a state to be defended against.** Off
+with a password still stored is the way back in, below. On with no password stored — an operator
+turning it on before ever opening the application, or a container started with it already true —
+sends every page to the form that sets one. Nobody is locked out there, because there is nothing
+yet to be locked out of, so the honest answer is to ask for the missing half rather than to
+present a sign-in form with nothing behind it.
+
+*Auto-reverting that state to off was considered and declined.* It would mean deciding when
+somebody had "declined" to set a password, which is a moment nothing can observe — and undoing
+what an operator wrote in their own file is the behaviour the `ClearPassword` spelling was already
+criticised for.
+
+**There is no account name.** A single-user application has one account, so a username field has
+one possible value, cannot be wrong, and defends nothing — it is a box to fill in on every
+sign-in for the appearance of a login form. *This amends the Phase 12 paragraph that said the
+settings file would name the account without holding the secret: there is no account to name. The
+file holds the switch and nothing else about the lock.*
+
+**The credential is the one carve-out D36 has to make.** The hash lives on the `Profile` row —
+not in `userconfig.json`, which is a plain-text file an operator opens in an editor, and not on
+`ProfileSettings`, which describes how AniQueue looks to somebody rather than who they are. It is
+never read back to a page; the settings section offers *set*, *change* and *clear*, and shows
+only whether a password exists.
+
+**The hashing is PBKDF2 from the base class library, and it lives in Core.** `PasswordHasher<T>`
+is in the shared framework and would be the obvious answer, but reaching it means giving a
+reference to ASP.NET to a project that has none: Core's architecture test forbids
+`Microsoft.AspNetCore` outright, and Infrastructure taking the reference instead would erode the
+same line one project further down. Web already has it and is the one place no test project
+reaches. `Rfc2898DeriveBytes.Pbkdf2` needs no reference at all, is the same construction
+`PasswordHasher<T>` performs, and leaves hashing and verification in the suite that runs in
+milliseconds. A salt per password, and `CryptographicOperations.FixedTimeEquals` for the
+comparison, because a byte-by-byte one leaks its answer in the time it takes.
+
+**Sign-in is a cookie, persistent, thirty days, renewed on use.** There is no *remember me* tick
+box: one obvious answer does not need a control, and an installation that asks for a password
+every day on a phone is an installation whose owner turns the lock off. The keys that sign the
+cookie already persist to `/data` beside the database, so recreating the container does not sign
+everybody out — the same wiring Phase 11 added for antiforgery.
+
+**A stamp on the profile is what signs the other devices out.** The cookie carries it, every
+request checks it, and setting, changing or clearing the password mints a new one. Without it a
+password change leaves every existing session working, which is the opposite of what somebody
+changing a password is trying to achieve.
+
+**A wrong password costs a second, and nothing locks out.** PBKDF2 is deliberately slow, so the
+pause is the cheaper half of a defence that mostly already exists. A lockout after several
+attempts, on an application with exactly one account, locks out the only person who could clear
+it — it manufactures the outage it is defending against.
+
+**HTTPS is not required, and the README says what that costs.** The published compose file serves
+plain HTTP on 8377, so a login that insisted on TLS would lock out every existing deployment on
+the day it landed. The cookie is `HttpOnly`, `SameSite=Lax`, and marked secure only when the
+request already is, so it works on both and is protected on the one that can be. What the README
+has to say plainly is the trade: on a plain HTTP LAN the password crosses the network in clear,
+and anybody exposing AniQueue beyond their own network wants a reverse proxy in front of it.
+
+**The sign-in and password pages are statically rendered, and they have to be.** A cookie is set
+on an HTTP response, and an interactive Server component has already sent its response by the
+time a click reaches it — so both are plain form posts rather than pages with button handlers.
+This is recorded because the rest of the application is interactive and the obvious change is the
+one that cannot work.
+
+*Opting out is not the default, and leaving it to the page is not enough:* `App.razor` gives the
+router one render mode for every route, so a page with no `@rendermode` of its own is still
+interactive. Both pages therefore carry `[ExcludeFromInteractiveRouting]`, and `App.razor` asks
+`HttpContext.AcceptsInteractiveRouting()` which mode to use. Without it they render twice — once
+against the request, then again on a circuit where there is no request to read — and the second
+render is a `NullReferenceException` that kills the circuit while the first render's form still
+works, which is exactly as confusing as it sounds. Found by running it.
+
+**A form that finishes lands you in the application, not back on itself.** Setting the first
+password and being returned to a page headed *Password*, under a green message about needing it on
+your other devices, reads as having locked yourself out with the thing you just switched on — so
+all three outcomes go to the queue and say what happened in a toast. The confirmation travels as a
+name in the address rather than as wording, so the page that lands carries no copy about a feature
+it knows nothing about, and it is cleared from the address on arrival: a refresh should not repeat
+it and a bookmark of that moment is a bookmark of the queue.
+
+**The way back in is the settings file, not a restore.** A start that finds `Auth:Enabled` off
+forgets any stored password, so an operator who cannot get past the sign-in page edits one line
+and restarts. Nothing is written back: off is the state they asked for, and leaving it that way
+means the application they get is the open one they were expecting rather than one that has
+quietly re-locked itself. It is the pattern `Sync:Enabled` already establishes and exists for the
+same reason: the file sits beside the database in the operator's own volume and is reachable when
+the pages are not. D33's answer — the operator's copy of the database file — remains the recovery
+path for data, and is far too heavy for a forgotten password.
+
+*The sign-in page names the file's absolute path*, because it is the only page a locked-out person
+can reach and "beside your database" answers nothing for somebody who has never had to know where
+that is.
+
+*One pull request.* The parts are individually small and collectively one feature; half a lock
+on `development` is a door with no handle.
