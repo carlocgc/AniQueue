@@ -1868,6 +1868,21 @@ html:has(dialog.detail-dialog[open]) { overflow: hidden; }
 
 .signed-out form button { margin-top: 0.75rem; }
 
+
+/* The one line somebody has to copy into a file by hand, on the one page they can
+   reach while locked out. Its own block rather than inline code, because a line
+   to be copied exactly should not be wrapped into a sentence. */
+.signed-out pre.hint {
+    background: var(--surface-alt);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 0.6rem 0.75rem;
+    margin: 0.5rem 0;
+    overflow-x: auto;
+}
+
+.signed-out pre.hint code { overflow-wrap: normal; }
+
 .signed-out hr {
     border: 0;
     border-top: 1px solid var(--border);

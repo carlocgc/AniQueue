@@ -6,6 +6,7 @@
 
 @using System.ComponentModel.DataAnnotations
 @using AniQueue.Core.Security
+@using AniQueue.Infrastructure.Settings
 @using AniQueue.Web.Security
 @using Microsoft.AspNetCore.Authentication
 @using Microsoft.AspNetCore.Components.Endpoints
@@ -16,6 +17,7 @@
 
 @inject IAuthService Auth
 @inject NavigationManager Navigation
+@inject UserConfigStatus UserConfig
 
 <PageTitle>Sign in — AniQueue</PageTitle>
 
@@ -38,10 +40,18 @@
     <button type="submit" class="primary">Sign in</button>
 </EditForm>
 
+@* The only page a locked-out person can reach, so it has to carry the whole way
+   back in — including where the file is. "Beside your database" is not an answer
+   to somebody who has never needed to know where that is. *@
 <p class="muted">
-    Forgotten it? Set <code>"Auth:ClearPassword": true</code> in
-    <code>userconfig.json</code> beside your database and restart AniQueue. That start
-    clears the password and sets the line back to <code>false</code>.
+    Forgotten it? Put this line in <code>@UserConfig.Path</code> and restart AniQueue:
+</p>
+
+<pre class="hint"><code>"Auth:ClearPassword": true</code></pre>
+
+<p class="muted">
+    That start clears the password and sets the line back to <code>false</code>, so
+    AniQueue is open again until you set a new one.
 </p>
 
 @code {
