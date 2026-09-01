@@ -1,16 +1,19 @@
 using AniQueue.Core.Domain;
 using AniQueue.Core.Security;
+using AniQueue.Core.Settings;
 using AniQueue.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 
 namespace AniQueue.Infrastructure.Security;
 
 /// <summary>
-/// Reads and writes the two columns the lock is made of, both on the profile row.
+/// Keeps the switch in <c>userconfig.json</c> and the password on the profile row
+/// in step with each other.
 /// </summary>
 /// <remarks>
-/// <b>It holds the pair in memory, which is what makes the lock affordable.</b>
-/// Every request asks twice — once whether anything is locked, once whether the
+/// <b>It holds the stored pair in memory, which is what makes the lock affordable.</b>
+/// Every request asks twice — once what the lock is doing, once whether the
 /// cookie's stamp is still current — and a backlog page is one request plus fifty
 /// posters. Reading the row each time would put fifty queries behind one screen to
 /// answer a question that changes when somebody presses a button.
@@ -19,13 +22,25 @@ namespace AniQueue.Infrastructure.Security;
 /// nothing else in the application touches these columns, so the copy here cannot
 /// fall behind the row. Two threads filling it at once agree on the answer.
 /// </remarks>
-public sealed class AuthService(IDbContextFactory<AniQueueDbContext> contextFactory) : IAuthService
+public sealed class AuthService(
+    IDbContextFactory<AniQueueDbContext> contextFactory,
+    IUserSettingsStore settings,
+    IOptionsMonitor<AuthOptions> options) : IAuthService
 {
     /// <summary>The stored pair, or null until it has been read.</summary>
     private volatile Credential? _cached;
 
-    public async Task<bool> IsLockedAsync(CancellationToken cancellationToken = default)
-        => (await ReadAsync(cancellationToken)).Hash is { Length: > 0 };
+    public async Task<AuthState> GetStateAsync(CancellationToken cancellationToken = default)
+    {
+        if (!options.CurrentValue.Enabled)
+        {
+            return AuthState.Open;
+        }
+
+        return (await ReadAsync(cancellationToken)).Hash is { Length: > 0 }
+            ? AuthState.Locked
+            : AuthState.NeedsPassword;
+    }
 
     public async Task<string?> SignInAsync(string password, CancellationToken cancellationToken = default)
     {
@@ -34,18 +49,47 @@ public sealed class AuthService(IDbContextFactory<AniQueueDbContext> contextFact
         return PasswordHash.Verify(credential.Hash, password) ? credential.Stamp : null;
     }
 
-    public async Task<string> SetPasswordAsync(string password, CancellationToken cancellationToken = default)
+    public async Task<AuthChange> SetPasswordAsync(
+        string password,
+        CancellationToken cancellationToken = default)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(password);
 
-        return (await WriteAsync(PasswordHash.Create(password), cancellationToken)).Stamp
-            ?? throw new InvalidOperationException("A password was set without a stamp to go with it.");
+        var written = await WriteAsync(PasswordHash.Create(password), cancellationToken);
+
+        return new AuthChange(written.Stamp, await SwitchAsync(true, cancellationToken));
     }
 
-    public async Task ClearPasswordAsync(CancellationToken cancellationToken = default)
-        => await WriteAsync(null, cancellationToken);
+    public async Task<AuthChange> RemovePasswordAsync(CancellationToken cancellationToken = default)
+    {
+        await WriteAsync(null, cancellationToken);
 
-    public async Task<bool> IsStampCurrentAsync(string? stamp, CancellationToken cancellationToken = default)
+        return new AuthChange(null, await SwitchAsync(false, cancellationToken));
+    }
+
+    public async Task<bool> ForgetPasswordIfDisabledAsync(CancellationToken cancellationToken = default)
+    {
+        if (options.CurrentValue.Enabled)
+        {
+            return false;
+        }
+
+        if ((await ReadAsync(cancellationToken)).Hash is not { Length: > 0 })
+        {
+            return false;
+        }
+
+        // The switch is already off in the file, so only the password half is left to
+        // undo. Nothing is written back to the file, which is what makes this the
+        // stable state it looks like rather than a trigger that fires once.
+        await WriteAsync(null, cancellationToken);
+
+        return true;
+    }
+
+    public async Task<bool> IsStampCurrentAsync(
+        string? stamp,
+        CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrEmpty(stamp))
         {
@@ -72,8 +116,8 @@ public sealed class AuthService(IDbContextFactory<AniQueueDbContext> contextFact
             .FirstOrDefaultAsync(cancellationToken);
 
         // No profile row at all is a database the initializer has not reached, which
-        // is not a state a request can be served in. Treated as unlocked rather than
-        // cached, so the answer is not held for the life of the process.
+        // is not a state a request can be served in. Answered rather than cached, so
+        // the answer is not held for the life of the process.
         if (stored is null)
         {
             return new Credential(null, null);
@@ -81,6 +125,7 @@ public sealed class AuthService(IDbContextFactory<AniQueueDbContext> contextFact
 
         var credential = new Credential(stored.PasswordHash, stored.SecurityStamp);
         _cached = credential;
+
         return credential;
     }
 
@@ -93,12 +138,8 @@ public sealed class AuthService(IDbContextFactory<AniQueueDbContext> contextFact
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
 
         var profile = await context.Profiles
-            .FirstOrDefaultAsync(p => p.Id == Profile.DefaultProfileId, cancellationToken);
-
-        if (profile is null)
-        {
-            throw new InvalidOperationException("There is no profile to hold a password.");
-        }
+            .FirstOrDefaultAsync(p => p.Id == Profile.DefaultProfileId, cancellationToken)
+            ?? throw new InvalidOperationException("There is no profile to hold a password.");
 
         profile.PasswordHash = hash;
         profile.SecurityStamp = Profile.NewSecurityStamp();
@@ -109,6 +150,26 @@ public sealed class AuthService(IDbContextFactory<AniQueueDbContext> contextFact
         _cached = written;
 
         return written;
+    }
+
+    /// <summary>
+    /// Writes <c>Auth:Enabled</c>, and reports rather than throws when the file will
+    /// not take it.
+    /// </summary>
+    private async Task<string?> SwitchAsync(bool enabled, CancellationToken cancellationToken)
+    {
+        var current = settings.Read();
+
+        if (current.AuthEnabled == enabled)
+        {
+            return null;
+        }
+
+        var result = await settings.SaveAsync(
+            current with { AuthEnabled = enabled },
+            cancellationToken);
+
+        return result.Saved ? null : result.Error ?? $"{result.Path} could not be written.";
     }
 
     /// <summary>The password and the stamp, which are always read and written together.</summary>

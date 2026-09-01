@@ -145,6 +145,11 @@ builder.Services.Configure<ScoringOptions>(
 builder.Services.Configure<TaskOptions>(
     builder.Configuration.GetSection(TaskOptions.SectionName));
 
+// The lock's switch, bound to the live section like the others, so turning it on
+// or off from the settings page reaches a running application without a restart.
+builder.Services.Configure<AuthOptions>(
+    builder.Configuration.GetSection(AuthOptions.SectionName));
+
 builder.Services.AddAniQueueSync();
 
 // The one reader and writer of userconfig.json. Registered after the section
@@ -177,8 +182,8 @@ builder.Services.AddAuthentication(AniQueueAuth.Scheme)
         // network in clear, and anything reachable from outside wants a proxy.
         options.Cookie.SecurePolicy = CookieSecurePolicy.SameAsRequest;
 
-        options.LoginPath = "/login";
-        options.AccessDeniedPath = "/login";
+        options.LoginPath = AniQueueAuth.LoginPath;
+        options.AccessDeniedPath = AniQueueAuth.LoginPath;
         options.ReturnUrlParameter = "ReturnUrl";
 
         // Thirty days, renewed on use. There is no "stay signed in" tick box: one
@@ -188,17 +193,35 @@ builder.Services.AddAuthentication(AniQueueAuth.Scheme)
         options.SlidingExpiration = true;
 
         options.Events.OnValidatePrincipal = AniQueueAuth.ValidateStampAsync;
+
+        // The switch can be on with no password set, and a sign-in form is no use to
+        // somebody in that state. They are sent to set one instead.
+        options.Events.OnRedirectToLogin = AniQueueAuth.RedirectToLoginAsync;
     });
 
-// One policy, and it is the default, so nothing has to remember to name it. It
-// passes when no password is set, which is what makes the lock optional rather
-// than a switch somebody has to find.
+// Two policies, and the first is a *fallback* rather than a default: it applies to
+// every endpoint that names no policy of its own, which is every page, and leaves
+// alone the two that do. Applying it with RequireAuthorization instead would stack
+// it on top of the password page's policy, and both would have to pass — so the one
+// state that sends everybody to that page would refuse them when they arrived.
+//
+// It passes untouched while the switch is off, which is what makes the lock optional
+// rather than something an installation has to be configured out of.
 builder.Services.AddAuthorization(options =>
-    options.DefaultPolicy = new AuthorizationPolicyBuilder()
+{
+    options.FallbackPolicy = new AuthorizationPolicyBuilder()
         .AddRequirements(new UnlockedRequirement())
-        .Build());
+        .Build();
+
+    options.DefaultPolicy = options.FallbackPolicy;
+
+    options.AddPolicy(
+        AniQueueAuth.PasswordPolicy,
+        policy => policy.AddRequirements(new PasswordPageRequirement()));
+});
 
 builder.Services.AddScoped<IAuthorizationHandler, UnlockedHandler>();
+builder.Services.AddScoped<IAuthorizationHandler, PasswordPageHandler>();
 
 // Authorisation is decided on the request that delivered a page; a circuit then
 // holds that principal for as long as the tab is open. These two are what carry a
@@ -343,41 +366,17 @@ if (!string.IsNullOrEmpty(dataDirectory))
 // request. Deliberately here rather than on a page: the whole point of it is that
 // the pages are the thing somebody cannot reach.
 //
-// The same start that acts on it writes the line back to false. Left true it would
-// clear the password again on the next restart — silently, and long after the
-// operator had set a new one and forgotten they ever opened the file.
+// Nothing is written back to the file. Auth:Enabled false is a state rather than a
+// trigger, so an operator who turns it off and forgets they did is left with an
+// application that is open, which is what they asked for.
+if (await app.Services.GetRequiredService<IAuthService>()
+        .ForgetPasswordIfDisabledAsync(app.Lifetime.ApplicationStopping))
 {
-    var settingsStore = app.Services.GetRequiredService<IUserSettingsStore>();
-    var settings = settingsStore.Read();
-
-    if (settings.AuthClearPassword)
-    {
-        var clearLogger = app.Services.GetRequiredService<ILogger<Program>>();
-
-        await app.Services
-            .GetRequiredService<IAuthService>()
-            .ClearPasswordAsync(app.Lifetime.ApplicationStopping);
-
-        var written = await settingsStore.SaveAsync(
-            settings with { AuthClearPassword = false },
-            app.Lifetime.ApplicationStopping);
-
-        clearLogger.LogWarning(
-            "Auth:ClearPassword was set, so the login password has been cleared and AniQueue is "
-            + "open to anybody who can reach it. Set a new one on the settings page");
-
-        if (!written.Saved)
-        {
-            // Worse than an ordinary failed save: the line is still true, so the
-            // next start clears whatever password has been set by then.
-            clearLogger.LogError(
-                "Auth:ClearPassword could not be set back to false in {UserConfigPath}: {Reason}. "
-                + "Edit it by hand, or the next start will clear the password again",
-                written.Path,
-                written.Error);
-        }
-    }
+    app.Services.GetRequiredService<ILogger<Program>>().LogWarning(
+        "Auth:Enabled is off, so the stored login password has been forgotten and AniQueue "
+        + "is open to anybody who can reach it. Set a password on the settings page to lock it again");
 }
+
 // One block naming everything an operator would otherwise have to guess at from
 // inside a container: where the data is, and what this installation is configured
 // to do. Almost every support question about a self-hosted deployment is answered
@@ -437,6 +436,20 @@ if (!string.IsNullOrEmpty(dataDirectory))
         tasks.Schedule,
         tasks.RelationsEnabled ? "enabled" : "switched off",
         tasks.CoverArtEnabled ? "enabled" : "switched off");
+
+    // Whether this installation asks for a password, said plainly for the same
+    // reason as the rest: "it is asking me to log in and I never set that up" and
+    // "anyone on my network can open it" are both support questions, and neither is
+    // answerable from a page somebody cannot reach.
+    startupLogger.LogInformation(
+        "Login {AuthState}",
+        await app.Services.GetRequiredService<IAuthService>()
+            .GetStateAsync(app.Lifetime.ApplicationStopping) switch
+        {
+            AuthState.Locked => "required",
+            AuthState.NeedsPassword => "switched on with no password set; every page asks for one to be set",
+            _ => "switched off"
+        });
 }
 
 if (!app.Environment.IsDevelopment())
@@ -452,15 +465,14 @@ app.UseAntiforgery();
 // Unauthenticated, and it stays that way now that a login exists: a compose
 // health check reaches this before anybody has logged in, and a lock that shuts
 // the orchestrator out of the liveness probe is worse than no lock.
-app.MapHealthChecks("/health");
+app.MapHealthChecks("/health").AllowAnonymous();
 
-app.MapStaticAssets();
+// The stylesheet the login page needs, which is not a concession but arithmetic: a
+// stylesheet behind the lock is a stylesheet the sign-in page cannot load, so the
+// first thing a locked installation would show is an unstyled form.
+app.MapStaticAssets().AllowAnonymous();
 app.MapCachedCoverArt();
 app.MapRazorComponents<App>()
-    // Every page except the one a signed-out person has to be able to stand on,
-    // which carries [AllowAnonymous]. The default policy waves all of it through
-    // while no password is set.
-    .RequireAuthorization()
     .AddInteractiveServerRenderMode();
 
 await app.RunAsync();

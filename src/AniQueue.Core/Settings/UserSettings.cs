@@ -162,16 +162,19 @@ public sealed record UserSettings
     public int ScoringSweepMinutes { get; init; } = 60;
 
     /// <summary>
-    /// Clears the login password on the next start. The way back in when it has
-    /// been forgotten.
+    /// Whether AniQueue asks for a password before it shows anything.
     /// </summary>
     /// <remarks>
-    /// The start that acts on it writes this back to false, so the escape hatch
-    /// cannot quietly wipe the new password on the restart after. It is here rather
-    /// than beside the password itself because the file is what somebody can reach
-    /// when the pages are the thing locking them out.
+    /// The switch, and the half of the lock that lives in the file — the password
+    /// itself is a hash on the profile row, because a credential is not written to a
+    /// file an operator opens in an editor.
+    ///
+    /// Setting a password from the settings page turns this on and removing one turns
+    /// it off, so the two normally agree. Off here with a password still stored is the
+    /// way back in after forgetting one: the start that reads it forgets the password
+    /// too. On with no password stored sends every page to the form that sets one.
     /// </remarks>
-    public bool AuthClearPassword { get; init; }
+    public bool AuthEnabled { get; init; }
 
     // Scoring:IncludePersonalNotes is not written to the file, because no surface
     // fills LibraryEntry.PersonalNotes yet and a control over an always-empty field

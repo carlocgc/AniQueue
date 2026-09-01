@@ -187,11 +187,12 @@ internal static class UserSettingsDocument
             s => s.ScoringSweepMinutes),
 
         new(
-            "Auth:ClearPassword",
-            ["The way back in if you forget the password you set on the settings page.",
-             "true clears it on the next start, and that start sets this back to false.",
-             "AniQueue is unlocked again until you set a new one."],
-            s => s.AuthClearPassword)
+            "Auth:Enabled",
+            ["Ask for a password before showing anything. Off by default.",
+             "Setting a password on the settings page turns this on; removing one turns it off.",
+             "false here with a password already set clears it on the next start, which is",
+             "the way back in if you forget it. true with none set asks you for one."],
+            s => s.AuthEnabled)
     ];
 
     /// <summary>The keys this document writes, for the test that guards the list.</summary>

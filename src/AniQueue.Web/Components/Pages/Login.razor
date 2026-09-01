@@ -47,11 +47,11 @@
     Forgotten it? Put this line in <code>@UserConfig.Path</code> and restart AniQueue:
 </p>
 
-<pre class="hint"><code>"Auth:ClearPassword": true</code></pre>
+<pre class="hint"><code>"Auth:Enabled": false</code></pre>
 
 <p class="muted">
-    That start clears the password and sets the line back to <code>false</code>, so
-    AniQueue is open again until you set a new one.
+    That start forgets the password, so AniQueue is open to anybody who can reach it
+    until you set a new one.
 </p>
 
 @code {
@@ -82,11 +82,19 @@
         Input ??= new SignInInput();
 
         // Nothing to sign in to. Reachable by typing the address on an installation
-        // that has no password, and a form that cannot succeed is worse than a
+        // that is not asking, and a form that cannot succeed is worse than a
         // redirect to the page they meant.
-        if (!await Auth.IsLockedAsync(HttpContext.RequestAborted))
+        switch (await Auth.GetStateAsync(HttpContext.RequestAborted))
         {
-            Navigation.NavigateTo("/");
+            case AuthState.Open:
+                Navigation.NavigateTo("/");
+                break;
+
+            // Switched on with nothing to check. There is no password to type, so
+            // the useful page is the one that sets the first one.
+            case AuthState.NeedsPassword:
+                Navigation.NavigateTo(AniQueueAuth.PasswordPath);
+                break;
         }
     }
 

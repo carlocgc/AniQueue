@@ -38,6 +38,22 @@ public static class AniQueueAuth
     /// </summary>
     public const string AccountName = "owner";
 
+    /// <summary>Where a signed-out visitor is sent.</summary>
+    public const string LoginPath = "/login";
+
+    /// <summary>Where the password is set, changed and removed.</summary>
+    public const string PasswordPath = "/password";
+
+    /// <summary>
+    /// The policy the password page uses instead of the default one.
+    /// </summary>
+    /// <remarks>
+    /// It cannot use the default policy, because the state that sends everybody here
+    /// is the one where nobody can sign in — and it cannot be anonymous either, or a
+    /// locked application would let a stranger change its password.
+    /// </remarks>
+    public const string PasswordPolicy = "aniqueue:password";
+
     /// <summary>Builds the principal a successful sign-in is issued for.</summary>
     public static ClaimsPrincipal PrincipalFor(string stamp)
     {
@@ -52,7 +68,7 @@ public static class AniQueueAuth
 
     /// <summary>
     /// Checks a cookie's stamp on every request it arrives on, and throws the
-    /// cookie away when the password has been set, changed or cleared since.
+    /// cookie away when the password has been set, changed or removed since.
     /// </summary>
     /// <remarks>
     /// The check costs nothing per request: the service holds the stamp in memory
@@ -73,6 +89,31 @@ public static class AniQueueAuth
         context.RejectPrincipal();
         await context.HttpContext.SignOutAsync(Scheme);
     }
+
+    /// <summary>
+    /// Sends a refused request to the sign-in page, or to the password page when
+    /// there is no password to sign in with.
+    /// </summary>
+    /// <remarks>
+    /// The switch can be on before anybody has set a password — an operator editing
+    /// the file, or a container started with the setting already true. Sending that
+    /// visitor to a sign-in form would be a locked door with no key cut for it, so
+    /// they are sent to cut one.
+    /// </remarks>
+    public static async Task RedirectToLoginAsync(RedirectContext<CookieAuthenticationOptions> context)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+
+        var auth = context.HttpContext.RequestServices.GetRequiredService<IAuthService>();
+
+        var target = await auth.GetStateAsync(context.HttpContext.RequestAborted) switch
+        {
+            AuthState.NeedsPassword => PasswordPath,
+            _ => context.RedirectUri
+        };
+
+        context.Response.Redirect(target);
+    }
 }
 
 /// <summary>
@@ -80,9 +121,9 @@ public static class AniQueueAuth
 /// </summary>
 /// <remarks>
 /// A requirement rather than the framework's plain "must be authenticated",
-/// because whether this application is locked is a question about the database and
-/// not about the request — and the answer changes the moment somebody sets or
-/// clears a password, without a restart.
+/// because whether this application is locked is a question about a setting and a
+/// column rather than about the request — and the answer changes the moment
+/// somebody sets or removes a password, without a restart.
 /// </remarks>
 public sealed class UnlockedRequirement : IAuthorizationRequirement;
 
@@ -95,7 +136,36 @@ public sealed class UnlockedHandler(IAuthService auth) : AuthorizationHandler<Un
     {
         ArgumentNullException.ThrowIfNull(context);
 
-        if (context.User.Identity?.IsAuthenticated is true || !await auth.IsLockedAsync())
+        if (context.User.Identity?.IsAuthenticated is true
+            || await auth.GetStateAsync() is AuthState.Open)
+        {
+            context.Succeed(requirement);
+        }
+    }
+}
+
+/// <summary>
+/// Passes for the password page: when the lock is not yet holding anything, or
+/// when the caller has signed in.
+/// </summary>
+public sealed class PasswordPageRequirement : IAuthorizationRequirement;
+
+/// <summary>Answers <see cref="PasswordPageRequirement"/>.</summary>
+public sealed class PasswordPageHandler(IAuthService auth)
+    : AuthorizationHandler<PasswordPageRequirement>
+{
+    protected override async Task HandleRequirementAsync(
+        AuthorizationHandlerContext context,
+        PasswordPageRequirement requirement)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+
+        // Open lets anybody set the first password, which is the same reach they
+        // already have over an application that is not asking for one. NeedsPassword
+        // is the state that sends everybody here, so refusing them here would be a
+        // redirect to a page that redirects back.
+        if (context.User.Identity?.IsAuthenticated is true
+            || await auth.GetStateAsync() is not AuthState.Locked)
         {
             context.Succeed(requirement);
         }

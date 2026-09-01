@@ -1,6 +1,7 @@
 using System.Globalization;
 using AniQueue.Core.Domain;
 using AniQueue.Core.Recommendations;
+using AniQueue.Core.Security;
 using AniQueue.Core.Settings;
 using AniQueue.Infrastructure.Jobs;
 using AniQueue.Infrastructure.Sync;
@@ -108,10 +109,9 @@ public sealed class UserSettingsStore(
                 ScoringKey(nameof(ScoringOptions.SweepMinutes)))
             ?? UserSettings.Defaults.ScoringSweepMinutes,
 
-        // A literal section name rather than one taken from an options type, because
-        // nothing binds this to options: it is read once at startup, acted on, and
-        // written back.
-        AuthClearPassword = Bool("Auth:ClearPassword", UserSettings.Defaults.AuthClearPassword)
+        AuthEnabled = Bool(
+            $"{AuthOptions.SectionName}:{nameof(AuthOptions.Enabled)}",
+            UserSettings.Defaults.AuthEnabled)
     };
 
     private static string SyncKey(string key) => $"{SyncOptions.SectionName}:{key}";

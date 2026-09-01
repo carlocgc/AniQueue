@@ -245,7 +245,7 @@ public class UserSettingsStoreTests : IDisposable
             ScoringEnabled = true,
             ScoringBatchSize = 4,
             ScoringSweepMinutes = 15,
-            AuthClearPassword = true
+            AuthEnabled = true
         };
 
         // Every one of them differs from its default, so a property the reader

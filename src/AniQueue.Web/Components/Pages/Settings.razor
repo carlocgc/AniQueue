@@ -287,24 +287,35 @@
 <div class="card">
     <h2>Password</h2>
 
-    @if (_locked)
+    @switch (_authState)
     {
-        <p class="muted">
-            AniQueue asks for a password before it shows anything. Changing or removing
-            it signs out every device that is signed in now.
-        </p>
+        case AuthState.Locked:
+            <p class="muted">
+                AniQueue asks for a password before it shows anything. Changing or removing
+                it signs out every device that is signed in now.
+            </p>
 
-        <a class="button" href="password">Change or remove it</a>
-    }
-    else
-    {
-        <p class="muted">
-            AniQueue has no password, so anybody who can reach this address can read
-            your library and change it. Setting one is what turns the lock on, and
-            removing it later opens things up again.
-        </p>
+            <a class="button" href="password">Change or remove it</a>
+            break;
 
-        <a class="button" href="password">Set a password</a>
+        case AuthState.NeedsPassword:
+            <p class="muted">
+                <strong>AniQueue is set to ask for a password and there is no password to
+                ask for.</strong> Every page sends you to set one until you do.
+            </p>
+
+            <a class="button" href="password">Set a password</a>
+            break;
+
+        default:
+            <p class="muted">
+                AniQueue has no password, so anybody who can reach this address can read
+                your library and change it. Setting one is what turns the lock on, and
+                removing it later opens things up again.
+            </p>
+
+            <a class="button" href="password">Set a password</a>
+            break;
     }
 </div>
 
@@ -380,8 +391,8 @@
 
     private SyncSchedule _cadence;
 
-    /// <summary>Whether a password is set, which is the whole of whether anything is locked.</summary>
-    private bool _locked;
+    /// <summary>What the optional lock is doing, which is a setting and a column read together.</summary>
+    private AuthState _authState;
 
     private ThemePreference _theme;
 
@@ -436,7 +447,7 @@
         _cadence = TaskConfiguration.CurrentValue.Schedule;
         _primarySource = UserSettings.Read().SyncPrimarySource;
 
-        _locked = await Auth.IsLockedAsync();
+        _authState = await Auth.GetStateAsync();
 
         _theme = await Appearance.GetThemeAsync(Profile.DefaultProfileId);
         _titleLanguage = await SyncService.GetPreferredTitleLanguageAsync(Profile.DefaultProfileId);

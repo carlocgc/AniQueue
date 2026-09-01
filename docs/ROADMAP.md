@@ -469,7 +469,7 @@ row order says what has happened. What happens next is the first row without a t
 | 10b | Preferences on the settings page | ✅ | Theme, title language and the primary seat edited in one place; three unread columns dropped; the sources page holds only what a run reads (D57) |
 | 10c | Deleting data | ✅ | Relations, artwork and everything-but-the-settings each deleted from one section, each naming its counts and refused while a task runs (D58) |
 | 11 | Docker + README | ✅ | Migrations squashed to one baseline; compose up, health check, container recreated without data loss |
-| 12 | Optional auth | ▢ **next** | A password set on the settings page locks every page; `/health` and the static assets stay open; clearing it unlocks the application again (D60) |
+| 12 | Optional auth | ▢ **next** | `Auth:Enabled` off by default; a password set on the settings page turns it on and locks every page; `/health` and the static assets stay open; the switch off in the file forgets the password on the next start (D60) |
 | 13 | CI | ✅ | Build and tests on every push and PR; `dev` published on every merge, a version and `latest` only from a tag on `main` (D56) |
 | 14 | Security pass | ▢ | §6's high-risk surfaces reviewed against the finished application; release gate opens |
 | 15a | Job contract | ✅ | Jobs take a trigger and return an outcome; the runner drives units and reschedules nothing |
@@ -505,17 +505,23 @@ endpoint are cheap insurance while there is no trust boundary and become an actu
 there is; the capped diagnostic echo is the same. Nothing in Phase 8 assumes this exists, and
 nothing in it has to change when it does.
 
-**The password is the switch** (D60). There is no separate "require a login" setting to
-contradict it and no account name to type, because a single-user application has exactly one
-account: a password set on the settings page turns the lock on, and clearing it turns the lock
-off. The hash and a stamp live on the `Profile` row, which is D36's one carve-out — a credential
-is not written to a file in plain text and is not shown back — and `userconfig.json` holds
-neither.
+**`Auth:Enabled` is the switch, and the password keeps it in step** (D60). It is off by default,
+and setting a password on the settings page is what turns it on — so there is no second control
+to contradict the first, and no account name to type, because a single-user application has
+exactly one account. The hash and a stamp live on the `Profile` row, which is D36's one carve-out:
+a credential is not written to a file in plain text and is not shown back. The file holds the
+switch and nothing else about the lock.
 
-**The way back in is the file, not a rebuild.** `Auth:ClearPassword` clears the stored password
-on the next start and is unset by the same start that acted on it, so a forgotten password costs
-a restart rather than a restore of the operator's database copy. It is the pattern `Sync:Enabled`
-already uses and exists for the same reason: the file is reachable when the pages are not.
+**Neither hand-edited reading is a state to defend against.** Off with a password still stored is
+the way back in, below. On with none stored sends every page to the form that sets one, because
+nobody is locked out there — there is nothing yet to be locked out of, and a sign-in form with
+nothing behind it would be a locked door with no key cut for it.
+
+**The way back in is the file, not a rebuild.** A start that finds `Auth:Enabled` off forgets any
+stored password, so a forgotten one costs a restart rather than a restore of the operator's
+database copy. Nothing is written back, because off is a state rather than a trigger. It is the
+pattern `Sync:Enabled` already uses and exists for the same reason: the file is reachable when the
+pages are not, and the sign-in page names its absolute path for whoever has to go and find it.
 
 **What it must not break:** the unattended jobs, which run without a session and must keep doing
 so; `/health`, which a compose health check reaches before anybody has logged in; the static
@@ -523,10 +529,12 @@ assets, without which the login page renders unstyled; and the kill switches, wh
 is to work when the UI cannot be reached. A lock that locks the operator out of their own escape
 hatches is worse than none.
 
-*Exit:* a password set from the settings page locks every page and the artwork endpoint behind a
-sign-in; `/health` and the static assets answer without one; clearing the password unlocks the
-application again; changing it signs every other device out; and a run with no password set
-behaves exactly as the application does today.
+*Exit:* a password set from the settings page turns `Auth:Enabled` on and locks every page and the
+artwork endpoint behind a sign-in; `/health` and the static assets answer without one; removing
+the password turns the switch off and unlocks the application; changing it signs every other
+device out; `Auth:Enabled` off in the file forgets a stored password on the next start; on with
+none stored sends every page to the form that sets one; and a run with the switch off behaves
+exactly as the application does today.
 
 ### Phase 14 — Security pass and stabilisation
 A deliberate pass over what §6 names as high-risk, against the finished application rather than

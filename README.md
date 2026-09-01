@@ -118,11 +118,17 @@ password signs out every other device, including the phone in your pocket.
 **If you forget it**, put this in `userconfig.json` in your volume and restart:
 
 ```json
-"Auth:ClearPassword": true
+"Auth:Enabled": false
 ```
 
-That start clears the password, writes the line back to `false`, and says so in the
-log. AniQueue is then open again until you set a new one.
+That start forgets the password and says so in the log. AniQueue is then open to
+anybody who can reach it until you set a new one. The sign-in page tells you the
+file's full path, so you do not have to go looking.
+
+Setting a password writes `"Auth:Enabled": true` for you and removing one writes
+`false`, so you never have to touch that line yourself. Turning it on by hand before
+you have set a password is allowed and is not a lockout: every page then sends you to
+the form that sets one.
 
 ### Logs
 

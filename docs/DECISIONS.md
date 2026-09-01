@@ -3290,16 +3290,35 @@ locked installation would show is an unstyled form. Locking only the actions tha
 something was the alternative and it protects the wrong half: the library is the part worth
 reading.
 
-**A password is the switch.** Setting one locks the application; clearing it unlocks it. There is
-no separate *require a login* setting, because *on with no password* is a state that must not
-exist and a second control is precisely what creates it. Setting the first password signs the
-person who set it in, rather than throwing them out of the page they were standing on.
+**`Auth:Enabled` is the switch, off by default, and the password keeps it in step.** Setting a
+password on the settings page turns it on; removing one turns it off. So the ordinary user never
+sees the setting at all, and the two halves of the lock — a flag in `userconfig.json` and a hash
+on the profile row — agree unless somebody edits the file by hand. Setting the first password
+signs the person who set it in, rather than throwing them out of the page they were standing on.
+
+*It was `Auth:ClearPassword` first, and that was the wrong name.* One key that turns the lock off
+does what two keys were doing, and every other feature in that file already says `Enabled` —
+`Sync:Enabled`, `Sync:AniList:Enabled`, `Tasks:RelationsEnabled`, `Scoring:Enabled`. An imperative
+key was also the only one in the file the application rewrote behind the operator, flipping itself
+back to `false` after it fired; a switch is a state and needs no such trick.
+
+**Both hand-edited readings have an answer, so neither is a state to be defended against.** Off
+with a password still stored is the way back in, below. On with no password stored — an operator
+turning it on before ever opening the application, or a container started with it already true —
+sends every page to the form that sets one. Nobody is locked out there, because there is nothing
+yet to be locked out of, so the honest answer is to ask for the missing half rather than to
+present a sign-in form with nothing behind it.
+
+*Auto-reverting that state to off was considered and declined.* It would mean deciding when
+somebody had "declined" to set a password, which is a moment nothing can observe — and undoing
+what an operator wrote in their own file is the behaviour the `ClearPassword` spelling was already
+criticised for.
 
 **There is no account name.** A single-user application has one account, so a username field has
 one possible value, cannot be wrong, and defends nothing — it is a box to fill in on every
 sign-in for the appearance of a login form. *This amends the Phase 12 paragraph that said the
-settings file would name the account without holding the secret: there is no account to name, and
-the file holds neither half.*
+settings file would name the account without holding the secret: there is no account to name. The
+file holds the switch and nothing else about the lock.*
 
 **The credential is the one carve-out D36 has to make.** The hash lives on the `Profile` row —
 not in `userconfig.json`, which is a plain-text file an operator opens in an editor, and not on
@@ -3354,13 +3373,18 @@ against the request, then again on a circuit where there is no request to read �
 render is a `NullReferenceException` that kills the circuit while the first render's form still
 works, which is exactly as confusing as it sounds. Found by running it.
 
-**The way back in is the settings file, not a restore.** `Auth:ClearPassword` clears the stored
-password on the next start, and the same start unsets the key, so the escape hatch cannot quietly
-wipe the new password on the restart after it. It is the pattern `Sync:Enabled` already
-establishes and exists for the same reason: the file sits beside the database in the operator's
-own volume and is reachable when the pages are not. D33's answer — the operator's copy of the
-database file — remains the recovery path for data, and is far too heavy for a forgotten
-password.
+**The way back in is the settings file, not a restore.** A start that finds `Auth:Enabled` off
+forgets any stored password, so an operator who cannot get past the sign-in page edits one line
+and restarts. Nothing is written back: off is the state they asked for, and leaving it that way
+means the application they get is the open one they were expecting rather than one that has
+quietly re-locked itself. It is the pattern `Sync:Enabled` already establishes and exists for the
+same reason: the file sits beside the database in the operator's own volume and is reachable when
+the pages are not. D33's answer — the operator's copy of the database file — remains the recovery
+path for data, and is far too heavy for a forgotten password.
+
+*The sign-in page names the file's absolute path*, because it is the only page a locked-out person
+can reach and "beside your database" answers nothing for somebody who has never had to know where
+that is.
 
 *One pull request.* The parts are individually small and collectively one feature; half a lock
 on `development` is a door with no handle.

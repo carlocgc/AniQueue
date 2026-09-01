@@ -32,10 +32,10 @@ public sealed class StampAuthenticationStateProvider(
     {
         ArgumentNullException.ThrowIfNull(authenticationState);
 
-        // Nothing to revalidate against while there is no password. An open tab on
+        // Nothing to revalidate against while nothing is locked. An open tab on
         // an unlocked application is not a session, and ending it would log out a
         // user who never logged in.
-        if (!await auth.IsLockedAsync(cancellationToken))
+        if (await auth.GetStateAsync(cancellationToken) is not AuthState.Locked)
         {
             return true;
         }
