@@ -90,7 +90,7 @@
 
     private static string Describe(LibraryChange change)
     {
-        var parts = new List<string>(3);
+        var parts = new List<string>(4);
 
         if (change.Created > 0)
         {
@@ -110,6 +110,11 @@
         if (change.AbsentFlagged > 0)
         {
             parts.Add($"{change.AbsentFlagged} no longer listed");
+        }
+
+        if (change.AbsentRemoved > 0)
+        {
+            parts.Add($"{change.AbsentRemoved} deleted");
         }
 
         return parts.Count == 0

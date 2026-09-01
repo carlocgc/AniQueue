@@ -12,19 +12,21 @@ namespace AniQueue.Core.Domain;
 public enum SyncAbsencePolicy
 {
     /// <summary>
-    /// Surface it for review. The default, because it is safe for identical-list
-    /// and consolidated-list users alike.
+    /// Hold each one until the user says. The default, because it is safe for
+    /// identical-list and consolidated-list users alike.
     /// </summary>
     Flag = 0,
 
     /// <summary>
-    /// Drop the library entry and its queue slot. Not offered: a truncated
-    /// response, a paging bug, a mistyped account or a profile turned private all
-    /// look identical to a deliberate deletion, and an emptied library takes the
-    /// hand-built queue with it.
+    /// Drop the library entry and its queue slot, keeping the catalogue row.
+    /// Guarded: a fetch that returned nothing, or one dropping more than
+    /// <see cref="AniQueue.Core.Sync.AbsenceRemovalCap"/> allows, holds instead.
     /// </summary>
     Remove = 1,
 
-    /// <summary>Do nothing. The library only ever grows.</summary>
+    /// <summary>
+    /// Do nothing. The library only ever grows. Shown as <i>Keep them</i>; the name
+    /// stays because <c>userconfig.json</c> stores this value by name.
+    /// </summary>
     Ignore = 2
 }

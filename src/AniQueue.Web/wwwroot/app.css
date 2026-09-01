@@ -1776,3 +1776,46 @@ html:has(dialog.detail-dialog[open]) { overflow: hidden; }
 }
 
 .task-run.running:hover:not(:disabled) { background: var(--danger-bg); }
+
+/* The list of titles a source has dropped, and the two buttons that answer for each
+   one. Boxed rather than left as a bare list inside the card: it is a question with
+   an edge, sitting among settings that are not. */
+.absences {
+    border: 1px solid var(--warning);
+    border-radius: var(--radius);
+    padding: 0.7rem 0.9rem;
+    margin-bottom: var(--gap);
+}
+
+.absences h3 { font-size: 1rem; margin-bottom: 0.3rem; }
+
+.absence-list { list-style: none; padding: 0; margin: 0 0 var(--gap); }
+
+/* Title, then when it went, then the buttons — and the buttons stay on the right at
+   any width the row still fits. Wrapping is what happens on a phone, where the pair
+   drops under the title rather than squeezing it to nothing. */
+.absence-list li {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem 0.75rem;
+    align-items: center;
+    padding: 0.4rem 0;
+    border-top: 1px solid var(--border);
+}
+
+.absence-list .absence-title { flex: 1 1 12rem; }
+
+/* The toolbar inside a row is a pair of buttons, not the controls above a table, so
+   it drops the margin that would otherwise space the rows apart unevenly. */
+.absence-list .toolbar { margin-bottom: 0; }
+
+/* One line per option, under the control they belong to. Bulleted rather than run
+   together as a paragraph, because the reader is comparing them. */
+.choices { margin: 0.3rem 0 0.4rem; padding-left: 1.2rem; }
+
+.choices li { margin-bottom: 0.15rem; }
+
+/* The two policy pickers on a source card are one pair of questions, so they take
+   one width rather than each sizing to its longest option. A minimum rather than a
+   fixed width: content still decides if an option ever outgrows it. */
+.field select.policy { min-width: 14rem; }

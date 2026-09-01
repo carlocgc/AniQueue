@@ -106,12 +106,14 @@ public sealed class UnattendedSyncJob(
                     Created = result.Created,
                     Updated = result.Updated,
                     SlotsReleased = result.SlotsReleased,
-                    AbsentFlagged = result.AbsentFlagged
+                    AbsentFlagged = result.AbsentFlagged,
+                    AbsentRemoved = result.AbsentRemoved
                 },
                 Key);
         }
 
-        var changed = result.Created + result.Updated + result.SlotsReleased + result.AbsentFlagged;
+        var changed = result.Created + result.Updated + result.SlotsReleased
+            + result.AbsentFlagged + result.AbsentRemoved;
 
         return outcome switch
         {

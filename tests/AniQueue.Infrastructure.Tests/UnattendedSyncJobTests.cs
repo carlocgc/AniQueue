@@ -54,6 +54,18 @@ public class UnattendedSyncJobTests
             CancellationToken cancellationToken = default) =>
             throw new NotSupportedException();
 
+        public Task<int> CountUnresolvedAbsencesAsync(
+            int profileId, CancellationToken cancellationToken = default) =>
+            Task.FromResult(0);
+
+        public Task<int> ResolveAbsenceAsync(
+            int profileId,
+            AnimeSource source,
+            IReadOnlyCollection<int> animeIds,
+            AbsenceResolution resolution,
+            CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+
         public Task<UserSettingsSaveResult> SaveSettingsAsync(
             SourceSyncSettings settings, CancellationToken cancellationToken = default) =>
             Task.FromResult(UserSettingsSaveResult.Success(SettingsPath));

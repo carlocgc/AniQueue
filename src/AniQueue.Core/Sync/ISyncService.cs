@@ -30,6 +30,22 @@ public sealed record SyncFetchResult
     public int AbsentFlagged { get; init; }
 
     /// <summary>
+    /// Titles deleted during the fetch because this source is set to delete what it
+    /// stops listing. Zero under every other policy, and zero when the cap refused.
+    /// </summary>
+    public int AbsentRemoved { get; init; }
+
+    /// <summary>
+    /// True when the source dropped more titles than
+    /// <see cref="AbsenceRemovalCap"/> allows, so a delete policy held them instead.
+    /// </summary>
+    /// <remarks>
+    /// Reported rather than logged, because the user has asked for deletion and did
+    /// not get it. Silence would read as a source that dropped nothing.
+    /// </remarks>
+    public bool RemovalCapped { get; init; }
+
+    /// <summary>
     /// True when the run is already over — it failed, or the list already matched
     /// the library — so the caller has a result to report rather than a decision to
     /// ask for.
@@ -77,6 +93,9 @@ public sealed record UnattendedSyncResult
 
     public int AbsentFlagged { get; init; }
 
+    /// <summary>Titles deleted because this source is set to delete what it stops listing.</summary>
+    public int AbsentRemoved { get; init; }
+
     /// <summary>Unambiguous changes found and not applied, because this source asks first.</summary>
     public int ChangesHeld { get; init; }
 
@@ -85,10 +104,32 @@ public sealed record UnattendedSyncResult
     public string? FailureReason { get; init; }
 
     /// <summary>Whether an open page is now showing something that is no longer true.</summary>
-    public bool ChangedLibrary => Created + Updated + SlotsReleased + AbsentFlagged > 0;
+    public bool ChangedLibrary =>
+        Created + Updated + SlotsReleased + AbsentFlagged + AbsentRemoved > 0;
 
     /// <summary>The run did not happen: not due, switched off, or nothing configured.</summary>
     public static UnattendedSyncResult NotRun(AnimeSource source) => new() { Source = source };
+}
+
+/// <summary>One title a source has stopped listing, waiting on the user to say what happens to it.</summary>
+public sealed record AbsentTitle
+{
+    public required int AnimeId { get; init; }
+
+    public required string Title { get; init; }
+
+    /// <summary>When a complete fetch first came back without it.</summary>
+    public required DateTimeOffset MissingSince { get; init; }
+}
+
+/// <summary>What the user decided about a title its source has dropped.</summary>
+public enum AbsenceResolution
+{
+    /// <summary>Leave it in the library, and stop asking until the source lists it again.</summary>
+    Keep,
+
+    /// <summary>Delete the library entry and its queue slot. The catalogue row stays.</summary>
+    Delete
 }
 
 /// <summary>How one source stands right now, for the Sources page.</summary>
@@ -130,14 +171,18 @@ public sealed record SourceSyncStatus
     /// <summary>The account being read, for display. Never a credential — a public username.</summary>
     public string? Account { get; init; }
 
-    /// <summary>How many of this profile's titles the source has stopped listing.</summary>
+    /// <summary>
+    /// How many of this profile's titles the source has stopped listing and the user
+    /// has not yet answered for. A title the user chose to keep is answered, so it
+    /// stops counting.
+    /// </summary>
     public int AbsentCount { get; init; }
 
     /// <summary>
-    /// A few of those titles by name, so the notice can be specific rather than
-    /// numeric. Capped: this is a reminder to go and look, not a report.
+    /// Those titles, whole rather than capped, because this is what the user acts on
+    /// one row at a time rather than a reminder to go and look.
     /// </summary>
-    public IReadOnlyList<string> AbsentTitles { get; init; } = [];
+    public IReadOnlyList<AbsentTitle> AbsentTitles { get; init; } = [];
 
     /// <summary>The most recent completed run, or null if this source has never finished one.</summary>
     public SyncRun? LastRun { get; init; }
@@ -251,6 +296,41 @@ public interface ISyncService
     /// </summary>
     Task<IReadOnlyList<SourceSyncStatus>> GetStatusAsync(
         int profileId,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// How many absences across every source are still waiting on the user.
+    /// </summary>
+    /// <remarks>
+    /// A count of its own rather than a sum over <see cref="GetStatusAsync"/>. The
+    /// banner asking the question is in the layout, so it runs on every page, and the
+    /// status carries run history and the absent titles themselves — far more work
+    /// than a number needs.
+    /// </remarks>
+    Task<int> CountUnresolvedAbsencesAsync(int profileId, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Answers one or more absences the user has been asked about.
+    /// </summary>
+    /// <remarks>
+    /// Both answers in one call because they are one decision with two values, and
+    /// both the per-title buttons and the bulk pair above them pass a set either way.
+    ///
+    /// <see cref="AbsenceResolution.Delete"/> removes the library entry and its queue
+    /// slot in one transaction. Removing the entry alone would leave a slot nothing
+    /// can ever clear, because <c>AdvanceAsync</c> reads a missing entry as
+    /// <i>unknown, not watched</i> and keeps the slot. The catalogue row is never
+    /// touched: relation edges and recommendation history hang off it.
+    ///
+    /// No cap here. The cap exists because a fetch cannot tell mass deletion from a
+    /// truncated response; a person pressing a button on a named title can.
+    /// </remarks>
+    /// <returns>How many titles were actually answered.</returns>
+    Task<int> ResolveAbsenceAsync(
+        int profileId,
+        AnimeSource source,
+        IReadOnlyCollection<int> animeIds,
+        AbsenceResolution resolution,
         CancellationToken cancellationToken = default);
 
     /// <summary>
