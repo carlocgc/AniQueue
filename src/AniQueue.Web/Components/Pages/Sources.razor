@@ -411,8 +411,13 @@ else if (_completed is { AbsentFlagged: > 0 } flagged)
                    an option costs is in the list under it rather than in its own
                    label, which keeps the labels short enough to compare. *@
                 <div class="field">
+                    @* No source named here, unlike its neighbour. Absence is something
+                       the source did, where this is AniQueue unable to tell two of its
+                       own rows apart — naming the source would blame it for that. A
+                       title the source changed and AniQueue can identify is an update,
+                       and never reaches this setting at all. *@
                     <label for="@($"conflicts-{status.Source}")">
-                        When a title changes on @status.Source
+                        When two titles look the same
                     </label>
                     <select class="policy" id="@($"conflicts-{status.Source}")"
                             value="@status.Settings.ConflictPolicy"
