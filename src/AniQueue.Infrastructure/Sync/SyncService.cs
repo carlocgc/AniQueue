@@ -50,9 +50,6 @@ public sealed class SyncService(
     /// </remarks>
     private static readonly AnimeSource[] PageSources = [AnimeSource.AniList, AnimeSource.MyAnimeList];
 
-    /// <summary>How many absent titles the status names before it stops listing them.</summary>
-    private const int AbsentTitlesShown = 10;
-
     public async Task<SyncFetchResult> FetchAsync(
         int profileId,
         AnimeSource source,
@@ -123,7 +120,14 @@ public sealed class SyncService(
         var preview = await importService.PreviewAsync(
             parsed, aniListParser.FormatName, profileId, progress, cancellationToken);
 
-        var result = new SyncFetchResult { Source = source, Preview = preview, AbsentFlagged = absent };
+        var result = new SyncFetchResult
+        {
+            Source = source,
+            Preview = preview,
+            AbsentFlagged = absent.Flagged,
+            AbsentRemoved = absent.Removed,
+            RemovalCapped = absent.Capped
+        };
 
         // Recorded now only because there is nothing left to happen. A preview with
         // changes or conflicts in it is a run still waiting on a person, and
@@ -140,9 +144,12 @@ public sealed class SyncService(
                     // Flagging is something that happened, so a run that did it is
                     // not "nothing to change" — that phrasing is how a title
                     // silently leaving the source would go unmentioned.
-                    Outcome = absent > 0 ? SyncOutcome.Succeeded : SyncOutcome.NothingToDo,
+                    Outcome = absent.Flagged + absent.Removed > 0
+                        ? SyncOutcome.Succeeded
+                        : SyncOutcome.NothingToDo,
                     Skipped = preview.UnchangedCount,
-                    AbsentFlagged = absent
+                    AbsentFlagged = absent.Flagged,
+                    AbsentRemoved = absent.Removed
                 },
                 cancellationToken);
         }
@@ -178,7 +185,8 @@ public sealed class SyncService(
             startedAt,
             new SyncRun
             {
-                Outcome = commit.Created + commit.Updated + fetch.AbsentFlagged > 0
+                Outcome = commit.Created + commit.Updated
+                    + fetch.AbsentFlagged + fetch.AbsentRemoved > 0
                     ? SyncOutcome.Succeeded
                     : SyncOutcome.NothingToDo,
                 Created = commit.Created,
@@ -186,7 +194,8 @@ public sealed class SyncService(
                 Skipped = commit.Skipped,
                 ConflictsHeld = held,
                 SlotsReleased = commit.QueueSlotsReleased,
-                AbsentFlagged = fetch.AbsentFlagged
+                AbsentFlagged = fetch.AbsentFlagged,
+                AbsentRemoved = fetch.AbsentRemoved
             },
             cancellationToken);
 
@@ -228,8 +237,11 @@ public sealed class SyncService(
             return new UnattendedSyncResult
             {
                 Source = source,
-                Outcome = fetch.AbsentFlagged > 0 ? SyncOutcome.Succeeded : SyncOutcome.NothingToDo,
-                AbsentFlagged = fetch.AbsentFlagged
+                Outcome = fetch.AbsentFlagged + fetch.AbsentRemoved > 0
+                    ? SyncOutcome.Succeeded
+                    : SyncOutcome.NothingToDo,
+                AbsentFlagged = fetch.AbsentFlagged,
+                AbsentRemoved = fetch.AbsentRemoved
             };
         }
 
@@ -252,6 +264,7 @@ public sealed class SyncService(
                 Updated = applied.Commit.Updated,
                 SlotsReleased = applied.Commit.QueueSlotsReleased,
                 AbsentFlagged = fetch.AbsentFlagged,
+                AbsentRemoved = fetch.AbsentRemoved,
                 ConflictsHeld = applied.ConflictsHeld
             };
         }
@@ -276,7 +289,8 @@ public sealed class SyncService(
                 Skipped = preview.UnchangedCount,
                 ChangesHeld = changesHeld,
                 ConflictsHeld = conflictsHeld,
-                AbsentFlagged = fetch.AbsentFlagged
+                AbsentFlagged = fetch.AbsentFlagged,
+                AbsentRemoved = fetch.AbsentRemoved
             },
             cancellationToken);
 
@@ -292,7 +306,8 @@ public sealed class SyncService(
             Outcome = SyncOutcome.HeldForReview,
             ChangesHeld = changesHeld,
             ConflictsHeld = conflictsHeld,
-            AbsentFlagged = fetch.AbsentFlagged
+            AbsentFlagged = fetch.AbsentFlagged,
+            AbsentRemoved = fetch.AbsentRemoved
         };
     }
 
@@ -346,13 +361,16 @@ public sealed class SyncService(
     /// response was structurally complete; the zero-entry guard covers the remaining
     /// case of a complete response that is simply empty.
     ///
-    /// Nothing is removed. <see cref="SyncAbsencePolicy.Remove"/> waits on the guards
-    /// it needs — see <see cref="SyncAbsencePolicy"/> — so the
-    /// mark is currently the whole of the behaviour, which is also why it is safe to
-    /// write during a fetch that has not been confirmed: it records what the source
-    /// said, and the next fetch that says otherwise clears it.
+    /// The mark itself is safe to write during a fetch nobody has confirmed: it
+    /// records what the source said, and the next fetch that says otherwise clears it.
+    ///
+    /// <b>Deleting is not.</b> Under <see cref="SyncAbsencePolicy.Remove"/> this
+    /// removes library entries, which nothing inside AniQueue can undo, so it happens
+    /// only when the absences fit within <see cref="AbsenceRemovalCap"/>. Above the
+    /// cap the titles are marked and the user is asked, because a fetch cannot tell a
+    /// list somebody emptied from a page that came back short.
     /// </remarks>
-    private async Task<int> ReconcileAbsenceAsync(
+    private async Task<AbsenceOutcome> ReconcileAbsenceAsync(
         int profileId,
         AnimeSource source,
         ParseResult parsed,
@@ -361,7 +379,7 @@ public sealed class SyncService(
     {
         if (settings.AbsencePolicy == SyncAbsencePolicy.Ignore || parsed.Entries.Count == 0)
         {
-            return 0;
+            return default;
         }
 
         var listed = parsed.Entries
@@ -375,7 +393,7 @@ public sealed class SyncService(
         // understand well enough to draw conclusions from.
         if (listed.Count == 0)
         {
-            return 0;
+            return default;
         }
 
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
@@ -392,43 +410,252 @@ public sealed class SyncService(
         var now = DateTimeOffset.UtcNow;
         var flagged = 0;
         var cleared = 0;
+        var absent = new List<AnimeExternalId>();
 
         foreach (var row in rows)
         {
             if (listed.Contains(row.ExternalId))
             {
                 // Listed again — or never gone, which is the usual case and writes
-                // nothing because the value is already null.
+                // nothing because both values are already null. The answer goes with
+                // the mark: a title that leaves a second time is a second question.
                 if (row.MissingFromSourceAt is not null)
                 {
                     row.MissingFromSourceAt = null;
+                    row.AbsenceKeptAt = null;
                     cleared++;
                 }
             }
-            else if (row.MissingFromSourceAt is null)
+            else
             {
-                row.MissingFromSourceAt = now;
-                flagged++;
+                absent.Add(row);
+
+                if (row.MissingFromSourceAt is null)
+                {
+                    row.MissingFromSourceAt = now;
+                    flagged++;
+                }
             }
         }
 
-        if (flagged + cleared == 0)
+        // Measured against every title this source tracks for the profile, which is
+        // what "a tenth of the library disappeared" has to mean. Counting against the
+        // absences themselves would compare the number to itself.
+        var capped = settings.AbsencePolicy == SyncAbsencePolicy.Remove
+            && AbsenceRemovalCap.Exceeded(absent.Count, rows.Count);
+
+        var removing = settings.AbsencePolicy == SyncAbsencePolicy.Remove && !capped
+            ? absent
+            : [];
+
+        if (flagged + cleared + removing.Count == 0)
         {
             // The steady state, and the reason for counting rather than saving
             // unconditionally: an idle poll must not open a write transaction at all,
             // because it contends with the user for SQLite's single writer.
+            return default;
+        }
+
+        var removed = 0;
+
+        if (removing.Count > 0)
+        {
+            removed = await RemoveEntriesAsync(
+                context, profileId, [.. removing.Select(x => x.AnimeId)], cancellationToken);
+
+            // The mark describes a title the user still has. Once the entry is gone it
+            // describes nothing, and would resurface as an unanswered question if the
+            // title were ever added back by hand.
+            foreach (var row in removing)
+            {
+                row.MissingFromSourceAt = null;
+                row.AbsenceKeptAt = null;
+            }
+        }
+
+        await context.SaveChangesAsync(cancellationToken);
+
+        if (capped)
+        {
+            logger.LogWarning(
+                "{Source} is set to delete absent titles but {Absent} of {Tracked} are missing, "
+                    + "which is over the cap of {Cap}. They have been held for review instead.",
+                source,
+                absent.Count,
+                rows.Count,
+                AbsenceRemovalCap.For(rows.Count));
+        }
+
+        logger.LogInformation(
+            "{Source} absence: {Flagged} titles no longer listed, {Removed} deleted, {Cleared} listed again",
+            source,
+            flagged,
+            removed,
+            cleared);
+
+        // Nothing is left waiting when everything absent was just deleted, however many
+        // of those rows this run was the first to mark.
+        return new AbsenceOutcome(removing.Count > 0 ? 0 : flagged, removed, capped);
+    }
+
+    /// <summary>
+    /// Deletes the library entries for these titles and the queue slots holding them,
+    /// leaving the catalogue rows alone.
+    /// </summary>
+    /// <remarks>
+    /// The slot goes in the same unit of work as the entry, not afterwards.
+    /// <c>AdvanceAsync</c> reads a slot whose library entry is missing as <i>unknown,
+    /// not watched</i> and keeps it, so an entry deleted on its own leaves a slot that
+    /// nothing in the application can ever clear.
+    ///
+    /// The <c>Anime</c> stays. Relation edges and <c>RecommendationRunItem</c> history
+    /// point at it, and deleting it would take a run's record of what it scored.
+    /// Its identifier rows stay too, which is also what stops the next fetch offering
+    /// the same deletion again: absence is only ever counted for a title the profile
+    /// still has an entry for.
+    /// </remarks>
+    private static async Task<int> RemoveEntriesAsync(
+        AniQueueDbContext context,
+        int profileId,
+        IReadOnlyCollection<int> animeIds,
+        CancellationToken cancellationToken)
+    {
+        if (animeIds.Count == 0)
+        {
             return 0;
+        }
+
+        var entries = await context.LibraryEntries
+            .Where(e => e.ProfileId == profileId && animeIds.Contains(e.AnimeId))
+            .ToListAsync(cancellationToken);
+
+        context.LibraryEntries.RemoveRange(entries);
+
+        // Ordered by position with the key as tiebreak, because position is not unique:
+        // SQLite checks uniqueness per statement rather than at commit, so a reorder
+        // shifting a block of rows would collide mid-transaction and no index enforces
+        // it.
+        var slots = await context.QueueItems
+            .Where(q => q.ProfileId == profileId)
+            .OrderBy(q => q.Position)
+            .ThenBy(q => q.Id)
+            .ToListAsync(cancellationToken);
+
+        var keeping = new List<QueueItem>(slots.Count);
+
+        foreach (var slot in slots)
+        {
+            if (animeIds.Contains(slot.AnimeId))
+            {
+                context.QueueItems.Remove(slot);
+            }
+            else
+            {
+                keeping.Add(slot);
+            }
+        }
+
+        // Closing the gap is the point. Position is contiguous by invariant rather
+        // than by constraint, and leaving a hole in it would leave the next reorder
+        // computing indices against a sequence that has one.
+        for (var index = 0; index < keeping.Count; index++)
+        {
+            if (keeping[index].Position != index)
+            {
+                keeping[index].Position = index;
+            }
+        }
+
+        return entries.Count;
+    }
+
+    /// <summary>What one reconciliation did, for the run record and the page.</summary>
+    /// <param name="Flagged">Absences newly recorded and waiting on the user.</param>
+    /// <param name="Removed">Library entries deleted outright.</param>
+    /// <param name="Capped">
+    /// Whether a delete policy refused because too much of the library was missing at
+    /// once. The absences are flagged in that case, so the user still hears about them.
+    /// </param>
+    private readonly record struct AbsenceOutcome(int Flagged, int Removed, bool Capped);
+
+    public async Task<int> CountUnresolvedAbsencesAsync(
+        int profileId,
+        CancellationToken cancellationToken = default)
+    {
+        await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
+
+        return await context.AnimeExternalIds
+            .AsNoTracking()
+            .CountAsync(
+                x => x.MissingFromSourceAt != null
+                    && x.AbsenceKeptAt == null
+                    && context.LibraryEntries.Any(e => e.ProfileId == profileId && e.AnimeId == x.AnimeId),
+                cancellationToken);
+    }
+
+    public async Task<int> ResolveAbsenceAsync(
+        int profileId,
+        AnimeSource source,
+        IReadOnlyCollection<int> animeIds,
+        AbsenceResolution resolution,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(animeIds);
+
+        if (animeIds.Count == 0)
+        {
+            return 0;
+        }
+
+        await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
+
+        // Re-read rather than trusted. The page's list is as old as its last load, and
+        // a background sync between the two may have seen the title listed again — in
+        // which case there is no longer a question to answer, and deleting on the
+        // strength of a stale row would remove a title the source still has.
+        var rows = await context.AnimeExternalIds
+            .Where(x => x.Source == source
+                && x.MissingFromSourceAt != null
+                && x.AbsenceKeptAt == null
+                && animeIds.Contains(x.AnimeId)
+                && context.LibraryEntries.Any(e => e.ProfileId == profileId && e.AnimeId == x.AnimeId))
+            .ToListAsync(cancellationToken);
+
+        if (rows.Count == 0)
+        {
+            return 0;
+        }
+
+        if (resolution == AbsenceResolution.Keep)
+        {
+            var now = DateTimeOffset.UtcNow;
+
+            foreach (var row in rows)
+            {
+                row.AbsenceKeptAt = now;
+            }
+        }
+        else
+        {
+            await RemoveEntriesAsync(
+                context, profileId, [.. rows.Select(x => x.AnimeId)], cancellationToken);
+
+            foreach (var row in rows)
+            {
+                row.MissingFromSourceAt = null;
+                row.AbsenceKeptAt = null;
+            }
         }
 
         await context.SaveChangesAsync(cancellationToken);
 
         logger.LogInformation(
-            "{Source} absence: {Flagged} titles no longer listed, {Cleared} listed again",
+            "{Count} {Source} absences resolved as {Resolution}",
+            rows.Count,
             source,
-            flagged,
-            cleared);
+            resolution);
 
-        return flagged;
+        return rows.Count;
     }
 
     public async Task<IReadOnlyList<SourceSyncStatus>> GetStatusAsync(
@@ -479,23 +706,26 @@ public sealed class SyncService(
                 ? 0
                 : await runs.CountAsync(r => r.Id > lastSuccessId, cancellationToken);
 
+            // Missing *and* unanswered. A title the user chose to keep is settled, and
+            // counting it would leave the banner up for a decision already made.
             var absentQuery = context.AnimeExternalIds
                 .AsNoTracking()
                 .Where(x => x.Source == source
                     && x.MissingFromSourceAt != null
+                    && x.AbsenceKeptAt == null
                     && context.LibraryEntries.Any(e => e.ProfileId == profileId && e.AnimeId == x.AnimeId));
 
-            var absentCount = await absentQuery.CountAsync(cancellationToken);
-
-            // Named only when there are any, and only a few of them: the page is
-            // reminding the user to go and look, not reporting.
-            var absentTitles = absentCount == 0
-                ? []
-                : await absentQuery
-                    .Select(x => x.Anime!.Title)
-                    .OrderBy(title => title)
-                    .Take(AbsentTitlesShown)
-                    .ToListAsync(cancellationToken);
+            // Every one of them, because each is a row the user acts on rather than a
+            // sample to remind them to go and look.
+            var absentTitles = await absentQuery
+                .OrderBy(x => x.Anime!.Title)
+                .Select(x => new AbsentTitle
+                {
+                    AnimeId = x.AnimeId,
+                    Title = x.Anime!.Title,
+                    MissingSince = x.MissingFromSourceAt!.Value
+                })
+                .ToListAsync(cancellationToken);
 
             statuses.Add(new SourceSyncStatus
             {
@@ -518,7 +748,7 @@ public sealed class SyncService(
                 LastSuccess = lastSuccess,
                 LastFailure = lastFailure,
                 ConsecutiveFailures = consecutiveFailures,
-                AbsentCount = absentCount,
+                AbsentCount = absentTitles.Count,
                 AbsentTitles = absentTitles
             });
         }

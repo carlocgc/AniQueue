@@ -207,13 +207,13 @@ public class UnattendedSyncTests
 
         Assert.Equal("900102", Assert.Single(flagged).ExternalId);
 
-        // Flagged, and nothing more: the entry and any queue slot survive, because
-        // removal waits for the phase that can undo it.
+        // Flagged, and nothing more. Deleting is a different policy, and this one
+        // says only that the source stopped listing it.
         Assert.Equal(2, await context.LibraryEntries.CountAsync());
 
         var status = await AniListStatusAsync(fixture);
         Assert.Equal(1, status.AbsentCount);
-        Assert.Equal("Yoru no Hate", Assert.Single(status.AbsentTitles));
+        Assert.Equal("Yoru no Hate", Assert.Single(status.AbsentTitles).Title);
     }
 
     [Fact]
@@ -286,6 +286,102 @@ public class UnattendedSyncTests
 
         await using var context = fixture.Database.CreateContext();
         Assert.False(await context.AnimeExternalIds.AnyAsync(x => x.MissingFromSourceAt != null));
+        Assert.Equal(2, await context.LibraryEntries.CountAsync());
+    }
+
+    [Fact]
+    public async Task Deleting_an_absent_title_takes_its_queue_slot_with_it()
+    {
+        await using var fixture = await SyncFixture.CreateAsync(new StubAniListClient(TwoTitles()));
+
+        await fixture.Service.RunUnattendedAsync(Profile.DefaultProfileId, AnimeSource.AniList);
+        await ConfigureAsync(fixture, s => s with { AbsencePolicy = SyncAbsencePolicy.Remove });
+
+        var leavingId = await AnimeIdForAsync(fixture, "900102");
+
+        await using (var setup = fixture.Database.CreateContext())
+        {
+            setup.QueueItems.Add(SeedData.QueueSlot(Profile.DefaultProfileId, 0, leavingId));
+            await setup.SaveChangesAsync();
+        }
+
+        fixture.Client.Returns(OneTitle());
+
+        var result = await fixture.Service.RunUnattendedAsync(
+            Profile.DefaultProfileId, AnimeSource.AniList);
+
+        Assert.Equal(1, result.AbsentRemoved);
+        Assert.Equal(0, result.AbsentFlagged);
+
+        await using var context = fixture.Database.CreateContext();
+
+        Assert.Equal(1, await context.LibraryEntries.CountAsync());
+
+        // The slot goes in the same unit of work. AdvanceAsync reads a slot whose
+        // library entry is missing as unknown rather than watched and keeps it, so an
+        // entry deleted alone would leave a slot nothing could ever clear.
+        Assert.False(await context.QueueItems.AnyAsync());
+
+        // The catalogue row stays: relation edges and recommendation history point at
+        // it, and it is also what stops the next fetch offering the deletion again.
+        Assert.Equal(2, await context.Anime.CountAsync());
+        Assert.False(await context.AnimeExternalIds.AnyAsync(x => x.MissingFromSourceAt != null));
+    }
+
+    [Fact]
+    public async Task Too_many_absences_at_once_delete_nothing_and_wait_for_the_user()
+    {
+        // A list gone private, a short page and a rate limit all arrive looking like
+        // this. The cap is what stops the one reading that cannot be undone.
+        var everything = ListResponse(
+            [.. Enumerable.Range(0, 7).Select(i => new AniListEntry(900200 + i, $"Title {i}"))]);
+
+        await using var fixture = await SyncFixture.CreateAsync(new StubAniListClient(everything));
+
+        await fixture.Service.RunUnattendedAsync(Profile.DefaultProfileId, AnimeSource.AniList);
+        await ConfigureAsync(fixture, s => s with { AbsencePolicy = SyncAbsencePolicy.Remove });
+
+        // Six of the seven stop being listed, against a cap of five.
+        fixture.Client.Returns(ListResponse([new AniListEntry(900200, "Title 0")]));
+
+        var result = await fixture.Service.RunUnattendedAsync(
+            Profile.DefaultProfileId, AnimeSource.AniList);
+
+        Assert.Equal(0, result.AbsentRemoved);
+        Assert.Equal(6, result.AbsentFlagged);
+
+        await using var context = fixture.Database.CreateContext();
+
+        Assert.Equal(7, await context.LibraryEntries.CountAsync());
+
+        // Held rather than dropped, so the user still hears about it.
+        var status = await AniListStatusAsync(fixture);
+        Assert.Equal(6, status.AbsentCount);
+    }
+
+    [Fact]
+    public async Task An_absence_under_the_cap_still_deletes()
+    {
+        // The other side of the same boundary, so the cap cannot quietly become
+        // "never delete anything".
+        var everything = ListResponse(
+            [.. Enumerable.Range(0, 7).Select(i => new AniListEntry(900200 + i, $"Title {i}"))]);
+
+        await using var fixture = await SyncFixture.CreateAsync(new StubAniListClient(everything));
+
+        await fixture.Service.RunUnattendedAsync(Profile.DefaultProfileId, AnimeSource.AniList);
+        await ConfigureAsync(fixture, s => s with { AbsencePolicy = SyncAbsencePolicy.Remove });
+
+        // Five of the seven, which is exactly the cap rather than over it.
+        fixture.Client.Returns(ListResponse(
+            [new AniListEntry(900200, "Title 0"), new AniListEntry(900201, "Title 1")]));
+
+        var result = await fixture.Service.RunUnattendedAsync(
+            Profile.DefaultProfileId, AnimeSource.AniList);
+
+        Assert.Equal(5, result.AbsentRemoved);
+
+        await using var context = fixture.Database.CreateContext();
         Assert.Equal(2, await context.LibraryEntries.CountAsync());
     }
 
@@ -386,4 +482,15 @@ public class UnattendedSyncTests
     private static async Task<SourceSyncStatus> AniListStatusAsync(SyncFixture fixture) =>
         (await fixture.Service.GetStatusAsync(Profile.DefaultProfileId))
             .Single(s => s.Source == AnimeSource.AniList);
+
+    /// <summary>Which catalogue row a sync gave one AniList identifier.</summary>
+    private static async Task<int> AnimeIdForAsync(SyncFixture fixture, string externalId)
+    {
+        await using var context = fixture.Database.CreateContext();
+
+        return await context.AnimeExternalIds
+            .Where(x => x.Source == AnimeSource.AniList && x.ExternalId == externalId)
+            .Select(x => x.AnimeId)
+            .SingleAsync();
+    }
 }

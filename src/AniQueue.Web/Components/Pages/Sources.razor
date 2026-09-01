@@ -42,6 +42,35 @@
     </div>
 }
 
+@* A fetch that had nothing to apply may still have deleted things, and saying
+   "already up to date" about that run would be the page hiding the one change it
+   cannot undo. *@
+@if (_completed is { RemovalCapped: true } capped)
+{
+    <div class="notice warning" role="alert">
+        <strong>
+            @capped.Source dropped too many titles at once, so AniQueue deleted none of them.
+        </strong>
+        A list that has gone private, or come back half-read, looks the same as one you
+        emptied on purpose. They are listed below for you to decide on.
+    </div>
+}
+else if (_completed is { AbsentRemoved: > 0 } removed)
+{
+    <div class="notice warning" role="status">
+        @removed.AbsentRemoved @(removed.AbsentRemoved == 1 ? "title is" : "titles are") no
+        longer on @removed.Source, so @(removed.AbsentRemoved == 1 ? "it has" : "they have")
+        been deleted from your library and from Up Next.
+    </div>
+}
+else if (_completed is { AbsentFlagged: > 0 } flagged)
+{
+    <div class="notice info" role="status">
+        @flagged.AbsentFlagged @(flagged.AbsentFlagged == 1 ? "title is" : "titles are") no
+        longer on @flagged.Source. Nothing has been deleted — they are listed below.
+    </div>
+}
+
 @if (!SyncConfiguration.CurrentValue.Enabled)
 {
     @* The operator's kill switch. Said out loud because otherwise a Sync Now that
@@ -165,10 +194,73 @@
             }
         }
 
+        @* Not gated on the source being configured, unlike everything below it. What
+           the source dropped was recorded while it was, and a user who has since
+           cleared the account would otherwise follow the banner to a page that does
+           not show them the titles it is talking about. *@
+        @if (status.AbsentCount > 0 && !IsPreviewing)
+        {
+            @* A row each with its own two buttons, rather than a sentence naming
+               a few of them. The old notice said what had happened and offered
+               nothing to do about it, so the only way to act on it was to go and
+               find each title by hand. Every one is listed: this is the surface
+               the decision is made on, not a reminder to go and look. *@
+            <section class="absences" aria-labelledby="@($"absent-{status.Source}")">
+                <h3 id="@($"absent-{status.Source}")">
+                    @status.Source has dropped @status.AbsentCount
+                    @(status.AbsentCount == 1 ? "title" : "titles")
+                </h3>
+
+                <p class="muted">
+                    @(status.AbsentCount == 1 ? "It is" : "They are") still in your library
+                    and still queueable. Nothing happens until you say so.
+                </p>
+
+                <div class="toolbar">
+                    <button disabled="@_busy.IsRunning"
+                            @onclick="() => ResolveAllAsync(status, AbsenceResolution.Keep)">
+                        Keep all @status.AbsentCount
+                    </button>
+                    <button class="danger" disabled="@_busy.IsRunning"
+                            @onclick="() => ResolveAllAsync(status, AbsenceResolution.Delete)">
+                        Delete all @status.AbsentCount
+                    </button>
+                </div>
+
+                <ul class="absence-list">
+                    @foreach (var absent in status.AbsentTitles)
+                    {
+                        <li>
+                            <span class="absence-title">@absent.Title</span>
+                            <span class="muted">gone since @absent.MissingSince.ToLocalTime().ToString("d MMM yyyy")</span>
+                            <span class="toolbar">
+                                <button disabled="@_busy.IsRunning"
+                                        @onclick="() => ResolveAsync(status, absent, AbsenceResolution.Keep)">
+                                    Keep
+                                </button>
+                                <button class="danger" disabled="@_busy.IsRunning"
+                                        @onclick="() => ResolveAsync(status, absent, AbsenceResolution.Delete)">
+                                    Delete
+                                </button>
+                            </span>
+                        </li>
+                    }
+                </ul>
+
+                @* Said here rather than only in the settings above, because this is
+                   where somebody is about to press Delete. *@
+                <p class="muted">
+                    Deleting removes the title from your library and from Up Next. Its
+                    scores and rankings stay, and AniQueue cannot undo it — your library
+                    is one database file, so a copy of it is the way back.
+                </p>
+            </section>
+        }
+
         @* Everything below describes the source's standing state rather than the
-           preview below it — how long ago it last ran, what it has stopped listing,
-           how much of the relation graph is known — so none of it is an answer to
-           the question a preview asked. It comes back on Discard. *@
+           preview below it — how long ago it last ran, how much of the relation graph
+           is known — so none of it is an answer to the question a preview asked. It
+           comes back on Discard. *@
         @if (status.IsConfigured && !IsPreviewing)
         {
             @* Failure and success are stated separately, and both survive: "last
@@ -209,18 +301,6 @@
                 <div class="notice info" role="status">
                     @held.ConflictsHeld @(held.ConflictsHeld == 1 ? "conflict was" : "conflicts were")
                     left undecided. Reviewing brings them back — nothing about them has changed.
-                </div>
-            }
-
-            @if (status.AbsentCount > 0)
-            {
-                @* Named rather than counted, because "3 titles were removed" sends
-                   the user hunting through several hundred rows to find out which. *@
-                <div class="notice warning" role="status">
-                    @status.AbsentCount @(status.AbsentCount == 1 ? "title is" : "titles are")
-                    no longer on @status.Source: @string.Join(", ", status.AbsentTitles)@(status.AbsentCount > status.AbsentTitles.Count ? $" and {status.AbsentCount - status.AbsentTitles.Count} more" : "").
-                    @(status.AbsentCount == 1 ? "It is" : "They are") still in your library and
-                    still queueable — AniQueue does not delete anything a source stops listing.
                 </div>
             }
 
@@ -338,32 +418,43 @@
                     </p>
                 </div>
 
+                @* Each option says what happens, in the order a user weighs them:
+                   the careful one first, then the two that need no attention. The
+                   help below is one line per option, because the question here is
+                   "which of these three" and anything else is answered elsewhere. *@
                 <div class="field">
-                    <label for="@($"absence-{status.Source}")">Titles removed from the source</label>
+                    <label for="@($"absence-{status.Source}")">
+                        When a title disappears from @status.Source
+                    </label>
                     <select id="@($"absence-{status.Source}")" value="@status.Settings.AbsencePolicy"
-                            @onchange="e => Update(status, s => s with { AbsencePolicy = Parse(e.Value, s.AbsencePolicy) })">
-                        <option value="@SyncAbsencePolicy.Flag">Flag them for me</option>
-                        <option value="@SyncAbsencePolicy.Ignore">Leave them alone</option>
+                            @onchange="e => ChangeAbsencePolicyAsync(status, e.Value)">
+                        <option value="@SyncAbsencePolicy.Flag">Let me decide</option>
+                        <option value="@SyncAbsencePolicy.Ignore">Keep them</option>
+                        <option value="@SyncAbsencePolicy.Remove">Delete them</option>
                     </select>
+                    <ul class="muted choices">
+                        <li>
+                            <strong>Let me decide</strong> lists them on this page and puts a
+                            note on every page until you have answered each one.
+                        </li>
+                        <li><strong>Keep them</strong> leaves them alone and says nothing.</li>
+                        <li>
+                            <strong>Delete them</strong> removes each one from your library and
+                            from Up Next as soon as a sync notices. This cannot be undone.
+                        </li>
+                    </ul>
                     <p class="muted">
-                        Only titles this source has listed before are ever in scope. Anything
-                        it has never known about — imported from a file, or added by hand — is
-                        never touched, whatever this says.
+                        Only titles @status.Source has listed before can be affected. Anything you
+                        imported from a file or added by hand is never touched.
                     </p>
-                    @* "Remove them here too" is a stored value with no option to select
-                       it, deliberately. A truncated response, a paging bug, a mistyped
-                       account and a profile turned private all look identical to "the
-                       user deleted everything", and an emptied library taking the
-                       hand-built queue with it is the one failure here with no recovery
-                       path in the product.
-
-                       The recovery path is the database file itself, and the copy is
-                       the operator's to keep. Saying so tells the one person who can
-                       make the removal survivable what to actually do. *@
+                    @* The cap, said in the words of the thing it prevents rather than
+                       as a rule. It is what makes "Delete them" survivable at all: a
+                       short page, a rate limit and a profile turned private all arrive
+                       looking exactly like a list somebody emptied. *@
                     <p class="muted">
-                        Deleting them here as well is not offered yet: an unlucky sync would
-                        have nothing inside AniQueue to undo it. Your library lives in a single
-                        database file, so a copy of it is the way back from one.
+                        If a lot of titles vanish at once, AniQueue deletes none of them and asks
+                        you instead. A list that has gone private or come back half-read looks
+                        the same as one you emptied on purpose.
                     </p>
                 </div>
             </fieldset>
@@ -467,6 +558,17 @@
     /// </remarks>
     private bool _reviewing;
     private bool _nothingToDo;
+
+    /// <summary>
+    /// A fetch that finished with nothing to review, kept so the page can say what it
+    /// did rather than only that it found no changes.
+    /// </summary>
+    /// <remarks>
+    /// Deleting and flagging both happen inside the fetch, before any preview exists,
+    /// so a run whose only effect was to remove five titles arrives here looking
+    /// exactly like one that found the library already correct.
+    /// </remarks>
+    private SyncFetchResult? _completed;
     private string? _error;
 
     /// <summary>
@@ -628,7 +730,8 @@
             {
                 // Whatever was held has since been applied or has gone away — the list
                 // matches the library now. Showing empty tables would suggest otherwise.
-                _nothingToDo = true;
+                _completed = fetch;
+                _nothingToDo = fetch.AbsentFlagged + fetch.AbsentRemoved == 0 && !fetch.RemovalCapped;
             }
             else
             {
@@ -705,6 +808,106 @@
         }
 
         await LoadAsync();
+    }
+
+    /// <summary>
+    /// Saves the absence policy, and settles anything already asked about when the
+    /// new policy is <i>Keep them</i>.
+    /// </summary>
+    /// <remarks>
+    /// Without the second half, choosing <i>Keep them</i> would silence every future
+    /// question and leave the banner asking the ones already outstanding — a setting
+    /// that appears not to have worked. Nothing equivalent happens for <i>Delete
+    /// them</i>: a dropdown is not the place to delete five titles, so those stay in
+    /// the list with their own buttons until a sync acts on them.
+    /// </remarks>
+    private async Task ChangeAbsencePolicyAsync(SourceSyncStatus status, object? value)
+    {
+        var policy = Parse(value, status.Settings.AbsencePolicy);
+        var outstanding = status.AbsentTitles;
+
+        await Update(status, s => s with { AbsencePolicy = policy });
+
+        if (_error is not null || policy != SyncAbsencePolicy.Ignore || outstanding.Count == 0)
+        {
+            return;
+        }
+
+        await SyncService.ResolveAbsenceAsync(
+            Profile.DefaultProfileId,
+            status.Source,
+            [.. outstanding.Select(a => a.AnimeId)],
+            AbsenceResolution.Keep);
+
+        await LoadAsync();
+
+        Changes.Publish();
+    }
+
+    private Task ResolveAsync(
+        SourceSyncStatus status, AbsentTitle absent, AbsenceResolution resolution) =>
+        ResolveAbsencesAsync(status, [absent.AnimeId], resolution);
+
+    private Task ResolveAllAsync(SourceSyncStatus status, AbsenceResolution resolution) =>
+        ResolveAbsencesAsync(status, [.. status.AbsentTitles.Select(a => a.AnimeId)], resolution);
+
+    /// <summary>
+    /// Answers absences and tells the rest of the application.
+    /// </summary>
+    /// <remarks>
+    /// No confirmation step in front of the delete. The row names the title, the
+    /// button beside it says <i>Delete</i>, and the paragraph under the list says what
+    /// it costs — a dialog repeating that is a second click rather than a second
+    /// thought. The bulk button carries its count in its label for the same reason.
+    ///
+    /// Both answers publish, for different audiences. A delete is a library change
+    /// any other open page needs to hear about; a keep changes nothing anybody can
+    /// render, and announces itself only so the banner in the layout can stop showing
+    /// a question that has been answered.
+    /// </remarks>
+    private async Task ResolveAbsencesAsync(
+        SourceSyncStatus status,
+        IReadOnlyCollection<int> animeIds,
+        AbsenceResolution resolution)
+    {
+        _error = null;
+
+        int resolved;
+
+        try
+        {
+            resolved = await SyncService.ResolveAbsenceAsync(
+                Profile.DefaultProfileId, status.Source, animeIds, resolution);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Resolving {Source} absences failed", status.Source);
+            _error = "That could not be saved. Your library has not been changed.";
+            return;
+        }
+
+        await LoadAsync();
+
+        if (resolution == AbsenceResolution.Delete && resolved > 0)
+        {
+            Changes.Publish(new LibraryChange { Source = status.Source, AbsentRemoved = resolved });
+        }
+        else
+        {
+            Changes.Publish();
+        }
+
+        // Zero means a sync got there first and the source is listing the titles
+        // again, which is worth saying: the rows vanished for a reason that is not
+        // the button that was just pressed.
+        await _toasts.ShowAsync(resolved switch
+        {
+            0 => "Nothing to do — the source is listing those again",
+            1 when resolution == AbsenceResolution.Delete => "Title deleted",
+            1 => "Title kept",
+            _ when resolution == AbsenceResolution.Delete => $"{resolved} titles deleted",
+            _ => $"{resolved} titles kept"
+        });
     }
 
     /// <summary>
@@ -866,6 +1069,7 @@
         _filePreview = null;
         _pendingSource = null;
         _applied = null;
+        _completed = null;
         _nothingToDo = false;
         _error = null;
     }

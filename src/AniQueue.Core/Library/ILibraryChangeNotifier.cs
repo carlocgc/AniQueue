@@ -14,8 +14,11 @@ public sealed record LibraryChange
     /// <summary>Queue slots released because their titles are no longer waiting.</summary>
     public int SlotsReleased { get; init; }
 
-    /// <summary>Titles the source has stopped listing.</summary>
+    /// <summary>Titles the source has stopped listing, waiting on the user.</summary>
     public int AbsentFlagged { get; init; }
+
+    /// <summary>Titles deleted because the source stopped listing them.</summary>
+    public int AbsentRemoved { get; init; }
 }
 
 /// <summary>

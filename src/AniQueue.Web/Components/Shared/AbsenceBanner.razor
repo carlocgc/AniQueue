@@ -1,0 +1,123 @@
+@implements IDisposable
+@inject ISyncService SyncService
+@inject ILibraryChangeNotifier Notifier
+
+@* In the layout rather than on the Sources page, because the question is about the
+   library the user is looking at wherever they happen to be. A title the source has
+   dropped is still in Up Next and still in the backlog, so a note that only appears
+   on the page they would have to think to visit is a note for a user who already
+   knows.
+
+   Dismissing it is an acknowledgement, not an answer. It stays gone while they move
+   around the application, and comes back on the next load, because the titles are
+   still sitting there unanswered. *@
+@if (_outstanding > 0 && !_dismissed)
+{
+    <div class="notice warning dismissible" role="status">
+        <button class="dismiss" @onclick="() => _dismissed = true"
+                aria-label="Dismiss the dropped titles notice"><Icon Name="x" /></button>
+
+        <strong>
+            @_outstanding @(_outstanding == 1 ? "title in your library is" : "titles in your library are")
+            no longer listed by the source @(_outstanding == 1 ? "it" : "they") came from.
+        </strong>
+        Nothing has been deleted. <a href="sources">Decide what happens to
+        @(_outstanding == 1 ? "it" : "them")</a>.
+    </div>
+}
+
+@code {
+    private int _outstanding;
+    private bool _dismissed;
+    private bool _subscribed;
+
+    protected override async Task OnInitializedAsync() => await CountAsync();
+
+    /// <summary>
+    /// Subscribes once the circuit exists, rather than in <c>OnInitialized</c>.
+    /// </summary>
+    /// <remarks>
+    /// A prerendered instance is a different object from the interactive one, so
+    /// subscribing during prerender registers a handler for a component that will
+    /// never render again. <c>OnAfterRender</c> does not run while prerendering at
+    /// all, which makes first render the exact moment there is a live circuit.
+    /// </remarks>
+    protected override void OnAfterRender(bool firstRender)
+    {
+        if (firstRender)
+        {
+            Notifier.Changed += OnChanged;
+            _subscribed = true;
+        }
+    }
+
+    /// <summary>
+    /// Re-counts on any announcement, including one carrying nothing to render.
+    /// </summary>
+    /// <remarks>
+    /// The opposite of <c>StaleLibraryNotice</c>, which ignores a null change because
+    /// it has nothing to say about one. This has: answering an absence is exactly the
+    /// change with no words, and a banner that kept asking a question the user had
+    /// just answered on the Sources page would be the worst version of this.
+    /// </remarks>
+    private void OnChanged(LibraryChangeNotification notification) => _ = RefreshAsync();
+
+    private async Task RefreshAsync()
+    {
+        try
+        {
+            await CountAsync();
+
+            // Marshalled onto the render thread, because a background job publishes
+            // from whichever thread it was running on.
+            await InvokeAsync(StateHasChanged);
+        }
+        catch (ObjectDisposedException)
+        {
+            // The circuit ended between the notification and the render.
+        }
+    }
+
+    /// <summary>
+    /// Reads the count, and treats a failure as nothing to say.
+    /// </summary>
+    /// <remarks>
+    /// This renders on every page. A database that cannot be read is already going to
+    /// break whatever the user came for, and taking the layout down with it would
+    /// replace that page's own error with a blank application.
+    /// </remarks>
+    private async Task CountAsync()
+    {
+        try
+        {
+            var outstanding = await SyncService.CountUnresolvedAbsencesAsync(Profile.DefaultProfileId);
+
+            // A new absence undoes an earlier dismissal. The banner was dismissed
+            // about a set of titles, and this is no longer that set.
+            if (outstanding > _outstanding)
+            {
+                _dismissed = false;
+            }
+
+            _outstanding = outstanding;
+        }
+        catch
+        {
+            _outstanding = 0;
+        }
+    }
+
+    /// <summary>
+    /// Unsubscribes, which is not optional: the notifier is a singleton and outlives
+    /// every circuit, so a handler left registered keeps this component and the render
+    /// tree behind it alive for the life of the process.
+    /// </summary>
+    public void Dispose()
+    {
+        if (_subscribed)
+        {
+            Notifier.Changed -= OnChanged;
+            _subscribed = false;
+        }
+    }
+}

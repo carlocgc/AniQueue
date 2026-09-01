@@ -36,6 +36,19 @@ public class AnimeExternalId
     public DateTimeOffset? MissingFromSourceAt { get; set; }
 
     /// <summary>
+    /// When the user answered that absence by choosing to keep the title, or null
+    /// while it is still waiting on an answer. Cleared alongside
+    /// <see cref="MissingFromSourceAt"/> the moment the source lists the title
+    /// again, so a title that leaves twice is asked about twice.
+    /// </summary>
+    /// <remarks>
+    /// A second column rather than clearing the mark, because the mark records what
+    /// the fetch observed and the next fetch would write it straight back. Missing
+    /// and unanswered is the only state that needs the user.
+    /// </remarks>
+    public DateTimeOffset? AbsenceKeptAt { get; set; }
+
+    /// <summary>
     /// When this title's relations were last asked for from <see cref="Source"/>,
     /// or null while they have never been fetched. It records that the question was
     /// asked, not that edges came back, so a title with no relations is not

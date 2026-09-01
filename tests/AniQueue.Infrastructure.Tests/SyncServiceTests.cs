@@ -620,6 +620,204 @@ public class SyncServiceTests
     }
 
     /// <summary>
+    /// Keeping a title has to outlast the fetch that asked about it.
+    /// </summary>
+    /// <remarks>
+    /// The mark records what the source said, so clearing it as the answer would let
+    /// the very next fetch write it straight back and ask again — the decision would
+    /// survive until the next sync and no longer.
+    /// </remarks>
+    [Fact]
+    public async Task A_title_the_user_keeps_is_not_asked_about_again()
+    {
+        await using var fixture = await SyncFixture.CreateAsync(new StubAniListClient(TwoTitles()));
+
+        await fixture.Service.RunUnattendedAsync(Profile.DefaultProfileId, AnimeSource.AniList);
+
+        fixture.Client.Returns(OneTitle());
+        await fixture.Service.RunUnattendedAsync(Profile.DefaultProfileId, AnimeSource.AniList);
+
+        var absent = Assert.Single((await AniListStatusAsync(fixture)).AbsentTitles);
+
+        var resolved = await fixture.Service.ResolveAbsenceAsync(
+            Profile.DefaultProfileId, AnimeSource.AniList, [absent.AnimeId], AbsenceResolution.Keep);
+
+        Assert.Equal(1, resolved);
+        Assert.Equal(0, (await AniListStatusAsync(fixture)).AbsentCount);
+
+        // The title itself is untouched — keeping is an answer, not a change.
+        await using (var context = fixture.Database.CreateContext())
+        {
+            Assert.Equal(2, await context.LibraryEntries.CountAsync());
+        }
+
+        // And the next fetch, which still does not list it, does not reopen it.
+        await fixture.Service.RunUnattendedAsync(Profile.DefaultProfileId, AnimeSource.AniList);
+
+        Assert.Equal(0, (await AniListStatusAsync(fixture)).AbsentCount);
+        Assert.Equal(0, await fixture.Service.CountUnresolvedAbsencesAsync(Profile.DefaultProfileId));
+    }
+
+    [Fact]
+    public async Task A_kept_title_is_asked_about_again_if_it_leaves_a_second_time()
+    {
+        await using var fixture = await SyncFixture.CreateAsync(new StubAniListClient(TwoTitles()));
+
+        await fixture.Service.RunUnattendedAsync(Profile.DefaultProfileId, AnimeSource.AniList);
+
+        fixture.Client.Returns(OneTitle());
+        await fixture.Service.RunUnattendedAsync(Profile.DefaultProfileId, AnimeSource.AniList);
+
+        var absent = Assert.Single((await AniListStatusAsync(fixture)).AbsentTitles);
+        await fixture.Service.ResolveAbsenceAsync(
+            Profile.DefaultProfileId, AnimeSource.AniList, [absent.AnimeId], AbsenceResolution.Keep);
+
+        // Listed again clears the answer along with the mark, because the question it
+        // answered is no longer the one being asked.
+        fixture.Client.Returns(TwoTitles());
+        await fixture.Service.RunUnattendedAsync(Profile.DefaultProfileId, AnimeSource.AniList);
+
+        fixture.Client.Returns(OneTitle());
+        await fixture.Service.RunUnattendedAsync(Profile.DefaultProfileId, AnimeSource.AniList);
+
+        Assert.Equal(1, (await AniListStatusAsync(fixture)).AbsentCount);
+    }
+
+    [Fact]
+    public async Task Deleting_an_absence_by_hand_removes_the_entry_and_its_slot()
+    {
+        await using var fixture = await SyncFixture.CreateAsync(new StubAniListClient(TwoTitles()));
+
+        await fixture.Service.RunUnattendedAsync(Profile.DefaultProfileId, AnimeSource.AniList);
+
+        fixture.Client.Returns(OneTitle());
+        await fixture.Service.RunUnattendedAsync(Profile.DefaultProfileId, AnimeSource.AniList);
+
+        var absent = Assert.Single((await AniListStatusAsync(fixture)).AbsentTitles);
+
+        await using (var setup = fixture.Database.CreateContext())
+        {
+            setup.QueueItems.Add(SeedData.QueueSlot(Profile.DefaultProfileId, 0, absent.AnimeId));
+            await setup.SaveChangesAsync();
+        }
+
+        var resolved = await fixture.Service.ResolveAbsenceAsync(
+            Profile.DefaultProfileId,
+            AnimeSource.AniList,
+            [absent.AnimeId],
+            AbsenceResolution.Delete);
+
+        Assert.Equal(1, resolved);
+
+        await using var context = fixture.Database.CreateContext();
+
+        Assert.Equal(1, await context.LibraryEntries.CountAsync());
+        Assert.False(await context.QueueItems.AnyAsync());
+
+        // The catalogue row survives, because relation edges and recommendation
+        // history point at it.
+        Assert.Equal(2, await context.Anime.CountAsync());
+    }
+
+    /// <summary>
+    /// Queue position is contiguous by invariant rather than by constraint.
+    /// </summary>
+    /// <remarks>
+    /// Nothing in the schema enforces it — position deliberately carries no unique
+    /// index, because SQLite checks uniqueness per statement and any reorder shifting
+    /// a block of rows would collide mid-transaction. So a delete that leaves a hole
+    /// leaves the next reorder computing indices against a sequence with one.
+    /// </remarks>
+    [Fact]
+    public async Task Deleting_a_queued_title_closes_the_gap_it_leaves()
+    {
+        await using var fixture = await SyncFixture.CreateAsync(new StubAniListClient(TwoTitles()));
+
+        await fixture.Service.RunUnattendedAsync(Profile.DefaultProfileId, AnimeSource.AniList);
+
+        fixture.Client.Returns(OneTitle());
+        await fixture.Service.RunUnattendedAsync(Profile.DefaultProfileId, AnimeSource.AniList);
+
+        var absent = Assert.Single((await AniListStatusAsync(fixture)).AbsentTitles);
+        var staying = await AnimeIdForAsync(fixture, "900101");
+
+        await using (var setup = fixture.Database.CreateContext())
+        {
+            // The one leaving sits between two that stay, so removing it opens a gap
+            // rather than shortening the tail.
+            var extra = await SeedData.CreateAnimeAsync(setup, "Kaze no Tani");
+            setup.LibraryEntries.Add(SeedData.Entry(Profile.DefaultProfileId, extra.Id));
+            setup.QueueItems.Add(SeedData.QueueSlot(Profile.DefaultProfileId, 0, staying));
+            setup.QueueItems.Add(SeedData.QueueSlot(Profile.DefaultProfileId, 1, absent.AnimeId));
+            setup.QueueItems.Add(SeedData.QueueSlot(Profile.DefaultProfileId, 2, extra.Id));
+            await setup.SaveChangesAsync();
+        }
+
+        await fixture.Service.ResolveAbsenceAsync(
+            Profile.DefaultProfileId,
+            AnimeSource.AniList,
+            [absent.AnimeId],
+            AbsenceResolution.Delete);
+
+        await using var context = fixture.Database.CreateContext();
+
+        var positions = await context.QueueItems
+            .Where(q => q.ProfileId == Profile.DefaultProfileId)
+            .OrderBy(q => q.Position)
+            .Select(q => q.Position)
+            .ToListAsync();
+
+        Assert.Equal([0, 1], positions);
+    }
+
+    /// <summary>
+    /// A page's list is as old as its last load, and a sync may have run since.
+    /// </summary>
+    [Fact]
+    public async Task Answering_an_absence_the_source_has_taken_back_does_nothing()
+    {
+        await using var fixture = await SyncFixture.CreateAsync(new StubAniListClient(TwoTitles()));
+
+        await fixture.Service.RunUnattendedAsync(Profile.DefaultProfileId, AnimeSource.AniList);
+
+        fixture.Client.Returns(OneTitle());
+        await fixture.Service.RunUnattendedAsync(Profile.DefaultProfileId, AnimeSource.AniList);
+
+        var absent = Assert.Single((await AniListStatusAsync(fixture)).AbsentTitles);
+
+        // The source starts listing it again between the page loading and the click.
+        fixture.Client.Returns(TwoTitles());
+        await fixture.Service.RunUnattendedAsync(Profile.DefaultProfileId, AnimeSource.AniList);
+
+        var resolved = await fixture.Service.ResolveAbsenceAsync(
+            Profile.DefaultProfileId,
+            AnimeSource.AniList,
+            [absent.AnimeId],
+            AbsenceResolution.Delete);
+
+        Assert.Equal(0, resolved);
+
+        await using var context = fixture.Database.CreateContext();
+        Assert.Equal(2, await context.LibraryEntries.CountAsync());
+    }
+
+    private static string TwoTitles() => ListResponse(
+        [new AniListEntry(900101, "Sora no Kakera"), new AniListEntry(900102, "Yoru no Hate")]);
+
+    private static string OneTitle() => ListResponse([new AniListEntry(900101, "Sora no Kakera")]);
+
+    /// <summary>Which catalogue row a sync gave one AniList identifier.</summary>
+    private static async Task<int> AnimeIdForAsync(SyncFixture fixture, string externalId)
+    {
+        await using var context = fixture.Database.CreateContext();
+
+        return await context.AnimeExternalIds
+            .Where(x => x.Source == AnimeSource.AniList && x.ExternalId == externalId)
+            .Select(x => x.AnimeId)
+            .SingleAsync();
+    }
+
+    /// <summary>
     /// The AniList status specifically, because the page now accounts for every
     /// source rather than only the ones something can be fetched from.
     /// </summary>

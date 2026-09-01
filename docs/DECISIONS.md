@@ -622,8 +622,10 @@ would refuse.
 
 D11 puts list membership outside AniQueue, which taken seriously means a title deleted from the
 user's AniList list should leave here too. The import pipeline has no concept of absence — it
-iterates a payload, so a title not in it is never considered — and so today the library only
-ever grows.
+iterates a payload, so a title not in it is never considered — which left the library only ever
+growing. Absence is therefore reconciled beside the import rather than inside it: the fetch
+compares what came back against what the source is on record as having listed, before the
+preview that cannot see the difference is built.
 
 Two populations must be told apart before any of this is safe, and D17 is what makes the
 distinction exact:
@@ -647,16 +649,41 @@ alike, so correctness never depends on the user finding a setting.
   deliberately treats a missing library entry as *unknown, not watched*, and keeps the slot.
   Deleting the entry alone destroys the only evidence that could ever release it, leaving a
   slot nothing can clear.
-- **Automatic removal stays deferred, and D33 has withdrawn the milestone it was waiting for.**
-  It was gated on a full backup and restore that is no longer being built; the recovery path is
-  now the operator's own copy of the database file under `/data`, which is outside the
-  application and outside a mistake it could make. A truncated response, a paging bug, a
-  mistyped username or a profile turned private all look identical to "the user deleted
-  everything", and an emptied library taking the hand-built queue with it is the one failure
-  here that nothing in the product can undo.
-- **When it does land it needs guards:** honour absence only when the fetch is structurally
-  complete, never act on an empty or near-empty response, and cap the proportion removable in
-  one unattended run before downgrading to flag.
+- **Automatic removal has landed, with the guards below.** It was deferred while it waited on
+  a full backup and restore, which D33 withdrew; the recovery path is the operator's own copy
+  of the database file under `/data`, outside the application and outside a mistake it could
+  make. That copy is the whole of the recovery path, so the page says so where the buttons are
+  rather than only in a settings hint.
+- **The guards are the price of offering it**, and all four are live: honour absence only when
+  the fetch is structurally complete; conclude nothing from a response carrying no identifier
+  for the source being read; conclude nothing from an empty one; and cap what one fetch may
+  delete at `max(5, a tenth of what the source tracks)`, holding everything for the user above
+  it rather than deleting a smaller slice. A truncated response, a paging bug, a mistyped
+  username and a profile turned private all look identical to "the user deleted everything",
+  and the cap is what keeps that reading from being acted on.
+- **The cap is not a rate limit.** Over it, *nothing* is deleted and every absence is flagged.
+  Deleting up to the cap and holding the rest would take the first fifty titles of a library
+  that had gone private, which is the failure this exists to prevent.
+
+**Flag is a question, so something has to be able to answer it.** Marking a title and offering
+no way to act on it left the user to find each one by hand, and the mark itself cannot carry the
+answer: it records what the fetch observed, so clearing it as "keep this" would last exactly
+until the next fetch wrote it back. `AnimeExternalId.AbsenceKeptAt` is the answer, held beside
+the observation; *missing and unanswered* is the only state that needs anybody. Both clear
+together when the source lists the title again, so a title that leaves twice is asked about
+twice.
+
+**A user is allowed to delete what a fetch is not.** The per-title buttons carry no cap: the cap
+exists because a fetch cannot tell mass deletion from a truncated response, and a person
+pressing a button beside a named title can. What the page does re-check is the mark itself, so a
+click acting on a list the user loaded before a sync ran resolves nothing rather than deleting a
+title the source has started listing again.
+
+**The question follows the user, because the library does.** A dropped title is still in Up Next
+and still in the backlog, so the notice lives in the layout rather than on the Sources page
+alone — a page somebody would have to think to visit. It is dismissible, and dismissing is an
+acknowledgement rather than an answer: it holds while they move around the application, and
+returns on the next load, because the titles are still sitting there.
 
 ### D20 — Operator configuration and user preference are different stores
 

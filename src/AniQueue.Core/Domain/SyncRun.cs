@@ -59,6 +59,13 @@ public class SyncRun
     public int AbsentFlagged { get; set; }
 
     /// <summary>
+    /// Titles this run deleted because the source stopped listing them and is set to
+    /// delete what it drops. The audit trail for the one thing here that cannot be
+    /// undone from inside AniQueue.
+    /// </summary>
+    public int AbsentRemoved { get; set; }
+
+    /// <summary>
     /// Why a failed run failed, in plain words. Never a stack trace: this is
     /// rendered to whoever opens the page.
     /// </summary>
