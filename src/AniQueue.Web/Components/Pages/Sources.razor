@@ -460,9 +460,15 @@ else if (_completed is { AbsentFlagged: > 0 } flagged)
                             from Up Next as soon as a sync notices. This cannot be undone.
                         </li>
                     </ul>
+                    @* The out-of-scope set is stated as "@status.Source has never
+                       listed it" rather than "it came from a file", because those are
+                       not the same set: a MyAnimeList title an AniList entry claims by
+                       idMal carries an AniList identifier from then on, and is in
+                       scope. Promising the file import as a shelter would be a promise
+                       the bridge quietly breaks. *@
                     <p class="muted">
-                        Only titles @status.Source has listed before can be affected. Anything you
-                        imported from a file or added by hand is never touched.
+                        Only titles @status.Source has listed can be affected. One it has never
+                        listed — a MyAnimeList title it has no match for — is never touched.
                     </p>
                     @* The cap, said in the words of the thing it prevents rather than
                        as a rule. It is what makes "Delete them" survivable at all: a
