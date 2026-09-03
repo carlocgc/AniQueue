@@ -107,6 +107,11 @@ public static class SyncServiceCollectionExtensions
     {
         var handler = new SocketsHttpHandler
         {
+            // The host is a constant, and following a redirect would send the query
+            // — which carries the account name — somewhere the constant does not
+            // name. The image client refuses a 3xx for the same reason.
+            AllowAutoRedirect = false,
+
             // The endpoint sets a laravel_session cookie. Nothing here has any use
             // for it, and carrying a session across requests to a public endpoint is
             // state this application should not be holding.

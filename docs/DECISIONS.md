@@ -1695,6 +1695,15 @@ alone.
 - Credentials in the URL are refused. `http://user:pass@host` exists to smuggle authentication
   somewhere and has no legitimate use here.
 
+*Amended by Phase 14: a fourth, and without it the three above were bypassable in one hop.*
+**A redirect is an answer rather than somewhere else to send the library.** The three guards
+check the address that was typed and can say nothing about where a `3xx` points, so a server that
+answered `307` had the whole request — history, candidates, the lot — re-POSTed to an address
+they never saw. Driven against the running application that is exactly what happened, and
+`169.254.169.254` is reachable that way. The handler no longer follows one and the endpoint
+refuses a `3xx` in its own words, both, because the flag lives on a handler built in another file
+and the guarantee should be readable where the request is made.
+
 Loopback and private ranges are permitted, because that is exactly where a self-hosted model
 lives, and refusing them would be theatre: reaching the page at all means already being on that
 network.
@@ -3351,6 +3360,17 @@ changing a password is trying to achieve.
 pause is the cheaper half of a defence that mostly already exists. A lockout after several
 attempts, on an application with exactly one account, locks out the only person who could clear
 it — it manufactures the outage it is defending against.
+
+*Amended by Phase 14. The second is charged to the account rather than to the connection.* As
+written it was awaited per request, which fifty simultaneous connections paid once each and paid
+in parallel: measured against the running application that was 23 guesses a second, and the right
+password still worked immediately afterwards. Sign-in attempts are now serialised in
+`AuthService`, so the check and the pause happen one at a time however many connections are
+opened — 0.9 guesses a second measured the same way. **The no-lockout decision above is
+unchanged and is why this is a queue rather than a refusal:** with one account and no way to tell
+its owner from anybody else at the sign-in form, refusing an attempt is the lockout this
+deliberately does not have. It slows guessing rather than stopping it, so the length of the
+password is still what decides whether guessing can finish.
 
 **HTTPS is not required, and the README says what that costs.** The published compose file serves
 plain HTTP on 8377, so a login that insisted on TLS would lock out every existing deployment on

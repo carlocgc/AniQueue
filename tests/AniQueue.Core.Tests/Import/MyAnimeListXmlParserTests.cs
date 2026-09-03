@@ -238,6 +238,27 @@ public class MyAnimeListXmlParserTests
     }
 
     [Fact]
+    public async Task Refusing_a_dtd_does_not_tell_the_reader_how_to_allow_one()
+    {
+        // The reader's own message for this names the property to set to parse a DTD,
+        // which on a page is an instruction to switch off the guard that just fired.
+        var hostile =
+            """
+            <?xml version="1.0"?>
+            <!DOCTYPE root [<!ENTITY xxe SYSTEM "file:///etc/passwd">]>
+            <myanimelist><anime><series_title>&xxe;</series_title></anime></myanimelist>
+            """;
+
+        var result = await Parser.ParseAsync(Xml(hostile));
+
+        var said = string.Join(" ", result.Problems.Select(p => p.Message));
+
+        Assert.DoesNotContain("DtdProcessing", said, StringComparison.Ordinal);
+        Assert.DoesNotContain("XmlReaderSettings", said, StringComparison.Ordinal);
+        Assert.Contains("document type definition", said, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task Entity_expansion_attacks_are_refused()
     {
         // "Billion laughs" — nested entities that expand exponentially. Prohibiting

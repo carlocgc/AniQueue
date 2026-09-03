@@ -25,10 +25,34 @@ namespace AniQueue.Infrastructure.Security;
 public sealed class AuthService(
     IDbContextFactory<AniQueueDbContext> contextFactory,
     IUserSettingsStore settings,
-    IOptionsMonitor<AuthOptions> options) : IAuthService
+    IOptionsMonitor<AuthOptions> options) : IAuthService, IDisposable
 {
     /// <summary>The stored pair, or null until it has been read.</summary>
     private volatile Credential? _cached;
+
+    /// <summary>
+    /// One sign-in attempt at a time, across the whole application.
+    /// </summary>
+    /// <remarks>
+    /// <b>The pause below is only worth a second if a second is what it costs.</b>
+    /// Awaited per request it costs nothing to fifty requests at once, which is one
+    /// connection each and fifty guesses a second measured. Holding the gate across
+    /// the check and the pause makes the cost belong to the account rather than to
+    /// the connection, so guessing runs at the rate of one attempt per second
+    /// however many connections are opened.
+    ///
+    /// A queue rather than a refusal, because there is one account and no way to
+    /// tell its owner from anybody else at this point; refusing would be the lockout
+    /// this deliberately does not have.
+    /// </remarks>
+    private readonly SemaphoreSlim _attempts = new(1, 1);
+
+    /// <summary>
+    /// What a wrong password costs. The hashing is already slow, so this is the
+    /// cheaper half of the same defence. It slows guessing rather than stopping it:
+    /// the length of the password is still what decides whether guessing can finish.
+    /// </summary>
+    private static readonly TimeSpan WrongPasswordPause = TimeSpan.FromSeconds(1);
 
     public async Task<AuthState> GetStateAsync(CancellationToken cancellationToken = default)
     {
@@ -44,9 +68,27 @@ public sealed class AuthService(
 
     public async Task<string?> SignInAsync(string password, CancellationToken cancellationToken = default)
     {
-        var credential = await ReadAsync(cancellationToken);
+        await _attempts.WaitAsync(cancellationToken);
 
-        return PasswordHash.Verify(credential.Hash, password) ? credential.Stamp : null;
+        try
+        {
+            var credential = await ReadAsync(cancellationToken);
+
+            if (PasswordHash.Verify(credential.Hash, password))
+            {
+                return credential.Stamp;
+            }
+
+            // Inside the gate, so the next attempt waits for it too. Outside, fifty
+            // connections would each pay it once and in parallel.
+            await Task.Delay(WrongPasswordPause, cancellationToken);
+
+            return null;
+        }
+        finally
+        {
+            _attempts.Release();
+        }
     }
 
     public async Task<AuthChange> SetPasswordAsync(
@@ -171,6 +213,9 @@ public sealed class AuthService(
 
         return result.Saved ? null : result.Error ?? $"{result.Path} could not be written.";
     }
+
+    /// <summary>Releases the sign-in gate when the container shuts down.</summary>
+    public void Dispose() => _attempts.Dispose();
 
     /// <summary>The password and the stamp, which are always read and written together.</summary>
     private sealed record Credential(string? Hash, string? Stamp);
