@@ -177,6 +177,26 @@ public sealed partial class ChatCompletionsEndpoint(
 
             var body = await response.Content.ReadAsStringAsync(timeout.Token);
 
+            if ((int)response.StatusCode is >= 300 and < 400)
+            {
+                // The handler is configured not to follow one, and this says so out
+                // loud rather than leaving it to a flag on a handler built elsewhere.
+                // ScoringEndpointAddress vouches for the address that was typed and
+                // can vouch for nothing about where a redirect points, so the whole
+                // of that check would be bypassed by one hop.
+                logger.LogWarning(
+                    "Scoring endpoint {Endpoint} answered {Status} and was not followed",
+                    target,
+                    (int)response.StatusCode);
+
+                return ScoringEndpointResult.Failed(
+                    ScoringEndpointFailure.Rejected,
+                    $"{target.Host} answered by pointing somewhere else, and AniQueue does not follow that. "
+                        + "The address you configured is the only one your library is sent to. "
+                        + "Point the setting straight at your model server.",
+                    Elapsed(started));
+            }
+
             if (!response.IsSuccessStatusCode)
             {
                 logger.LogWarning(

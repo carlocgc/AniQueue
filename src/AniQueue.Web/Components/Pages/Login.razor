@@ -55,14 +55,6 @@
 </p>
 
 @code {
-    /// <summary>
-    /// What a wrong password costs. The hashing is already slow, so this is the
-    /// cheaper half of the same defence; there is no lockout, because on an
-    /// application with one account a lockout locks out the only person who could
-    /// lift it.
-    /// </summary>
-    private static readonly TimeSpan WrongPasswordPause = TimeSpan.FromSeconds(1);
-
     [CascadingParameter]
     private HttpContext HttpContext { get; set; } = default!;
 
@@ -102,9 +94,12 @@
     {
         var stamp = await Auth.SignInAsync(Input!.Password ?? string.Empty, HttpContext.RequestAborted);
 
+        // The pause a wrong password costs is inside SignInAsync, where it can be
+        // held against the account rather than paid once per connection. There is no
+        // lockout: on an application with one account a lockout locks out the only
+        // person who could lift it.
         if (stamp is null)
         {
-            await Task.Delay(WrongPasswordPause, HttpContext.RequestAborted);
             _wrong = true;
             return;
         }

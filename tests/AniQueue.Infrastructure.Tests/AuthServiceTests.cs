@@ -65,6 +65,49 @@ public class AuthServiceTests
     }
 
     [Fact]
+    public async Task Guessing_costs_the_same_second_however_many_connections_are_opened()
+    {
+        // Measured against the running application at 23 guesses a second: the pause
+        // was awaited per request, so fifty connections each paid it once and paid it
+        // at the same time. Held here instead, where the cost belongs to the account.
+        await using var world = await AuthWorld.CreateAsync();
+
+        await world.Auth.SetPasswordAsync("a good long password");
+
+        var started = System.Diagnostics.Stopwatch.StartNew();
+
+        var guesses = await Task.WhenAll(
+            Enumerable.Range(0, 4).Select(i => world.Auth.SignInAsync($"wrong guess {i}")));
+
+        started.Stop();
+
+        Assert.All(guesses, Assert.Null);
+
+        // Four wrong guesses, one second each, in a queue. Asserted well under the
+        // four seconds they cost so a slow machine cannot make this flaky, and well
+        // over the one second the concurrent version took.
+        Assert.True(
+            started.Elapsed > TimeSpan.FromSeconds(2.5),
+            $"Four concurrent wrong guesses took {started.Elapsed.TotalSeconds:0.00}s, so they were not serialised.");
+    }
+
+    [Fact]
+    public async Task The_right_password_pays_no_pause()
+    {
+        await using var world = await AuthWorld.CreateAsync();
+
+        await world.Auth.SetPasswordAsync("a good long password");
+
+        var started = System.Diagnostics.Stopwatch.StartNew();
+        Assert.NotNull(await world.Auth.SignInAsync("a good long password"));
+        started.Stop();
+
+        Assert.True(
+            started.Elapsed < TimeSpan.FromSeconds(1),
+            $"A correct password waited {started.Elapsed.TotalSeconds:0.00}s, which is the wrong password's pause.");
+    }
+
+    [Fact]
     public async Task Changing_the_password_retires_the_stamp_every_other_device_is_holding()
     {
         await using var world = await AuthWorld.CreateAsync();

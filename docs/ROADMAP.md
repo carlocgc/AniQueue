@@ -417,7 +417,10 @@ upload size — a hostile or malfunctioning endpoint is
 the same problem as a hostile file — and size the cap generously: a measured 753-entry library is
 424 KB, so a few thousand entries is a few megabytes and a tight cap would reject a legitimate
 large library. Do not persist cookies; the endpoint sets a session cookie that serves no purpose
-here.
+here. **No client follows a redirect**, on the same reasoning everywhere: a check on the address
+asked for vouches for nothing about where a `3xx` points, so a hop would step past whichever
+guard that client relies on — the allowlist for images, the constant host for AniList, D38's
+address guards for the model endpoint.
 
 **Fetching an image is the one place a path comes from data** (D47). A cover URL arrives inside an
 AniList response, so it is neither a constant nor user input, and it is not made settable — the
@@ -471,7 +474,7 @@ row order says what has happened. What happens next is the first row without a t
 | 11 | Docker + README | ✅ | Migrations squashed to one baseline; compose up, health check, container recreated without data loss |
 | 12 | Optional auth | ✅ | `Auth:Enabled` off by default; a password set on the settings page turns it on and locks every page; `/health` and the static assets stay open; the switch off in the file forgets the password on the next start (D60) |
 | 13 | CI | ✅ | Build and tests on every push and PR; `dev` published on every merge, a version and `latest` only from a tag on `main` (D56) |
-| 14 | Security pass | ▢ **next** | §6's high-risk surfaces reviewed against the finished application; release gate opens |
+| 14 | Security pass | ✅ | §6's high-risk surfaces reviewed against the finished application; release gate opens |
 | 15a | Job contract | ✅ | Jobs take a trigger and return an outcome; the runner drives units and reschedules nothing |
 | 15b | Job runs | ✅ | Every executed run is recorded, including one that threw; every task reads its cadence from it |
 | 15c | Tasks page + cadence | ✅ | Every task seen, started, cancelled and switched off from one page; one cadence drives them all |
@@ -483,26 +486,11 @@ row order says what has happened. What happens next is the first row without a t
 
 **✅ done · ◐ part landed · ▢ not started.** *next* is what the running order reaches first;
 *held* waits on something outside the repository — for 17, a wider sample of models to
-characterise (D45), which 17a did not need and did not wait for.
+characterise (D45), which 17a did not need and did not wait for. Nothing carries *next*: with
+14 done the release gate is open, and 17's remainder is the only unbuilt work left.
 
 Only the phases that have not been built are described below. What a finished phase did is
 in the code, in its pull request, and in the decisions it produced.
-
-### Phase 14 — Security pass and stabilisation
-A deliberate pass over what §6 names as high-risk, against the finished application rather than
-against each phase in isolation — which is the point of doing it last, and the reason it cannot
-be distributed across the phases that created the surfaces:
-
-- The model endpoint's outbound requests: that the address is operator configuration only, that
-  a hostile or wrong endpoint cannot become a request to somewhere else, and that timeouts and
-  response size limits hold.
-- The import path: upload limits, secure XML settings, and the paste route into Phase 7's
-  importer.
-- The artwork cache's filesystem writes under `/data`, including what a remote filename is
-  allowed to determine about a local path.
-- Forwarded headers, error output in production, and the non-root container's permissions.
-
-Plus whatever the bug list has accumulated. It gates Phase 13's first published tag.
 
 ### Phase 17 — Improve remote model scoring
 

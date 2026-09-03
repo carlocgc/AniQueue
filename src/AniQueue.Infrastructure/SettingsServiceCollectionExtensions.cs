@@ -79,6 +79,13 @@ public static class SettingsServiceCollectionExtensions
         {
             var handler = new SocketsHttpHandler
             {
+                // The endpoint is the one address in this application somebody can
+                // type, and ScoringEndpointAddress checks what they typed. It can
+                // check nothing about where a 3xx points, so following one would
+                // reach an address that guard never saw — including the link-local
+                // range it exists to refuse. A redirect is an answer, not a hop.
+                AllowAutoRedirect = false,
+
                 // Nothing here has any use for a session, and a chat-completions server
                 // has no business setting one on this application's behalf.
                 UseCookies = false,

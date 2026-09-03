@@ -457,6 +457,29 @@ public class ChatCompletionsEndpointTests
         Assert.Equal(ScoringEndpointFailure.Rejected, result.Failure);
         Assert.Contains("JSON only", result.Message!, StringComparison.OrdinalIgnoreCase);
     }
+
+    [Theory]
+    [InlineData(HttpStatusCode.MovedPermanently)]
+    [InlineData(HttpStatusCode.Found)]
+    [InlineData(HttpStatusCode.TemporaryRedirect)]
+    [InlineData(HttpStatusCode.PermanentRedirect)]
+    public async Task A_redirect_is_an_answer_rather_than_somewhere_else_to_send_the_library(HttpStatusCode status)
+    {
+        // The address is checked before anything is sent, and that check can say
+        // nothing about where a redirect points — so following one would reach an
+        // address it never saw, link-local included. Driven against a real server
+        // this was the whole request body arriving at a host nobody configured.
+        var redirect = new HttpResponseMessage(status);
+        redirect.Headers.Location = new Uri("http://169.254.169.254/latest/meta-data/");
+
+        var (endpoint, _) = Create(_ => redirect);
+
+        var result = await endpoint.AskAsync(Request());
+
+        Assert.False(result.Succeeded);
+        Assert.Equal(ScoringEndpointFailure.Rejected, result.Failure);
+        Assert.Contains("does not follow", result.Message!, StringComparison.Ordinal);
+    }
 }
 
 /// <summary>An options monitor that never changes, for tests that do not need one to.</summary>

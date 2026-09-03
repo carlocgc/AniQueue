@@ -41,7 +41,15 @@ public sealed class MyAnimeListXmlParser(ImportLimits? limits = null) : IAnimeLi
             {
                 // Malformed XML is a user mistake (wrong file, truncated download),
                 // not an application fault, so it is reported rather than thrown.
-                return ParseResult.Rejected($"The file is not valid XML: {ex.Message}");
+                //
+                // A DTD is the exception, and it is answered in AniQueue's own words:
+                // the reader's message for it names the property to set to allow one,
+                // which is an instruction to switch off the guard that just fired.
+                return ParseResult.Rejected(
+                    ex.Message.Contains("DTD", StringComparison.Ordinal)
+                        ? "That file carries a document type definition, which AniQueue does not read. "
+                            + "A MyAnimeList export does not have one."
+                        : $"The file is not valid XML: {ex.Message}");
             }
         }
     }
