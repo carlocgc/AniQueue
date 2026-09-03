@@ -28,4 +28,3 @@ tests/
 *.md
 docker-compose.yml
 .dockerignore
-.editorconfig

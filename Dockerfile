@@ -63,7 +63,11 @@ WORKDIR /src
 # Directory.*.props come with them because central package management puts
 # every version in Directory.Packages.props — without it restore has no versions
 # to resolve and fails before it reads a single package reference.
-COPY Directory.Build.props Directory.Packages.props ./
+#
+# .editorconfig is here for the same class of reason: it marks the EF migrations
+# as generated code, so without it the build inside this image analyses files the
+# build outside it skips, and answers with warnings no checkout can reproduce.
+COPY Directory.Build.props Directory.Packages.props .editorconfig ./
 COPY src/AniQueue.Core/AniQueue.Core.csproj src/AniQueue.Core/
 COPY src/AniQueue.Infrastructure/AniQueue.Infrastructure.csproj src/AniQueue.Infrastructure/
 COPY src/AniQueue.Web/AniQueue.Web.csproj src/AniQueue.Web/
