@@ -1,0 +1,50 @@
+@using AniQueue.Web.Services
+
+@* Presentational only. All timing rules live in BusyScope so that every
+   long-running operation in the application behaves identically. *@
+
+@if (State.IsVisible)
+{
+    <div class="busy-overlay" role="alertdialog" aria-modal="true" aria-busy="true"
+         aria-labelledby="busy-title" aria-describedby="busy-status">
+        <div class="busy-panel">
+            <div class="spinner" aria-hidden="true"></div>
+
+            <h2 id="busy-title">@State.Title</h2>
+
+            @* aria-live rather than the dialog label, so a screen reader announces
+               each step as it changes instead of only on open. *@
+            <p id="busy-status" aria-live="polite">@State.Message</p>
+
+            @if (State.Fraction is { } fraction)
+            {
+                <div class="progress busy-progress"
+                     role="progressbar"
+                     aria-valuemin="0" aria-valuemax="100"
+                     aria-valuenow="@((int)(fraction * 100))">
+                    <span style="width: @(((int)(fraction * 100)).ToString(System.Globalization.CultureInfo.InvariantCulture))%"></span>
+                </div>
+                <p class="muted busy-count">@State.CountText</p>
+            }
+
+            @* Completed steps stay listed. They are what makes the dialog worth
+               reading rather than a spinner with a caption. *@
+            @if (State.CompletedSteps.Count > 0)
+            {
+                <ul class="busy-steps">
+                    @foreach (var step in State.CompletedSteps)
+                    {
+                        <li>@step</li>
+                    }
+                </ul>
+            }
+
+        </div>
+    </div>
+}
+
+@code {
+    /// <summary>The scope driving this dialog. Owned by the page.</summary>
+    [Parameter, EditorRequired]
+    public required BusyScope State { get; set; }
+}

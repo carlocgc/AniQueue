@@ -1,0 +1,1100 @@
+@page "/sources"
+@implements IDisposable
+@using AniQueue.Core.Settings
+@using AniQueue.Infrastructure.Sync
+@using Microsoft.Extensions.Options
+@inject IUserSettingsStore Settings
+@inject ISyncService SyncService
+@inject IImportService ImportService
+@inject IRelationBackfill RelationBackfill
+@inject ILibraryChangeNotifier Changes
+@inject IOptionsMonitor<SyncOptions> SyncConfiguration
+@inject ILogger<Sources> Logger
+
+<PageTitle>Sources — AniQueue</PageTitle>
+
+@* Confirmations only, and this is the page that needed one most: several controls
+   here save the moment they are changed, so until now a setting that worked and a
+   setting that did nothing looked exactly alike. *@
+<Toast State="_toasts" />
+
+<div class="page-header">
+    <h1>Sources</h1>
+    <p>
+        Where your library comes from. Syncing reads only — AniQueue never writes
+        anything back to your account.
+    </p>
+</div>
+
+@if (_error is not null)
+{
+    <div class="notice error" role="alert">@_error</div>
+}
+
+@* A finished sync reports at the top, where the button that started it is, rather
+   than below the source cards. There is nothing to scroll to — the result *is*
+   that no tables appeared — so a message further down the page reads as the click
+   having done nothing at all. *@
+@if (_nothingToDo)
+{
+    <div class="notice success" role="status">
+        Already up to date — your library matches this source, so there is nothing to apply.
+    </div>
+}
+
+@* A fetch that had nothing to apply may still have deleted things, and saying
+   "already up to date" about that run would be the page hiding the one change it
+   cannot undo. *@
+@if (_completed is { RemovalCapped: true } capped)
+{
+    <div class="notice warning" role="alert">
+        <strong>
+            @capped.Source dropped too many titles at once, so AniQueue deleted none of them.
+        </strong>
+        A list that has gone private, or come back half-read, looks the same as one you
+        emptied on purpose. They are listed below for you to decide on.
+    </div>
+}
+else if (_completed is { AbsentRemoved: > 0 } removed)
+{
+    <div class="notice warning" role="status">
+        @removed.AbsentRemoved @(removed.AbsentRemoved == 1 ? "title is" : "titles are") no
+        longer on @removed.Source, so @(removed.AbsentRemoved == 1 ? "it has" : "they have")
+        been deleted from your library and from Up Next.
+    </div>
+}
+else if (_completed is { AbsentFlagged: > 0 } flagged)
+{
+    <div class="notice info" role="status">
+        @flagged.AbsentFlagged @(flagged.AbsentFlagged == 1 ? "title is" : "titles are") no
+        longer on @flagged.Source. Nothing has been deleted — they are listed below.
+    </div>
+}
+
+@if (!SyncConfiguration.CurrentValue.Enabled)
+{
+    @* The operator's kill switch. Said out loud because otherwise a Sync Now that
+       refuses looks like a broken button rather than a deliberate setting. *@
+    <div class="notice info" role="status">
+        Syncing is turned off in this deployment's configuration
+        (<code>Sync:Enabled</code>). Nothing here will fetch until it is turned
+        back on.
+    </div>
+}
+
+@* Once a preview is on screen the source cards are no longer what the page is
+   about, and they are tall — account line, failure and absence notices, relation
+   coverage, settings — so leaving them expanded puts the answer to "what would this
+   change" several scrolls below the button that asked. The one card that produced
+   the preview collapses to a heading and the way out; the rest are not drawn at all.
+   See VisibleSources. *@
+@foreach (var status in VisibleSources)
+{
+    <div class="card @(IsPreviewing ? "collapsed" : null)">
+        <h2>@status.Source</h2>
+
+        @* Previewing is asked first, before anything about the source's kind, because
+           at that point the card is one thing regardless: a heading and the way out.
+
+           Discarding is how a preview ends — syncing over one threw it away without
+           saying so, and with it every conflict the user had just resolved in an
+           editable surface. Sync now, or the file picker, comes back the moment it is
+           pressed. *@
+        @if (IsPreviewing)
+        {
+            <div class="toolbar">
+                <button @onclick="Reset" disabled="@_busy.IsRunning">Discard this preview</button>
+            </div>
+        }
+        else if (!status.IsConfigured)
+        {
+            @* Editable here rather than only in a file: an account
+               name is the first thing a new installation needs and "edit some JSON and
+               restart" is a poor first screen. The file stays the way in when this page
+               cannot be reached — the same value, the same key, one home. *@
+            <p class="muted">
+                No account is configured yet. AniQueue reads a public AniList list; it does
+                not sign in, and has no password for your account.
+            </p>
+
+            <div class="field">
+                <label for="anilist-account">AniList username</label>
+                <input id="anilist-account" type="text" maxlength="60" spellcheck="false"
+                       placeholder="Your AniList username" disabled="@_busy.IsRunning"
+                       @bind="_aniListAccount" @bind:event="oninput"
+                       @onkeydown="OnAccountKeyDownAsync" />
+                <p class="muted">
+                    Saved to <code>@Settings.Path</code>, which is also where you can change
+                    it by hand if this page is ever unreachable.
+                </p>
+            </div>
+
+            <div class="toolbar">
+                <button class="primary" @onclick="SaveAccountAsync"
+                        disabled="@(_busy.IsRunning || string.IsNullOrWhiteSpace(_aniListAccount))">
+                    <Icon Name="save" />Save
+                </button>
+            </div>
+
+            @if (_accountError is not null)
+            {
+                <div class="notice error" role="alert">@_accountError</div>
+            }
+        }
+        else if (!status.CanFetch)
+        {
+            @* A source AniQueue cannot go and read, so the user brings it. It sits
+               here rather than on a page of its own because it is a source in every
+               sense that matters — it names titles, it ranks against the other, and
+               its export is how most libraries arrive. What made it look like
+               something else was only that it has no account to configure. *@
+            <p class="muted">
+                Upload an export. In MyAnimeList, go to <strong>List → Export</strong> and
+                download the anime list; the file arrives gzipped, so extract it until it
+                ends in <code>.xml</code>. Nothing is saved until you review the preview.
+            </p>
+
+            <InputFile id="import-file" class="file-input" OnChange="OnFileSelectedAsync"
+                       accept=".xml" disabled="@_busy.IsRunning"
+                       aria-label="Select MyAnimeList export file" />
+        }
+        else
+        {
+            <p class="muted">
+                Reading the public list of <strong>@status.Account</strong> &middot;
+                @LastRunText(status.LastSuccess) &middot; run from the
+                <a href="settings">Settings</a> page
+            </p>
+
+            @* Only when a run held something. Running a sync is the tasks page's job;
+               what is left on this card is the one thing that needs a person, which
+               is the review.
+
+               It still fetches, because review persists nothing: a held preview is
+               stale within the hour, so the visit re-fetches and recomputes and
+               everything an earlier run applied comes back as Unchanged. That is why
+               there is a button here at all rather than a stored list. *@
+            @if (HeldCount(status) is > 0 and var held)
+            {
+                <div class="toolbar">
+                    <button class="primary" disabled="@(_reviewing || !CanSync(status))"
+                            @onclick="() => ReviewAsync(status)">
+                        @(_reviewing ? "Reading…" : $"Review {held} held {(held == 1 ? "change" : "changes")}")
+                    </button>
+
+                    @if (_reviewing)
+                    {
+                        @* Inline rather than the modal Sync now used. Nothing behind it
+                           needs blocking — the rest of the page is still true while this
+                           reads — and a review is something you chose to look at rather
+                           than something happening to you. *@
+                        <span class="spinner inline" aria-hidden="true"></span>
+                    }
+                </div>
+            }
+        }
+
+        @* Not gated on the source being configured, unlike everything below it. What
+           the source dropped was recorded while it was, and a user who has since
+           cleared the account would otherwise follow the banner to a page that does
+           not show them the titles it is talking about. *@
+        @if (status.AbsentCount > 0 && !IsPreviewing)
+        {
+            @* A row each with its own two buttons, rather than a sentence naming
+               a few of them. The old notice said what had happened and offered
+               nothing to do about it, so the only way to act on it was to go and
+               find each title by hand. Every one is listed: this is the surface
+               the decision is made on, not a reminder to go and look. *@
+            <section class="absences" aria-labelledby="@($"absent-{status.Source}")">
+                <h3 id="@($"absent-{status.Source}")">
+                    @status.Source has dropped @status.AbsentCount
+                    @(status.AbsentCount == 1 ? "title" : "titles")
+                </h3>
+
+                <p class="muted">
+                    @(status.AbsentCount == 1 ? "It is" : "They are") still in your library
+                    and still queueable. Nothing happens until you say so.
+                </p>
+
+                <div class="toolbar">
+                    <button disabled="@_busy.IsRunning"
+                            @onclick="() => ResolveAllAsync(status, AbsenceResolution.Keep)">
+                        Keep all @status.AbsentCount
+                    </button>
+                    <button class="danger" disabled="@_busy.IsRunning"
+                            @onclick="() => ResolveAllAsync(status, AbsenceResolution.Delete)">
+                        Delete all @status.AbsentCount
+                    </button>
+                </div>
+
+                <ul class="absence-list">
+                    @foreach (var absent in status.AbsentTitles)
+                    {
+                        <li>
+                            <span class="absence-title">@absent.Title</span>
+                            <span class="muted">gone since @absent.MissingSince.ToLocalTime().ToString("d MMM yyyy")</span>
+                            <span class="toolbar">
+                                <button disabled="@_busy.IsRunning"
+                                        @onclick="() => ResolveAsync(status, absent, AbsenceResolution.Keep)">
+                                    Keep
+                                </button>
+                                <button class="danger" disabled="@_busy.IsRunning"
+                                        @onclick="() => ResolveAsync(status, absent, AbsenceResolution.Delete)">
+                                    Delete
+                                </button>
+                            </span>
+                        </li>
+                    }
+                </ul>
+
+                @* Said here rather than only in the settings above, because this is
+                   where somebody is about to press Delete. *@
+                <p class="muted">
+                    Deleting removes the title from your library and from Up Next. Its
+                    scores and rankings stay, and AniQueue cannot undo it — your library
+                    is one database file, so a copy of it is the way back.
+                </p>
+            </section>
+        }
+
+        @* Everything below describes the source's standing state rather than the
+           preview below it — how long ago it last ran, how much of the relation graph
+           is known — so none of it is an answer to the question a preview asked. It
+           comes back on Discard. *@
+        @if (status.IsConfigured && !IsPreviewing)
+        {
+            @* Failure and success are stated separately, and both survive: "last
+               synced 3 hours ago, last attempt failed because the profile is
+               private" is actionable where either half alone is not. The failure
+               stays until a later run reaches the source, because a sync that
+               stopped working must never read as up to date. *@
+            @if (status.LastFailure is { FailureReason: { } reason } failure
+                 && (status.LastSuccess is null || failure.Id > status.LastSuccess.Id))
+            {
+                <div class="notice @(status.IsStalled ? "error" : "warning")" role="status">
+                    Last attempt @Ago(failure.StartedAt) failed: @reason
+                    @if (status.IsStalled)
+                    {
+                        <text>
+                            This is the @status.ConsecutiveFailures<sup>th</sup> failure in a row, so
+                            what you are looking at is as old as the last success above.
+                        </text>
+                    }
+                </div>
+            }
+
+            @if (status.LastRun is { Outcome: SyncOutcome.HeldForReview, ChangesHeld: > 0 } waiting)
+            {
+                @* The point of recording a held run at all. Without this the page
+                   would say "checked 20 minutes ago, nothing to change" about a run
+                   that found a dozen changes and was told not to apply them. *@
+                <div class="notice info" role="status">
+                    A scheduled run found @waiting.ChangesHeld
+                    @(waiting.ChangesHeld == 1 ? "change" : "changes") and did not apply
+                    @(waiting.ChangesHeld == 1 ? "it" : "them"), because this source is set to
+                    ask first. Review @(waiting.ChangesHeld == 1 ? "it" : "them") above.
+                </div>
+            }
+
+            @if (status.LastRun is { ConflictsHeld: > 0 } held)
+            {
+                <div class="notice info" role="status">
+                    @held.ConflictsHeld @(held.ConflictsHeld == 1 ? "conflict was" : "conflicts were")
+                    left undecided. Reviewing brings them back — nothing about them has changed.
+                </div>
+            }
+
+            @* One line, and only while there is something outstanding. Enrichment
+               degrades silently: a backfill still working through a library is
+               not a problem, and a page that announced it would be announcing the
+               application doing its job. What it does answer is the question a user
+               with a new library actually asks — why some rows have no related
+               titles yet. *@
+            @if (status.Source == AnimeSource.AniList && _relations is { Total: > 0 } coverage)
+            {
+                <div class="toolbar">
+                    <span class="muted">
+                        @if (coverage.IsComplete)
+                        {
+                            <text>
+                                Related titles known for all @coverage.Total titles, and re-read
+                                every 30 days.
+                            </text>
+                        }
+                        else
+                        {
+                            <text>
+                                Related titles known for @coverage.Known of @coverage.Total titles.
+                                The rest fill in on their own.
+                            </text>
+                        }
+                    </span>
+
+                </div>
+            }
+        }
+
+        @* Hidden while a preview is up, like everything else that is not an answer to
+           it. There is no disclosure around this any more: what a run reads is all
+           that is left here, and there is not enough of it to be worth hiding. *@
+        @if (!IsPreviewing)
+        {
+            @* Configured, not merely fetchable. An unconfigured source already offers
+               this field in the card above, where it is the one thing to do, and
+               drawing it here as well would be two controls over one setting. Once an
+               account exists the card shows what it is reading and this is where
+               changing it belongs. *@
+            @if (status.CanFetch && status.IsConfigured)
+            {
+                @* The one control on this page that writes to userconfig.json rather
+                   than to the database, and deliberately indistinguishable from
+                   the ones that do: which store holds a value is AniQueue's problem,
+                   not the reader's. *@
+                <div class="field">
+                    <label for="anilist-account-settings">AniList username</label>
+                    <input id="anilist-account-settings" type="text" maxlength="60" spellcheck="false"
+                           disabled="@_busy.IsRunning"
+                           @bind="_aniListAccount" @bind:event="oninput"
+                           @onkeydown="OnAccountKeyDownAsync" />
+                    <p class="muted">
+                        The list must be public. Saved to <code>@Settings.Path</code>, which is
+                        where to change it by hand if this page is ever unreachable.
+                    </p>
+
+                    <div class="toolbar">
+                        <button @onclick="SaveAccountAsync"
+                                disabled="@(_busy.IsRunning || _aniListAccount == status.Account)">
+                            <Icon Name="save" />Save username
+                        </button>
+                    </div>
+
+                    @if (_accountError is not null)
+                    {
+                        <div class="notice error" role="alert">@_accountError</div>
+                    }
+                </div>
+            }
+
+            @* Scheduling, conflicts and absence are all things a run does, and nothing
+               runs on a file source — you bring the file. Gated rather than disabled,
+               because a disabled control still says "this could apply to me". *@
+            @if (status.CanFetch)
+            {
+            <fieldset>
+                <legend>When syncing runs on its own</legend>
+                <p class="muted">
+                    AniQueue can read this source with nobody watching. How often is set
+                    on the <a href="settings">Settings</a> page; these decide what such a run
+                    may do.
+                </p>
+
+                @* How often this runs is set on the Settings page now, once for every
+                   background task. What stays here is what a run may *do*,
+                   which is the part that differs per source. *@
+
+                <div class="field">
+                    <label for="@($"unattended-{status.Source}")">
+                        <input type="checkbox" id="@($"unattended-{status.Source}")"
+                               checked="@status.Settings.ApplyUnattended"
+                               @onchange="e => Update(status, s => s with { ApplyUnattended = (bool)(e.Value ?? false) })" />
+                        Apply changes without asking
+                    </label>
+                    <p class="muted">
+                        Only the unambiguous ones. Anything AniQueue cannot confidently
+                        identify is held for you either way.
+                    </p>
+                </div>
+
+                @* The two policies below are one pair of questions and read as one:
+                   the same shape of label, the same plain options, and the same
+                   width, so neither looks like the more important of the two. What
+                   an option costs is in the list under it rather than in its own
+                   label, which keeps the labels short enough to compare. *@
+                <div class="field">
+                    @* No source named here, unlike its neighbour. Absence is something
+                       the source did, where this is AniQueue unable to tell two of its
+                       own rows apart — naming the source would blame it for that. A
+                       title the source changed and AniQueue can identify is an update,
+                       and never reaches this setting at all. *@
+                    <label for="@($"conflicts-{status.Source}")">
+                        When two titles look the same
+                    </label>
+                    <select class="policy" id="@($"conflicts-{status.Source}")"
+                            value="@status.Settings.ConflictPolicy"
+                            @onchange="e => Update(status, s => s with { ConflictPolicy = Parse(e.Value, s.ConflictPolicy) })">
+                        <option value="@SyncConflictPolicy.HoldForReview">Let me decide</option>
+                        <option value="@SyncConflictPolicy.LinkToExisting">Merge them</option>
+                    </select>
+                    <ul class="muted choices">
+                        <li>
+                            <strong>Let me decide</strong> holds it for you, and a sync run
+                            on its own changes nothing until you have looked.
+                        </li>
+                        <li>
+                            <strong>Merge them</strong> joins it to the title you already
+                            have, and only when the two names match letter for letter.
+                            Anything less certain than that is still held for you.
+                        </li>
+                    </ul>
+                </div>
+
+                <div class="field">
+                    <label for="@($"absence-{status.Source}")">
+                        When a title disappears from @status.Source
+                    </label>
+                    <select class="policy" id="@($"absence-{status.Source}")"
+                            value="@status.Settings.AbsencePolicy"
+                            @onchange="e => ChangeAbsencePolicyAsync(status, e.Value)">
+                        <option value="@SyncAbsencePolicy.Flag">Let me decide</option>
+                        <option value="@SyncAbsencePolicy.Ignore">Keep them</option>
+                        <option value="@SyncAbsencePolicy.Remove">Delete them</option>
+                    </select>
+                    <ul class="muted choices">
+                        <li>
+                            <strong>Let me decide</strong> lists them on this page and puts a
+                            note on every page until you have answered each one.
+                        </li>
+                        <li><strong>Keep them</strong> leaves them alone and says nothing.</li>
+                        <li>
+                            <strong>Delete them</strong> removes each one from your library and
+                            from Up Next as soon as a sync notices. This cannot be undone.
+                        </li>
+                    </ul>
+                    @* The out-of-scope set is stated as "@status.Source has never
+                       listed it" rather than "it came from a file", because those are
+                       not the same set: a MyAnimeList title an AniList entry claims by
+                       idMal carries an AniList identifier from then on, and is in
+                       scope. Promising the file import as a shelter would be a promise
+                       the bridge quietly breaks. *@
+                    <p class="muted">
+                        Only titles @status.Source has listed can be affected. One it has never
+                        listed — a MyAnimeList title it has no match for — is never touched.
+                    </p>
+                    @* The cap, said in the words of the thing it prevents rather than
+                       as a rule. It is what makes "Delete them" survivable at all: a
+                       short page, a rate limit and a profile turned private all arrive
+                       looking exactly like a list somebody emptied. *@
+                    <p class="muted">
+                        If a lot of titles vanish at once, AniQueue deletes none of them and asks
+                        you instead. A list that has gone private or come back half-read looks
+                        the same as one you emptied on purpose.
+                    </p>
+                </div>
+            </fieldset>
+            }
+        }
+    </div>
+}
+
+@if (_applied is { } applied)
+{
+    <div class="notice success" role="status">@SummaryText(applied)</div>
+
+    @if (AdvancementText(applied.Commit) is { } advancement)
+    {
+        <div class="notice info" role="status">
+            @advancement
+            <a href="">See what is next</a>.
+        </div>
+    }
+
+    <div class="toolbar">
+        <a class="button primary" href="backlog">View backlog</a>
+        <button @onclick="Reset">Done</button>
+    </div>
+}
+
+@if (PendingPreview is { } preview)
+{
+    <ImportPreviewView Preview="preview" IsEditable="@(_applied is null)">
+        <Actions>
+            <div class="card">
+                @* Before and after are two different statements. Until it is applied
+                   this describes something that has not happened; afterwards the same
+                   tables are the record of something that has, and "nothing has been
+                   saved" sitting under a green "Added 745" is a straight contradiction. *@
+                @if (_applied is null)
+                {
+                    <h2>@(_fetch is null ? "In this file" : "What syncing would change")</h2>
+                    <p class="muted">
+                        Nothing has been saved. @preview.CompletedCount completed &middot;
+                        @preview.WatchingCount watching &middot; @preview.PlanningCount planning
+                    </p>
+
+                    <div class="toolbar">
+                        <button class="primary" disabled="@(_busy.IsRunning || !preview.HasApplicableChanges)"
+                                @onclick="ApplyAsync">
+                            @ApplyButtonText(preview)
+                        </button>
+                        <button @onclick="Reset" disabled="@_busy.IsRunning">Cancel</button>
+                    </div>
+                }
+                else
+                {
+                    <h2>@(_fetch is null ? "What the import changed" : "What the sync changed")</h2>
+                    <p class="muted">
+                        Saved to your library. @preview.CompletedCount completed &middot;
+                        @preview.WatchingCount watching &middot; @preview.PlanningCount planning
+                    </p>
+                }
+            </div>
+        </Actions>
+    </ImportPreviewView>
+}
+
+@* Blocking rather than a disabled button: a real list takes seconds to fetch and
+   compare, during which the page would otherwise look frozen. *@
+<BusyDialog State="_busy" />
+
+@code {
+    // Resolved by key: the file this page accepts is MyAnimeList XML specifically,
+    // and asking for a bare IAnimeListParser would silently start resolving
+    // whichever parser was registered last once a second one exists.
+    [Inject(Key = AnimeSource.MyAnimeList)]
+    private IAnimeListParser Parser { get; set; } = null!;
+
+    private IReadOnlyList<SourceSyncStatus> _statuses = [];
+
+    // Two ways in, one review surface. A fetch is kept whole because applying one
+    // needs the absence count and the source it came from; a file has nothing to
+    // remember beyond the preview itself. Which of the two is set is also what
+    // decides how the preview gets committed.
+    private SyncFetchResult? _fetch;
+    private ImportPreview? _filePreview;
+
+    // Which source the pending preview belongs to. Set alongside it rather than
+    // derived, so the file path does not have to assert which parser it used in
+    // every place that asks.
+    private AnimeSource? _pendingSource;
+
+    private SyncApplyResult? _applied;
+    private RelationCoverage? _relations;
+
+    /// <summary>
+    /// Whether a review fetch is in flight.
+    /// </summary>
+    /// <remarks>
+    /// A flag rather than <c>BusyScope</c>, because this one is not modal. Sync now
+    /// blocked the page behind a dialog; a review is something the user chose to look
+    /// at, everything else on the card stays true while it reads, and the fetch is
+    /// seconds.
+    /// </remarks>
+    private bool _reviewing;
+    private bool _nothingToDo;
+
+    /// <summary>
+    /// A fetch that finished with nothing to review, kept so the page can say what it
+    /// did rather than only that it found no changes.
+    /// </summary>
+    /// <remarks>
+    /// Deleting and flagging both happen inside the fetch, before any preview exists,
+    /// so a run whose only effect was to remove five titles arrives here looking
+    /// exactly like one that found the library already correct.
+    /// </remarks>
+    private SyncFetchResult? _completed;
+    private string? _error;
+
+    /// <summary>
+    /// Whether a preview — or the report of one that was applied — is what the page
+    /// is currently about.
+    /// </summary>
+    /// <remarks>
+    /// It stays true after applying, because the report has the same problem the
+    /// preview did: it is the thing the user pressed a button to see, and the source
+    /// cards would push it just as far down the page.
+    /// </remarks>
+    private ImportPreview? PendingPreview => _fetch?.Preview ?? _filePreview;
+
+    private bool IsPreviewing => PendingPreview is not null;
+
+    /// <summary>
+    /// Which source cards belong on the page right now.
+    /// </summary>
+    /// <remarks>
+    /// <b>While a preview is up, only the source that produced it.</b> The page
+    /// showed every card and let each render its own way out, so two sources meant
+    /// two <i>Discard this preview</i> buttons for one preview — and the second one
+    /// belonged to a source that had nothing to do with what was on screen. A
+    /// preview is one source's answer, so it is one source's card.
+    ///
+    /// None at all once it has been applied: the report below owns that state and
+    /// carries both of the things left to do — look at the backlog, or finish — so a
+    /// card there would be a box with no contents and no purpose.
+    /// </remarks>
+    private IEnumerable<SourceSyncStatus> VisibleSources =>
+        _applied is not null ? []
+        : PendingSource is { } pending ? _statuses.Where(s => s.Source == pending)
+        : _statuses;
+
+    /// <summary>
+    /// Which source the preview on screen came from, or null when there is none.
+    /// </summary>
+    /// <remarks>
+    /// Recorded when the preview is made rather than inferred from what is set,
+    /// because the file path has no fetch to read it off and guessing would put the
+    /// assumption in every place that asks.
+    /// </remarks>
+    private AnimeSource? PendingSource => IsPreviewing ? _pendingSource : null;
+
+    private BusyScope _busy = null!;
+    private ToastScope _toasts = null!;
+
+    protected override void OnInitialized()
+    {
+        _busy = new BusyScope(() => InvokeAsync(StateHasChanged));
+        _toasts = new ToastScope(() => InvokeAsync(StateHasChanged));
+    }
+
+    public void Dispose() => _toasts.Dispose();
+
+    protected override Task OnInitializedAsync() => LoadAsync();
+
+    private async Task LoadAsync()
+    {
+        _statuses = await SyncService.GetStatusAsync(Profile.DefaultProfileId);
+        _relations = await RelationBackfill.GetCoverageAsync();
+
+        // Read every time rather than only on first load, so the field agrees with the
+        // status line beside it after a save — and after a hand edit to the file that a
+        // reload has since picked up.
+        _aniListAccount = Settings.Read().AniListUserName ?? string.Empty;
+    }
+
+    /// <summary>The account as typed, which is not yet the account in effect.</summary>
+    private string _aniListAccount = string.Empty;
+
+    private string? _accountError;
+
+    /// <summary>
+    /// Enter saves, because a single text field with a button beside it is one the
+    /// keyboard should finish.
+    /// </summary>
+    private async Task OnAccountKeyDownAsync(KeyboardEventArgs args)
+    {
+        if (args.Key is "Enter")
+        {
+            await SaveAccountAsync();
+        }
+    }
+
+    private async Task SaveAccountAsync()
+    {
+        _accountError = null;
+
+        var account = _aniListAccount.Trim();
+
+        // The whole file is rewritten on every save, so everything this page is not
+        // editing has to be read back and passed through — otherwise saving a username
+        // would quietly clear the scoring sizes the Recommendations page wrote.
+        var result = await Settings.SaveAsync(Settings.Read() with
+        {
+            AniListUserName = account.Length == 0 ? null : account
+        });
+
+        if (!result.Saved)
+        {
+            _accountError = $"Could not save to {result.Path}: {result.Error}";
+            return;
+        }
+
+        await _toasts.ShowAsync("Username saved");
+
+        // Reloaded rather than assumed: the status carries whether the source is
+        // configured and what it is reading, and both have just changed. Sync now has
+        // to appear without the page being refreshed by hand, which is the only visible
+        // sign that the save took effect.
+        await LoadAsync();
+    }
+
+    private bool CanSync(SourceSyncStatus status) =>
+        SyncConfiguration.CurrentValue.Enabled && status.IsConfigured && status.Settings.IsEnabled;
+
+    /// <summary>
+    /// How many things a background run left for somebody to look at.
+    /// </summary>
+    /// <remarks>
+    /// Changes and conflicts together, because the button offers one look at both and
+    /// a card that said "review 3 changes" while quietly also holding two conflicts
+    /// would be describing half of what the fetch is about to show.
+    /// </remarks>
+    private static int HeldCount(SourceSyncStatus status) => status.LastRun is { } run
+        ? (run.Outcome == SyncOutcome.HeldForReview ? run.ChangesHeld : 0) + run.ConflictsHeld
+        : 0;
+
+    /// <summary>
+    /// Fetches so that what a background run held can be looked at.
+    /// </summary>
+    /// <remarks>
+    /// The same fetch <c>Sync now</c> made, for a different reason and with a
+    /// different name. What changed is who starts a sync: the tasks page does, and
+    /// this exists only because review persists nothing — a held preview is
+    /// stale within the hour, so the visit re-fetches and everything an earlier run
+    /// applied returns as <c>Unchanged</c>.
+    ///
+    /// No progress and no dialog. <c>BusyScope</c> would put a modal over a page whose
+    /// every other statement is still true, and there is nothing to report on the way
+    /// through: a fetch either arrives or it does not.
+    /// </remarks>
+    private async Task ReviewAsync(SourceSyncStatus status)
+    {
+        Reset();
+
+        _reviewing = true;
+
+        try
+        {
+            var fetch = await SyncService.FetchAsync(Profile.DefaultProfileId, status.Source);
+
+            if (!fetch.Succeeded)
+            {
+                _error = fetch.FailureReason;
+            }
+            else if (fetch.IsComplete)
+            {
+                // Whatever was held has since been applied or has gone away — the list
+                // matches the library now. Showing empty tables would suggest otherwise.
+                _completed = fetch;
+                _nothingToDo = fetch.AbsentFlagged + fetch.AbsentRemoved == 0 && !fetch.RemovalCapped;
+            }
+            else
+            {
+                _fetch = fetch;
+                _pendingSource = fetch.Source;
+            }
+        }
+        finally
+        {
+            _reviewing = false;
+        }
+
+        await LoadAsync();
+    }
+
+    /// <summary>
+    /// Commits whichever preview is on screen.
+    /// </summary>
+    /// <remarks>
+    /// The two differ only in what records the attempt. A sync writes a
+    /// <c>SyncRun</c> — it is a scheduled thing that can fail unattended, and the
+    /// page has to be able to say when it last worked — while a file import has no
+    /// history worth keeping, because the user was watching it happen. Everything after that is the same commit through the same pipeline,
+    /// which is why the result type is shared.
+    /// </remarks>
+    private async Task ApplyAsync()
+    {
+        if (PendingPreview is not { } preview)
+        {
+            return;
+        }
+
+        var fetch = _fetch;
+        var count = preview.CreateCount + preview.UpdateCount + preview.ResolvedConflictCount;
+
+        try
+        {
+            _applied = await _busy.RunAsync(
+                $"Applying {count} {(count == 1 ? "change" : "changes")}",
+                async progress => fetch is not null
+                    ? await SyncService.ApplyAsync(fetch, Profile.DefaultProfileId, progress)
+                    : new SyncApplyResult
+                    {
+                        Commit = await ImportService.CommitAsync(
+                            preview, Profile.DefaultProfileId, progress),
+
+                        // A file's conflicts are resolved in the same preview and
+                        // counted the same way; there is simply no run row to put
+                        // them in.
+                        ConflictsHeld = preview.Items.Count(i =>
+                            i.Action == ImportAction.Conflict && i.Resolution == ConflictResolution.Skip)
+                    });
+
+            // Said out loud, as the unattended job says it. Two audiences hear it and
+            // both were being left out: any other page open on this library learns it
+            // has gone stale, and the enrichment jobs get a tick now rather than at
+            // the next quarter hour — which is what stops "refresh related titles"
+            // being the only way to fill in several hundred new titles.
+            Changes.Publish(new LibraryChange
+            {
+                Source = _pendingSource ?? AnimeSource.MyAnimeList,
+                Created = _applied.Commit.Created,
+                Updated = _applied.Commit.Updated,
+                SlotsReleased = _applied.Commit.QueueSlotsReleased,
+                AbsentFlagged = fetch?.AbsentFlagged ?? 0
+            });
+        }
+        catch (Exception ex)
+        {
+            // The transaction has already rolled back; what the user needs to know
+            // is that the library is unchanged rather than half written.
+            Logger.LogError(ex, "Sync apply failed");
+            _error = "The sync could not be applied. Your library has not been changed.";
+        }
+
+        await LoadAsync();
+    }
+
+    /// <summary>
+    /// Saves the absence policy, and settles anything already asked about when the
+    /// new policy is <i>Keep them</i>.
+    /// </summary>
+    /// <remarks>
+    /// Without the second half, choosing <i>Keep them</i> would silence every future
+    /// question and leave the banner asking the ones already outstanding — a setting
+    /// that appears not to have worked. Nothing equivalent happens for <i>Delete
+    /// them</i>: a dropdown is not the place to delete five titles, so those stay in
+    /// the list with their own buttons until a sync acts on them.
+    /// </remarks>
+    private async Task ChangeAbsencePolicyAsync(SourceSyncStatus status, object? value)
+    {
+        var policy = Parse(value, status.Settings.AbsencePolicy);
+        var outstanding = status.AbsentTitles;
+
+        await Update(status, s => s with { AbsencePolicy = policy });
+
+        if (_error is not null || policy != SyncAbsencePolicy.Ignore || outstanding.Count == 0)
+        {
+            return;
+        }
+
+        await SyncService.ResolveAbsenceAsync(
+            Profile.DefaultProfileId,
+            status.Source,
+            [.. outstanding.Select(a => a.AnimeId)],
+            AbsenceResolution.Keep);
+
+        await LoadAsync();
+
+        Changes.Publish();
+    }
+
+    private Task ResolveAsync(
+        SourceSyncStatus status, AbsentTitle absent, AbsenceResolution resolution) =>
+        ResolveAbsencesAsync(status, [absent.AnimeId], resolution);
+
+    private Task ResolveAllAsync(SourceSyncStatus status, AbsenceResolution resolution) =>
+        ResolveAbsencesAsync(status, [.. status.AbsentTitles.Select(a => a.AnimeId)], resolution);
+
+    /// <summary>
+    /// Answers absences and tells the rest of the application.
+    /// </summary>
+    /// <remarks>
+    /// No confirmation step in front of the delete. The row names the title, the
+    /// button beside it says <i>Delete</i>, and the paragraph under the list says what
+    /// it costs — a dialog repeating that is a second click rather than a second
+    /// thought. The bulk button carries its count in its label for the same reason.
+    ///
+    /// Both answers publish, for different audiences. A delete is a library change
+    /// any other open page needs to hear about; a keep changes nothing anybody can
+    /// render, and announces itself only so the banner in the layout can stop showing
+    /// a question that has been answered.
+    /// </remarks>
+    private async Task ResolveAbsencesAsync(
+        SourceSyncStatus status,
+        IReadOnlyCollection<int> animeIds,
+        AbsenceResolution resolution)
+    {
+        _error = null;
+
+        int resolved;
+
+        try
+        {
+            resolved = await SyncService.ResolveAbsenceAsync(
+                Profile.DefaultProfileId, status.Source, animeIds, resolution);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Resolving {Source} absences failed", status.Source);
+            _error = "That could not be saved. Your library has not been changed.";
+            return;
+        }
+
+        await LoadAsync();
+
+        if (resolution == AbsenceResolution.Delete && resolved > 0)
+        {
+            Changes.Publish(new LibraryChange { Source = status.Source, AbsentRemoved = resolved });
+        }
+        else
+        {
+            Changes.Publish();
+        }
+
+        // Zero means a sync got there first and the source is listing the titles
+        // again, which is worth saying: the rows vanished for a reason that is not
+        // the button that was just pressed.
+        await _toasts.ShowAsync(resolved switch
+        {
+            0 => "Nothing to do — the source is listing those again",
+            1 when resolution == AbsenceResolution.Delete => "Title deleted",
+            1 => "Title kept",
+            _ when resolution == AbsenceResolution.Delete => $"{resolved} titles deleted",
+            _ => $"{resolved} titles kept"
+        });
+    }
+
+    /// <summary>
+    /// Writes one settings change immediately rather than behind a save button.
+    /// </summary>
+    /// <remarks>
+    /// There is no draft state worth protecting here — each control is one
+    /// independent decision, and a save button on a page whose main action is a
+    /// different button is an easy thing to leave unpressed.
+    /// </remarks>
+    /// <summary>
+    /// Applies one change to a source's settings and writes them.
+    /// </summary>
+    /// <remarks>
+    /// Takes a function rather than an action because <c>SourceSyncSettings</c> stopped
+    /// being a mutable entity: the settings are a value read from
+    /// <c>userconfig.json</c>, so a change produces a new one rather than editing the
+    /// instance the page happens to be holding.
+    /// </remarks>
+    private async Task Update(
+        SourceSyncStatus status,
+        Func<SourceSyncSettings, SourceSyncSettings> change)
+    {
+        _error = null;
+
+        var result = await SyncService.SaveSettingsAsync(change(status.Settings));
+
+        // Reported rather than swallowed, because this writes a file and a non-root
+        // container writing to a root-owned bind mount cannot. A
+        // checkbox left showing a value nothing kept is the worst of the three
+        // outcomes available here.
+        if (!result.Saved)
+        {
+            _error = $"Could not save to {result.Path}: {result.Error}";
+            await LoadAsync();
+            return;
+        }
+
+        await LoadAsync();
+
+        // These are the controls that most needed saying so: they save the moment they
+        // are changed, with no button to go quiet afterwards, so until now a checkbox
+        // that worked and a checkbox that did nothing looked identical.
+        await _toasts.ShowAsync("Saved");
+    }
+
+    private static int ParseInt(object? value, int fallback) =>
+        int.TryParse(value?.ToString(), out var parsed) ? parsed : fallback;
+
+    private static TEnum Parse<TEnum>(object? value, TEnum fallback) where TEnum : struct, Enum =>
+        Enum.TryParse<TEnum>(value?.ToString(), out var parsed) ? parsed : fallback;
+
+    /// <summary>
+    /// Says when the source was last actually read, and what that read found.
+    /// </summary>
+    /// <remarks>
+    /// Takes the last <em>success</em> rather than the last run, and the failure is
+    /// reported beside it instead of replacing it. A single line that flips to "last
+    /// attempt failed" the moment anything goes wrong loses the fact a user most
+    /// needs while it is going wrong: how old the data they are looking at actually
+    /// is.
+    /// </remarks>
+    private static string LastRunText(SyncRun? run) => run switch
+    {
+        null => "never synced",
+        { Outcome: SyncOutcome.NothingToDo } => $"checked {Ago(run.StartedAt)}, nothing to change",
+        { Outcome: SyncOutcome.HeldForReview } => $"checked {Ago(run.StartedAt)}, changes waiting",
+        _ => $"synced {Ago(run.StartedAt)}"
+    };
+
+    private static string Ago(DateTimeOffset moment)
+    {
+        var elapsed = DateTimeOffset.UtcNow - moment;
+
+        return elapsed switch
+        {
+            { TotalMinutes: < 1 } => "just now",
+            { TotalMinutes: < 60 } => $"{(int)elapsed.TotalMinutes} min ago",
+            { TotalHours: < 24 } => $"{(int)elapsed.TotalHours} h ago",
+            _ => $"{(int)elapsed.TotalDays} d ago"
+        };
+    }
+
+    private static string ApplyButtonText(ImportPreview preview)
+    {
+        if (!preview.HasApplicableChanges)
+        {
+            return "Nothing to apply";
+        }
+
+        var total = preview.CreateCount + preview.UpdateCount + preview.ResolvedConflictCount;
+        return $"Apply {total} {(total == 1 ? "change" : "changes")}";
+    }
+
+    private static string SummaryText(SyncApplyResult result)
+    {
+        var text = $"Added {result.Commit.Created} and updated {result.Commit.Updated}";
+        return result.ConflictsHeld > 0
+            ? $"{text}, leaving {result.ConflictsHeld} for you to decide later."
+            : $"{text}.";
+    }
+
+    /// <summary>Explains a queue that just got shorter.</summary>
+    private static string? AdvancementText(ImportCommitResult result) =>
+        result.QueueSlotsReleased switch
+        {
+            0 => null,
+            1 => "One title left Up Next because you have started or finished it.",
+            var n => $"{n} titles left Up Next because you have started or finished them."
+        };
+
+    /// <summary>
+    /// Reads an export and previews it, without writing anything.
+    /// </summary>
+    /// <remarks>
+    /// The same review surface a sync gets, because the difference between the two
+    /// is the trigger rather than the logic. What is specific to a file is only
+    /// getting the bytes: the default <c>OpenReadStream</c> cap is 512 KB, far below
+    /// a real export, and the parser enforces the same ceiling again on what it
+    /// reads so the limit holds whichever way in was used.
+    /// </remarks>
+    private async Task OnFileSelectedAsync(InputFileChangeEventArgs e)
+    {
+        Reset();
+
+        try
+        {
+            _filePreview = await _busy.RunAsync($"Reading {e.File.Name}", async progress =>
+            {
+                await using var stream = e.File.OpenReadStream(ImportLimits.Default.MaxBytes);
+
+                return await ImportService.PreviewAsync(
+                    stream, Parser, Profile.DefaultProfileId, progress);
+            });
+
+            _pendingSource = AnimeSource.MyAnimeList;
+
+            if (_filePreview.IsFileRejected)
+            {
+                _error = string.Join(" ", _filePreview.Problems.Select(p => p.Message));
+
+                // A rejected file has nothing to review, so it must not leave the page
+                // in the previewing state — the cards would collapse around an empty
+                // surface and the only way out would be Discard.
+                _filePreview = null;
+            }
+        }
+        catch (IOException ex)
+        {
+            // Thrown when the upload exceeds the stream limit.
+            Logger.LogWarning(ex, "Import upload rejected");
+            _error = "That file is too large to import.";
+        }
+    }
+
+    private void Reset()
+    {
+        _fetch = null;
+        _filePreview = null;
+        _pendingSource = null;
+        _applied = null;
+        _completed = null;
+        _nothingToDo = false;
+        _error = null;
+    }
+
+}

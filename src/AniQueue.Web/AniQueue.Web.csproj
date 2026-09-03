@@ -1,0 +1,59 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <!--
+    Blazor components, DI composition, configuration and hosting.
+    Components call services only: no DbContext and no LINQ in .razor files.
+  -->
+
+  <PropertyGroup>
+    <!-- Navigation away from a component throws by default; suppressing it keeps
+         NavigateTo usable from component lifecycle methods without try/catch noise. -->
+    <BlazorDisableThrowNavigationException>true</BlazorDisableThrowNavigationException>
+  </PropertyGroup>
+
+  <!--
+    Visual Studio's Docker launch profile. It points at the repository's own
+    Dockerfile rather than one Container Tools writes (§13), which is why both a
+    file and a context are given: the Dockerfile lives at the repository root
+    because restore needs the two Directory.*.props beside the projects.
+
+    The two paths are relative to different things, which is the trap here.
+    DockerfileFile is relative to this project; DockerfileContext is relative to
+    the *Dockerfile*. Since the Dockerfile is already at the repository root, the
+    context is `.`. Writing `..\..` for both — the obvious thing — resolved the
+    context to `G:\` and asked Docker to send an entire drive as build context.
+
+    DockerfileRunArguments gives a VS run the same persistent volume compose
+    gives, on its own name so a debugging session cannot write into the volume a
+    real deployment is using.
+  -->
+  <PropertyGroup>
+    <DockerDefaultTargetOS>Linux</DockerDefaultTargetOS>
+    <DockerfileFile>..\..\Dockerfile</DockerfileFile>
+    <DockerfileContext>.</DockerfileContext>
+    <DockerfileRunArguments>-v aniqueue-vs-data:/data</DockerfileRunArguments>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Build-time only: it contributes the targets VS uses to build, run and
+         attach to the container, and ships nothing into the published output. -->
+    <PackageReference Include="Microsoft.VisualStudio.Azure.Containers.Tools.Targets" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Design-time only. `dotnet ef` builds the migration model through the
+         startup project's DI, so the tooling package has to be referenced here
+         as well as in Infrastructure. PrivateAssets keeps it out of the
+         published output. -->
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Design">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\AniQueue.Core\AniQueue.Core.csproj" />
+    <ProjectReference Include="..\AniQueue.Infrastructure\AniQueue.Infrastructure.csproj" />
+  </ItemGroup>
+
+</Project>

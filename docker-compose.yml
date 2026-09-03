@@ -1,0 +1,59 @@
+# AniQueue, self-hosted. `docker compose up -d`, then open http://localhost:8377.
+#
+# This file holds the container's concerns and nothing else — the volume, the
+# port and the log limits. Everything about how AniQueue behaves is in
+# userconfig.json inside the volume, so there is no second place to
+# look.
+
+services:
+  aniqueue:
+    image: carlocgc/aniqueue:latest
+
+    # Build locally instead with `docker compose up -d --build`. Kept here so a
+    # change can be run the way a user runs it without publishing anything.
+    build:
+      context: .
+      dockerfile: Dockerfile
+
+    container_name: aniqueue
+    restart: unless-stopped
+
+    ports:
+      # Change the left number to publish on a different port. The right one is
+      # the container's and is fixed by the image.
+      #
+      # 8377 rather than 8080 on the host, because 8080 is the first port anything
+      # takes and a self-hoster running AniQueue is likely to have several things
+      # already. It also stays clear of the ports its neighbours claim: 8096
+      # Jellyfin, 8123 Home Assistant, 8686 Lidarr, 8989 Sonarr, 7878 Radarr.
+      #
+      # Inside the container it is still 8080, which is what the .NET runtime image
+      # defaults to and what nothing else on that network can collide with.
+      - "8377:8080"
+
+    volumes:
+      # A named volume by default. Swapping it for a host path — the usual Unraid
+      # arrangement — needs no preparation: the container takes ownership of
+      # /data at start and then drops to the unprivileged user it runs as.
+      #
+      #   - /mnt/user/appdata/aniqueue:/data
+      - aniqueue-data:/data
+
+    # No environment block, deliberately. The image already puts the database at
+    # /data/aniqueue.db, and a default is not a layer: repeating one
+    # here would pin it, so a later version that moved or renamed the file would be
+    # overridden by whatever this file happened to say on the day the installation
+    # was created. Set Database__Path only to override it, which almost nobody
+    # needs to. Everything else AniQueue does is set from its own pages or from
+    # userconfig.json inside the volume.
+
+    # The default json-file driver does not rotate, so a long-running container
+    # will fill a disk with its own log eventually.
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+volumes:
+  aniqueue-data:

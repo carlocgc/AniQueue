@@ -1,0 +1,46 @@
+<Project>
+
+  <!--
+    Shared compiler settings for every project in the solution.
+    Individual .csproj files should stay nearly empty so that a setting cannot
+    drift between projects without anyone noticing.
+  -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AnalysisLevel>latest-recommended</AnalysisLevel>
+    <EnforceCodeStyleInBuild>true</EnforceCodeStyleInBuild>
+  </PropertyGroup>
+
+  <!--
+    Nullability is a correctness tool, not a suggestion. Promoting the nullable
+    diagnostics to errors keeps the reference-type annotations trustworthy; if
+    they can be ignored they stop meaning anything. Other warnings stay warnings
+    so that an in-progress phase can still be built and run.
+  -->
+  <PropertyGroup>
+    <WarningsAsErrors>$(WarningsAsErrors);nullable</WarningsAsErrors>
+  </PropertyGroup>
+
+  <!--
+    CA1848 and CA1873 push all logging through source-generated LoggerMessage
+    delegates to avoid boxing and needless argument evaluation. That is a real win
+    on hot paths, and a poor trade everywhere else: this application logs startup,
+    migrations, imports and queue edits — operation-level events, not per-item
+    ones — so the rules would buy nothing and cost a partial method plus an
+    attribute per message.
+
+    Revisit if a genuinely hot path ever needs logging; suppress narrowly there
+    rather than reinstating this globally.
+  -->
+  <PropertyGroup>
+    <NoWarn>$(NoWarn);CA1848;CA1873</NoWarn>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(Configuration)' == 'Release'">
+    <ContinuousIntegrationBuild Condition="'$(CI)' == 'true'">true</ContinuousIntegrationBuild>
+  </PropertyGroup>
+
+</Project>

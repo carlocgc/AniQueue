@@ -1,0 +1,32 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    EF Core, SQLite, migrations, and the implementations of the service
+    interfaces declared in Core. Everything that touches data lives here.
+  -->
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" />
+    <!-- Design-time only: required by `dotnet ef` to build the migration model.
+         PrivateAssets keeps it out of the published output. -->
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Design">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\AniQueue.Core\AniQueue.Core.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!--
+      UserSettingsDocument is internal because nothing outside this assembly should
+      render the settings file, and it is tested directly because what that file says
+      is the contract an operator edits by hand. Reaching it by reflection instead
+      would make the test unreadable to hide a detail from one friend assembly.
+    -->
+    <InternalsVisibleTo Include="AniQueue.Infrastructure.Tests" />
+  </ItemGroup>
+
+</Project>

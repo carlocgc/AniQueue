@@ -1,0 +1,91 @@
+using AniQueue.Infrastructure.Persistence;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
+
+namespace AniQueue.Infrastructure;
+
+public static class PersistenceServiceCollectionExtensions
+{
+    /// <summary>
+    /// Registers the database context factory and startup initialiser.
+    /// </summary>
+    /// <remarks>
+    /// Configuration is passed in as a delegate rather than an <c>IConfiguration</c>
+    /// so that Infrastructure does not take a dependency on the configuration
+    /// binding packages purely to read one section. The caller binds; this
+    /// registers.
+    /// </remarks>
+    public static IServiceCollection AddAniQueuePersistence(
+        this IServiceCollection services,
+        Action<AniQueueDatabaseOptions> configureOptions)
+    {
+        ArgumentNullException.ThrowIfNull(configureOptions);
+
+        services.Configure(configureOptions);
+
+        // A factory, not a scoped context. Under Blazor Interactive Server a
+        // scoped service lives for the whole SignalR circuit, so a scoped DbContext
+        // would accumulate tracked entities for hours and fail as soon as two
+        // components rendered concurrently.
+        services.AddDbContextFactory<AniQueueDbContext>((serviceProvider, builder) =>
+        {
+            var options = serviceProvider
+                .GetRequiredService<Microsoft.Extensions.Options.IOptions<AniQueueDatabaseOptions>>()
+                .Value;
+
+            builder.UseSqlite(
+                options.BuildConnectionString(),
+                sqlite => sqlite.MigrationsAssembly(typeof(AniQueueDbContext).Assembly.GetName().Name));
+        });
+
+        services.AddScoped<DatabaseInitializer>();
+        services.AddScoped<Core.Import.IImportService, Import.ImportService>();
+        services.AddScoped<Core.Library.ILibraryService, Library.LibraryService>();
+
+        // Beside the library it empties. It reaches the artwork cache as well as the
+        // tables, which is why it takes the store the artwork pass writes through
+        // rather than deleting files itself.
+        services.AddScoped<Core.Library.ILibraryMaintenance, Library.LibraryMaintenance>();
+
+        // Registered beside the library rather than with the sync services, because
+        // it reads the graph rather than fills it: the backfill is outbound traffic
+        // gated on a kill switch, this is a query the backlog makes.
+        services.AddScoped<Core.Library.IRelationService, Library.RelationService>();
+
+        services.AddScoped<Core.Queue.IQueueService, Queue.QueueService>();
+
+        // Parsers are pure and stateless, so a singleton is sufficient, and
+        // they are registered under a key rather than as a bare IAnimeListParser.
+        // An unkeyed second registration would silently rebind the first, and the
+        // symptom would be the import page quietly feeding XML to whichever parser
+        // happened to be registered last.
+        services.AddKeyedSingleton<Core.Import.IAnimeListParser, Core.Import.MyAnimeListXmlParser>(
+            Core.Domain.AnimeSource.MyAnimeList);
+
+        // The response reader is pure and stateless too, and unkeyed because there is
+        // only ever one: the format it reads is AniQueue's own, so a second
+        // implementation would mean a second contract rather than a second source.
+        services.AddSingleton<Core.Recommendations.ScoringResponseParser>();
+        services.AddScoped<Core.Recommendations.IRecommendationService, Recommendations.RecommendationService>();
+
+        return services;
+    }
+
+    /// <summary>
+    /// Registers the sample-data seeder, which fills an empty database on request.
+    /// </summary>
+    /// <remarks>
+    /// Deliberately separate from <see cref="AddAniQueuePersistence"/>, and the
+    /// separation is the first of two locks: a production container never resolves
+    /// the type, let alone runs it. The second is the switch that decides whether to
+    /// call it — an empty database is the default, because sample titles carrying
+    /// invented identifiers are indistinguishable from ones a source has stopped
+    /// listing, and nobody should meet that on a first run they did not ask for.
+
+    /// </remarks>
+    public static IServiceCollection AddAniQueueSampleData(this IServiceCollection services)
+    {
+        services.AddScoped<Persistence.Seeding.SampleDataSeeder>();
+        return services;
+    }
+}

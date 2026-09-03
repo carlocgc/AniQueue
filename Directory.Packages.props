@@ -1,0 +1,50 @@
+<Project>
+
+  <!--
+    Central package management. Versions are declared once here; .csproj
+    files reference packages by name only. Prevents the same dependency drifting
+    to different versions across the five projects.
+
+    Packages are added as the phase that needs them lands, not speculatively.
+  -->
+  <PropertyGroup>
+    <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
+    <CentralPackageTransitivePinningEnabled>true</CentralPackageTransitivePinningEnabled>
+  </PropertyGroup>
+
+  <!-- Persistence. EF Core packages ship in lockstep; keep these versions equal. -->
+  <ItemGroup>
+    <PackageVersion Include="Microsoft.EntityFrameworkCore.Sqlite" Version="10.0.11" />
+    <PackageVersion Include="Microsoft.EntityFrameworkCore.Design" Version="10.0.11" />
+  </ItemGroup>
+
+  <!--
+    Visual Studio Container Tools. Build-time only: it contributes the targets that
+    let VS build, run and attach to the Dockerfile from the Docker launch profile,
+    and ships nothing into the published output.
+
+    Approved deliberately rather than smuggled in, and it buys the one
+    thing `docker compose up` cannot: a breakpoint inside the container, which is
+    where the deployment-only failures live — volume permissions, the non-root
+    user, forwarded headers.
+
+    Pinned to 1.23.0 rather than the 1.20.1 the sibling project uses, because 1.20.1
+    cannot build here at all. Two of its bugs are in the way and both are fixed in
+    1.21: it reads Docker Desktop's settings from settings.json, which current
+    versions renamed to settings-store.json, and it crashes rather than degrading
+    when the file is missing; and it mis-quotes a build context ending in a
+    backslash, which a drive root does.
+  -->
+  <ItemGroup>
+    <PackageVersion Include="Microsoft.VisualStudio.Azure.Containers.Tools.Targets" Version="1.23.0" />
+  </ItemGroup>
+
+  <!-- Testing. The .NET 10 xunit template emits xUnit v2, not v3. -->
+  <ItemGroup>
+    <PackageVersion Include="coverlet.collector" Version="6.0.4" />
+    <PackageVersion Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />
+    <PackageVersion Include="xunit" Version="2.9.3" />
+    <PackageVersion Include="xunit.runner.visualstudio" Version="3.1.4" />
+  </ItemGroup>
+
+</Project>

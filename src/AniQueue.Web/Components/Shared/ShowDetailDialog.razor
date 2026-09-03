@@ -1,0 +1,587 @@
+@using System.Globalization
+@using AniQueue.Core.Artwork
+@using AniQueue.Core.Domain
+@using AniQueue.Core.Library
+@using AniQueue.Core.Queue
+@using AniQueue.Core.Recommendations
+@implements IAsyncDisposable
+@inject ILibraryService LibraryService
+@inject IRelationService RelationService
+@inject IRecommendationService Recommender
+@inject IQueueService Queue
+@inject IJSRuntime JS
+
+@*
+    Everything about one title, and the only place several of those things live: the
+    synopsis and the pitch, the model's reasoning, and what else comes with it.
+
+    It reads its own data rather than being handed a record. Two pages open it, and
+    both would otherwise have to know how to load three things and how to queue a
+    set. It tells the page when it changed something, and the page re-reads.
+
+    Every field degrades to absent. A title with no synopsis, no genres, no main
+    studio or no poster shows less rather than showing a placeholder, which most
+    titles will exercise: a MyAnimeList-only import has none of this at all.
+*@
+
+<dialog @ref="_dialog" class="detail-dialog" aria-labelledby="detail-dialog-title" @onclose="OnClosed">
+    @if (_detail is { } detail)
+    {
+        <article>
+            <header>
+                <h2 id="detail-dialog-title">
+                    @detail.Title
+
+                    @* The same badge the rows use, so a status means the same thing
+                       wherever it is read. Inside the heading rather than beside it
+                       so the accessible name a screen reader announces on open is
+                       "86 EIGHTY-SIX Part 2, Completed" — which is the sentence
+                       somebody opening this actually wants. *@
+                    <span class="badge @detail.Status.ToString().ToLowerInvariant()">@detail.Status</span>
+                </h2>
+
+                @* Autofocus so the platform's own focus move on showModal lands on
+                   the control that dismisses, which is what a keyboard user reaches
+                   for first and what a screen reader announces on open. *@
+                <button class="icon detail-close" autofocus aria-label="Close" @onclick="CloseAsync"><Icon Name="x" /></button>
+            </header>
+
+            <div class="detail-body">
+                <div class="detail-art">
+                    @* The full-size rendition where it has arrived, the list's own
+                       thumbnail while it has not, then the colour block. The middle
+                       step matters more than it looks: a fresh install has thumbnails
+                       for several minutes before it has posters, and a dialog
+                       showing a colour block beside a list row showing art for the
+                       same title would read as broken rather than as pending. *@
+                    <span class="detail-poster @(detail.Poster.HasImage ? null : "detail-poster-blank") @(detail.Poster.IsEmpty ? "detail-poster-empty" : null)"
+                          style="@PosterColour(detail)"
+                          aria-hidden="true">
+                        @if (detail.Poster.HasImage)
+                        {
+                            @* No height attribute, deliberately. AniList fixes the
+                               width of this rendition and lets the height vary per
+                               title, so stating one would be wrong for most of the
+                               library and would crop the art to fit the lie. *@
+                            <img src="@detail.Poster.Url" alt="" width="230" decoding="async" />
+                        }
+                    </span>
+                </div>
+
+                <div class="detail-facts">
+                    <p class="detail-meta">
+                        @foreach (var fact in Facts(detail))
+                        {
+                            <span>@fact</span>
+                        }
+                    </p>
+
+                    @if (detail.MainStudio is { Length: > 0 } studio)
+                    {
+                        <p class="detail-studio">@studio</p>
+                    }
+
+                    @if (detail.Genres.Count > 0)
+                    {
+                        <ul class="detail-genres">
+                            @foreach (var genre in detail.Genres)
+                            {
+                                <li>@genre</li>
+                            }
+                        </ul>
+                    }
+
+                    @* Side by side because they are the same measurement of the same
+                       title from two different judges, and directly comparable: every
+                       parser normalises an incoming score into 1–10 on the way in, and
+                       ScoringScale.Default is the same 1–10 the model is asked for. If
+                       those ever diverged this pairing would start lying, which is why
+                       it is written down here rather than assumed. *@
+                    @if (detail.UserScore is not null || detail.RecommendationScore is not null)
+                    {
+                        <div class="detail-scores">
+                            @* Shown whenever there is one, rather than only when the
+                               title is Completed. A score exists because the user gave
+                               it, and they can rate something they dropped or put on
+                               hold — hiding it there would be withholding their own
+                               judgement on a screen built to inform one. *@
+                            @if (detail.UserScore is { } userScore)
+                            {
+                                <div class="detail-stat">
+                                    <span class="detail-stat-label">Your score</span>
+                                    <span class="detail-stat-value">@userScore</span>
+                                </div>
+                            }
+
+                            @if (detail.RecommendationScore is { } score)
+                            {
+                                <div class="detail-stat">
+                                    <span class="detail-stat-label">AI score</span>
+                                    <span class="detail-stat-value">@score.ToString("0.0")</span>
+                                    @if (detail.RecommendationConfidence is { } confidence)
+                                    {
+                                        <span class="detail-stat-note">@Percent(confidence) confident</span>
+                                    }
+                                </div>
+                            }
+                        </div>
+
+                        @* Verbatim and encoded, like every other string a model
+                           produced. Blazor escapes it; nothing here builds markup. *@
+                        @if (detail.RecommendationReason is { Length: > 0 } reason)
+                        {
+                            <p class="detail-reason">@reason</p>
+                        }
+
+                        @* Who decided, when, and carried how.
+
+                           The model earns its line because it is the one fact that
+                           tells a user whether to run this again: a score from a small
+                           local model is worth revisiting once a better one is
+                           available, and the same score from the best model they have
+                           is not. *@
+                        @if (_scoring is { } scoring)
+                        {
+                            <dl class="detail-provenance">
+                                <div>
+                                    <dt>Decided</dt>
+                                    <dd>@Determined(scoring.DeterminedAt)</dd>
+                                </div>
+                                <div>
+                                    <dt>Type</dt>
+                                    <dd>@scoring.ProviderName</dd>
+                                </div>
+                                <div>
+                                    <dt>Model</dt>
+                                    <dd>
+                                        @if (scoring.ModelIdentifier is { } model)
+                                        {
+                                            @model
+                                        }
+                                        else
+                                        {
+                                            @* Shown rather than omitted. A missing row
+                                               is indistinguishable from a dialog that
+                                               never had the field, and "I did not say"
+                                               is a different answer from "there was no
+                                               model". *@
+                                            <span class="muted">Unspecified</span>
+                                        }
+                                    </dd>
+                                </div>
+                            </dl>
+                        }
+                        else if (detail.RecommendationScore is not null)
+                        {
+                            @* The score is on the entry but no applied run mentions
+                               this title — the history was cleared, or it was scored by
+                               a build that kept no run. Said plainly rather than shown
+                               as a gap. *@
+                            <p class="muted detail-provenance-missing">
+                                The ranking that produced this score is no longer on record.
+                            </p>
+                        }
+                    }
+                </div>
+
+            @if (detail.SynopsisSegments.Count > 0)
+            {
+                @* Inside the body, and after the facts, so it wraps around the
+                   floated poster rather than starting below it. A completed title
+                   has no model reasoning to fill the column beside the poster, so
+                   without this the dialog is mostly empty space next to the art —
+                   which is what a magazine layout has always solved by letting the
+                   text run around the picture. *@
+                <div class="detail-synopsis">
+                    @foreach (var segment in detail.SynopsisSegments)
+                    {
+                        @if (segment.IsSpoiler)
+                        {
+                            @* A button rather than a span, because revealing is an
+                               action and a keyboard has to be able to take it. Once
+                               revealed it stays revealed for as long as the dialog is
+                               open, which is the whole of the state this needs. *@
+                            <button type="button"
+                                    class="spoiler @(_revealed ? "revealed" : null)"
+                                    aria-expanded="@_revealed.ToString().ToLowerInvariant()"
+                                    aria-label="@(_revealed ? null : "Reveal spoiler")"
+                                    @onclick="() => _revealed = true">@segment.Text</button>
+                        }
+                        else
+                        {
+                            <span>@segment.Text</span>
+                        }
+                    }
+                </div>
+            }
+            </div>
+
+            @* What else comes with this title.
+
+               The set is the same work followed as far as it goes — main seasons and
+               their specials, in release order — so opening season three shows season
+               one, which is the reason not to start here. A spin-off is a different
+               purchase and is not in it. *@
+            @if (_relatives is { Count: > 0 } relatives)
+            {
+                <section class="detail-set">
+                    <h3>Comes with</h3>
+
+                    @* The one control that acts on more than one title, above the
+                       list of what they are.
+
+                       Offered only when it would do more than the row's own add
+                       button already does: at one title it is that button with a
+                       longer name. *@
+                    @if (_toQueue is > 1 and var toQueue)
+                    {
+                        <p class="detail-set-action">
+                            <button class="follow"
+                                    title="@QueueSetLabel(detail.Title, toQueue)"
+                                    aria-label="@QueueSetLabel(detail.Title, toQueue)"
+                                    @onclick="QueueSetAsync">
+                                <Icon Name="plus" />Queue the set
+                                <span class="badge count">@toQueue</span>
+                            </button>
+                            <span class="muted">in release order</span>
+                        </p>
+                    }
+
+                    <ul class="detail-set-list">
+                        @foreach (var relative in relatives)
+                        {
+                            <li>
+                                @* Leads the line, as it does on every row of the
+                                   backlog: the whole point of finding a season here
+                                   is being able to act on it, and acting leaves
+                                   the dialog open so the next one down is still in
+                                   front of the user. *@
+                                <QueueButton AnimeId="relative.AnimeId" Title="@relative.Title"
+                                             Status="relative.Status" IsQueued="relative.IsQueued"
+                                             OnToggle="ToggleQueuedAsync" />
+
+                                @* The title on its own line and everything about it on
+                                   the next. They shared a wrapping line until a real
+                                   library arrived: an eighty-character light-novel title
+                                   pushed the badges onto a third line and the add button
+                                   onto a line of its own above the title it belonged to,
+                                   so a run of seasons read as rubble. *@
+                                <div class="detail-set-line">
+                                    <button type="button"
+                                            class="title-button relation-title"
+                                            aria-label="Details for @relative.Title"
+                                            @onclick="() => ShowAsync(relative.AnimeId)">@relative.Title</button>
+
+                                    <div class="detail-set-meta">
+                                        <span class="badge @relative.Status.ToString().ToLowerInvariant()">@relative.Status</span>
+
+                                        @if (relative.IsQueued)
+                                        {
+                                            <span class="badge queued" title="Already in Up Next">Queued</span>
+                                        }
+
+                                        @* Only where the source said something. Anything
+                                           more than one edge away has no edge to read, so
+                                           it gets no badge rather than a guessed
+                                           one. *@
+                                        @if (relative.Relation is not null)
+                                        {
+                                            <span class="badge relation">@relative.Label</span>
+                                        }
+
+                                        <span class="muted">@RelativeMeta(relative)</span>
+                                    </div>
+                                </div>
+                            </li>
+                        }
+                    </ul>
+                </section>
+            }
+
+            @if (detail.SourceLinks.Count > 0)
+            {
+                <footer class="detail-links">
+                    @foreach (var link in detail.SourceLinks)
+                    {
+                        <a href="@link.Url"
+                           target="_blank"
+                           rel="noopener noreferrer"
+                           aria-label="@link.DescribeFor(detail.Title)">@link.ShortName ↗</a>
+                    }
+                </footer>
+            }
+        </article>
+    }
+</dialog>
+
+@code {
+    private ElementReference _dialog;
+    private IJSObjectReference? _module;
+    private TitleDetail? _detail;
+    private IReadOnlyList<RelatedTitle>? _relatives;
+    private RecommendationDetail? _scoring;
+    private int _toQueue;
+    private bool _revealed;
+    private bool _opening;
+
+    /// <summary>
+    /// Raised after this dialog changes the queue, so the page behind it can re-read.
+    /// </summary>
+    /// <remarks>
+    /// The dialog owns the writes now, and the page still owns its own rows —
+    /// a backlog row's Queued badge and an Up Next slot are both stale the moment
+    /// something in here is queued. Announcing it rather than reaching for the page
+    /// keeps the direction of knowledge one way.
+    /// </remarks>
+    [Parameter]
+    public EventCallback OnChanged { get; set; }
+
+    /// <summary>Loads and shows one title. Does nothing if it has since gone.</summary>
+    /// <remarks>
+    /// The load happens before the dialog opens rather than after, so it never
+    /// appears empty and then fills in. It is one title read at human speed, which is
+    /// what makes that affordable — and a title deleted by a sync between the click
+    /// and this call simply does not open, because there is nothing to argue about
+    /// and an error would be about our timing rather than about anything they did.
+    ///
+    /// <b>It is also how the dialog navigates.</b> A title in the set opens its own
+    /// set, in the same dialog, which is what makes a run of seasons walkable without
+    /// closing anything. The dialog is already open in that case and stays open —
+    /// <c>showModal</c> on an open dialog is a no-op rather than an error.
+    /// </remarks>
+    public async Task ShowAsync(int animeId)
+    {
+        if (_opening)
+        {
+            return;
+        }
+
+        _opening = true;
+
+        try
+        {
+            var detail = await LibraryService.GetTitleDetailAsync(Profile.DefaultProfileId, animeId);
+
+            if (detail is null)
+            {
+                return;
+            }
+
+            _detail = detail;
+            _revealed = false;
+
+            await LoadSetAsync(animeId);
+
+            // Only where there is a score to explain. An unranked title has no run to
+            // name, and asking anyway would be a query per open for nothing.
+            _scoring = detail.RecommendationScore is null
+                ? null
+                : await Recommender.GetDetailAsync(Profile.DefaultProfileId, animeId);
+
+            // Rendered before showModal, so the dialog the platform focuses into
+            // already has the close button inside it.
+            StateHasChanged();
+
+            _module ??= await JS.InvokeAsync<IJSObjectReference>(
+                "import", "./Components/Shared/ShowDetailDialog.razor.js");
+
+            await _module.InvokeVoidAsync("showModal", _dialog);
+        }
+        finally
+        {
+            _opening = false;
+        }
+    }
+
+    /// <summary>The set, and how much of it pressing the button would actually add.</summary>
+    private async Task LoadSetAsync(int animeId)
+    {
+        _relatives = await RelationService.GetRelatedAsync(Profile.DefaultProfileId, animeId);
+
+        // Asked separately from the list, because they answer different questions:
+        // the list is every title in the set whatever its status, and this is only
+        // what a press would append. Skipped where there is no set to queue.
+        _toQueue = _relatives.Count == 0
+            ? 0
+            : await RelationService.CountToQueueAsync(Profile.DefaultProfileId, animeId);
+    }
+
+    /// <summary>Adds or removes one title in the set, and re-reads what changed.</summary>
+    /// <remarks>
+    /// The whole set is re-read rather than the one row patched, because queueing one
+    /// season changes the number on the button above it too — and the set is a dozen
+    /// rows, not a page of fifty. The backlog patches its own rows instead; the
+    /// reason that rule exists there is losing the reader's place in a long list,
+    /// which a dialog does not have.
+    /// </remarks>
+    private async Task ToggleQueuedAsync((int AnimeId, bool Queued) change)
+    {
+        if (_detail is not { } detail)
+        {
+            return;
+        }
+
+        if (change.Queued)
+        {
+            await Queue.AddAnimeAsync(Profile.DefaultProfileId, [change.AnimeId]);
+        }
+        else
+        {
+            await Queue.RemoveAnimeAsync(Profile.DefaultProfileId, change.AnimeId);
+        }
+
+        await LoadSetAsync(detail.AnimeId);
+        await OnChanged.InvokeAsync();
+    }
+
+    /// <summary>Queues the whole set, in release order.</summary>
+    private async Task QueueSetAsync()
+    {
+        if (_detail is not { } detail)
+        {
+            return;
+        }
+
+        await RelationService.QueueSetAsync(Profile.DefaultProfileId, detail.AnimeId);
+
+        await LoadSetAsync(detail.AnimeId);
+        await OnChanged.InvokeAsync();
+    }
+
+    private async Task CloseAsync()
+    {
+        if (_module is not null)
+        {
+            await _module.InvokeVoidAsync("close", _dialog);
+        }
+    }
+
+    /// <summary>
+    /// Drops the closed title, however the dialog was dismissed.
+    /// </summary>
+    /// <remarks>
+    /// <b>Nothing depends on this running.</b> <see cref="ShowAsync"/> sets both
+    /// fields and renders before it calls <c>showModal</c>, so the dialog is always
+    /// correct by the time it is visible whether or not this fires. It is here to
+    /// stop a closed dialog holding the last title's text in the DOM indefinitely,
+    /// which is tidiness rather than correctness — and the distinction is deliberate,
+    /// because two of the three ways to close (Escape, the backdrop) never pass
+    /// through <see cref="CloseAsync"/> at all.
+    ///
+    /// <b>It could not be verified.</b> The browser this was driven through fires no
+    /// <c>close</c> event even for a bare dialog created and closed in one statement,
+    /// so whether Blazor's handler is reached is untested — hence making the component
+    /// correct without it rather than relying on it.
+    /// </remarks>
+    private void OnClosed()
+    {
+        _detail = null;
+        _relatives = null;
+        _scoring = null;
+        _toQueue = 0;
+        _revealed = false;
+    }
+
+    /// <summary>The facts that fit on one line, with the ones that are unknown left out.</summary>
+    private static IEnumerable<string> Facts(TitleDetail detail)
+    {
+        if (detail.MediaType != MediaType.Unknown)
+        {
+            yield return detail.MediaType.ToString().ToUpperInvariant();
+        }
+
+        if (detail.ReleaseYear is { } year)
+        {
+            yield return year.ToString(CultureInfo.InvariantCulture);
+        }
+
+        if (detail.EpisodeCount is { } episodes and > 0)
+        {
+            yield return episodes == 1 ? "1 episode" : $"{episodes} episodes";
+        }
+
+        if (RuntimeCalculator.Format(detail.EstimatedRuntimeMinutes) is { } runtime)
+        {
+            yield return runtime;
+        }
+
+        // Only while it is worth saying. "12 / 12" beside "12 episodes" repeats
+        // itself, and "0 / 12" on something not started says nothing the status
+        // badge has not already said — but a part-watched title is the one case
+        // where where you got to is the most useful fact on the screen.
+        if (detail.EpisodesWatched > 0 && detail.EpisodesWatched != detail.EpisodeCount)
+        {
+            yield return detail.EpisodeCount is { } total
+                ? $"watched {detail.EpisodesWatched} of {total}"
+                : $"watched {detail.EpisodesWatched}";
+        }
+    }
+
+    /// <summary>The same rounding the backlog's own confidence column uses.</summary>
+    private static string Percent(double value) =>
+        ((int)Math.Round(value * 100)).ToString(CultureInfo.CurrentCulture) + "%";
+
+    private static string Determined(DateTimeOffset when) =>
+        when.ToLocalTime().ToString("g", CultureInfo.CurrentCulture);
+
+    private static string QueueSetLabel(string title, int count) =>
+        $"Queue the set {title} belongs to — {count} titles, in release order";
+
+    /// <summary>The facts that fit on the end of one line of the set.</summary>
+    private static string RelativeMeta(RelatedTitle relative)
+    {
+        var parts = new List<string>(4);
+
+        if (relative.MediaType != MediaType.Unknown)
+        {
+            parts.Add(MediaTypeLabel(relative.MediaType));
+        }
+
+        if (relative.ReleaseYear is { } year)
+        {
+            parts.Add(year.ToString(CultureInfo.InvariantCulture));
+        }
+
+        if (RuntimeCalculator.Format(relative.EstimatedRuntimeMinutes) is { } runtime)
+        {
+            parts.Add(runtime);
+        }
+
+        if (relative.EpisodesWatched > 0)
+        {
+            parts.Add(relative.EpisodeCount is { } total
+                ? $"{relative.EpisodesWatched} / {total} watched"
+                : $"{relative.EpisodesWatched} watched");
+        }
+
+        return string.Join(" · ", parts);
+    }
+
+    private static string MediaTypeLabel(MediaType mediaType) => mediaType switch
+    {
+        MediaType.Tv => "TV",
+        MediaType.Ova => "OVA",
+        MediaType.Ona => "ONA",
+        _ => mediaType.ToString()
+    };
+
+    private static string? PosterColour(TitleDetail detail) =>
+        detail.Poster.Colour is { } colour ? $"--cover-colour: {colour}" : null;
+
+    public async ValueTask DisposeAsync()
+    {
+        if (_module is not null)
+        {
+            try
+            {
+                await _module.DisposeAsync();
+            }
+            catch (JSDisconnectedException)
+            {
+                // The circuit went before the module could be released, which is the
+                // ordinary way a page ends. There is nothing on the other side to
+                // dispose and nothing here worth logging.
+            }
+        }
+    }
+}

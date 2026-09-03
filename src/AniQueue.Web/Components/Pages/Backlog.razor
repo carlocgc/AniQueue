@@ -1,0 +1,588 @@
+@page "/backlog"
+@using System.Globalization
+@using AniQueue.Core.Queue
+@inject ILibraryService LibraryService
+@inject IQueueService QueueService
+
+<PageTitle>Backlog — AniQueue</PageTitle>
+
+<div class="page-header">
+    <h1>Backlog</h1>
+    <p>What you intend to watch. Narrow it down, then send things to Up Next.</p>
+</div>
+
+@* Rows here change under a background sync too — a title's status moves, or a new
+   one appears — and the filters make it worse: a page filtered to Planning can be
+   showing something that finished watching an hour ago. *@
+<StaleLibraryNotice OnRefresh="ReloadAsync" />
+
+@* No busy dialog here any more. Every write this page makes is now one row's
+   worth, so a modal covering the page to announce it would be more disruptive than
+   the wait it describes — and it was the bulk actions, gone with the checkboxes,
+   that needed to be kept off the circuit thread. *@
+
+@if (Facets is null || Page is null)
+{
+    <div class="empty-state" aria-live="polite">Loading…</div>
+}
+else if (Facets.IsEmpty)
+{
+    @* No filter bar over a library with nothing in it. Beyond being noise — a
+       search box, a sort order and "0 entries" above a message saying there is
+       nothing here — it was actively wrong: the backlog defaults to Planning, and
+       an empty library has no Planning count, so the status picker rendered with a
+       selected value matching none of its options and drew itself blank. *@
+    <div class="card">
+        <div class="empty-state">
+            <p>Your library is empty. Bring it in from wherever it already lives.</p>
+            <div class="toolbar">
+                <a class="button primary" href="sources">Bring in your library</a>
+            </div>
+        </div>
+    </div>
+}
+else
+{
+    @* The six counters. They are a health check — did the sync bring everything in — and this is where
+       that question gets asked, above the list the answer is about.
+
+       Read from the facets the filter bar below is already using rather than from a
+       second query. They are the same numbers: the status picker's options carry
+       these counts, and a picker whose numbers disagreed with the row above it would
+       be worse than either alone. *@
+    <div class="stat-row">
+        <div class="stat">
+            <div class="value">@Facets.CountByStatus.Values.Sum()</div>
+            <div class="label">In library</div>
+        </div>
+        @foreach (var (status, label) in Counters)
+        {
+            <div class="stat">
+                @* Absent statuses read as zero rather than being left out. A count of
+                   nothing is an answer to "did it all come in", and a row that changed
+                   shape with the library would be harder to read at a glance than one
+                   that does not. *@
+                <div class="value">@Facets.CountByStatus.GetValueOrDefault(status)</div>
+                <div class="label">@label</div>
+            </div>
+        }
+    </div>
+
+    <div class="card filters">
+        <div class="toolbar">
+            <input type="search" placeholder="Search titles" value="@_query.Search"
+                   @oninput="OnSearchChangedAsync" aria-label="Search titles" />
+
+            @* Which slice of the library is being looked at. *@
+            <select value="@_statusValue" @onchange="OnStatusChangedAsync" aria-label="Show">
+                <option value="">All statuses</option>
+                @foreach (var status in Enum.GetValues<LibraryStatus>())
+                {
+                    var count = Facets.CountByStatus.GetValueOrDefault(status);
+                    @* Statuses the library does not contain are not offered. *@
+                    if (count > 0)
+                    {
+                        <option value="@status">@status (@count)</option>
+                    }
+                }
+            </select>
+
+            <select value="@_query.Sort" @onchange="OnSortChangedAsync" aria-label="Sort by">
+                <option value="@LibrarySort.TitleAscending">Title A–Z</option>
+                <option value="@LibrarySort.TitleDescending">Title Z–A</option>
+                @if (Facets.HasRecommendations)
+                {
+                    <option value="@LibrarySort.RecommendationDescending">AI rank</option>
+                }
+                @if (Facets.HasRuntimeData)
+                {
+                    <option value="@LibrarySort.RuntimeAscending">Shortest first</option>
+                    <option value="@LibrarySort.RuntimeDescending">Longest first</option>
+                }
+                <option value="@LibrarySort.YearDescending">Newest</option>
+                <option value="@LibrarySort.YearAscending">Oldest</option>
+                @if (Facets.HasUserScores)
+                {
+                    <option value="@LibrarySort.UserScoreDescending">My score</option>
+                }
+                <option value="@LibrarySort.DateAddedDescending">Recently added</option>
+            </select>
+
+            <span class="muted">@EntryCountText()</span>
+
+            @if (_query.HasActiveFilters)
+            {
+                <button @onclick="ClearFiltersAsync">Clear filters</button>
+            }
+        </div>
+
+        @* Quick filters are rendered only when the metadata behind them exists. A
+           "Movie" chip in a library with no films can only ever return nothing,
+           and an empty result reads as "I own none" rather than "this control is
+           useless here". *@
+        <div class="chips" role="group" aria-label="Quick filters">
+            @if (Facets.HasRuntimeData)
+            {
+                <button class="chip @Active(_query.MaxRuntimeMinutes == 120)"
+                        @onclick="() => ToggleRuntimeAsync(120)">Under 2 hours</button>
+                <button class="chip @Active(_query.MaxRuntimeMinutes == 360)"
+                        @onclick="() => ToggleRuntimeAsync(360)">Under 6 hours</button>
+            }
+
+            @* Beside the runtime chips on purpose: both answer "what can I start
+               tonight without signing up for something". Offered only once the
+               relation graph holds a prequel or sequel edge, or it would match every
+               row and read as "my whole library is standalone". *@
+            @if (Facets.HasSequelEdges)
+            {
+                <button class="chip @Active(_query.StandaloneOnly)"
+                        @onclick="ToggleStandaloneAsync">Standalone</button>
+            }
+
+            @foreach (var mediaType in Facets.MediaTypes)
+            {
+                <button class="chip @Active(_query.MediaType == mediaType)"
+                        @onclick="() => ToggleMediaTypeAsync(mediaType)">@MediaTypeLabel(mediaType)</button>
+            }
+
+            @foreach (var decade in Facets.Decades)
+            {
+                <button class="chip @Active(_query.Decade == decade)"
+                        @onclick="() => ToggleDecadeAsync(decade)">@DecadeLabel(decade)</button>
+            }
+
+            @if (Facets.HasRecommendations)
+            {
+                <button class="chip @Active(_query.MinRecommendationConfidence is not null)"
+                        @onclick="ToggleHighConfidenceAsync">High AI confidence</button>
+            }
+
+            @if (Facets.HasUnrankedEntries && Facets.HasRecommendations)
+            {
+                <button class="chip @Active(_query.HasRecommendation == false)"
+                        @onclick="ToggleUnrankedAsync">Not yet ranked</button>
+            }
+
+            @if (Facets.Sources.Count > 1)
+            {
+                @foreach (var source in Facets.Sources)
+                {
+                    <button class="chip @Active(_query.Source == source)"
+                            @onclick="() => ToggleSourceAsync(source)">@source</button>
+                }
+            }
+        </div>
+    </div>
+
+    @* No selection bar, and nothing appears above the table when a row is acted on.
+       Every action lives on the row it acts on: a control that materialises
+       at the top of a fifty-row page is out of reach of the row that summoned it,
+       and the feedback is the row changing under the cursor rather than a sentence
+       somewhere else. *@
+
+    @if (Page.Items.Count == 0)
+    {
+        <div class="card">
+            <div class="empty-state">
+                @* An empty library never reaches here — it is answered above, before
+                   the filter bar is drawn at all. *@
+                <p>Nothing matches those filters.</p>
+                <button @onclick="ClearFiltersAsync">Clear filters</button>
+            </div>
+        </div>
+    }
+    else
+    {
+        @* A list of cards, not a table. Sorting is the select above, and nothing
+           here is read across a row against its neighbours.
+
+           Separated cards rather than divided rows, because a divided row still reads
+           as a table after the table has gone, and a card is a larger and more obvious
+           thing to tap. *@
+        <ul class="entry-list">
+            @foreach (var item in Page.Items)
+            {
+                <li class="entry-card">
+                    @* The picture leads, at every width. It is the fastest way to
+                       recognise a title you have seen the art for, and it is a pointer
+                       shortcut into the dialog — silent, because the title beside it
+                       carries the real name. *@
+                    <CoverThumb Cover="item.Cover" OnActivate="() => ShowDetailAsync(item.AnimeId)" />
+
+                    <div class="entry-main">
+                        <button type="button"
+                                class="title-button entry-title"
+                                aria-label="Details for @item.Title"
+                                @onclick="() => ShowDetailAsync(item.AnimeId)">@item.Title</button>
+
+                        <div class="entry-badges">
+                            @* The one fact that changes what the row means, and the
+                               one the filter above acts on — seeing it is how somebody
+                               confirms the filter did what they asked. *@
+                            <span class="badge @item.Status.ToString().ToLowerInvariant()">@item.Status</span>
+
+                            @* Reads the page's own state rather than what the query
+                               returned, so a row acted on says so immediately without
+                               the list being re-read under the cursor. *@
+                            @if (IsQueued(item.AnimeId))
+                            {
+                                <span class="badge queued" title="Already in Up Next">Queued</span>
+                            }
+                        </div>
+                    </div>
+
+                    @* Its own column rather than a line under the title, and only
+                       where there is room for one. These are facts the dialog states
+                       in full; at desktop width the card has a column going spare and
+                       they are worth having at a glance, and on a phone they are four
+                       more greys under a title. *@
+                    <p class="entry-facts">@FactsText(item)</p>
+
+                    @* Your score if there is one, otherwise the model's. A rating
+                       somebody gave is a fact and a predicted score is a guess, and a
+                       fact outranks a guess whatever the status — a title rated years
+                       ago and put back on the pile would otherwise show the guess in
+                       place of the real number. *@
+                    <p class="entry-score @(item.UserScore is null ? "predicted" : null)"
+                       title="@ScoreLabel(item)"
+                       aria-label="@ScoreLabel(item)">@ScoreText(item)</p>
+
+                    @* Present on every card and disabled where it cannot work, rather
+                       than absent: a control that comes and goes down a column is
+                       harder to aim at than one always in the same place, and a
+                       disabled button carries the reason in its tooltip where an
+                       absent one carries nothing. *@
+                    <QueueButton AnimeId="item.AnimeId" Title="@item.Title"
+                                 Status="item.Status" IsQueued="IsQueued(item.AnimeId)"
+                                 OnToggle="ToggleQueuedAsync" />
+                </li>
+            }
+        </ul>
+
+        @if (Page.TotalCount > PageSize)
+        {
+            <div class="toolbar">
+                <button @onclick="() => GoToPageAsync(0)" disabled="@(_query.Skip == 0)">First</button>
+                <button @onclick="() => GoToPageAsync(_query.Skip - PageSize)" disabled="@(_query.Skip == 0)">Previous</button>
+                <span class="muted">
+                    @(_query.Skip + 1)–@Math.Min(_query.Skip + PageSize, Page.TotalCount) of @Page.TotalCount
+                </span>
+                <button @onclick="() => GoToPageAsync(_query.Skip + PageSize)"
+                        disabled="@(_query.Skip + PageSize >= Page.TotalCount)">Next</button>
+                <button @onclick="() => GoToPageAsync((Page.TotalCount - 1) / PageSize * PageSize)"
+                        disabled="@(_query.Skip + PageSize >= Page.TotalCount)">Last</button>
+            </div>
+        }
+    }
+}
+
+@* One instance for the page rather than one per row: a modal shows a single title
+   at a time, so fifty dialogs in the markup would be forty-nine that can never
+   open. *@
+<ShowDetailDialog @ref="_detailDialog" OnChanged="LoadPageAsync" />
+
+@code {
+
+    private ShowDetailDialog? _detailDialog;
+
+    /// <summary>Opens the detail dialog for one title.</summary>
+    /// <remarks>
+    /// The dialog loads its own data, so two pages do not both have to learn the
+    /// same four calls.
+    ///
+    /// Re-reading the whole page is the right answer to the dialog changing
+    /// something, and it is the opposite of what a row press does. Patching the row
+    /// rather than re-querying exists to stop rows moving under the cursor
+    /// while somebody is reading a list. Nobody is reading the list while a modal is
+    /// covering it, and what came back may have queued six titles rather than one.
+    /// </remarks>
+    private Task ShowDetailAsync(int animeId) =>
+        _detailDialog is null ? Task.CompletedTask : _detailDialog.ShowAsync(animeId);
+    private const int PageSize = 50;
+
+    // Deliberately NOT persisted across the prerender handoff.
+    //
+    // Persisted state is serialised into the page, sent to the browser and posted
+    // back when the circuit starts. A fifty-row page exceeds SignalR's default
+    // 32KB receive limit, and the circuit then fails to start at all — the page
+    // renders but nothing is interactive, with the failure visible only as a
+    // socket close. Raising the limit would be treating the symptom: this would be
+    // pushing tens of kilobytes through the browser to avoid one indexed query.
+    public LibraryPage? Page { get; set; }
+
+    // Facets are worth carrying: a handful of enums and counts, and they decide
+    // which controls exist, so re-querying them causes the filter bar to change
+    // shape after first paint.
+    [PersistentState]
+    public LibraryFacets? Facets { get; set; }
+
+    private LibraryQuery _query = new() { Take = PageSize };
+
+    // What the page has done since it was loaded, overlaid on what the query
+    // returned. A row acted on has to say so at once, and re-reading the list
+    // to find that out would move rows under the cursor, close every expansion and
+    // lose the reader's place — to report a change they just made.
+    //
+    // Queue membership can be a plain set because a title is either in Up Next or it
+    // is not, and the page can say which for anything on screen.
+    private readonly HashSet<int> _queued = [];
+
+    private string _statusValue => _query.Status?.ToString() ?? string.Empty;
+
+    protected override async Task OnInitializedAsync()
+    {
+        Facets ??= await LibraryService.GetFacetsAsync(Profile.DefaultProfileId);
+
+        if (Page is null)
+        {
+            await LoadPageAsync();
+        }
+    }
+
+    /// <summary>Loads the current query's page.</summary>
+    private async Task LoadPageAsync()
+    {
+        Page = await LibraryService.GetPageAsync(Profile.DefaultProfileId, _query);
+
+        // The overlay is discarded rather than merged: what just came back from the
+        // database is now the truth about these rows, and keeping a local answer on
+        // top of it is how a page starts disagreeing with itself.
+        _queued.Clear();
+
+        foreach (var item in Page.Items.Where(i => i.IsQueued))
+        {
+            _queued.Add(item.AnimeId);
+        }
+    }
+
+    /// <summary>
+    /// Re-runs the current query, keeping the filters and the page the user is on.
+    /// </summary>
+    /// <remarks>
+    /// The facets come back too: a background sync can add the first title of a
+    /// decade or the first with a known runtime, and those decide which filter
+    /// controls exist at all.
+    /// </remarks>
+    private async Task ReloadAsync()
+    {
+        Facets = await LibraryService.GetFacetsAsync(Profile.DefaultProfileId);
+        await ApplyAsync(_query, resetPaging: false);
+    }
+
+    private async Task ApplyAsync(LibraryQuery query, bool resetPaging = true)
+    {
+        // Any change to what is being shown returns to the first page. Staying on
+        // page four of a result set that no longer exists shows an empty table.
+        _query = resetPaging ? query with { Skip = 0 } : query;
+        await LoadPageAsync();
+    }
+
+    private Task OnSearchChangedAsync(ChangeEventArgs e) =>
+        ApplyAsync(_query with { Search = e.Value?.ToString() });
+
+    /// <summary>
+    /// Switches which slice of the library is listed: a status, everything, or what
+    /// has been set aside.
+    /// </summary>
+    private Task OnStatusChangedAsync(ChangeEventArgs e) =>
+        ApplyAsync(_query with
+        {
+            Status = Enum.TryParse<LibraryStatus>(e.Value?.ToString(), out var status) ? status : null
+        });
+
+    private Task OnSortChangedAsync(ChangeEventArgs e) =>
+        ApplyAsync(_query with
+        {
+            Sort = Enum.TryParse<LibrarySort>(e.Value?.ToString(), out var sort) ? sort : LibrarySort.TitleAscending
+        });
+
+    private Task GoToPageAsync(int skip) =>
+        ApplyAsync(_query with { Skip = Math.Max(0, skip) }, resetPaging: false);
+
+    /// <summary>Clears the filters, keeping the slice the user chose to look at.</summary>
+    private Task ClearFiltersAsync() =>
+        ApplyAsync(new LibraryQuery
+        {
+            Take = PageSize,
+            Status = _query.Status
+        });
+
+    // Quick filters toggle: pressing an active chip clears it, so a chip is never
+    // a trap the user has to hunt for a way out of.
+    private Task ToggleRuntimeAsync(int minutes) =>
+        ApplyAsync(_query with { MaxRuntimeMinutes = _query.MaxRuntimeMinutes == minutes ? null : minutes });
+
+    private Task ToggleMediaTypeAsync(MediaType mediaType) =>
+        ApplyAsync(_query with { MediaType = _query.MediaType == mediaType ? null : mediaType });
+
+    private Task ToggleDecadeAsync(int decade) =>
+        ApplyAsync(_query with { Decade = _query.Decade == decade ? null : decade });
+
+    private Task ToggleSourceAsync(AnimeSource source) =>
+        ApplyAsync(_query with { Source = _query.Source == source ? null : source });
+
+    private Task ToggleHighConfidenceAsync() =>
+        ApplyAsync(_query with
+        {
+            MinRecommendationConfidence = _query.MinRecommendationConfidence is null ? 0.7 : null
+        });
+
+    private Task ToggleUnrankedAsync() =>
+        ApplyAsync(_query with { HasRecommendation = _query.HasRecommendation == false ? null : false });
+
+    private Task ToggleStandaloneAsync() =>
+        ApplyAsync(_query with { StandaloneOnly = !_query.StandaloneOnly });
+
+    private bool IsQueued(int animeId) => _queued.Contains(animeId);
+
+    /// <summary>
+    /// Puts one title into Up Next or takes it out again, from a row or from an
+    /// expansion.
+    /// </summary>
+    /// <remarks>
+    /// Nothing is re-read afterwards, and that is the point of doing it this way.
+    /// The row is already showing everything the press changed, so re-running
+    /// the query would move rows under the cursor, close every open expansion and
+    /// lose the reader's place — to tell them about a change they just made.
+    ///
+    /// The result is still inspected rather than assumed: the page's idea of a
+    /// title's status can be a few seconds behind a background sync, so a refusal
+    /// leaves the badge alone rather than claiming a slot that was never taken.
+    /// Adding something already queued counts as success, because the end state is
+    /// the one the button asked for.
+    /// </remarks>
+    private async Task ToggleQueuedAsync((int AnimeId, bool Queued) request)
+    {
+        if (request.Queued)
+        {
+            var result = await QueueService.AddAnimeAsync(Profile.DefaultProfileId, [request.AnimeId]);
+
+            if (result.Added > 0 || result.AlreadyQueued > 0)
+            {
+                _queued.Add(request.AnimeId);
+            }
+        }
+        else
+        {
+            // False means the title held no slot, which is the same end state the
+            // press asked for — so the button settles rather than staying stuck on
+            // "remove".
+            await QueueService.RemoveAnimeAsync(Profile.DefaultProfileId, request.AnimeId);
+
+            _queued.Remove(request.AnimeId);
+        }
+
+    }
+
+    private static string Active(bool isActive) => isActive ? "active" : string.Empty;
+
+    /// <summary>
+    /// "80s" and "90s" read naturally; "00s" and "10s" do not, and "0s" — which a
+    /// plain two-digit truncation produces for 2000 — is simply wrong. The brief
+    /// spells the intended labels out: 80s, 90s, 2000s, 2010s, 2020s.
+    /// </summary>
+    private static string DecadeLabel(int decade) =>
+        decade < 2000
+            ? $"{decade % 100:00}s"
+            : $"{decade}s";
+
+    /// <summary>
+    /// The five statuses the counter row names, in the order it names them.
+    /// </summary>
+    /// <remarks>
+    /// Written out rather than taken from <c>Enum.GetValues</c>, because the order is
+    /// a reading order — what you are watching, then what is waiting, then what is
+    /// done — where the enum's order is a storage contract.
+    ///
+    /// Every label is the status it counts, including "Planning". Naming that one
+    /// after the page instead put two words on one screen for one thing: the filter
+    /// beside it offers <i>Planning</i>, the badge on every row reads <i>Planning</i>,
+    /// and the tile between them said <i>Backlog</i>.
+    /// </remarks>
+    private static readonly (LibraryStatus Status, string Label)[] Counters =
+    [
+        (LibraryStatus.Watching, "Watching"),
+        (LibraryStatus.Planning, "Planning"),
+        (LibraryStatus.Completed, "Completed"),
+        (LibraryStatus.OnHold, "On hold"),
+        (LibraryStatus.Dropped, "Dropped")
+    ];
+
+    private static string MediaTypeLabel(MediaType mediaType) => mediaType switch
+    {
+        MediaType.Tv => "TV",
+        MediaType.Ova => "OVA",
+        MediaType.Ona => "ONA",
+        _ => mediaType.ToString()
+    };
+
+    private string EntryCountText() =>
+        Page is null ? string.Empty : $"{Page.TotalCount} {(Page.TotalCount == 1 ? "entry" : "entries")}";
+
+    /// <summary>
+    /// The facts the card can afford, joined, with the unknown ones left out.
+    /// </summary>
+    /// <remarks>
+    /// One string rather than four elements, because the whole line is hidden below
+    /// 720px: a card that has to fit a phone holds a picture, a title, a status, a
+    /// score and an action, and everything here is in the dialog one tap away.
+    /// Built the same way the dialog builds its own line, and deliberately not shared
+    /// with it — the dialog states progress differently and carries fields this row
+    /// never loaded.
+    /// </remarks>
+    private static string FactsText(LibraryListItem item)
+    {
+        var parts = new List<string>(4);
+
+        if (item.MediaType != MediaType.Unknown)
+        {
+            parts.Add(MediaTypeLabel(item.MediaType));
+        }
+
+        if (item.ReleaseYear is { } year)
+        {
+            parts.Add(year.ToString(CultureInfo.InvariantCulture));
+        }
+
+        if (RuntimeCalculator.Format(item.EstimatedRuntimeMinutes) is { } runtime)
+        {
+            parts.Add(runtime);
+        }
+
+        if (item.EpisodeCount is { } total)
+        {
+            parts.Add($"{item.EpisodesWatched} / {total}");
+        }
+        else if (item.EpisodesWatched > 0)
+        {
+            parts.Add($"{item.EpisodesWatched} watched");
+        }
+
+        return string.Join(" · ", parts);
+    }
+
+    /// <summary>
+    /// The one score the card shows: the user's where they gave one, else the model's.
+    /// </summary>
+    private static string ScoreText(LibraryListItem item) =>
+        item.UserScore?.ToString(CultureInfo.CurrentCulture)
+        ?? item.RecommendationScore?.ToString("0.0", CultureInfo.CurrentCulture)
+        ?? "—";
+
+    /// <summary>
+    /// Which of the two the number is, in words.
+    /// </summary>
+    /// <remarks>
+    /// The card shows a bare number because that is what a column of them has to be
+    /// to stay readable down its edge, and a bare number does not say whose judgement
+    /// it is. The label does, for a pointer and for a screen reader alike — the styling
+    /// that separates the two is colour and weight, which is not a fact anybody can be
+    /// assumed to read.
+    /// </remarks>
+    private static string ScoreLabel(LibraryListItem item) =>
+        item.UserScore is { } mine
+            ? $"You scored {item.Title} {mine}"
+            : item.RecommendationScore is { } predicted
+                ? $"The model predicts {predicted.ToString("0.0", CultureInfo.CurrentCulture)} for {item.Title}"
+                : $"{item.Title} has no score";
+}

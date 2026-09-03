@@ -1,0 +1,477 @@
+using AniQueue.Infrastructure.Jobs;
+using AniQueue.Core.Domain;
+using AniQueue.Core.Recommendations;
+using AniQueue.Core.Settings;
+using AniQueue.Infrastructure.Settings;
+using AniQueue.Infrastructure.Sync;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Logging.Abstractions;
+
+namespace AniQueue.Infrastructure.Tests;
+
+/// <summary>
+/// The file half of : what gets written, what a reload makes current, and what
+/// happens when the volume will not take a write.
+/// </summary>
+public class UserSettingsStoreTests : IDisposable
+{
+    private readonly string _directory = Path.Combine(
+        Path.GetTempPath(),
+        $"aniqueue-settings-{Guid.NewGuid():N}");
+
+    private string SettingsPath => Path.Combine(_directory, UserConfigStatus.FileName);
+
+    private static readonly string[] ExpectedKeys =
+    [
+        "Sync:Enabled",
+        "Sync:AniList:UserName",
+        "Scoring:HistorySize",
+        "Scoring:CandidateLimit",
+        "Scoring:ReturnTop"
+    ];
+
+    /// <summary>
+    /// A store wired the way the application wires it: the same file added to the
+    /// configuration chain that the store writes to, so a save and a read are talking
+    /// about one file rather than two.
+    /// </summary>
+    private (UserSettingsStore Store, IConfigurationRoot Configuration) Create(
+        IEnumerable<KeyValuePair<string, string?>>? environment = null)
+    {
+        Directory.CreateDirectory(_directory);
+
+        var builder = new ConfigurationBuilder();
+
+        if (environment is not null)
+        {
+            builder.AddInMemoryCollection(environment);
+        }
+
+        var status = new UserConfigStatus { Path = SettingsPath };
+
+        // Added last and allowed to fail, exactly as Program.cs adds it — the point of
+        // testing through the real provider is that its idea of what parses is the one
+        // that matters, not a second implementation of ours.
+        builder.AddJsonFile(source =>
+        {
+            source.Path = SettingsPath;
+            source.Optional = true;
+            source.ReloadOnChange = false;
+            source.OnLoadException = context =>
+            {
+                context.Ignore = true;
+                status.Fail(context.Exception.GetBaseException().Message);
+            };
+
+            source.ResolveFileProvider();
+        });
+
+        var configuration = builder.Build();
+
+        return (new UserSettingsStore(configuration, status, NullLogger<UserSettingsStore>.Instance), configuration);
+    }
+
+    [Fact]
+    public async Task A_first_boot_leaves_a_file_describing_the_defaults()
+    {
+        var (store, configuration) = Create();
+
+        Assert.True(await store.EnsureExistsAsync());
+        Assert.True(File.Exists(SettingsPath));
+
+        configuration.Reload();
+
+        // Written out rather than commented out, so the file reads as the settings
+        // themselves. Reloading it changes nothing, because it says what was already
+        // true.
+        Assert.Equal("200", configuration["Scoring:HistorySize"]);
+        Assert.True(store.Read().SyncEnabled);
+        Assert.Equal(UserSettings.Defaults, store.Read());
+    }
+
+    [Fact]
+    public async Task Clearing_the_history_size_sends_all_of_them()
+    {
+        // The three states this setting has, and the one that is new. Empty on the page
+        // saves null, and null means every rated title — the same thing an empty field
+        // means for the two sizes beside it.
+        var (store, configuration) = Create();
+
+        await store.SaveAsync(UserSettings.Defaults with { ScoringHistorySize = null });
+
+        configuration.Reload();
+
+        Assert.Null(store.Read().ScoringHistorySize);
+    }
+
+    [Fact]
+    public async Task A_history_size_nobody_has_written_is_the_default_rather_than_all()
+    {
+        // Why the setting cannot simply read null as all: this file is seeded from the
+        // settings currently in effect, and on a first boot that chain is empty. Reading
+        // an absent key as "all of them" would make a fresh installation write null and
+        // then send every rated title it has.
+        var (store, _) = Create();
+
+        Assert.Equal(200, store.Read().ScoringHistorySize);
+        Assert.True(await store.EnsureExistsAsync());
+        Assert.Contains("\"Scoring:HistorySize\": 200", await File.ReadAllTextAsync(SettingsPath));
+    }
+
+    [Fact]
+    public async Task A_history_size_that_will_not_parse_is_the_default_rather_than_all()
+    {
+        // Present and not null, so it is a typo rather than an intention. Falling back to
+        // all of them would turn a mistyped number into the largest request the page can
+        // build, which is the opposite of what someone fixing a typo needs.
+        var (store, configuration) = Create();
+
+        await File.WriteAllTextAsync(SettingsPath, """{ "Scoring:HistorySize": "lots" }""");
+
+        configuration.Reload();
+
+        Assert.Equal(200, store.Read().ScoringHistorySize);
+    }
+
+    [Fact]
+    public async Task A_first_boot_cannot_override_what_the_environment_supplied()
+    {
+        // The reason a first boot writes what is in effect rather than the defaults.
+        // This file is added last, so a default-valued file would set an empty account
+        // over the one an operator put in their environment — silently, on a machine
+        // where nobody had opened it. It is the whole risk of writing real values, and
+        // it exists only at this moment.
+        var (store, configuration) = Create([new("Sync:AniList:UserName", "from-the-environment")]);
+
+        await store.EnsureExistsAsync();
+        configuration.Reload();
+
+        Assert.Equal("from-the-environment", configuration["Sync:AniList:UserName"]);
+        Assert.Equal("from-the-environment", store.Read().AniListUserName);
+    }
+
+    [Fact]
+    public async Task The_file_it_writes_names_every_key_it_accepts()
+    {
+        var (store, _) = Create();
+
+        await store.EnsureExistsAsync();
+
+        var text = await File.ReadAllTextAsync(SettingsPath);
+
+        // A key nobody can find is a key nobody can use when the pages are unreachable,
+        // which is the whole reason the file exists.
+        Assert.All(ExpectedKeys, key => Assert.Contains(key, text, StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task An_existing_file_is_never_overwritten_by_a_boot()
+    {
+        Directory.CreateDirectory(_directory);
+        await File.WriteAllTextAsync(SettingsPath, "{ }");
+
+        var (store, _) = Create();
+
+        // Including a file somebody emptied deliberately. It is their work.
+        Assert.False(await store.EnsureExistsAsync());
+        Assert.Equal("{ }", await File.ReadAllTextAsync(SettingsPath));
+    }
+
+    [Fact]
+    public async Task Saving_makes_a_value_current_without_waiting_for_a_watcher()
+    {
+        // The reload is explicit precisely because the watcher is not dependable on the
+        // bind mounts this application is deployed onto, so the assertion that
+        // matters is that the value is live the moment the save returns.
+        var (store, configuration) = Create();
+
+        var result = await store.SaveAsync(UserSettings.Defaults with { AniListUserName = "hibari" });
+
+        Assert.True(result.Saved);
+        Assert.Equal("hibari", configuration["Sync:AniList:UserName"]);
+        Assert.Equal("hibari", store.Read().AniListUserName);
+    }
+
+    [Fact]
+    public async Task Every_setting_is_written_out_whatever_its_value()
+    {
+        // The file is the settings, not a commentary on them. Somebody opening it
+        // should see what AniQueue is doing without having to know that an absent line
+        // means a default they cannot see.
+        var (store, configuration) = Create();
+
+        await store.SaveAsync(UserSettings.Defaults with { AniListUserName = "hibari" });
+
+        var text = await File.ReadAllTextAsync(SettingsPath);
+
+        Assert.Contains("\"Sync:AniList:UserName\": \"hibari\"", text, StringComparison.Ordinal);
+        Assert.Contains("\"Sync:Enabled\": true", text, StringComparison.Ordinal);
+        Assert.DoesNotContain("// \"", text, StringComparison.Ordinal);
+        Assert.Equal("true", configuration["Sync:Enabled"], ignoreCase: true);
+    }
+
+    [Fact]
+    public async Task Every_setting_saved_reads_back_as_the_value_that_was_saved()
+    {
+        // The reader is written key by key like the writer, and nothing had been
+        // checking that the two lists agree. A setting the file can hold and the
+        // reader never looks at is invisible: it is written, it survives a restart,
+        // and the application behaves as though it were never set.
+        //
+        // Structural equality on the record is what makes this a guard rather than a
+        // list to keep up to date — a property added to one side and not the other
+        // fails here.
+        var (store, _) = Create();
+
+        var everything = new UserSettings
+        {
+            SyncEnabled = false,
+            AniListUserName = "hibari",
+            SyncPrimarySource = AnimeSource.MyAnimeList,
+            AniListEnabled = false,
+            TasksSchedule = SyncSchedule.Daily,
+            RelationsEnabled = false,
+            AniListApplyUnattended = false,
+            AniListConflictPolicy = SyncConflictPolicy.LinkToExisting,
+            AniListAbsencePolicy = SyncAbsencePolicy.Remove,
+            ScoringHistorySize = 25,
+            ScoringCandidateLimit = 50,
+            ScoringReturnTop = 20,
+            ScoringEndpoint = "http://192.168.1.50:1234",
+            ScoringModel = "a-model-name",
+            ScoringTimeoutSeconds = 90,
+            ScoringUseStructuredOutput = false,
+            ScoringStaleAfterRatings = 9,
+            ScoringEnabled = true,
+            ScoringBatchSize = 4,
+            ScoringSweepMinutes = 15,
+            AuthEnabled = true
+        };
+
+        // Every one of them differs from its default, so a property the reader
+        // forgets cannot pass by coincidence.
+        Assert.NotEqual(UserSettings.Defaults, everything);
+
+        await store.SaveAsync(everything);
+
+        Assert.Equal(everything, store.Read());
+    }
+
+    [Fact]
+    public async Task An_unset_value_is_written_as_null_and_reads_back_as_unset()
+    {
+        // "No limit" has to survive the round trip as null rather than as a number, or
+        // a saved file would quietly cap a request that was meant to be uncapped.
+        var (store, _) = Create();
+
+        await store.SaveAsync(UserSettings.Defaults with { ScoringCandidateLimit = 50 });
+        Assert.Equal(50, store.Read().ScoringCandidateLimit);
+
+        await store.SaveAsync(store.Read() with { ScoringCandidateLimit = null });
+
+        var text = await File.ReadAllTextAsync(SettingsPath);
+
+        Assert.Contains("\"Scoring:CandidateLimit\": null", text, StringComparison.Ordinal);
+        Assert.Null(store.Read().ScoringCandidateLimit);
+    }
+
+    [Fact]
+    public async Task A_save_of_one_page_does_not_clear_what_another_page_wrote()
+    {
+        // The file is regenerated whole, so every caller has to pass the settings it is
+        // not changing straight back through. This is the test that says so out loud,
+        // because getting it wrong loses somebody's AniList account when they change a
+        // scoring size.
+        var (store, _) = Create();
+
+        await store.SaveAsync(store.Read() with { AniListUserName = "hibari" });
+        await store.SaveAsync(store.Read() with { ScoringHistorySize = 25 });
+
+        var settings = store.Read();
+
+        Assert.Equal("hibari", settings.AniListUserName);
+        Assert.Equal(25, settings.ScoringHistorySize);
+    }
+
+    [Fact]
+    public void A_value_from_elsewhere_is_reported_as_the_current_one()
+    {
+        // A page that showed only what the file said would offer to change a value it
+        // could not see, and its save would write a second answer beside the first.
+        var (store, _) = Create([new("Sync:AniList:UserName", "from-the-environment")]);
+
+        Assert.Equal("from-the-environment", store.Read().AniListUserName);
+    }
+
+    [Fact]
+    public async Task Rewriting_a_broken_file_clears_the_banner_that_described_it()
+    {
+        Directory.CreateDirectory(_directory);
+        await File.WriteAllTextAsync(SettingsPath, "{ this is not json");
+
+        var (store, _) = Create();
+
+        var saved = await store.SaveAsync(UserSettings.Defaults with { ScoringHistorySize = 42 });
+
+        // The person who just fixed it has no way to tell a stale warning from a live
+        // one, so a reload decides rather than a memory of the failed load.
+        Assert.True(saved.Saved);
+        Assert.Equal(42, store.Read().ScoringHistorySize);
+    }
+
+    [Fact]
+    public async Task A_directory_that_cannot_be_written_is_reported_rather_than_thrown()
+    {
+        // A non-root container against a root-owned bind mount. A save button that
+        // throws there turns a settings edit into an error page; this makes it a
+        // sentence beside the control.
+        Directory.CreateDirectory(_directory);
+
+        // A file where the directory should be, which fails a write on every platform
+        // without needing permissions a test cannot portably arrange.
+        var blocked = Path.Combine(_directory, "blocked");
+        await File.WriteAllTextAsync(blocked, string.Empty);
+
+        var status = new UserConfigStatus { Path = Path.Combine(blocked, UserConfigStatus.FileName) };
+        var store = new UserSettingsStore(
+            new ConfigurationBuilder().Build(),
+            status,
+            NullLogger<UserSettingsStore>.Instance);
+
+        var result = await store.SaveAsync(UserSettings.Defaults with { ScoringHistorySize = 10 });
+
+        Assert.False(result.Saved);
+        Assert.NotNull(result.Error);
+        Assert.False(await store.EnsureExistsAsync());
+    }
+
+    [Fact]
+    public async Task A_written_file_leaves_no_temporary_behind()
+    {
+        // The write goes through a rename so the file is only ever wholly old or wholly
+        // new. A leftover .tmp beside it in /data would be visible to the operator and
+        // would look like a crash.
+        var (store, _) = Create();
+
+        await store.SaveAsync(UserSettings.Defaults with { ScoringReturnTop = 50 });
+
+        Assert.Empty(Directory.GetFiles(_directory, "*.tmp"));
+    }
+
+    public void Dispose()
+    {
+        GC.SuppressFinalize(this);
+
+        try
+        {
+            if (Directory.Exists(_directory))
+            {
+                Directory.Delete(_directory, recursive: true);
+            }
+        }
+        catch (IOException)
+        {
+            // A temp directory that outlives a test run is not worth failing over.
+        }
+    }
+
+    [Fact]
+    public void The_schedule_binds_from_the_name_written_in_the_file()
+    {
+        // The one setting whose type is not a string, a number or a bool, and so the
+        // one whose binding is worth proving: the sweep declines silently when the
+        // schedule reads as Off, which is indistinguishable from a schedule nobody
+        // turned on.
+        var configuration = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["Scoring:Schedule"] = "Hourly",
+                ["Scoring:BatchSize"] = "40",
+                ["Scoring:SweepMinutes"] = "30",
+                ["Scoring:Enabled"] = "false"
+            })
+            .Build();
+
+        var options = new ScoringOptions();
+        configuration.GetSection(ScoringOptions.SectionName).Bind(options);
+
+        Assert.Equal(40, options.BatchSize);
+        Assert.Equal(30, options.SweepMinutes);
+        Assert.False(options.Enabled);
+    }
+
+    /// <summary>
+    /// The one cadence is off until somebody turns it on.
+    /// </summary>
+    /// <remarks>
+    /// There is no scoring-specific schedule; one cadence replaced
+    /// both that and the per-source one with a single key; what has not changed
+    /// is that it is off by default, so an installation upgrading with an account
+    /// already configured does not silently start fetching.
+    /// </remarks>
+    [Fact]
+    public void An_unset_cadence_stays_off()
+    {
+        var options = new TaskOptions();
+
+        new ConfigurationBuilder().Build().GetSection(TaskOptions.SectionName).Bind(options);
+
+        Assert.Equal(SyncSchedule.Off, options.Schedule);
+    }
+
+    /// <summary>
+    /// A file that says nothing about precedence still names an occupant.
+    /// </summary>
+    /// <remarks>
+    /// An empty seat is the tie it exists to end, so the default is a source rather
+    /// than an absence.
+    /// </remarks>
+    [Fact]
+    public void An_unnamed_primary_source_is_AniList()
+    {
+        var (store, _) = Create();
+
+        Assert.Equal(AnimeSource.AniList, store.Read().SyncPrimarySource);
+    }
+
+    /// <summary>
+    /// The empty value every older file holds must bind rather than throw.
+    /// </summary>
+    /// <remarks>
+    /// <c>"Sync:PrimarySource": ""</c> is what a first boot wrote while the seat could
+    /// be unoccupied, so it is in every <c>userconfig.json</c> that predates the
+    /// default. The binder throws on an empty string for a non-nullable enum, and it
+    /// throws during startup — which took the whole process down on exactly the
+    /// installations that have been running longest.
+    /// </remarks>
+    [Fact]
+    public async Task An_empty_primary_source_left_by_an_older_file_still_starts()
+    {
+        var (store, configuration) = Create();
+
+        await File.WriteAllTextAsync(SettingsPath, """{ "Sync:PrimarySource": "" }""");
+        configuration.Reload();
+
+        var options = new SyncOptions();
+        configuration.GetSection("Sync").Bind(options);
+
+        Assert.Null(options.PrimarySource);
+        Assert.Equal(AnimeSource.AniList, store.Read().SyncPrimarySource);
+    }
+
+    [Fact]
+    public void A_configured_cadence_is_read()
+    {
+        var configuration = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["Tasks:Schedule"] = "EverySixHours"
+            })
+            .Build();
+
+        var options = new TaskOptions();
+        configuration.GetSection(TaskOptions.SectionName).Bind(options);
+
+        Assert.Equal(SyncSchedule.EverySixHours, options.Schedule);
+    }
+}

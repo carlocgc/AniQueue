@@ -1,0 +1,482 @@
+using AniQueue.Core.Artwork;
+using AniQueue.Core.Domain;
+using AniQueue.Core.Recommendations;
+using AniQueue.Core.Security;
+using AniQueue.Core.Settings;
+using AniQueue.Infrastructure;
+using AniQueue.Infrastructure.Artwork;
+using AniQueue.Infrastructure.Jobs;
+using AniQueue.Infrastructure.Persistence;
+using AniQueue.Infrastructure.Persistence.Seeding;
+using AniQueue.Infrastructure.Recommendations;
+using AniQueue.Infrastructure.Settings;
+using AniQueue.Infrastructure.Sync;
+using AniQueue.Web.Components;
+using AniQueue.Web.Endpoints;
+using AniQueue.Web.Security;
+using AniQueue.Web.Services;
+using Microsoft.AspNetCore.Authentication.Cookies;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Components.Authorization;
+using Microsoft.AspNetCore.DataProtection;
+using Microsoft.Extensions.Options;
+
+var builder = WebApplication.CreateBuilder(args);
+
+// Operator settings the self-hoster edits from outside the application, kept
+// beside the database in their volume rather than inside the image. The
+// database path is read before this file is added because it is what says where
+// "beside the database" is; everything else, including the path itself for the
+// binding below, can still be overridden by it.
+//
+// reloadOnChange is set, but nothing may depend on it: the file watcher behind it
+// does not reliably fire on Windows-host or network-share bind mounts, so a
+// restart has to apply the file too.
+var databasePath = builder.Configuration[$"{AniQueueDatabaseOptions.SectionName}:Path"]
+    ?? new AniQueueDatabaseOptions().Path;
+
+var dataDirectory = Path.GetDirectoryName(databasePath);
+
+UserConfigStatus? userConfig = null;
+
+if (!string.IsNullOrEmpty(dataDirectory))
+{
+    userConfig = new UserConfigStatus
+    {
+        // Absolute, because the banner naming it is read by someone who has to go
+        // and find the file, and a path relative to the content root is not that.
+        Path = Path.GetFullPath(Path.Combine(dataDirectory, UserConfigStatus.FileName))
+    };
+
+    // Configured through the source rather than the path overload so that a file
+    // which cannot be parsed is survivable. Without OnLoadException the provider
+    // throws while the host is being built — before logging exists — so one missing
+    // comma in the file an operator edits by hand replaces the application with a
+    // stack trace. Ignoring the load leaves every other configuration source in
+    // place and lets the application start and say what is wrong.
+    //
+    // The provider's own load path is used rather than a parse of our own, because
+    // the two could disagree about what is acceptable: this file is allowed
+    // comments and trailing commas, and the only implementation that defines
+    // exactly which is the one doing the reading.
+    //
+    // This also covers a file broken while the application is running, since a
+    // reload failure arrives the same way.
+    builder.Configuration.AddJsonFile(source =>
+    {
+        source.Path = userConfig.Path;
+        source.Optional = true;
+        source.ReloadOnChange = true;
+        source.OnLoadException = context =>
+        {
+            context.Ignore = true;
+            // The innermost exception is the one carrying the line and position. The two
+            // wrapping it say only which file, which the banner already names.
+            userConfig.Fail(context.Exception.GetBaseException().Message);
+        };
+
+        source.ResolveFileProvider();
+    });
+}
+
+builder.Services.AddRazorComponents()
+    .AddInteractiveServerComponents()
+
+    // Raised from SignalR's 32 KB default, because one of this application's inputs
+    // is routinely larger than that and arrives in a single hub message: a model's
+    // ranking of a real backlog is tens of kilobytes, and pasting one into a bound
+    // textarea sends the whole value at once.
+    //
+    // Over the default, the circuit is closed rather than the value rejected. The
+    // symptom is a page that quietly stops responding — the paste appears to do
+    // nothing, the button stays disabled, and nothing anywhere says why. There is no
+    // server-side handler that can turn that into a message, which is what makes the
+    // limit the wrong place to enforce this.
+    //
+    // So it is aligned with what the parser will accept (ScoringLimits.MaxBytes).
+    // Past that point a reply is refused by code that can say so, in a sentence, on
+    // the page. The exposure this trades against is bounded by the same number, on
+    // an application that binds to one operator's own network.
+    .AddHubOptions(options => options.MaximumReceiveMessageSize = ScoringLimits.Default.MaxBytes);
+
+// Blazor Server signs the antiforgery tokens and circuit identifiers it hands out,
+// with keys ASP.NET Core generates on first use. Left where it puts them they live
+// in the container's own filesystem and die with it, so recreating the container
+// invalidates every page a browser still has open — the symptom is a form that
+// reports an antiforgery failure after an upgrade, which reads like a bug in the
+// form. Beside the database they are in the volume that already survives a
+// recreate, which is the whole point of that volume.
+//
+// Not created here. The repository creates the directory when the key manager
+// first reaches it, which is after the database initialisation below — so an
+// unwritable /data still fails with the message that names the real problem.
+if (!string.IsNullOrEmpty(dataDirectory))
+{
+    builder.Services.AddDataProtection()
+        .PersistKeysToFileSystem(
+            new DirectoryInfo(Path.GetFullPath(Path.Combine(dataDirectory, "keys"))));
+}
+
+// The compose health check's target. Liveness only, and deliberately
+// so: a database that cannot be reached already prevents startup below, so a
+// check that queried one would be reporting on a state this process cannot be
+// in. What it does prove is the only thing a restart policy can act on — that
+// the server is accepting requests rather than merely running.
+builder.Services.AddHealthChecks();
+
+builder.Services.AddAniQueuePersistence(options =>
+    builder.Configuration.GetSection(AniQueueDatabaseOptions.SectionName).Bind(options));
+
+// Bound to the live section rather than through a delegate, unlike the database
+// options above: this is the half of configuration an operator edits while the
+// application is running, and a section binding is what lets a reload reach the
+// options monitor at all.
+builder.Services.Configure<SyncOptions>(
+    builder.Configuration.GetSection(SyncOptions.SectionName));
+
+// The scoring sizes, on the same terms and for the same reason: how much history a
+// model can hold describes that model rather than this application's appearance,
+// which is the line between the file and the database.
+builder.Services.Configure<ScoringOptions>(
+    builder.Configuration.GetSection(ScoringOptions.SectionName));
+
+// One cadence for every background task. Bound to the live section like the
+// others, so changing it on the Tasks page reaches a runner without a restart.
+builder.Services.Configure<TaskOptions>(
+    builder.Configuration.GetSection(TaskOptions.SectionName));
+
+// The lock's switch, bound to the live section like the others, so turning it on
+// or off from the settings page reaches a running application without a restart.
+builder.Services.Configure<AuthOptions>(
+    builder.Configuration.GetSection(AuthOptions.SectionName));
+
+builder.Services.AddAniQueueSync();
+
+// The one reader and writer of userconfig.json. Registered after the section
+// bindings above rather than before, because what it writes is what they read.
+builder.Services.AddAniQueueSettings();
+
+// The second courier for a ranking. Registered unconditionally even though the
+// normal state of a fresh install is no endpoint at all: whether one is configured is
+// a question the card asks the service, not one this file answers by leaving it out.
+builder.Services.AddAniQueueScoringEndpoint();
+
+// The optional lock. Registered whether or not a password is set, because whether
+// this installation is locked is a question about the database that the policy
+// below asks per request — not one this file can answer at startup and cache for
+// the life of the process.
+builder.Services.AddAniQueueSecurity();
+
+builder.Services.AddAuthentication(AniQueueAuth.Scheme)
+    .AddCookie(AniQueueAuth.Scheme, options =>
+    {
+        options.Cookie.Name = AniQueueAuth.CookieName;
+        options.Cookie.HttpOnly = true;
+        options.Cookie.SameSite = SameSiteMode.Lax;
+
+        // Secure when the request already is, and not otherwise. The published
+        // compose file serves plain HTTP on a home network, so a cookie that
+        // insisted on TLS would be a cookie no existing deployment could receive —
+        // it would lock every one of them out on the day the login landed. What
+        // this costs is in the README: on plain HTTP the password crosses the
+        // network in clear, and anything reachable from outside wants a proxy.
+        options.Cookie.SecurePolicy = CookieSecurePolicy.SameAsRequest;
+
+        options.LoginPath = AniQueueAuth.LoginPath;
+        options.AccessDeniedPath = AniQueueAuth.LoginPath;
+        options.ReturnUrlParameter = "ReturnUrl";
+
+        // Thirty days, renewed on use. There is no "stay signed in" tick box: one
+        // obvious answer needs no control, and an application that asks for a
+        // password every day on a phone is one whose owner turns the lock off.
+        options.ExpireTimeSpan = TimeSpan.FromDays(30);
+        options.SlidingExpiration = true;
+
+        options.Events.OnValidatePrincipal = AniQueueAuth.ValidateStampAsync;
+
+        // The switch can be on with no password set, and a sign-in form is no use to
+        // somebody in that state. They are sent to set one instead.
+        options.Events.OnRedirectToLogin = AniQueueAuth.RedirectToLoginAsync;
+    });
+
+// Two policies, and the first is a *fallback* rather than a default: it applies to
+// every endpoint that names no policy of its own, which is every page, and leaves
+// alone the two that do. Applying it with RequireAuthorization instead would stack
+// it on top of the password page's policy, and both would have to pass — so the one
+// state that sends everybody to that page would refuse them when they arrived.
+//
+// It passes untouched while the switch is off, which is what makes the lock optional
+// rather than something an installation has to be configured out of.
+builder.Services.AddAuthorization(options =>
+{
+    options.FallbackPolicy = new AuthorizationPolicyBuilder()
+        .AddRequirements(new UnlockedRequirement())
+        .Build();
+
+    options.DefaultPolicy = options.FallbackPolicy;
+
+    options.AddPolicy(
+        AniQueueAuth.PasswordPolicy,
+        policy => policy.AddRequirements(new PasswordPageRequirement()));
+});
+
+builder.Services.AddScoped<IAuthorizationHandler, UnlockedHandler>();
+builder.Services.AddScoped<IAuthorizationHandler, PasswordPageHandler>();
+
+// Authorisation is decided on the request that delivered a page; a circuit then
+// holds that principal for as long as the tab is open. These two are what carry a
+// password change into a tab that is already there.
+builder.Services.AddCascadingAuthenticationState();
+builder.Services.AddScoped<AuthenticationStateProvider, StampAuthenticationStateProvider>();
+
+// The timer half of unattended sync. Registered here rather than inside
+// AddAniQueueSync because hosting is the web project's business: Infrastructure
+// supplies the job, this decides that something runs it.
+//
+// One runner per job by design, so a slow job can never delay an unrelated one —
+// which is the line the relation backfill below was written against, and it cost
+// exactly what this comment predicted.
+builder.Services.AddHostedService<BackgroundJobRunner<UnattendedSyncJob>>();
+
+// The relation graph, filled in by the first enrichment pass. Its
+// own loop rather than a step inside the sync's, because the two have nothing to
+// say to each other: a list changes constantly and relations are near-static, and
+// a backfill spreading itself across a rate limit must never be what delays a
+// queue advancing.
+builder.Services.AddHostedService<BackgroundJobRunner<RelationBackfillJob>>();
+
+// The third job, and the one that spends somebody's GPU rather than somebody
+// else's API budget — so it is off until it is turned on. Its own runner
+// like the others: a sweep that runs for an hour must never be what delays a
+// queue advancing.
+builder.Services.AddHostedService<BackgroundJobRunner<ScoringSweepJob>>();
+
+// The fourth, and the second enrichment pass. Its own runner for
+// the same reason as the others, and here that reason is at its sharpest: a first
+// pass over a whole library spends several minutes fetching pictures, and a
+// picture arriving late must never be what holds up a sync.
+builder.Services.AddHostedService<BackgroundJobRunner<CoverArtJob>>();
+
+// Registered even when the file is fine, so the banner component can ask without
+// caring whether a data directory was configured at all.
+builder.Services.AddSingleton(userConfig ?? new UserConfigStatus { Path = UserConfigStatus.FileName });
+
+// Sample data, on request and only in development. Two locks rather than
+// one: production never resolves the type, and a development run still has to ask.
+//
+//     dotnet run --project src/AniQueue.Web -- --SeedSampleData=true
+//
+// Reading it here rather than inside the seeder keeps the switch where every other
+// startup decision is, and keeps the seeder a thing that seeds.
+var seedSampleData = builder.Environment.IsDevelopment()
+    && builder.Configuration.GetValue<bool>("SeedSampleData");
+
+if (seedSampleData)
+{
+    builder.Services.AddAniQueueSampleData();
+}
+
+var app = builder.Build();
+
+// A self-hosted application that disappears without explanation is very hard to
+// support: the operator sees a stopped container and an empty log. These handlers
+// make the difference between the three ways it can end visible in the log.
+//
+// A graceful stop writes "shutting down". A fatal exception writes the exception.
+// Silence means the process was killed from outside — by an orchestrator, an OOM
+// killer, or an IDE ending its debug session — which is itself the diagnosis.
+{
+    var lifetimeLogger = app.Services.GetRequiredService<ILogger<Program>>();
+
+    AppDomain.CurrentDomain.UnhandledException += (_, e) =>
+        lifetimeLogger.LogCritical(
+            e.ExceptionObject as Exception,
+            "Unhandled exception; the process is terminating (runtime terminating: {IsTerminating})",
+            e.IsTerminating);
+
+    // Faulted tasks nobody awaited. Not fatal by default, but they indicate work
+    // that failed silently, which is worth knowing about.
+    TaskScheduler.UnobservedTaskException += (_, e) =>
+    {
+        lifetimeLogger.LogError(e.Exception, "A background task failed and nothing observed the result");
+        e.SetObserved();
+    };
+
+    app.Lifetime.ApplicationStopping.Register(() =>
+        lifetimeLogger.LogInformation("AniQueue is shutting down"));
+
+    app.Lifetime.ApplicationStopped.Register(() =>
+        lifetimeLogger.LogInformation("AniQueue has stopped"));
+
+    // Said at startup as well as on the page, because the operator who broke the
+    // file may be watching a console rather than a browser.
+    if (userConfig is { IsBroken: true })
+    {
+        lifetimeLogger.LogWarning(
+            "The settings file at {UserConfigPath} could not be read and was ignored: {Reason}. "
+            + "AniQueue started without it; fix the file and restart to apply it",
+            userConfig.Path,
+            userConfig.Error);
+    }
+}
+
+// Bring the schema up to date before serving traffic. A database that cannot be
+// reached is fatal: starting anyway would turn one clear startup error into an
+// endless stream of confusing request failures.
+try
+{
+    using var scope = app.Services.CreateScope();
+
+    await scope.ServiceProvider
+        .GetRequiredService<DatabaseInitializer>()
+        .InitialiseAsync(app.Lifetime.ApplicationStopping);
+
+    // After the schema and before anything serves, so the first request sees a
+    // database that is either empty or complete. Idempotent, and it declines
+    // outright if the library already holds anything.
+    if (seedSampleData)
+    {
+        await scope.ServiceProvider
+            .GetRequiredService<SampleDataSeeder>()
+            .SeedAsync(app.Lifetime.ApplicationStopping);
+    }
+}
+catch (Exception ex)
+{
+    app.Services.GetRequiredService<ILogger<Program>>()
+        .LogCritical(ex, "Database initialisation failed; AniQueue cannot start");
+    return 1;
+}
+
+// Leave the operator a settings file to find, once the volume is known to be
+// usable. Deliberately after the database work rather than beside the
+// configuration wiring above: the directory exists by now, and a template written
+// before the schema was proved would be a file left behind by a failed start.
+//
+// It configures nothing — every key in it is commented out — so it does not
+// matter that this run has already read its configuration.
+if (!string.IsNullOrEmpty(dataDirectory))
+{
+    await app.Services
+        .GetRequiredService<IUserSettingsStore>()
+        .EnsureExistsAsync(app.Lifetime.ApplicationStopping);
+}
+
+// The way back in after a forgotten password, acted on before anything can serve a
+// request. Deliberately here rather than on a page: the whole point of it is that
+// the pages are the thing somebody cannot reach.
+//
+// Nothing is written back to the file. Auth:Enabled false is a state rather than a
+// trigger, so an operator who turns it off and forgets they did is left with an
+// application that is open, which is what they asked for.
+if (await app.Services.GetRequiredService<IAuthService>()
+        .ForgetPasswordIfDisabledAsync(app.Lifetime.ApplicationStopping))
+{
+    app.Services.GetRequiredService<ILogger<Program>>().LogWarning(
+        "Auth:Enabled is off, so the stored login password has been forgotten and AniQueue "
+        + "is open to anybody who can reach it. Set a password on the settings page to lock it again");
+}
+
+// One block naming everything an operator would otherwise have to guess at from
+// inside a container: where the data is, and what this installation is configured
+// to do. Almost every support question about a self-hosted deployment is answered
+// by one of these lines — "it is not syncing" is usually a schedule left off or an
+// account never entered, and neither is visible from a page somebody cannot reach.
+//
+// After the database work so the paths it prints are paths that exist, and before
+// the pipeline so it lands above the first request in the log.
+{
+    var startupLogger = app.Services.GetRequiredService<ILogger<Program>>();
+    var database = app.Services.GetRequiredService<IOptions<AniQueueDatabaseOptions>>().Value;
+    var sync = app.Services.GetRequiredService<IOptionsMonitor<SyncOptions>>().CurrentValue;
+    var scoring = app.Services.GetRequiredService<IOptionsMonitor<ScoringOptions>>().CurrentValue;
+    var tasks = app.Services.GetRequiredService<IOptionsMonitor<TaskOptions>>().CurrentValue;
+
+    startupLogger.LogInformation(
+        "AniQueue {Version} starting in the {Environment} environment on .NET {Runtime}",
+        typeof(Program).Assembly.GetName().Version?.ToString() ?? "unknown",
+        app.Environment.EnvironmentName,
+        Environment.Version);
+
+    startupLogger.LogInformation(
+        "Database {DatabasePath}; settings {UserConfigPath} ({UserConfigState}); artwork cache {ArtworkPath}",
+        Path.GetFullPath(database.Path),
+        userConfig?.Path ?? "not used",
+        userConfig switch
+        {
+            null => "no data directory",
+            { IsBroken: true } => "unreadable and ignored",
+            _ when File.Exists(userConfig.Path) => "loaded",
+            _ => "not present yet"
+        },
+        dataDirectory is { Length: > 0 }
+            ? Path.GetFullPath(Path.Combine(dataDirectory, ArtworkPaths.Root))
+            : "not used");
+
+    // The account is a public AniList username and the endpoint is an address on the
+    // operator's own network, so both are safe to print and both are what somebody
+    // debugging actually needs. Nothing here is a credential; AniQueue holds none.
+    startupLogger.LogInformation(
+        "Sync {SyncState}; AniList {AniListState}, account {AniListAccount}",
+        sync.Enabled ? "enabled" : "switched off",
+        sync.AniList.Enabled ? "enabled" : "switched off",
+        string.IsNullOrWhiteSpace(sync.AniList.UserName) ? "not set" : sync.AniList.UserName);
+
+    startupLogger.LogInformation(
+        "Scheduled scoring {ScoringState}; endpoint {ScoringEndpoint}, model {ScoringModel}",
+        scoring.Enabled ? "enabled" : "switched off",
+        string.IsNullOrWhiteSpace(scoring.Endpoint) ? "not set" : scoring.Endpoint,
+        string.IsNullOrWhiteSpace(scoring.Model) ? "not set" : scoring.Model);
+
+    // Off is the default and the commonest reason nothing happens on its own, so it
+    // is said plainly rather than left to be inferred from a task that never runs.
+    startupLogger.LogInformation(
+        "Task cadence {Schedule}; relations {RelationsState}, cover art {ArtworkState}. "
+        + "A task with the cadence off still runs when the library changes or when asked",
+        tasks.Schedule,
+        tasks.RelationsEnabled ? "enabled" : "switched off",
+        tasks.CoverArtEnabled ? "enabled" : "switched off");
+
+    // Whether this installation asks for a password, said plainly for the same
+    // reason as the rest: "it is asking me to log in and I never set that up" and
+    // "anyone on my network can open it" are both support questions, and neither is
+    // answerable from a page somebody cannot reach.
+    startupLogger.LogInformation(
+        "Login {AuthState}",
+        await app.Services.GetRequiredService<IAuthService>()
+            .GetStateAsync(app.Lifetime.ApplicationStopping) switch
+        {
+            AuthState.Locked => "required",
+            AuthState.NeedsPassword => "switched on with no password set; every page asks for one to be set",
+            _ => "switched off"
+        });
+}
+
+if (!app.Environment.IsDevelopment())
+{
+    app.UseExceptionHandler("/Error", createScopeForErrors: true);
+}
+
+app.UseStatusCodePagesWithReExecute("/not-found", createScopeForStatusCodePages: true);
+app.UseAuthentication();
+app.UseAuthorization();
+app.UseAntiforgery();
+
+// Unauthenticated, and it stays that way now that a login exists: a compose
+// health check reaches this before anybody has logged in, and a lock that shuts
+// the orchestrator out of the liveness probe is worse than no lock.
+app.MapHealthChecks("/health").AllowAnonymous();
+
+// The stylesheet the login page needs, which is not a concession but arithmetic: a
+// stylesheet behind the lock is a stylesheet the sign-in page cannot load, so the
+// first thing a locked installation would show is an unstyled form.
+app.MapStaticAssets().AllowAnonymous();
+app.MapCachedCoverArt();
+app.MapRazorComponents<App>()
+    .AddInteractiveServerRenderMode();
+
+await app.RunAsync();
+return 0;
+
+/// <summary>Exposed so integration tests and the logger category can name the entry point.</summary>
+public partial class Program;

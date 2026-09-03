@@ -1,0 +1,1890 @@
+/*
+   AniQueue base styles.
+
+   Deliberately hand-written rather than Bootstrap: the brief asks for something
+   information-dense that does not look like an enterprise admin panel, and
+   Bootstrap's defaults are exactly that look.
+
+   Light and dark come from prefers-color-scheme unless the Settings page has said
+   otherwise, in which case App.razor writes data-theme on <html> during the render.
+   The dark palette is therefore written twice, and has to be: the two cases are a
+   media query and a plain selector, which cannot share one rule. Anything changed
+   in one belongs in the other.
+*/
+
+:root {
+    color-scheme: light dark;
+
+    --bg: #f6f7f9;
+    --surface: #ffffff;
+    --surface-alt: #f0f2f5;
+    --border: #d9dde3;
+    --text: #16191d;
+    --text-muted: #5b6472;
+    --accent: #3d5afe;
+    --accent-text: #ffffff;
+    --success: #17794c;
+    --success-bg: #e4f5ec;
+    --warning: #8a5a00;
+    --warning-bg: #fdf3df;
+    --danger: #b3261e;
+    --danger-bg: #fdeceb;
+
+    --radius: 8px;
+    --gap: 1rem;
+    --sidebar-width: 210px;
+}
+
+/* The browser asked for dark, and nobody has overridden it with Light. */
+@media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+        --bg: #14171c;
+        --surface: #1c2027;
+        --surface-alt: #232830;
+        --border: #333a45;
+        --text: #e8ebef;
+        --text-muted: #98a2b3;
+        --accent: #7c8cff;
+        --accent-text: #10131a;
+        --success: #5fd0a0;
+        --success-bg: #16332a;
+        --warning: #e2b45f;
+        --warning-bg: #342c16;
+        --danger: #f2837c;
+        --danger-bg: #3a1f1e;
+    }
+}
+
+/* Dark was chosen, on a browser asking for light. Same palette; see the note at
+   the top of this file for why it is here twice. */
+:root[data-theme="dark"] {
+    --bg: #14171c;
+    --surface: #1c2027;
+    --surface-alt: #232830;
+    --border: #333a45;
+    --text: #e8ebef;
+    --text-muted: #98a2b3;
+    --accent: #7c8cff;
+    --accent-text: #10131a;
+    --success: #5fd0a0;
+    --success-bg: #16332a;
+    --warning: #e2b45f;
+    --warning-bg: #342c16;
+    --danger: #f2837c;
+    --danger-bg: #3a1f1e;
+}
+
+/* Tells the browser which of its own light and dark defaults to use for anything
+   the palette above does not paint — form controls, scrollbars, the canvas behind
+   the page — so an explicit choice reaches those as well. */
+:root[data-theme="light"] { color-scheme: light; }
+:root[data-theme="dark"] { color-scheme: dark; }
+
+*, *::before, *::after { box-sizing: border-box; }
+
+body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    font-size: 15px;
+    line-height: 1.5;
+}
+
+h1, h2, h3 { line-height: 1.25; margin: 0 0 0.5rem; font-weight: 600; }
+h1 { font-size: 1.5rem; }
+h2 { font-size: 1.15rem; }
+h3 { font-size: 1rem; }
+
+a { color: var(--accent); }
+
+/* Layout ------------------------------------------------------------------ */
+
+.app {
+    display: grid;
+    grid-template-columns: var(--sidebar-width) 1fr;
+    min-height: 100vh;
+}
+
+.sidebar {
+    background: var(--surface);
+    border-right: 1px solid var(--border);
+    padding: var(--gap);
+}
+
+.sidebar .brand {
+    font-weight: 700;
+    font-size: 1.1rem;
+    letter-spacing: -0.01em;
+    margin-bottom: 1.25rem;
+    display: block;
+    color: var(--text);
+    text-decoration: none;
+}
+
+.sidebar nav { display: flex; flex-direction: column; gap: 2px; }
+
+.sidebar nav a {
+    display: flex;
+    align-items: center;
+    gap: 0.55rem;
+    padding: 0.45rem 0.6rem;
+    border-radius: var(--radius);
+    color: var(--text-muted);
+    text-decoration: none;
+}
+
+.sidebar nav a:hover { background: var(--surface-alt); color: var(--text); }
+
+.sidebar nav a.active {
+    background: var(--accent);
+    color: var(--accent-text);
+    font-weight: 500;
+}
+
+/* min-width: 0 because this is a grid item, and a grid item defaults to
+   min-width: auto — meaning it refuses to be narrower than its content. Anything
+   wide inside it therefore pushes the column open instead of scrolling within it,
+   and the whole page ends up scrolling sideways while the .table-wrap that was
+   supposed to catch it sits there at full width with nothing to scroll. Every wide
+   table on every page depends on this line. */
+main { padding: 1.5rem; max-width: 1100px; min-width: 0; }
+
+/* Almost every <code> here is a file path, and a path is one long word with nothing
+   in it a browser is willing to break. On a phone that single word set the width of
+   the page: Sources and Scoring both print where userconfig.json lives, and on a
+   Windows checkout that is 486px of unbreakable text in a 375px window. The page
+   scrolled sideways and took the fixed navigation bar with it. */
+code { overflow-wrap: anywhere; }
+
+.page-header { margin-bottom: 1.25rem; }
+.page-header p { color: var(--text-muted); margin: 0.25rem 0 0; }
+
+/* Small screens: the sidebar becomes a bottom tab bar.
+
+   Bottom rather than top because the complaint was reach and not room — a phone is
+   held at its bottom. Fixed rather than scrolling away with the page for the same
+   reason: a bar you have to scroll back up to is not thumb-reachable either.
+
+   Fixing it also settles a bug that looked like a spacing decision. The grid has
+   min-height: 100vh, and the narrow rule leaves it one column — so the header and
+   <main> became two implicit auto rows splitting the leftover height under the
+   default align-content: stretch, and on any short page the navigation took half a
+   phone screen. Out of flow, it is no longer one of the rows. */
+@media (max-width: 720px) {
+    .app { grid-template-columns: 1fr; }
+
+    .sidebar {
+        position: fixed;
+        inset: auto 0 0 0;
+        z-index: 20;
+        padding: 0;
+        border-right: none;
+        border-top: 1px solid var(--border);
+        /* Above the home indicator on a phone, flush to the edge everywhere else. */
+        padding-bottom: env(safe-area-inset-bottom);
+    }
+
+    /* Every page opens with an <h1> naming where you are, so a wordmark above it
+       would spend a line of a small screen saying nothing new. */
+    .sidebar .brand { display: none; }
+
+    .sidebar nav { flex-direction: row; gap: 0; }
+
+    .sidebar nav a {
+        flex: 1;
+        flex-direction: column;
+        justify-content: center;
+        gap: 3px;
+        /* 44px is the tap target both Apple and Google publish; the rest of the
+           height is the label under the glyph. */
+        min-height: 3.5rem;
+        padding: 0.4rem 0.2rem;
+        border-radius: 0;
+        font-size: 0.7rem;
+        text-align: center;
+    }
+
+    /* The filled block that marks the page in the sidebar is too heavy for a bar of
+       five, so the current tab takes a rule along its top instead. Shape as well as
+       colour, because colour alone is not a state everyone can see. */
+    .sidebar nav a.active {
+        background: none;
+        color: var(--accent);
+        box-shadow: inset 0 2px 0 var(--accent);
+    }
+
+    .sidebar nav a .icon-glyph { width: 1.35rem; height: 1.35rem; }
+
+    /* Clears the bar, which is out of flow and would otherwise sit over the last
+       row of every list. */
+    main { padding: 1rem; padding-bottom: calc(3.5rem + 1.5rem + env(safe-area-inset-bottom)); }
+}
+
+/* Surfaces ---------------------------------------------------------------- */
+
+.card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: var(--gap);
+    margin-bottom: var(--gap);
+}
+
+.stat-row {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+    gap: 0.75rem;
+    margin-bottom: var(--gap);
+}
+
+.stat {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 0.75rem;
+}
+
+.stat .value { font-size: 1.5rem; font-weight: 600; }
+.stat .label { color: var(--text-muted); font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.04em; }
+
+/* Controls ---------------------------------------------------------------- */
+
+button, .button {
+    font: inherit;
+    padding: 0.45rem 0.9rem;
+    border-radius: var(--radius);
+    border: 1px solid var(--border);
+    background: var(--surface-alt);
+    color: var(--text);
+    cursor: pointer;
+
+    /* An anchor wearing .button is still an anchor, so it arrives underlined and
+       accent-coloured from the link rule. Both are undone here rather than at each
+       call site: something shaped like a button should not also be decorated like
+       prose. */
+    text-decoration: none;
+    display: inline-block;
+}
+
+button:hover:not(:disabled), .button:hover { border-color: var(--accent); }
+button:disabled { opacity: 0.5; cursor: not-allowed; }
+
+/* Not scoped to `button`, which is what it was: every "go and do the main thing"
+   control on an empty state is an anchor, so the one selector that mattered on
+   those screens was the one that did not match. */
+.primary {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: var(--accent-text);
+    font-weight: 500;
+}
+
+/* Visible focus is a requirement, not decoration — keyboard users need to see
+   where they are. */
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* Style the native file input rather than pairing it with a styled <label>,
+   which renders two buttons. The native control keeps its keyboard and
+   screen-reader behaviour for free. */
+.file-input { font: inherit; color: var(--text-muted); }
+
+.file-input::file-selector-button {
+    font: inherit;
+    padding: 0.45rem 0.9rem;
+    margin-right: 0.75rem;
+    border-radius: var(--radius);
+    border: 1px solid var(--accent);
+    background: var(--accent);
+    color: var(--accent-text);
+    font-weight: 500;
+    cursor: pointer;
+}
+
+.file-input:disabled::file-selector-button { opacity: 0.5; cursor: not-allowed; }
+
+/* number is here because it was not, and the omission showed: an unstyled number
+   input keeps the browser's default width, which is narrow enough that a
+   placeholder like "All of them" is cut to "All of t". The spinner takes a slice
+   of that width again, so the box is sized explicitly rather than left to
+   content. */
+input[type="text"], input[type="search"], input[type="number"], input[type="password"], select {
+    font: inherit;
+    padding: 0.4rem 0.6rem;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--surface);
+    color: var(--text);
+}
+
+input[type="number"] { width: 12rem; }
+
+.toolbar { display: flex; gap: 0.5rem; flex-wrap: wrap; align-items: center; margin-bottom: var(--gap); }
+
+/* Tables ------------------------------------------------------------------ */
+
+/* position: relative is the load-bearing half, and it is not about placing
+   anything. A table wide enough to scroll here holds visually-hidden column
+   headings, which are position: absolute with no offsets — so a static wrap left
+   their containing block as the page itself, they escaped the scroller instead of
+   being clipped by it, and one 1px span sitting 506px into a 640px table made the
+   whole document 506px wide on a 375px phone. The page then scrolled sideways, and
+   the fixed navigation bar went with it. */
+.table-wrap { position: relative; overflow-x: auto; }
+
+
+table { width: 100%; border-collapse: collapse; font-size: 0.92rem; }
+
+th, td {
+    text-align: left;
+    padding: 0.5rem 0.6rem;
+    border-bottom: 1px solid var(--border);
+    vertical-align: top;
+}
+
+th { font-weight: 600; color: var(--text-muted); font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.04em; }
+
+tbody tr:hover { background: var(--surface-alt); }
+
+td.numeric, th.numeric { text-align: right; font-variant-numeric: tabular-nums; }
+
+/* Badges ------------------------------------------------------------------ */
+
+.badge {
+    display: inline-block;
+    padding: 0.1rem 0.45rem;
+    border-radius: 999px;
+    font-size: 0.75rem;
+    font-weight: 500;
+    border: 1px solid var(--border);
+    background: var(--surface-alt);
+    color: var(--text-muted);
+    white-space: nowrap;
+}
+
+.badge.create, .badge.completed { background: var(--success-bg); color: var(--success); border-color: transparent; }
+.badge.update, .badge.watching { background: var(--warning-bg); color: var(--warning); border-color: transparent; }
+.badge.conflict, .badge.dropped { background: var(--danger-bg); color: var(--danger); border-color: transparent; }
+
+/* Amber rather than red: the feature works, it just does not work with every model.
+   Red would read as broken and send somebody looking for the fault on this side. */
+.badge.experimental { background: var(--warning-bg); color: var(--warning); border-color: transparent; }
+
+/* Beside a heading rather than inside a row of them, so it needs to stop inheriting
+   the h2's size and sit on the text's baseline instead of the box's. */
+h2 > .badge { font-size: 0.7rem; vertical-align: middle; margin-left: 0.5rem; font-weight: 500; }
+
+/* Sections that need a decision ------------------------------------------- */
+
+/* Everything else on the import page reports what happened; this one asks a
+   question. The left rule is the signal — a full amber fill would shout, and the
+   section is informative rather than an error. */
+.card.needs-decision {
+    border-color: var(--warning);
+    border-left-width: 3px;
+    background:
+        linear-gradient(var(--warning-bg), var(--warning-bg)) padding-box,
+        var(--surface);
+}
+
+/* Resolution choices reuse the action-badge colours: green adds, amber rewrites
+   something that already exists, neutral changes nothing. Amber for "link" is
+   deliberate — it is the hardest of the three to undo. */
+.resolution, .choice {
+    border-width: 1px;
+    border-style: solid;
+    font-weight: 500;
+}
+
+.resolution.skip, .choice.skip {
+    background: var(--surface-alt);
+    color: var(--text-muted);
+    border-color: var(--border);
+}
+
+.resolution.link, .choice.link {
+    background: var(--warning-bg);
+    color: var(--warning);
+    border-color: var(--warning);
+}
+
+.resolution.new, .choice.new {
+    background: var(--success-bg);
+    color: var(--success);
+    border-color: var(--success);
+}
+
+.badge.link { background: var(--warning-bg); color: var(--warning); border-color: transparent; }
+.badge.new { background: var(--success-bg); color: var(--success); border-color: transparent; }
+.badge.skip { background: var(--surface-alt); color: var(--text-muted); }
+
+/* Filters and selection --------------------------------------------------- */
+
+.filters { padding-bottom: 0.75rem; }
+
+.chips { display: flex; flex-wrap: wrap; gap: 0.4rem; }
+
+.chip {
+    padding: 0.25rem 0.7rem;
+    border-radius: 999px;
+    font-size: 0.82rem;
+    background: var(--surface-alt);
+    border: 1px solid var(--border);
+    color: var(--text-muted);
+}
+
+.chip:hover { color: var(--text); }
+
+/* Active filters are stated, not merely tinted: with a dozen chips on screen a
+   subtle shade is easy to miss, and not knowing what is filtering the list is
+   how an empty result gets misread as an empty library. */
+.chip.active {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: var(--accent-text);
+    font-weight: 500;
+}
+
+/* Row actions ------------------------------------------------------------- */
+
+/* Every action sits on the row it acts on, so the column is narrow rather
+   than a bar that appears above the table once something is selected. Up Next is
+   the only page with one, and
+   the rule stays shared because the Tasks list uses the same shape. */
+.actions-col { width: 1%; white-space: nowrap; }
+
+.row-actions { display: flex; gap: 0.15rem; justify-content: flex-end; }
+/* Adding is the one action on this page anybody does repeatedly, so it is the one
+   that answers on hover. Disabled it stays put and stays quiet — the tooltip is
+   carrying the reason. */
+button.icon.add:hover:not(:disabled) { color: var(--accent); border-color: var(--accent); }
+
+/* Already queued, so the same button now offers to undo it. It stays a state
+   rather than becoming a warning — nothing is lost by leaving the queue, the title
+   is still in the library — so it takes the muted treatment of the row's other
+   reversible control instead of the danger colour Up Next gives its remove. */
+button.icon.add.dequeue { color: var(--accent); }
+
+button.icon.add.dequeue:hover:not(:disabled) { color: var(--text); border-color: var(--border); }
+
+.title-cell { display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap; }
+
+.row-meta {
+    display: flex;
+    gap: 0.5rem;
+    align-items: center;
+    flex-wrap: wrap;
+    margin-top: 0.2rem;
+    font-size: 0.78rem;
+}
+
+/* A badge that happens to be a link. Shares the badge shape so it sits with the
+   franchise and status pills rather than looking like stray prose, but takes a
+   pointer and an accent on hover so it still reads as something to click. */
+.badge-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    text-decoration: none;
+    color: var(--text-muted);
+}
+
+.badge-link:hover,
+.badge-link:focus-visible {
+    color: var(--accent);
+    border-color: var(--accent);
+}
+
+/* Sized in em so it tracks the badge's font rather than needing to be retuned
+   wherever the badge is reused. */
+.ext-icon {
+    width: 0.72em;
+    height: 0.72em;
+    flex: none;
+    /* Optically centres against the cap height; the glyph's mass sits high. */
+    margin-top: -0.05em;
+}
+
+/* Icons ------------------------------------------------------------------- */
+
+/* In em, so a glyph tracks whatever text it sits beside; shrink-proof, so a long
+   label cannot squash it. */
+.icon-glyph {
+    width: 1.15em;
+    height: 1.15em;
+    flex: none;
+}
+
+/* A worded button with a glyph beside it. Run now and Save keep their words — a
+   symbol on its own is a guess at what a button does — so all this has to do is
+   line the two up. */
+button:has(> .icon-glyph), .button:has(> .icon-glyph) {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+}
+
+/* On or off and nothing in between, which is what a power symbol says and a tick
+   box does not: a tick box says "include this". Filled green for on, outlined red
+   for off, and the state is written into the accessible name as well — roughly one
+   man in twelve cannot reliably tell that red from that green, so the colour
+   reinforces and never carries. */
+.power {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    /* The published thumb target. flex: none because these sit in flex rows that
+       would otherwise shave 3px off it, which is the whole point of the size. */
+    flex: none;
+    width: 2.75rem;
+    height: 2.75rem;
+    padding: 0;
+
+    /* Square rather than round. It sits beside the run button on a task and the two
+       read as a pair — same size, same corners — where a disc next to a rectangle
+       read as two unrelated controls that happened to be adjacent. */
+    border-radius: var(--radius);
+    border: 1px solid var(--danger);
+    background: none;
+    color: var(--danger);
+}
+
+.power .icon-glyph { width: 1.25rem; height: 1.25rem; }
+
+.power[aria-checked="true"] {
+    background: var(--success);
+    border-color: var(--success);
+    /* The page background rather than white, so the symbol keeps its contrast
+       against the lighter green the dark palette uses. */
+    color: var(--bg);
+}
+
+.power:hover:not(:disabled) { filter: brightness(1.08); }
+
+/* Button and words on one line, where a power button replaced a labelled tick box
+   and the label has to stay. */
+.power-field { display: flex; align-items: center; gap: 0.6rem; }
+
+.badge.queued { background: var(--accent); color: var(--accent-text); border-color: transparent; }
+
+/* The set a title comes with ---------------------------------------------- */
+
+/* Label above value rather than beside it: the four facts are short and of
+   different lengths, and a two-column grid of them leaves one column mostly air. */
+.scoring-facts {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem 1.6rem;
+    margin: 0;
+}
+
+.scoring-facts dt {
+    font-size: 0.72rem;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--text-muted);
+}
+
+.scoring-facts dd { margin: 0.1rem 0 0; font-size: 0.9rem; }
+
+/* Each label sits over its own value, and the pair travels together when the
+   panel is narrow enough to wrap. */
+.scoring-facts > div { display: block; }
+
+/* The only control on the page that acts on more than one title, so it is the only
+   one that is a worded button rather than a glyph — "queue six things" is not
+   something an icon should be trusted to say. */
+.detail-set-action { display: flex; align-items: center; gap: 0.5rem; margin: 0 0 0.6rem; }
+
+.detail-set-action .follow { padding: 0.3rem 0.6rem; font-size: 0.85rem; }
+
+.detail-set-action .follow:hover:not(:disabled) { color: var(--accent); }
+
+/* Carries the size, so the button says how big the commitment is before it is
+   made rather than after. */
+.detail-set-action .badge.count {
+    margin-left: 0.4rem;
+    background: var(--accent);
+    color: var(--accent-text);
+    border-color: transparent;
+}
+
+.detail-set-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.6rem; }
+
+/* The add button holds its column and the title takes the rest. One wrapping line
+   of button, title and badges breaks on a long title: the badges take a third line
+   and the button lands above the title it acts on. */
+.detail-set-list li {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.5rem;
+    font-size: 0.9rem;
+}
+
+/* min-width: 0 because a flex item refuses to be narrower than its content by
+   default, and the content here is a title with no line break in it. Without this
+   the long ones widen the dialog instead of wrapping inside it. */
+.detail-set-line {
+    flex: 1;
+    min-width: 0;
+    display: grid;
+    gap: 0.15rem;
+}
+
+/* The title reads first and the facts about it read second, which is the order
+   somebody scanning a run of seasons wants them in. On one line they competed. */
+.detail-set-meta {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    flex-wrap: wrap;
+    font-size: 0.85rem;
+}
+
+/* No min-width any more. It was 6.5rem so that a column of labels lined up down a
+   table; in the dialog the badge sits among other badges on a wrapping line, where
+   a fixed width is just a gap in the middle of one. */
+.badge.relation { background: var(--surface); color: var(--text); }
+
+.relation-title { font-weight: 500; }
+
+/* Up Next ----------------------------------------------------------------- */
+
+   be, so the grip is aria-hidden and never takes focus. */
+.drag-handle {
+    display: inline-flex;
+    align-items: center;
+    padding: 0 0.15rem;
+    color: var(--text-muted);
+    cursor: grab;
+    line-height: 1;
+    user-select: none;
+    /* Otherwise a touch-drag starting on the grip scrolls the page instead. */
+    touch-action: none;
+}
+
+.drag-handle:active { cursor: grabbing; }
+
+/* It reads as something to press, which a bare glyph did not. Colour on hover and a
+   filled surface while it is held, so a touch that lands is visibly a touch that
+   landed — the drag itself does not start until the 150ms delay that separates it
+   from a scroll, and that is a long time to look like nothing happened. */
+.drag-handle:hover { color: var(--text); }
+
+.drag-handle:active { background: var(--surface-alt); border-radius: var(--radius); }
+
+/* The glyph is not the target; the span around it is. touch-action does not
+   inherit, so once the grip became an <svg> a touch landing on the icon itself had
+   touch-action: auto and scrolled the page instead of starting a drag — on exactly
+   the device this was drawn for. */
+.drag-handle .icon-glyph { pointer-events: none; }
+
+/* Checkbox and its label as one target, aligned with the controls beside it. */
+.inline-check {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    color: var(--text-muted);
+    cursor: pointer;
+}
+
+.queue-actions { display: flex; gap: 0.15rem; }
+
+/* Square, so five of them fit a row without the actions column dominating the
+   table. The glyphs carry the meaning visually; each button also has an
+   aria-label naming both the action and the title, because an arrow announced on
+   its own tells a screen-reader user nothing about what it will move. */
+button.icon {
+    /* Centres the glyph the way text centres itself. */
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0.2rem 0;
+    width: 1.9rem;
+    line-height: 1.4;
+    text-align: center;
+    color: var(--text-muted);
+}
+
+button.icon:hover:not(:disabled) { color: var(--text); }
+
+/* Removal is the only irreversible-looking action here, so it is the only one
+   that colours on hover — at rest it sits with the arrows rather than shouting
+   from every row. */
+button.icon.remove:hover:not(:disabled) {
+    color: var(--danger);
+    border-color: var(--danger);
+}
+
+/* Busy overlay ------------------------------------------------------------ */
+
+.busy-overlay {
+    position: fixed;
+    inset: 0;
+    display: grid;
+    place-items: center;
+    background: color-mix(in srgb, var(--bg) 75%, transparent);
+    backdrop-filter: blur(2px);
+    z-index: 900;
+}
+
+.busy-panel {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 1.5rem 2rem;
+    text-align: center;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+    max-width: 90vw;
+}
+
+.busy-panel h2 { margin: 0.75rem 0 0; font-size: 1.05rem; }
+.busy-panel p { margin: 0.4rem 0 0; }
+
+.busy-progress { width: 100%; margin-top: 0.9rem; height: 6px; }
+.busy-progress > span { transition: width 0.2s ease-out; }
+.busy-count { font-variant-numeric: tabular-nums; }
+
+/* Finished steps stay listed: they are what makes the dialog worth reading
+   rather than a spinner with a caption. */
+.busy-steps {
+    list-style: none;
+    margin: 0.9rem 0 0;
+    padding: 0.75rem 0 0;
+    border-top: 1px solid var(--border);
+    text-align: left;
+    font-size: 0.85rem;
+    color: var(--text-muted);
+    max-height: 8rem;
+    overflow-y: auto;
+}
+
+.busy-steps li { padding: 0.1rem 0 0.1rem 1.15rem; position: relative; }
+
+.busy-steps li::before {
+    content: "✓";
+    position: absolute;
+    left: 0;
+    color: var(--success);
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .busy-progress > span { transition: none; }
+}
+
+.spinner {
+    width: 28px;
+    height: 28px;
+    margin: 0 auto;
+    border-radius: 50%;
+    border: 3px solid var(--border);
+    border-top-color: var(--accent);
+    animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* A spinning element is exactly what this setting exists to suppress. */
+@media (prefers-reduced-motion: reduce) {
+    .spinner { animation: none; border-top-color: var(--accent); }
+    .busy-overlay { backdrop-filter: none; }
+}
+
+.notice {
+    padding: 0.7rem 0.9rem;
+    border-radius: var(--radius);
+    margin-bottom: var(--gap);
+    border: 1px solid transparent;
+}
+
+/* A notice the user closes rather than one that closes itself. The padding on the
+   right is what keeps the text from running under the button. */
+.notice.dismissible { position: relative; padding-right: 2.4rem; }
+
+.notice .dismiss {
+    position: absolute;
+    top: 0.35rem;
+    right: 0.4rem;
+    padding: 0.1rem 0.4rem;
+    border: none;
+    background: none;
+    color: inherit;
+    opacity: 0.7;
+    font-size: 1.1rem;
+    line-height: 1.2;
+}
+
+.notice .dismiss:hover { opacity: 1; border-color: transparent; }
+
+.notice.info { background: var(--surface-alt); border-color: var(--border); }
+.notice.success { background: var(--success-bg); color: var(--success); }
+.notice.warning { background: var(--warning-bg); color: var(--warning); }
+.notice.error { background: var(--danger-bg); color: var(--danger); }
+
+.muted { color: var(--text-muted); }
+
+.empty-state { padding: 2rem; text-align: center; color: var(--text-muted); }
+
+/* A toolbar inside an empty state is a row of choices under a sentence, not the
+   controls above a table — so it centres under the text it belongs to, and drops
+   the bottom margin that would otherwise leave the card looking bottom-heavy. */
+.empty-state .toolbar { justify-content: center; margin-bottom: 0; }
+
+.empty-state p { margin-top: 0; }
+
+/* Present to screen readers, absent on screen. For labelling a column whose
+   header would otherwise be a blank cell — display:none would hide it from both. */
+.visually-hidden {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    padding: 0;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+}
+
+/* Progress ---------------------------------------------------------------- */
+
+.progress {
+    height: 5px;
+    background: var(--surface-alt);
+    border-radius: 999px;
+    overflow: hidden;
+    min-width: 60px;
+    margin-top: 3px;
+}
+
+.progress > span { display: block; height: 100%; background: var(--accent); }
+
+/* Source settings --------------------------------------------------------- */
+
+/* Collapsed by default. The page's job is to say whether syncing is working and
+   to start one; the settings behind it are read once and then left alone, and
+   putting them in front of that would bury the two things a user came for. */
+/* A source card with a preview under it is a header and two buttons, so it takes
+   the space of one rather than of a full panel. The heading shrinks with
+   it: at full size it is the section title, and here it is a label on a control. */
+.card.collapsed { padding: 0.6rem var(--gap); }
+
+.card.collapsed h2 { font-size: 1rem; margin-bottom: 0.4rem; }
+
+/* Nothing below it on the Recommendations page, where the collapsed card is a label
+   rather than a way out — so the heading should not reserve room for a toolbar that
+   is not there. */
+.card.collapsed h2:only-child { margin-bottom: 0; }
+
+.card.collapsed .toolbar { margin-bottom: 0; }
+
+.source-settings > summary {
+    cursor: pointer;
+    color: var(--text-muted);
+    font-size: 0.9rem;
+    padding: 0.35rem 0;
+}
+
+.source-settings > summary:hover { color: var(--text); }
+
+.field { margin: var(--gap) 0; max-width: 44rem; }
+
+.field > label { display: block; font-weight: 500; margin-bottom: 0.3rem; }
+
+/* Explanations under a control, not beside it: each of these says what a setting
+   will actually do, and a line of small print squeezed into a column is a line
+   nobody reads. */
+.field > .muted { margin: 0.35rem 0 0; font-size: 0.85rem; }
+
+.field input[type="checkbox"] { margin-right: 0.4rem; }
+
+/* A checkbox label is the control's own text, so it should not also be bold. */
+.field > label:has(input[type="checkbox"]) { font-weight: 400; }
+
+.source-settings fieldset {
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 0 1rem 1rem;
+    margin: var(--gap) 0 0;
+}
+
+.source-settings legend { padding: 0 0.4rem; color: var(--text-muted); font-size: 0.85rem; }
+
+/* Recommendations --------------------------------------------------------- */
+
+textarea {
+    font: inherit;
+    width: 100%;
+    padding: 0.4rem 0.6rem;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--surface);
+    color: var(--text);
+    resize: vertical;
+}
+
+/* A model's reply is JSON, and proportional text makes a misplaced bracket
+   almost impossible to find in it. */
+#response { font-family: ui-monospace, "Cascadia Mono", "Consolas", monospace; font-size: 0.85rem; }
+
+/* The request and the instructions, shown rather than only offered: on a
+   self-hosted install over plain http the clipboard API does not exist, so text
+   that can be selected by hand is the route that always works. Bounded and
+   scrolling, because a backlog of several hundred titles is thousands of lines
+   and an unbounded block would bury the controls under it. */
+.payload {
+    max-height: 22rem;
+    overflow: auto;
+    padding: 0.6rem 0.8rem;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--surface-alt);
+    font-family: ui-monospace, "Cascadia Mono", "Consolas", monospace;
+    font-size: 0.8rem;
+    white-space: pre-wrap;
+    word-break: break-word;
+}
+
+details > summary {
+    cursor: pointer;
+    padding: 0.35rem 0;
+    color: var(--text-muted);
+    font-size: 0.9rem;
+}
+
+/* A skipped row is still worth reading — it says which title left the backlog —
+   so it is dimmed rather than removed. */
+tr.muted td { opacity: 0.6; }
+
+/* The ranking preview is four columns of very unequal need: two are a couple of
+   characters, one is a title, and the last is a sentence. Left to itself the
+   browser gives the title column whatever it wants and squeezes the reasoning into
+   a ribbon, which is the column a person is actually reading. So the narrow ones
+   are pinned and the remaining width is split between the two that vary. */
+/* min-width matters as much as the layout mode. Fixed layout divides the width it
+   is given, so on a narrow screen the two pinned columns take their rem widths
+   and the last column — the reasoning — is handed whatever is left, which is
+   nothing. Below this the wrap scrolls instead, which is what .table-wrap is for. */
+/* These are positional selectors against a fixed layout, so they do not fail visibly when
+   they go stale — they silently pin the wrong column, which is why the widths are
+   listed in column order rather than in the order they were written. */
+.ranking { table-layout: fixed; min-width: 40rem; }
+
+.ranking th:nth-child(1), .ranking td:nth-child(1) { width: 30%; }
+.ranking th:nth-child(2), .ranking td:nth-child(2) { width: 5rem; }
+.ranking th:nth-child(3), .ranking td:nth-child(3) { width: 6rem; }
+
+/* break-word rather than anywhere. "anywhere" also lets a word be broken when it
+   would merely be tidier to, which is how "Mugenjou-hen" ends up split across two
+   lines inside a column with room to spare. This breaks only what genuinely does
+   not fit. */
+.ranking td { overflow-wrap: break-word; }
+
+/* The reasons behind a notice's colour, listed inside it. */
+.notice-list { margin: 0.5rem 0 0; padding-left: 1.1rem; }
+.notice-list li + li { margin-top: 0.25rem; }
+
+/* The reason is the column with the most to say and the least emphasis, so it
+   reads a step down from the title beside it. */
+.ranking td:last-child { color: var(--text-muted); }
+
+/* Under a right-aligned number, and small: it is a footnote to the score rather
+   than a second value. */
+.ranking td.numeric .row-meta { margin-top: 0.15rem; }
+
+/* Framework error UI ------------------------------------------------------ */
+
+.validation-message { color: var(--danger); }
+
+#blazor-error-ui {
+    color-scheme: light only;
+    background: #ffe6b3;
+    color: #3d2c00;
+    bottom: 0;
+    box-shadow: 0 -1px 2px rgba(0, 0, 0, 0.2);
+    display: none;
+    left: 0;
+    padding: 0.6rem 1.25rem 0.7rem 1.25rem;
+    position: fixed;
+    width: 100%;
+    z-index: 1000;
+}
+
+#blazor-error-ui .dismiss {
+    cursor: pointer;
+    position: absolute;
+    right: 0.75rem;
+    top: 0.5rem;
+}
+/* A labelled field above Apply, which reverses what this said. "Beside the button,
+   because it is answered in the same breath as the decision" was the argument, and
+   it lost: a placeholder-only box in a row of buttons is read as decoration, and the
+   field went unfilled often enough that scores were landing with no provenance at
+   all. A note that is skipped has less prominence than one that is read, whatever
+   the layout implies. */
+.model-field { max-width: 28rem; }
+
+.model-field input { width: 100%; }
+
+/* The way out of a modal wait. Separated from the steps above it so it does not
+   read as another line of progress, and full width because it is the only thing
+   on the dialog that can be pressed. */
+.busy-actions {
+    margin-top: 1rem;
+    justify-content: center;
+}
+
+/* A confirmation that takes itself away. Fixed rather than in the flow, because the
+   control that triggers it is often inside a collapsed disclosure well down the
+   page — a banner at the top would confirm a save nobody could see it confirm. */
+.toast {
+    position: fixed;
+    right: var(--gap);
+    bottom: var(--gap);
+    z-index: 60;
+
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+
+    padding: 0.6rem 0.9rem;
+    border: 1px solid var(--success);
+    border-radius: var(--radius);
+    background: var(--success-bg);
+    color: var(--success);
+    box-shadow: 0 6px 20px rgb(0 0 0 / 0.18);
+
+    animation: toast-in 140ms ease-out;
+}
+
+.toast-mark { font-weight: 700; }
+
+@keyframes toast-in {
+    from { opacity: 0; transform: translateY(0.4rem); }
+    to { opacity: 1; transform: none; }
+}
+
+/* Movement is decoration here; the message is the content. */
+@media (prefers-reduced-motion: reduce) {
+    .toast { animation: none; }
+}
+
+/* A card that reports a state rather than offering an action. The colour is the
+   answer — "is there anything left to do" should be readable without reading — and
+   it is a left edge rather than a filled block so that a page of cards does not
+   become a page of banners. */
+.card.status { border-left: 4px solid var(--border); }
+
+.card.status.attention { border-left-color: var(--warning); }
+
+.card.status.settled { border-left-color: var(--success); }
+
+.card.status > details > summary {
+    cursor: pointer;
+    font-weight: 600;
+    list-style-position: inside;
+}
+
+.card.status.attention > details > summary { color: var(--warning); }
+
+.card.status.settled > details > summary { color: var(--success); }
+
+.card.status .scoring-facts { margin-top: 0.75rem; }
+
+/* Tasks. Rows are the page, so the only new shapes are the ones a
+   row needs: a state that reads as live, an outcome that reads as good or bad,
+   and a switch that is a checkbox with its label off-screen. */
+
+/* A task is a card, by the same rule as the two lists: a table that scrolls
+   sideways is right for something read and wrong for something acted on, and this
+   one held Run now and a power button at a 40rem minimum in a 309px window.
+
+   It also ends the problem the fixed layout existed for. Switching a task off used
+   to widen the first column by the "off" badge and shove every other column right —
+   every row moving because one control changed, and only on the longest name, which
+   made it look like a bug in that row. The badge is gone: the power button says the
+   same thing, in the place it is changed from. */
+.task-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+
+.task-card {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    padding: 0.6rem 0.75rem;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+}
+
+/* min-width so the two halves stay side by side until the words genuinely will not
+   fit, and wrap together rather than a character at a time when they do not. */
+.task-main { flex: 1 1 14rem; min-width: 0; }
+
+.task-name { margin: 0; font-size: 0.95rem; }
+
+.task-state { margin: 0.15rem 0 0; font-size: 0.9rem; }
+
+.task-actions { display: flex; align-items: center; gap: 0.5rem; }
+
+/* Destructive rows, built on the task card's shape because they are the same shape:
+   something named on the left, the control acting on it on the right. */
+.delete-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+
+.delete-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    padding: 0.6rem 0.75rem;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+}
+
+.delete-row > div { flex: 1 1 16rem; min-width: 0; }
+
+.delete-row h3 { margin: 0; font-size: 0.95rem; }
+
+.delete-row p { margin: 0.15rem 0 0; font-size: 0.9rem; }
+
+/* The button stretches on a phone, where the row has already wrapped and a button
+   sized to its text would sit alone on a line looking like an afterthought. */
+.delete-row button { flex: 0 0 auto; }
+
+@media (max-width: 40rem) {
+    .delete-row button { flex: 1 1 100%; }
+}
+
+/* Confirming a delete. Narrow rather than capped in both directions: this is two
+   sentences and two buttons, and it must not grow into the detail dialog's shape. */
+.confirm-dialog {
+    margin: auto;
+    padding: 0;
+    width: min(30rem, calc(100vw - 2rem));
+    background: var(--surface);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+}
+
+.confirm-dialog::backdrop { background: rgb(0 0 0 / 0.55); }
+
+.confirm-dialog article { padding: var(--gap); }
+
+.confirm-dialog h2 { margin: 0 0 0.5rem; font-size: 1.05rem; }
+
+.confirm-dialog p { margin: 0 0 var(--gap); }
+
+table.runs th:nth-child(2), table.runs td:nth-child(2),
+table.runs th:nth-child(3), table.runs td:nth-child(3) { white-space: nowrap; }
+
+.running { color: var(--warning); font-weight: 600; }
+
+.outcome.failed { color: var(--danger); font-weight: 600; }
+
+.outcome.stopped { color: var(--text-muted); }
+
+/* Wraps under the task it explains rather than widening anything. */
+p.failure { margin: 0.25rem 0 0; font-size: 0.85rem; }
+
+/* Sources: the one destructive action, and the one inline wait.
+
+   A danger button is drawn rather than merely worded because it sits in a toolbar
+   beside a button that keeps the data — colour is what stops the two reading as
+   equals when somebody is skimming. */
+button.danger {
+    color: var(--danger);
+    border-color: var(--danger);
+    background: var(--danger-bg);
+}
+
+button.danger:hover:not(:disabled) { filter: brightness(0.95); }
+
+/* The spinner is sized and centred for the modal it was built for. Beside a button
+   it needs neither, and it needs to sit on the text baseline instead. */
+.spinner.inline {
+    width: 1rem;
+    height: 1rem;
+    margin: 0;
+    border-width: 2px;
+    display: inline-block;
+    vertical-align: middle;
+}
+
+/* Cover art. A box of a fixed size whether or not there is a picture in it,
+   because one that changed size as pictures arrive would reflow the list under the
+   cursor for the whole of a first pass. The 40×60 here is what the relations list
+   in the dialog uses; a card overrides it to 64×96. */
+.cover-thumb {
+    display: block;
+    width: 40px;
+    height: 60px;
+    border-radius: 3px;
+    overflow: hidden;
+
+    /* The dominant colour AniList published, or the neutral surface when it
+       published none — which is about one title in thirteen. It shows through while
+       a picture is still being fetched and stays behind one that never arrives, so
+       the row never has a hole in it. */
+    background: var(--cover-colour, var(--surface-alt));
+    border: 1px solid var(--border);
+}
+
+.cover-thumb img {
+    display: block;
+    width: 100%;
+    height: 100%;
+
+    /* Posters are all 2:3, but the cache holds whatever the source served rather
+       than whatever this expects, so the box crops instead of distorting. */
+    object-fit: cover;
+}
+
+/* A colour block is a filled rectangle and reads as one; an empty one reads as a
+   missing image, so it is quieter than the border alone would make it. */
+.cover-thumb-empty { opacity: 0.55; }
+
+/* Show detail dialog ------------------------------------------------------ */
+
+/* The title as a control. It has to read as the row's text, because that is
+   what it is — a button that looked like a button would put fifty of them down a
+   column that is meant to be scanned. Only the affordances that say "activate me"
+   are kept: a pointer cursor, and an underline on hover and focus. */
+.title-button {
+    all: unset;
+    cursor: pointer;
+    font: inherit;
+    color: inherit;
+}
+
+.title-button:hover { text-decoration: underline; }
+
+/* all: unset above resets font-weight, and this rule is later in the file than
+   .relation-title, so a relative would otherwise lose the weight that distinguishes
+   its title from the metadata around it. Two classes rather than relying on order. */
+.title-button.relation-title { font-weight: 500; }
+
+/* Not :focus, because the pointer path would then leave an outline behind after a
+   click. :focus-visible is the keyboard-only half, which is who the outline is for. */
+.title-button:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+    border-radius: 2px;
+}
+
+/* The poster as a pointer shortcut. It carries no focus ring because it is
+   tabindex="-1" and aria-hidden — the title beside it is the reachable control. */
+.cover-thumb-button {
+    padding: 0;
+    border: none;
+    background: var(--cover-colour, var(--surface-alt));
+    cursor: pointer;
+}
+
+.detail-dialog {
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--surface);
+    color: var(--text);
+    padding: 0;
+    width: min(46rem, calc(100vw - 2rem));
+
+    /* Capped rather than fixed so a title with no synopsis produces a short dialog
+       instead of a tall one holding a lot of nothing. */
+    max-height: min(44rem, calc(100vh - 2rem));
+    overflow: auto;
+
+    /* Scrolling stops at the ends of this dialog rather than carrying on into the
+       page. Without it, reaching the bottom of a long synopsis hands the rest of the
+       gesture to the list underneath, which scrolls away behind the dialog — so
+       closing it puts you somewhere you did not choose to be. */
+    overscroll-behavior: contain;
+}
+
+.detail-dialog::backdrop { background: rgb(0 0 0 / 0.55); }
+
+/* The page holds still while the dialog is open.
+
+   overscroll-behavior above stops a scroll that *starts* in the dialog carrying on
+   into the list. It does nothing for a scroll that starts on the backdrop, and that
+   one does reach the page: measured with the dialog open, a wheel below it took the
+   backlog from 0 to 500 while the dialog sat still. A modal is a modal — the thing
+   behind it is inert, and a list that quietly moves under one is a list somebody
+   comes back to lost.
+
+   In CSS rather than by adding a class from script, because every close path would
+   have to remember to take it off again and one of them is the platform's own
+   Escape. A rule keyed on the open attribute cannot be left behind.
+
+   scrollbar-gutter reserves the scrollbar's width whether or not there is one, so
+   hiding the overflow does not let the whole page jump sideways by that width for
+   as long as the dialog is open. */
+html { scrollbar-gutter: stable; }
+
+html:has(dialog.detail-dialog[open]) { overflow: hidden; }
+
+.detail-dialog article { padding: var(--gap); }
+
+.detail-dialog header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 0.75rem;
+    margin-bottom: var(--gap);
+}
+
+/* The badge sits inside the heading so it is part of the dialog's accessible name,
+   which means it has to stop inheriting the heading's size and weight. */
+.detail-dialog h2 {
+    margin: 0;
+    font-size: 1.25rem;
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    flex-wrap: wrap;
+}
+
+.detail-dialog h2 .badge { font-size: 0.75rem; font-weight: 600; }
+
+/* The poster floats and everything else runs around it, rather than the two sitting
+   in fixed grid columns. A grid gives the right-hand column a fixed width and lets it
+   run out of content — which is what happens on a completed title, where there is no
+   model reasoning to fill it and the result is a tall picture beside a tall gap. A
+   float has no such column: the facts sit alongside, the synopsis carries on
+   alongside, and whatever is left resumes underneath. */
+.detail-body::after {
+    content: "";
+    display: block;
+    clear: both;
+}
+
+.detail-poster {
+    /* Stated rather than left to the float. A float blockifies its element, so this
+       looks redundant on a wide viewport — and then the narrow rule below clears the
+       float, the span goes back to being inline, width stops applying, and the poster
+       stretches to fill the dialog. */
+    display: block;
+    float: left;
+    margin: 0 var(--gap) 0.5rem 0;
+    width: 230px;
+    border-radius: var(--radius);
+    overflow: hidden;
+    background: var(--cover-colour, var(--surface-alt));
+}
+
+/* No aspect-ratio, and the picture sets its own height. AniList publishes
+   extraLarge at a fixed 460px *width* and a height that varies per title — 652 and
+   690 both appear in this library — so any single ratio here crops somebody's
+   poster, and object-fit: cover takes it off the top and bottom, which is where
+   cover art puts its title. */
+.detail-poster img { width: 100%; height: auto; display: block; }
+
+/* Only the placeholder needs a shape of its own, because there is no picture to
+   give it one. */
+.detail-poster-blank { aspect-ratio: 230 / 326; }
+
+.detail-poster-empty { opacity: 0.55; }
+
+/* Separators drawn by CSS rather than written into the markup, so a title missing
+   its year or episode count does not leave a stranded bullet behind it. */
+.detail-meta { margin: 0 0 0.5rem; color: var(--text-muted); }
+.detail-meta span + span::before { content: " · "; }
+
+.detail-studio { margin: 0 0 0.75rem; font-weight: 600; }
+
+.detail-genres {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.35rem;
+    list-style: none;
+    margin: 0 0 0.75rem;
+    padding: 0;
+}
+
+.detail-genres li {
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    padding: 0.1rem 0.6rem;
+    font-size: 0.85rem;
+    color: var(--text-muted);
+}
+
+/* Two judgements of the same title, on the same 1-10 scale, so they are laid out
+   identically and read against each other. The label is small and quiet and the
+   number is large: which score this is takes a glance, what it says should not. */
+.detail-scores {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 1.75rem;
+    margin: 0 0 0.35rem;
+}
+
+.detail-stat { display: flex; flex-direction: column; gap: 0.1rem; }
+
+.detail-stat-label {
+    font-size: 0.7rem;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+}
+
+/* Tabular figures so 8.3 and 10 line up rather than shifting the label under them. */
+.detail-stat-value {
+    font-size: 2rem;
+    font-weight: 700;
+    line-height: 1.1;
+    font-variant-numeric: tabular-nums;
+}
+
+.detail-stat-note { font-size: 0.8rem; color: var(--text-muted); }
+
+.detail-reason { margin: 0.35rem 0 0; color: var(--text-muted); }
+
+/* pre-wrap because the formatter emits \n for AniList's <br>, and the alternative
+   is building markup out of a third party's string. */
+.detail-synopsis {
+    margin-top: var(--gap);
+    line-height: 1.55;
+    white-space: pre-wrap;
+}
+
+/* Who decided the score, when, and carried how. Under the reasoning because it
+   qualifies it: the sentence is the claim and these three say how much to trust it. */
+.detail-provenance {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.35rem 1.4rem;
+    margin: 0.5rem 0 0;
+}
+
+.detail-provenance > div { display: block; }
+
+.detail-provenance dt {
+    font-size: 0.7rem;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--text-muted);
+}
+
+.detail-provenance dd { margin: 0.1rem 0 0; font-size: 0.85rem; }
+
+.detail-provenance-missing { margin: 0.5rem 0 0; font-size: 0.85rem; }
+
+/* Below the synopsis and clear of the poster, because it is a list rather than
+   prose and would read as a stray column in the channel beside the art. */
+.detail-set {
+    clear: both;
+    margin-top: var(--gap);
+    padding-top: var(--gap);
+    border-top: 1px solid var(--border);
+}
+
+.detail-set h3 {
+    font-size: 0.78rem;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--text-muted);
+    margin: 0 0 0.5rem;
+}
+
+/* Never beside the picture. A row of links wrapping into the narrow channel left by
+   a floated poster reads as a stray column rather than as the foot of the dialog. */
+.detail-links { clear: both; }
+
+/* A spoiler is blacked out rather than removed, so the reader can see that
+   something is being withheld and choose. Colour alone would not do it —
+   selecting the text or reading the DOM would give it away — but this is a
+   courtesy for someone browsing their own backlog, not a security boundary. */
+.spoiler {
+    all: unset;
+    cursor: pointer;
+    background: var(--text);
+    color: transparent;
+    border-radius: 2px;
+}
+
+.spoiler:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.spoiler.revealed {
+    background: transparent;
+    color: inherit;
+    cursor: auto;
+}
+
+.detail-links {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+    margin-top: var(--gap);
+    padding-top: 0.75rem;
+    border-top: 1px solid var(--border);
+}
+
+@media (max-width: 720px) {
+    /* The float comes off entirely and the poster stacks above everything. Wrapping
+       text around a picture needs a channel wide enough to hold a line; at 375px the
+       remainder would be four or five words per line, which is worse than no wrap at
+       all. This poster is bigger again than the list thumbnail, because it is most
+       of what the dialog is for. */
+    .detail-poster {
+        float: none;
+        width: min(230px, 60vw);
+        margin: 0 0 var(--gap);
+    }
+}
+/* The two lists are cards, not tables ------------------------------------- */
+
+/* Measured at 375px before any of this existed. The backlog was a 710px table
+   in a 309px window and the queue a 499px one, so a phone showed two icon buttons
+   and a title squeezed to 98px, and the queue's reorder controls started 42px past
+   the right edge. What is left is one grid that gains
+   a column at the wider breakpoint, which is what "mobile first with desktop
+   expansion" means here — and it is why the table had to go, because a table cannot
+   gain a column at a breakpoint without the cell already existing in every row. */
+
+.entry-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: grid;
+
+    /* Tighter than it looks like it wants to be. At 237 rows every 20px of card
+       height is another 4,700px of scrolling. */
+    gap: 8px;
+}
+
+/* A card, not a hairline-divided row: a divided row still reads as a table after the
+   table has gone, and a card is a larger and more obvious thing to tap. */
+.entry-card {
+    display: grid;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.5rem 0.6rem;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+}
+
+/* The tracks are written per list and per width rather than derived, because the two
+   lists genuinely differ: the queue leads with a grip and ends with two controls, and
+   the backlog has one of each. Four templates is more honest than one template with
+   empty cells in it — which is the table this phase deleted.
+
+   Backlog: poster, title, [facts], score, add.
+   Queue:   grip, poster, title, [facts], [reorder], remove. */
+.entry-list:not(.queue) .entry-card { grid-template-columns: auto 1fr auto auto; }
+
+.entry-list.queue .entry-card { grid-template-columns: auto auto 1fr auto; }
+
+/* The poster, and whatever sits over it. */
+.entry-art { position: relative; display: block; }
+
+/* Big enough to recognise art by, which is the whole reason it leads the card. The
+   thumbnail rendition is 100px and looked soft here, so the row reads the full-size
+   poster and falls back. */
+.entry-card .cover-thumb {
+    width: 64px;
+    height: 96px;
+    border-radius: 4px;
+}
+
+.entry-card .cover-thumb img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+    border-radius: inherit;
+}
+
+/* Over the corner rather than in a column of its own: position is the whole meaning
+   of Up Next, and a column would cost 30px of every card at the width where there is
+   least. Its own background because it sits on artwork nobody chose. */
+.entry-position {
+    position: absolute;
+    left: 0;
+    bottom: 0;
+    min-width: 1.4rem;
+    padding: 0 0.25rem;
+    background: rgb(0 0 0 / 0.66);
+    color: #fff;
+    font-size: 0.75rem;
+    font-variant-numeric: tabular-nums;
+    text-align: center;
+    border-radius: 0 4px 0 4px;
+}
+
+/* min-width: 0 so a long title wraps inside the card rather than widening it. */
+.entry-main { min-width: 0; display: grid; gap: 0.2rem; }
+
+/* A control, so it is a control-sized target. The text is 20px tall and the card is
+   114px, so the height is free — and the title is the most-pressed thing on the card
+   after the add button, because it is what opens the dialog everything else moved
+   into. */
+.entry-title {
+    display: flex;
+    align-items: center;
+    min-height: 2.75rem;
+    font-weight: 500;
+    line-height: 1.3;
+    text-align: left;
+}
+
+.entry-badges { display: flex; flex-wrap: wrap; gap: 0.3rem; }
+
+/* The facts the dialog states in full. Absent below 720px, where the card holds a
+   picture, a title, a status, a score and an action and nothing else fits. */
+.entry-facts { display: none; margin: 0; }
+
+/* One number, large enough to run the eye down. Tabular figures so a column of them
+   lines up without a table to line them up in. */
+.entry-score {
+    margin: 0;
+    min-width: 2.2rem;
+    text-align: right;
+    font-size: 1.15rem;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+}
+
+/* The model's guess is drawn as a guess. Weight and colour, not colour alone. */
+.entry-score.predicted { color: var(--text-muted); font-weight: 500; }
+
+/* The published thumb target, which the 1.9rem icon button is not. It applies to the
+   add button, the remove and the grip alike — every control a phone has to hit.
+
+   Centring is half of what makes the number true. A 44px box with its glyph against
+   one edge is a 44px box somebody aims at the middle of and misses, and the grip was
+   the one that showed it: the span is display: inline-flex, which a grid item
+   blockifies to flex, and without justify-content the icon sat at the left of its
+   own target. */
+.entry-card button.icon,
+.entry-card .drag-handle {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 44px;
+    min-height: 44px;
+}
+
+/* And a glyph big enough to look like the thing being pressed. 1.15em is right beside
+   text and small in the middle of a thumb-sized target — the grip especially, whose
+   six dots carry less ink than an arrow at the same size. */
+.entry-card button.icon .icon-glyph { width: 1.35rem; height: 1.35rem; }
+
+.entry-card .drag-handle .icon-glyph { width: 1.6rem; height: 1.6rem; }
+
+/* The keyboard path, and only where a keyboard is. A thumb drags the grip
+   instead; four 20px arrows on a phone would be four things too small to hit. */
+.entry-card .queue-actions { display: none; }
+
+@media (min-width: 721px) {
+    /* The extra areas, and the whole of "desktop expansion": the facts appear, and
+       the queue gets its reorder buttons back. */
+    .entry-list:not(.queue) .entry-card { grid-template-columns: auto 1fr auto auto auto; }
+
+    .entry-list.queue .entry-card { grid-template-columns: auto auto 1fr auto auto auto; }
+
+    .entry-facts {
+        display: block;
+        color: var(--text-muted);
+        font-size: 0.85rem;
+        white-space: nowrap;
+    }
+
+    .entry-card .queue-actions { display: flex; }
+}
+
+/* The gap the card will drop into. Outlined rather than filled: a solid block reads
+   as the card itself having moved, when it has not yet. */
+.entry-card.drag-ghost {
+    opacity: 0.4;
+    outline: 2px dashed var(--accent);
+    outline-offset: -2px;
+}
+
+.entry-card.drag-chosen { background: var(--surface-alt); }
+
+/* Every control is a thumb target on a phone ------------------------------- */
+
+/* No control under 44px on a 375px screen. The cards meet that on their own; what
+   was left over is everything else: a worded button is 39px,
+   a filter chip 30px and an icon button 30px, and on a page of a dozen chips that
+   is a dozen things to miss.
+
+   Raised at the narrow breakpoint rather than everywhere, because 44px is a figure
+   about fingers. A mouse hits 39px exactly as well as 44, and growing every button
+   on a desktop page would cost vertical space to solve a problem that is not there.
+
+   Height only. Widths are already set by content or by a grid, and forcing a
+   minimum width would turn a row of chips into a row of gaps. */
+@media (max-width: 720px) {
+    button,
+    .button,
+    .chip,
+    select,
+    input[type="search"],
+    input[type="text"],
+    input[type="number"],
+    input[type="password"] {
+        min-height: 44px;
+    }
+
+    /* Square, because these are glyphs rather than words: a 44px-tall close cross
+       11px wide is a target that is only half there. The shortest chip is "TV",
+       which came out 40px wide for the same reason. */
+    button.icon, .chip { min-width: 44px; }
+
+    /* The tick boxes and radios a browser draws itself. The label beside one is part
+       of the target, so the row is what has to be big enough. */
+    .field label:has(> input[type="checkbox"]),
+    .field label:has(> input[type="radio"]) {
+        display: flex;
+        align-items: center;
+        gap: 0.4rem;
+        min-height: 44px;
+    }
+}
+
+/* One square button that starts a task and then stops it. A symbol alone is a guess
+   at what a button does — true of a floppy disc, and not of a circling arrow for
+   "run this again" or a cross for "stop" — and both carry a full name for a pointer
+   and a screen reader either way.
+
+   Two buttons swapping in and out was the other cost: the power button moved under
+   the cursor every time a task started. One button in one place does not. */
+.task-run {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: none;
+    width: 2.75rem;
+    height: 2.75rem;
+    padding: 0;
+}
+
+.task-run .icon-glyph { width: 1.25rem; height: 1.25rem; }
+
+/* Stopping is the one thing here that ends something already underway, so it takes
+   the same red the power button's off state does rather than the accent a primary
+   button would carry into a state that is not the affirmative action any more. */
+.task-run.running {
+    background: none;
+    border-color: var(--danger);
+    color: var(--danger);
+}
+
+.task-run.running:hover:not(:disabled) { background: var(--danger-bg); }
+
+/* The list of titles a source has dropped, and the two buttons that answer for each
+   one. Boxed rather than left as a bare list inside the card: it is a question with
+   an edge, sitting among settings that are not. */
+.absences {
+    border: 1px solid var(--warning);
+    border-radius: var(--radius);
+    padding: 0.7rem 0.9rem;
+    margin-bottom: var(--gap);
+}
+
+.absences h3 { font-size: 1rem; margin-bottom: 0.3rem; }
+
+.absence-list { list-style: none; padding: 0; margin: 0 0 var(--gap); }
+
+/* Title, then when it went, then the buttons — and the buttons stay on the right at
+   any width the row still fits. Wrapping is what happens on a phone, where the pair
+   drops under the title rather than squeezing it to nothing. */
+.absence-list li {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem 0.75rem;
+    align-items: center;
+    padding: 0.4rem 0;
+    border-top: 1px solid var(--border);
+}
+
+.absence-list .absence-title { flex: 1 1 12rem; }
+
+/* The toolbar inside a row is a pair of buttons, not the controls above a table, so
+   it drops the margin that would otherwise space the rows apart unevenly. */
+.absence-list .toolbar { margin-bottom: 0; }
+
+/* One line per option, under the control they belong to. Bulleted rather than run
+   together as a paragraph, because the reader is comparing them. */
+.choices { margin: 0.3rem 0 0.4rem; padding-left: 1.2rem; }
+
+.choices li { margin-bottom: 0.15rem; }
+
+/* The two policy pickers on a source card are one pair of questions, so they take
+   one width rather than each sizing to its longest option. A minimum rather than a
+   fixed width: content still decides if an option ever outgrows it. */
+.field select.policy { min-width: 14rem; }
+
+/* Signed out --------------------------------------------------------------- */
+
+/* The two pages somebody can stand on without being signed in. No navigation
+   bar, because every destination on it is behind the lock — so a phone gets the
+   whole viewport for one field, and a desktop gets a card that does not stretch
+   to the width of a backlog table. */
+.signed-out {
+    display: flex;
+    justify-content: center;
+    align-items: flex-start;
+    padding: var(--gap);
+    min-height: 100vh;
+}
+
+.signed-out .card {
+    width: 100%;
+    max-width: 26rem;
+    margin-top: 10vh;
+}
+
+.signed-out .brand {
+    font-weight: 700;
+    font-size: 1.1rem;
+    letter-spacing: -0.01em;
+    display: block;
+    color: var(--text-muted);
+    text-decoration: none;
+}
+
+.signed-out h1 { font-size: 1.35rem; margin: 0.35rem 0 0.75rem; }
+
+.signed-out p { color: var(--text-muted); }
+
+.signed-out label {
+    display: block;
+    margin: 0.75rem 0 0.25rem;
+    font-weight: 500;
+}
+
+/* Full width, because it is the only thing on the page and a field narrower than
+   its card reads as one of several. */
+.signed-out .password { width: 100%; }
+
+.signed-out form { margin-bottom: 0.75rem; }
+
+.signed-out form button { margin-top: 0.75rem; }
+
+
+/* The one line somebody has to copy into a file by hand, on the one page they can
+   reach while locked out. Its own block rather than inline code, because a line
+   to be copied exactly should not be wrapped into a sentence. */
+.signed-out pre.hint {
+    background: var(--surface-alt);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 0.6rem 0.75rem;
+    margin: 0.5rem 0;
+    overflow-x: auto;
+}
+
+.signed-out pre.hint code { overflow-wrap: normal; }
+
+.signed-out hr {
+    border: 0;
+    border-top: 1px solid var(--border);
+    margin: 1.25rem 0;
+}

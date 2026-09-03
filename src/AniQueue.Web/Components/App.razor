@@ -1,0 +1,102 @@
+﻿@using AniQueue.Core.Settings
+
+@inject IAppearance Appearance
+@inject ILogger<App> Logger
+
+<!DOCTYPE html>
+@* Written into the document the browser first receives rather than applied once the
+   circuit connects, because the second one repaints in front of the reader — which is
+   the whole of what this setting is for. Absent for System, which leaves the
+   stylesheet following prefers-color-scheme as it did before there was a setting. *@
+<html lang="en" data-theme="@_theme">
+
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    @* Declared here as well as in the stylesheet, because this is the earliest point
+       a browser — or an extension deciding whether a site needs its help — can read
+       it. AniQueue ships a full dark palette, so anything re-theming it on top is
+       redoing work, and in one measured case broke the page outright. *@
+    <meta name="color-scheme" content="light dark" />
+    @* Tells Dark Reader to leave this page alone, which is its documented opt-out
+       for sites that already have a dark theme — and AniQueue does, immediately
+       above and behind prefers-color-scheme in the stylesheet.
+
+       This is not a preference about appearance. The extension's dynamic theme
+       rewrites <head> while the page loads and then watches for changes, and that
+       rewriting breaks Blazor's renderer: it holds live references to the nodes it
+       created, so a node moved or removed underneath it fails the next render with
+       "insertBefore … parentNode is null", then "No element is currently associated
+       with component 1", and the circuit dies on load. Measured in both Firefox and
+       Chromium, on this page, with nothing else installed.
+
+       In Dark Reader's own source this tag is checked before it does anything: with
+       the lock present it never starts its theme or its watchers, so there is no
+       mutation to lose a race against. Removing it re-enables an extension fighting
+       a dark theme the application already has. *@
+    <meta name="darkreader-lock" />
+    <base href="/" />
+    @* Without an explicit icon, browsers probe /favicon.ico on every page load.
+       That 404s, and the 404 handler re-executes the whole app — returning a 4.6 KB
+       HTML page in answer to a request for an icon. *@
+    <link rel="icon" href="@Assets["favicon.svg"]" type="image/svg+xml" />
+    <ResourcePreloader />
+    <link rel="stylesheet" href="@Assets["app.css"]" />
+    <link rel="stylesheet" href="@Assets["AniQueue.Web.styles.css"]" />
+    <ImportMap />
+    <HeadOutlet @rendermode="@RouteRenderMode" />
+</head>
+
+<body>
+    <Routes @rendermode="@RouteRenderMode" />
+    <ReconnectModal />
+    <script src="@Assets["_framework/blazor.web.js"]"></script>
+</body>
+
+</html>
+
+@code {
+    /// <summary>
+    /// Interactive everywhere except on a page that has asked not to be.
+    /// </summary>
+    /// <remarks>
+    /// The sign-in and password pages set a cookie, which is written on an HTTP
+    /// response — so they are form posts, and a form post cannot be handled by a
+    /// component whose response was sent when the circuit opened. Marked with
+    /// <c>[ExcludeFromInteractiveRouting]</c>, they render statically and their
+    /// <c>HttpContext</c> is there when the form arrives.
+    ///
+    /// Without this the router is interactive for everything, and those pages render
+    /// twice: once against a request, then again on a circuit where there is no
+    /// request to read. The second render is where it fails.
+    /// </remarks>
+    private IComponentRenderMode? RouteRenderMode
+        => HttpContext.AcceptsInteractiveRouting() ? InteractiveServer : null;
+
+    [CascadingParameter]
+    private HttpContext HttpContext { get; set; } = default!;
+
+    /// <summary>The theme as an attribute value, or null to write no attribute.</summary>
+    private string? _theme;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            _theme = await Appearance.GetThemeAsync(Profile.DefaultProfileId) switch
+            {
+                ThemePreference.Light => "light",
+                ThemePreference.Dark => "dark",
+                _ => null
+            };
+        }
+        catch (Exception ex)
+        {
+            // Every page in the application renders through this component, the error
+            // page included. A database that has gone away must not take the page
+            // that would say so with it, and the cost of the fallback is one reader
+            // seeing the browser's own preference for one load.
+            Logger.LogWarning(ex, "Could not read the theme preference; following the browser instead");
+        }
+    }
+}

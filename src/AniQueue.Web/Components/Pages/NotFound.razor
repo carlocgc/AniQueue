@@ -1,0 +1,16 @@
+@page "/not-found"
+@layout MainLayout
+
+<PageTitle>Not found — AniQueue</PageTitle>
+
+@* An h1, matching every other page: Routes.razor uses
+   <FocusOnNavigate Selector="h1" />, so a page whose heading is an h3 leaves the
+   focus target missing after navigation. *@
+<div class="page-header">
+    <h1>Not found</h1>
+    <p>That page does not exist.</p>
+</div>
+
+<div class="toolbar">
+    <a class="button" href="">Go to Up Next</a>
+</div>

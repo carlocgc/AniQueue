@@ -1,0 +1,1495 @@
+@* Named for what it does rather than for what it returns: it scores a backlog,
+   where "Recommendations" would promise a shortlist. *@
+@page "/scoring"
+@using System.Globalization
+@using AniQueue.Core.Domain
+@using AniQueue.Core.Jobs
+@using AniQueue.Core.Recommendations
+@using AniQueue.Core.Settings
+@using Microsoft.Extensions.Options
+@implements IAsyncDisposable
+@inject IRecommendationService Recommender
+@* The sizes in effect, and where they are written. Two injections rather than one
+   because reading and writing are genuinely different: the monitor reports what any
+   configuration source currently says, while the store is the only thing that
+   changes the file. *@
+@inject IOptionsMonitor<ScoringOptions> ScoringOptions
+@inject IUserSettingsStore Settings
+@* The second courier. Injected even when nothing is configured, because
+   whether an endpoint exists is a question the card asks it. *@
+@inject IScoringEndpoint Endpoint
+@* One model, one request at a time, and Test connection is the only thing here that
+   still talks to it. Asked of the registry so the button can stand aside while the
+   scoring task is running rather than queueing behind it. *@
+@inject ITaskRegistry Tasks
+@inject IJSRuntime JS
+@inject ILogger<Scoring> Logger
+
+<PageTitle>Scoring — AniQueue</PageTitle>
+
+<div class="page-header">
+    <h1>Scoring</h1>
+    @* Says up front that this ranks and does not reorder. The queue shortening by
+       itself already surprises people; a second thing writing to the backlog
+       is easier to accept when its limits were stated before it ran, not after. *@
+    <p>
+        Hand your backlog to a model, and bring its ranking back. It scores what you
+        are planning to watch — it never touches your Up Next order.
+    </p>
+</div>
+
+<BusyDialog State="_busy" />
+
+@* Confirmations only. A save that failed says so in a notice that stays until it is
+   dealt with; a save that worked has nothing to leave behind but the fact that it
+   happened, and silence is indistinguishable from a button that does nothing. *@
+<Toast State="_toasts" />
+
+@if (_error is not null)
+{
+    <div class="notice error" role="alert">@_error</div>
+}
+
+@if (_applied is not null)
+{
+    <div class="notice success" role="status">@_applied</div>
+}
+
+@* Two ways to get a ranking, and one surface for what comes back. The shape
+   is the Sources page's, deliberately: a card per route, its settings behind a
+   disclosure, and a preview that replaces the cards rather than joining them. Two
+   pages answering one question in two idioms is worse than either idiom. *@
+@if (_preview is null)
+{
+    @* Answers "is there anything left to do?" before either card offers to do it.
+       Collapsed, because the answer is usually yes-or-no and the numbers behind it
+       are only wanted when it is no — and coloured, because that answer should be
+       readable without reading.
+
+       Stale has a particular sense here: a score is not wrong because time passed, it
+       is wrong because the history it was predicted against has grown. So this goes
+       amber when there is work, and green only when every waiting title carries a
+       ranking made against the taste the user has now. *@
+    @if (_coverage is { Waiting: > 0 } coverage)
+    {
+        <div class="card status @(coverage.IsSettled ? "settled" : "attention")">
+            <details>
+                <summary>@CoverageHeadline(coverage)</summary>
+
+                <dl class="scoring-facts">
+                    <div>
+                        <dt>Up to date</dt>
+                        <dd>@coverage.UpToDate</dd>
+                    </div>
+                    @if (coverage.Stale > 0)
+                    {
+                        <div>
+                            <dt>Stale</dt>
+                            <dd>@coverage.Stale</dd>
+                        </div>
+                    }
+                    @if (coverage.Unranked > 0)
+                    {
+                        <div>
+                            <dt>Never ranked</dt>
+                            <dd>@coverage.Unranked</dd>
+                        </div>
+                    }
+
+                    @* A total, and only when there are parts to total. These are shares
+                       of one backlog, so when the backlog is entirely one share the
+                       total is that share printed a second time — "up to date 180,
+                       waiting 180" said nothing twice and left the reader working out
+                       whether the two numbers were meant to differ.
+
+                       It is also no longer called "waiting", which meant "waiting to be
+                       watched" here and "waiting to be ranked" two cards down: one word
+                       for two counts on one page, one of which was wrong. *@
+                    @if (coverage.Parts > 1)
+                    {
+                        <div>
+                            <dt>Total</dt>
+                            <dd>@coverage.Waiting</dd>
+                        </div>
+                    }
+                </dl>
+
+                @if (coverage.Stale > 0)
+                {
+                    <p class="muted">
+                        A ranking goes stale once you have finished and rated
+                        @_staleAfterRatings more @Plural(_staleAfterRatings, "title", "titles")
+                        since it was made — what the model knew about your taste has moved on
+                        since it guessed.
+                    </p>
+                }
+            </details>
+        </div>
+    }
+
+    <div class="card">
+        <h2>Manual</h2>
+
+        @if (_request is null)
+        {
+            <p class="muted">
+                Build a file describing what you are planning to watch, paste it into any
+                model you like, and bring the answer back. The same request the remote
+                option sends, carried by you — and the route that works with any model,
+                because you can see what came back before it is applied.
+            </p>
+
+            <div class="toolbar">
+                <button class="primary" disabled="@_busy.IsRunning" @onclick="BuildAsync">
+                    Build the request
+                </button>
+            </div>
+        }
+        else if (_request.Candidates.Count == 0)
+        {
+            <div class="empty-state">
+                <p>Nothing is waiting to be watched, so there is nothing to rank.</p>
+                <a class="button primary" href="backlog">Open the backlog</a>
+            </div>
+        }
+        else
+        {
+            <p class="muted">
+                @_request.Candidates.Count @Plural(_request.Candidates.Count, "title", "titles") to rank,
+                with @_request.History.Count of your @_request.HistoryAvailable scored
+                @Plural(_request.HistoryAvailable, "title", "titles") as history.
+                @* The size is the number that decides whether a model can read this at
+                   all, and nothing else on the page implies it — a count of titles says
+                   nothing about how much context they occupy. *@
+                About @Size(_payload!.Length) of text.
+            </p>
+
+            @if (_capped is { } capped)
+            {
+                <p class="muted">
+                    This request covers @capped of your @_waiting waiting
+                    @Plural(_waiting, "title", "titles") — the ones longest without a score.
+                    Build it again after applying to work through the rest.
+                </p>
+            }
+
+            @if (_request.IsRankingLimited)
+            {
+                <p class="muted">
+                    It asks for the best @_request.ExpectedResults back, not all
+                    @_request.Candidates.Count. Every title is still weighed; only the top of
+                    the result is returned.
+                </p>
+            }
+
+            @if (_request.IsHistoryCapped)
+            {
+                <p class="muted">
+                    The history is a sample, most recently finished first — enough for a model
+                    to read your taste without crowding out the backlog it is ranking.
+                </p>
+            }
+
+            @* One thing to carry, offered two ways. There were four buttons here — copy
+               the request, copy the instructions, download the request, rebuild — which
+               made the first decision on this card "which two of these do I need, and in
+               what order do they go into the box?" when the answer was always both, in
+               one order. The instructions are useless without the request and the request
+               is unreadable without the instructions, so they travel together. *@
+            <div class="toolbar">
+                <button class="primary" @onclick="CopyDocumentAsync">Copy the whole prompt</button>
+                <button @onclick="DownloadDocumentAsync">Download it as a file</button>
+                <button @onclick="BuildAsync" disabled="@_busy.IsRunning">Regenerate</button>
+            </div>
+
+            @if (_copied is not null)
+            {
+                <p class="muted" role="status">@_copied</p>
+            }
+
+            <p class="muted">
+                Paste it into your model as one message. It opens with what to do and ends
+                with your backlog. If your model will not take a message this long, send the
+                file instead — most will read an attachment they will not read as text.
+            </p>
+
+            @* Shown rather than only offered, because on a self-hosted install over plain
+               http the clipboard API does not exist and the fallback can be refused too.
+               Text on the page can always be selected by hand, so the copy button is a
+               convenience over a route that already works. *@
+            <details>
+                <summary>Read the whole prompt</summary>
+                <pre class="payload">@_document</pre>
+            </details>
+        }
+
+        <div class="field">
+            <label for="response">Paste the reply</label>
+            @* The placeholder comes from a C# string rather than being written inline
+               with entities. Razor encodes a literal attribute value, so a &quot; in the
+               markup reaches the browser as &amp;quot; and the field advertises the
+               wrong shape — quotation marks are exactly what a person is checking their
+               reply against here. *@
+            <textarea id="response" rows="8" spellcheck="false"
+                      placeholder="@ResponseExample"
+                      disabled="@_busy.IsRunning"
+                      @bind="_response" @bind:event="oninput"></textarea>
+        </div>
+
+        <div class="toolbar">
+            <button class="primary" disabled="@(_busy.IsRunning || string.IsNullOrWhiteSpace(_response))"
+                    @onclick="PreviewPastedAsync">
+                Check the reply
+            </button>
+
+            <InputFile id="response-file" class="file-input" OnChange="OnFileSelectedAsync"
+                       accept=".json,.txt" disabled="@_busy.IsRunning"
+                       aria-label="Upload the model's reply" />
+        </div>
+    </div>
+
+    <div class="card">
+        @* Experimental, and the badge is the honest half of a two-part statement: the
+           other half is that scheduled runs are off until somebody turns them on.
+           Three models were tried against one real library and only one of them could
+           answer — gpt-oss-20b managed it at 564 rated titles, while gemma-4-12b
+           failed even at 50 and qwen3.5 returned nothing at 564. The two that failed
+           did so by spending their whole output budget reasoning and never starting
+           the JSON, which is a disposition rather than a bug and not one AniQueue can
+           settle from this side. *@
+        <h2>Remote model <span class="badge experimental">Experimental</span></h2>
+
+        <p class="muted">
+            Whether this works depends on the model. Some spend their whole reply
+            thinking and never answer, and there is no setting here that fixes that —
+            so scheduled ranking is off until you turn it on, and the
+            <strong>Manual</strong> route above works with anything.
+        </p>
+
+        @if (!Endpoint.IsConfigured)
+        {
+            @* The normal state of a fresh install, so it is the state that has to read
+               well. It says what to do rather than what is wrong. *@
+            <p class="muted">
+                No model is configured. Point AniQueue at one that speaks the
+                chat-completions API — LM Studio, Ollama, llama.cpp — and it can rank
+                your backlog without anything being copied by hand. No account and no
+                API key: the model runs on your own hardware.
+            </p>
+        }
+        else
+        {
+            <p class="muted">
+                Ranking with <strong>@(Endpoint.Model ?? "the configured model")</strong>
+                at <strong>@Endpoint.Endpoint</strong>. Ranking happens on the
+                <a href="settings">Settings</a> page, with nobody waiting.
+            </p>
+
+            @if (_waitingCount > 0)
+            {
+                @* The size of the question, beside the size of the answer. Only the
+                   output was ever bounded, which is why a request of twenty-five titles
+                   could still be refused for being too long to read — the history
+                   travels with every one of them and is by far the larger half. A
+                   number nobody can see is one nobody can act on. *@
+                <p class="muted">
+                    A request sends @HistorySent scored
+                    @Plural(HistorySent, "title", "titles") as history — roughly
+                    @Tokens(EstimatedRequestTokens) to read. Your model needs a context
+                    window at least that large.
+                </p>
+            }
+        }
+
+        @if (_testResult is { } test)
+        {
+            <div class="notice @(test.Succeeded ? "success" : "error")" role="status">
+                <strong>@TestHeadline(test)</strong>
+
+                @if (test.Diagnostic is { } diagnostic)
+                {
+                    @* Bounded, body only, and behind a disclosure. It is what
+                       somebody debugging their own server needs and very little of
+                       what anything else does. *@
+                    <details>
+                        <summary>Show what came back</summary>
+                        <pre class="payload">@diagnostic</pre>
+                    </details>
+                }
+            </div>
+        }
+
+        @* The soft guard went with the run it guarded. It warned that a request for
+           four hundred rankings at once would not fit, and offered to send twenty-five
+           instead — a choice that only existed because somebody was about to wait for
+           the answer. The sweep asks in batches by construction and halves one that
+           will not fit, so the hazard is handled where the request is made rather than
+           in front of the person making it. *@
+
+        <div class="toolbar">
+            @* The one outbound call left outside the runner, so it is the one thing
+               that can collide with a sweep. A self-hosted model answers one request at
+               a time, and a test fired into a batch queues behind it and looks like a
+               timeout. Asking the registry is smaller than a lock and more honest:
+               the user learns the model is busy instead of watching a test hang. *@
+            <button disabled="@(_busy.IsRunning || !Endpoint.IsConfigured || IsRanking)"
+                    @onclick="TestAsync">
+                Test connection
+            </button>
+
+            @if (IsRanking)
+            {
+                <span class="muted">Ranking is running — test when it has finished.</span>
+            }
+        </div>
+
+        @* Settings behind a disclosure, like every per-source setting on Sources. The
+           7b note that a disclosure "does not read as settings you can change" was
+           learned about a panel floating above a request summary on a page with no
+           card structure, and that page is what this replaces. *@
+        <details class="source-settings" open="@(!Endpoint.IsConfigured)">
+            <summary>Connection</summary>
+
+            <div class="field">
+                <label for="scoring-endpoint">Where your model is listening</label>
+                <input id="scoring-endpoint" type="text" spellcheck="false" maxlength="200"
+                       placeholder="http://192.168.1.50:1234" disabled="@_busy.IsRunning"
+                       @bind="_endpoint" @bind:event="oninput" />
+                <p class="muted">
+                    LM Studio serves <code>http://localhost:1234</code> and Ollama
+                    <code>http://localhost:11434</code> by default. AniQueue adds the rest
+                    of the address itself.
+                </p>
+            </div>
+
+            <div class="field">
+                <label for="scoring-model">Which model</label>
+                <input id="scoring-model" type="text" spellcheck="false" maxlength="200"
+                       placeholder="Whatever your server calls it" disabled="@_busy.IsRunning"
+                       @bind="_model" @bind:event="oninput" />
+            </div>
+
+            <div class="field">
+                <label for="scoring-timeout">Give up after (seconds)</label>
+                <input id="scoring-timeout" type="number" min="5" max="3600"
+                       disabled="@_busy.IsRunning"
+                       @bind="_timeoutSeconds" @bind:event="oninput" />
+            </div>
+
+            <div class="field">
+                <label for="scoring-structured">
+                    <input type="checkbox" id="scoring-structured" checked="@_structuredOutput"
+                           @onchange="e => _structuredOutput = (bool)(e.Value ?? false)" />
+                    Ask the server for JSON only
+                </label>
+                <p class="muted">
+                    Leave this on unless your server rejects the request. It stops a model
+                    wrapping its answer in explanation, which AniQueue can cope with but
+                    would rather not have to.
+                </p>
+            </div>
+
+            <div class="toolbar">
+                <button class="primary" disabled="@_busy.IsRunning" @onclick="SaveConnectionAsync">
+                    <Icon Name="save" />Save
+                </button>
+            </div>
+
+            @* Its own disclosure rather than a field among the connection details.
+               These are the settings that spend electricity while nobody is watching,
+               and burying them under the same triangle as a hostname makes them easy
+               to switch on without reading what they do. *@
+            <details class="source-settings">
+                <summary>Run on a schedule</summary>
+
+                <p class="muted">
+                    AniQueue can rank on its own — never touching your Up Next order, and
+                    never applying a reply it could not read in full. It works through the
+                    titles that have never been ranked first, then the ones your later
+                    ratings have overtaken.
+                </p>
+
+                @* How often is set on the Settings page now, once for every background
+                   task. What stays here is what a run may do when it happens. *@
+                <p class="muted">
+                    How often it looks is set on the <a href="settings">Settings</a> page, along
+                    with every other kind of background work. A run stops as soon as there
+                    is nothing out of date, so leaving it on costs nothing on a backlog
+                    that is already ranked.
+                </p>
+
+                <div class="field">
+                    <label for="scoring-batch">Titles per unattended request</label>
+                    <input id="scoring-batch" type="number" min="5" max="500"
+                           disabled="@_busy.IsRunning"
+                           @bind="_batchSize" @bind:event="oninput" />
+                    <p class="muted">
+                        Smaller batches fit a smaller model. If one turns out to be too big to
+                        read, AniQueue halves it and carries on rather than giving up.
+                    </p>
+                </div>
+
+                <div class="field">
+                    <label for="scoring-budget">Stop after (minutes)</label>
+                    <input id="scoring-budget" type="number" min="1" max="1440"
+                           disabled="@_busy.IsRunning"
+                           @bind="_sweepMinutes" @bind:event="oninput" />
+                    <p class="muted">
+                        How long one run may keep your model busy. Whatever it does not reach
+                        is picked up by the next one.
+                    </p>
+                </div>
+
+                <div class="field">
+                    <label for="scoring-stale">Re-rank after this many new ratings</label>
+                    <input id="scoring-stale" type="number" min="0" max="1000"
+                           disabled="@_busy.IsRunning"
+                           @bind="_staleAfterRatings" @bind:event="oninput" />
+                    <p class="muted">
+                        A ranking is only as good as the taste it was predicted against, so it
+                        goes out of date when you rate more shows rather than when time passes.
+                        Nobody has to pick an interval — it follows how much you actually
+                        watch. Zero leaves existing rankings alone for good.
+                    </p>
+                </div>
+
+                <div class="toolbar">
+                    <button class="primary" disabled="@_busy.IsRunning" @onclick="SaveScheduleAsync">
+                        <Icon Name="save" />Save
+                    </button>
+                </div>
+            </details>
+
+            <p class="muted">
+                Saved to <code>@Settings.Path</code>, which is where to change it by hand if
+                this page is ever unreachable.
+            </p>
+        </details>
+    </div>
+
+    @* Lifted out of both cards, because it governs a run down either route. Drawn in
+       one card it would otherwise be drawn in two, which is two controls over one
+       setting. Same lift, same reason, as the title language control on Sources. *@
+    <div class="card">
+        @* Bounded by the library rather than by an arbitrary ceiling. These offered
+           anything up to five thousand — the clamp the storage happens to apply — on a
+           library with a hundred and eighty titles waiting and five hundred scored, so
+           every value past the real count meant the same thing as the real count while
+           looking like a choice. A control whose range is mostly fiction teaches that
+           its numbers do not matter, which is the opposite of what these need to
+           teach: this is the page where a number too large is how a request stops
+           fitting in a model. *@
+        <details class="source-settings">
+            <summary>Settings</summary>
+
+            <div class="field">
+                <label for="candidate-limit">Titles to rank</label>
+                @* Lowering this lowers the other one with it. Without that the ceiling
+                   moved and the value did not, leaving "at most 25" printed under a
+                   field reading 180 — a control contradicting its own caption. *@
+                <input id="candidate-limit" type="number" min="1" max="@_waitingCount"
+                       placeholder="All @_waitingCount of them" disabled="@_busy.IsRunning"
+                       @bind="_candidateLimit" @bind:event="oninput"
+                       @bind:after="ClampReturnTop" />
+                <p class="muted">
+                    Leave this empty to offer everything you are planning to watch — all
+                    @_waitingCount of them, and it stays "everything" as your backlog grows.
+                    If your model struggles with a long list, set a number: each request then
+                    takes the titles that have gone longest without a score, so running it
+                    again works through the rest.
+                </p>
+            </div>
+
+            <div class="field">
+                <label for="return-top">Rankings to ask for back</label>
+                @* "All N of them", the same sentence the two fields either side of it use
+                   when empty. It read "One for every title", which is the same fact
+                   said a different way — and three controls that all mean everything when
+                   left alone should not need three readings to establish that. The number
+                   is what a limit here is measured against, so saying it is also what makes
+                   a typed value obviously smaller or obviously pointless. *@
+                <input id="return-top" type="number" min="1" max="@MaxReturnTop"
+                       placeholder="All @MaxReturnTop of them" disabled="@_busy.IsRunning"
+                       @bind="_returnTop" @bind:event="oninput" />
+                <p class="muted">
+                    Leave this empty to get a ranking for every title you send — all
+                    @MaxReturnTop of them, because nothing can come back that was not offered.
+                    Set a number and the model still weighs every title; it just returns the
+                    best of them. Worth setting when the reply is the slow part: a ranking
+                    with a sentence of reasoning per title is generated a word at a time, and
+                    a long one can run out of room halfway down the list.
+                </p>
+            </div>
+
+            <div class="field">
+                <label for="history-size">Scored titles to send as history</label>
+                <input id="history-size" type="number" min="1" max="@_scoredCount"
+                       placeholder="All @_scoredCount of them" disabled="@_busy.IsRunning"
+                       @bind="_historySize" @bind:event="oninput" />
+                <p class="muted">
+                    Most recently finished first, out of the @_scoredCount titles you have
+                    scored. More history means a ranking that fits your taste more closely, up
+                    to the point where it crowds out the backlog in your model's context — it
+                    is the larger half of a request, and the usual reason one is too big to
+                    read. Leave it empty to send all @_scoredCount, which is the biggest a
+                    request gets.
+                </p>
+            </div>
+
+            <div class="toolbar">
+                <button class="primary" disabled="@_busy.IsRunning" @onclick="SaveSizesAsync">
+                    <Icon Name="save" />Save
+                </button>
+            </div>
+        </details>
+    </div>
+}
+else
+{
+    @* One card while a preview is up, and only the card that produced it. Sources
+       learned this the hard way: rendering every card let each draw its own Discard,
+       so two sources meant two ways out of one preview. A preview is one route's
+       answer, so it is one route's card.
+
+       <b>A heading and nothing else</b>, which is where this departs from Sources.
+       There the collapsed card carries the Discard because the preview below it has
+       none; here the preview pairs Discard with Apply at the point the decision is
+       actually made, so a second one up here would be the same two-ways-out bug in a
+       new shape. What is left is the one thing the preview cannot say for itself:
+       which route produced it. *@
+    <div class="card collapsed">
+        <h2>Manual</h2>
+    </div>
+
+    <div class="card">
+        <h3>What this would do</h3>
+
+        @* One notice, carrying its own severity, rather than a heading followed by a
+           stack of separate banners. The colour is the summary: green means the
+           reply needed nothing said about it, and that reassurance was previously
+           expressed by showing nothing at all — which is indistinguishable from a
+           page that has not finished thinking.
+
+           Problems are listed inside it rather than beside it, because they are the
+           reasons for the colour rather than separate news. *@
+        <div class="notice @Status" role="@(_preview.HasErrors ? "alert" : "status")">
+            <strong>@Headline()</strong>
+
+            @if (_preview.Problems.Count > 0)
+            {
+                <ul class="notice-list">
+                    @* Errors first whatever order they arrived in: with one present
+                       nothing applies at all, so it is the only line that changes what
+                       happens next. *@
+                    @foreach (var problem in _preview.Problems.OrderByDescending(p => p.Severity))
+                    {
+                        <li>@problem.Message</li>
+                    }
+                </ul>
+            }
+        </div>
+
+        @{
+            @* Always asked now. This was skipped for a remote run, which knew what had
+               answered because the server said so in its own reply; there is no such
+               run any more, so anything previewed here came out of somebody else's
+               chat window and only they can say which model it was.
+
+               <b>Deliberately left empty, and deliberately not asked of the model.</b>
+               Both shortcuts fill this in by themselves and both fill it in wrongly.
+               Asking the model gets a fine-tune claiming to be ChatGPT and a quantised
+               build that does not know its own quant; carrying the previous run's
+               answer forward gets last week's ChatGPT stamped on today's local model.
+               This is the field somebody consults when deciding whether a better model
+               is worth re-running for, so a wrong answer costs more than no answer —
+               and neither shortcut is distinguishable, afterwards, from something a
+               person typed. *@
+            <div class="field model-field">
+                <label for="model-identifier">Which model produced this?</label>
+                <input id="model-identifier" type="text" maxlength="100"
+                       placeholder="@ModelPlaceholder" disabled="@_busy.IsRunning"
+                       @bind="_modelIdentifier" @bind:event="oninput" />
+                <p class="muted">
+                    Recorded with the ranking and shown beside every score it writes, so a
+                    score from a weaker model can be told apart later. Leave it blank if you
+                    are not sure — an unspecified model is worth more than a wrong one.
+                </p>
+            </div>
+        }
+
+        @* Above the table, not below it. A ranking runs to a couple of hundred rows,
+           and a decision that has already been described in the notice above should
+           not be at the far end of them: it is the first thing wanted after reading
+           what would happen, and the last thing reachable.
+
+           "Apply 182 scores" says the whole ranking, not this page of it, which is
+           the one thing paging could otherwise make ambiguous. *@
+        <div class="toolbar">
+            <button class="primary" disabled="@(_busy.IsRunning || !_preview.CanApply)"
+                    @onclick="ApplyAsync">
+                Apply @_preview.ApplicableCount @Plural(_preview.ApplicableCount, "score", "scores")
+            </button>
+            <button @onclick="Discard" disabled="@_busy.IsRunning">Discard</button>
+        </div>
+        @if (_preview.Items.Count > 0)
+        {
+            @* The numeric headers carry the class their cells do, so a right-aligned
+               column does not sit under a left-aligned label. *@
+            <div class="table-wrap">
+                <table class="ranking">
+                    <thead>
+                        <tr>
+                            @* No Rank column. The rows arrive ordered by
+                               predicted score, which is the order the backlog will
+                               show them in, so the position is readable off the table
+                               without a number claiming to be the model's own. *@
+                            <th scope="col">Title</th>
+                            <th scope="col" class="numeric">Score</th>
+                            <th scope="col" class="numeric">Confidence</th>
+                            <th scope="col">Why</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var item in VisibleItems)
+                        {
+                            <tr class="@(item.WillApply ? null : "muted")">
+                                @* The flex wrapper goes inside the cell, never on it.
+                                   A td set to display:flex stops being a table cell —
+                                   it leaves the column sizing entirely, so a fixed
+                                   layout cannot give it a width and it collapses to
+                                   its content while the header above it stays put.
+                                   Same structure as the backlog's rows. *@
+                                <td>
+                                    <div class="title-cell"><span>@item.Title</span></div>
+                                    @if (item.SkippedBecause is { } reason)
+                                    {
+                                        <div class="row-meta">Skipped — @reason</div>
+                                    }
+                                </td>
+                                @* "was" only when it changed. Applying the same ranking
+                                   twice, or re-checking a reply already applied, otherwise
+                                   prints "10, was 10" down the whole table — a second line
+                                   on every row that says nothing, and the noise arrives
+                                   exactly when the least is happening. *@
+                                <td class="numeric">
+                                    @Score(item.Result.PredictedScore)
+                                    @if (Changed(item) is { } previous)
+                                    {
+                                        <div class="row-meta">was @previous</div>
+                                    }
+                                </td>
+                                <td class="numeric">@Percent(item.Result.Confidence)</td>
+                                <td>@item.Result.Reason</td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+
+            @* Paged in memory, unlike the backlog's, which pages in the database
+               because it is reading several thousand rows it does not have. This is
+               reading a list it already holds in full — the whole ranking arrived in
+               one reply and has to be applied as one — so paging is purely a matter
+               of how much to draw at once. Nothing is fetched by pressing these. *@
+            @if (_preview.Items.Count > PreviewPageSize)
+            {
+                <div class="toolbar">
+                    <button @onclick="() => _previewSkip = 0" disabled="@(_previewSkip == 0)">First</button>
+                    <button @onclick="() => _previewSkip -= PreviewPageSize"
+                            disabled="@(_previewSkip == 0)">Previous</button>
+                    <span class="muted">
+                        @(_previewSkip + 1)–@Math.Min(_previewSkip + PreviewPageSize, _preview.Items.Count)
+                        of @_preview.Items.Count
+                    </span>
+                    <button @onclick="() => _previewSkip += PreviewPageSize"
+                            disabled="@(_previewSkip + PreviewPageSize >= _preview.Items.Count)">Next</button>
+                    <button @onclick="() => _previewSkip = (_preview.Items.Count - 1) / PreviewPageSize * PreviewPageSize"
+                            disabled="@(_previewSkip + PreviewPageSize >= _preview.Items.Count)">Last</button>
+                </div>
+            }
+        }
+    </div>
+}
+
+@if (_runs.Count > 0)
+{
+    <div class="card">
+        <h2>Past rankings</h2>
+
+        @* Ten, down from twenty. A scheduled sweep writes one run per batch rather than
+           one per sweep, so an evening against a real backlog fills this table with its
+           own batches and pushes out everything a person came here to compare against.
+           Ten is what fits on screen beside the card above it. *@
+        <p class="muted">The last @RunsShown, newest first.</p>
+
+        @* Kept because a ranking is the one thing here written by something that is
+           not the user, and "when did this score arrive, and from what" is the
+           question asked when one looks wrong. *@
+        <div class="table-wrap">
+            <table>
+                <thead>
+                    <tr>
+                        <th scope="col">When</th>
+                        @* "From" was one column collapsing the route and the model, so a run
+                           that named its model stopped saying how it arrived. They are
+                           separate questions: the route explains what a run is, the model
+                           is what makes two runs worth comparing. *@
+                        <th scope="col">Type</th>
+                        <th scope="col">Model</th>
+                        @* Right-aligned to match their cells. Left as plain headers they
+                           sat over the far edge of the numbers they label, which on a
+                           two-column pair of counts reads as a column boundary in the
+                           wrong place. *@
+                        <th scope="col" class="numeric">Ranked</th>
+                        <th scope="col" class="numeric">History</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var run in _runs)
+                    {
+                        <tr>
+                            <td>@run.CreatedAt.ToLocalTime().ToString("g", CultureInfo.CurrentCulture)</td>
+                            <td>@run.ProviderName</td>
+                            <td>
+                                @if (run.ModelIdentifier is { } model)
+                                {
+                                    @model
+                                }
+                                else
+                                {
+                                    <span class="muted">Unspecified</span>
+                                }
+                            </td>
+                            <td class="numeric">@run.ResultCount of @run.CandidateCount</td>
+                            <td class="numeric">@run.CompletedCount</td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    </div>
+}
+
+@code {
+    /// <summary>
+    /// Which route produced the preview on screen.
+    /// </summary>
+    /// <remarks>
+    /// Held by the page rather than carried on <c>ScoringPreview</c>, which stays
+    /// ignorant of how its reply arrived — that ignorance is what makes the two routes
+    /// one contract. The page needs it anyway to render only the card that
+    /// produced the preview, so asking the model name of a manual run costs nothing
+    /// extra.
+    /// </remarks>
+    /// <summary>What a run records about how it was carried.</summary>
+    /// <remarks>
+    /// Free text on <c>RecommendationRun</c>, shown to users in its own column.
+    /// The vocabulary is Manual and Scheduled: anything this page produces arrived by
+    /// hand. Old runs keep the value they were written with, so <c>Past rankings</c>
+    /// can still show a route that no longer exists.
+    /// </remarks>
+    private const string ProviderName = "Manual";
+
+    /// <summary>
+    /// Above this, asking for every ranking in one reply is a bad bet.
+    /// </summary>
+    /// <remarks>
+    /// <summary>Whether the scoring task is running right now.</summary>
+    /// <remarks>
+    /// Asked of the registry rather than held here, because what is running is the
+    /// runner's business and this page is one of several that could be open. It
+    /// replaces IScoringGate, which arbitrated between a sweep and a run started from
+    /// this page — and there is no such run any more.
+    /// </remarks>
+    private bool IsRanking =>
+        Tasks.Snapshot().Any(task => task.TaskKey == "scoring" && task.IsRunning);
+
+    private ScoringEndpointResult? _testResult;
+
+    private string? _endpoint;
+    private string? _model;
+    private int _timeoutSeconds;
+    private bool _structuredOutput;
+
+
+    /// <summary>Titles in the visible backlog, which is what a run covers.</summary>
+    private int _waitingCount;
+
+    /// <summary>Scored titles that exist, which is the most history there can be.</summary>
+    private int _scoredCount;
+
+    private ScoringCoverage? _coverage;
+
+    private int _staleAfterRatings = 5;
+
+
+    private int _batchSize = 25;
+    private int _sweepMinutes = 60;
+
+    private async Task SaveScheduleAsync()
+    {
+        _batchSize = Math.Clamp(_batchSize, 5, 500);
+        _sweepMinutes = Math.Clamp(_sweepMinutes, 1, 1440);
+        _staleAfterRatings = Math.Clamp(_staleAfterRatings, 0, 1000);
+
+        var saved = await Settings.SaveAsync(Settings.Read() with
+        {
+
+            ScoringBatchSize = _batchSize,
+            ScoringSweepMinutes = _sweepMinutes,
+            ScoringStaleAfterRatings = _staleAfterRatings
+        });
+
+        _error = saved.Saved ? null : $"Could not save to {saved.Path}: {saved.Error}";
+
+        if (saved.Saved)
+        {
+            await _toasts.ShowAsync("Schedule saved");
+        }
+
+        // The staleness threshold decides what the card above counts, so the card has
+        // to be recounted rather than left describing the rule that was in force a
+        // moment ago.
+        await CountWaitingAsync();
+    }
+
+    /// <summary>The one line the card is read for.</summary>
+    /// <remarks>
+    /// Three states rather than two, because "nothing has been ranked yet" and "some
+    /// of this is out of date" call for different things: the first is an invitation
+    /// to start, the second a nudge to run it again. Collapsing them into "not up to
+    /// date" would tell a new user their empty backlog has gone off.
+    /// </remarks>
+    private static string CoverageHeadline(ScoringCoverage coverage) => coverage switch
+    {
+        { IsUntouched: true } => "No titles have been ranked yet",
+        { IsSettled: true } => "All rankings up to date",
+        { Stale: > 0, Unranked: > 0 } => $"{coverage.Unranked} unranked, {coverage.Stale} out of date",
+        { Stale: > 0 } => $"{coverage.Stale} {Plural(coverage.Stale, "ranking is", "rankings are")} out of date",
+        _ => $"{coverage.Unranked} {Plural(coverage.Unranked, "title has", "titles have")} never been ranked"
+    };
+
+    /// <summary>
+    /// The most rankings that could come back, which is however many were offered.
+    /// </summary>
+    /// <remarks>
+    /// Follows the candidate limit rather than the backlog: asking for fifty back out
+    /// of a request that offers twenty-five is not a smaller answer, it is an
+    /// impossible one, and the preview would then report twenty-five omissions the
+    /// user never chose.
+    /// </remarks>
+    private int MaxReturnTop => Math.Max(Math.Min(_candidateLimit ?? _waitingCount, _waitingCount), 1);
+
+    /// <summary>
+    /// Brings the return limit down when the offer it depends on shrinks.
+    /// </summary>
+    /// <remarks>
+    /// Only ever downwards. Raising the candidate limit again does not restore a
+    /// number the user has not asked for a second time — a setting that moves on its
+    /// own in both directions is one nobody can predict, and the one direction that
+    /// has to move is the one that would otherwise leave an impossible value on
+    /// screen.
+    /// </remarks>
+    private void ClampReturnTop()
+    {
+        if (_returnTop is { } top && top > MaxReturnTop)
+        {
+            _returnTop = MaxReturnTop;
+        }
+    }
+
+    /// <summary>What a request would cost, measured once per load.</summary>
+    private ScoringSizeEstimate? _estimate;
+
+    /// <summary>
+    /// Roughly how much a run would ask the model to read.
+    /// </summary>
+    /// <remarks>
+    /// Measured from two real requests at startup rather than estimated from a formula,
+    /// because a candidate's size depends on how many identifiers and title variants it
+    /// carries and that varies by library. Four characters to the token is the usual
+    /// rule of thumb, and this is a rule-of-thumb number: it exists to tell somebody
+    /// whether they are near their model's limit, not to predict the tokeniser.
+    /// </remarks>
+    private int EstimatedRequestTokens
+    {
+        get
+        {
+            if (_estimate is not { } estimate)
+            {
+                return 0;
+            }
+
+            var candidates = Math.Min(_candidateLimit ?? _waitingCount, _waitingCount);
+
+            return estimate.CharactersFor(candidates) / 4;
+        }
+    }
+
+    /// <summary>A token count as a person would read it.</summary>
+    private static string Tokens(int tokens) => tokens < 1000
+        ? $"{tokens} tokens"
+        : $"{tokens / 1000.0:0.#}K tokens";
+
+    /// <summary>
+    /// The shape the field expects, shown while it is empty.
+    /// </summary>
+    /// <remarks>
+    /// Abbreviated to the wrapper the parser actually requires. A full example would
+    /// be too wide for the field and would wrap into something that no longer looks
+    /// like the JSON it is describing.
+    /// </remarks>
+    private const string ResponseExample = """{ "results": [ … ] }""";
+
+    private BusyScope _busy = default!;
+    private ToastScope _toasts = default!;
+    private IJSObjectReference? _module;
+
+    private ScoringRequest? _request;
+    /// <summary>The request as JSON, which is what the size on the card measures.</summary>
+    private string? _payload;
+
+    /// <summary>Instructions and request as the single thing a person carries.</summary>
+    private string? _document;
+
+    private string? _response;
+    private ScoringPreview? _preview;
+
+    /// <summary>How many past runs the table shows. See the note beside it.</summary>
+    private const int RunsShown = 10;
+
+    private IReadOnlyList<RecommendationRunSummary> _runs = [];
+
+    private int? _historySize = ScoringRequestOptions.Default.MaxHistory;
+
+    /// <summary>How many scored titles a request would actually carry.</summary>
+    /// <remarks>
+    /// The setting says how many at most; this says how many there are. They differ only
+    /// when the field is empty, which now means all of them rather than none of them.
+    /// </remarks>
+    private int HistorySent => Math.Min(_historySize ?? _scoredCount, _scoredCount);
+    private int? _candidateLimit;
+    private int? _returnTop;
+
+    /// <summary>What the user says produced the ranking. Recorded with the run.</summary>
+    private string? _modelIdentifier;
+
+    /// <summary>
+    /// How many rows of a ranking to draw at once.
+    /// </summary>
+    /// <remarks>
+    /// Half the backlog's fifty, because these rows are taller: each carries a
+    /// sentence of reasoning, and a screen of them is the point of reading the
+    /// preview at all.
+    /// </remarks>
+    private const int PreviewPageSize = 25;
+
+    private int _previewSkip;
+
+    /// <summary>The rows currently drawn. Applying is never limited to these.</summary>
+    private IEnumerable<ScoringPreviewItem> VisibleItems =>
+        _preview!.Items.Skip(_previewSkip).Take(PreviewPageSize);
+
+    /// <summary>How many titles are waiting, when the request covers only some.</summary>
+    private int _waiting;
+
+    private string? _error;
+    private string? _copied;
+    private string? _applied;
+
+    /// <summary>How many the request covers, or null when it covers all of them.</summary>
+    private int? _capped => _request is { } request && request.IsCandidatesCapped
+        ? request.Candidates.Count
+        : null;
+
+
+    protected override void OnInitialized()
+    {
+        _busy = new BusyScope(() => InvokeAsync(StateHasChanged));
+        _toasts = new ToastScope(() => InvokeAsync(StateHasChanged));
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        // Read from the settings file rather than from the service, which no longer
+        // owns a setting. The monitor gives the value currently in effect,
+        // including one an environment variable supplied, so the inputs show what a
+        // request would actually use rather than only what this page last wrote.
+        var current = ScoringOptions.CurrentValue;
+        var options = current.ToRequestOptions();
+
+        _historySize = options.MaxHistory;
+        _candidateLimit = options.MaxCandidates;
+        _returnTop = options.ReturnTop;
+
+        _endpoint = current.Endpoint;
+        _model = current.Model;
+        _timeoutSeconds = current.TimeoutSeconds;
+        _structuredOutput = current.UseStructuredOutput;
+
+
+        _batchSize = current.BatchSize;
+        _sweepMinutes = current.SweepMinutes;
+
+        await LoadRunsAsync();
+        await CountWaitingAsync();
+    }
+
+    /// <summary>
+    /// How many titles are waiting, without building a request to find out.
+    /// </summary>
+    /// <remarks>
+    /// The Remote card says what a run would cover before anybody asks for one, and
+    /// building a whole request to render a number would mean loading the backlog on
+    /// every page view. A request that is capped still reports the full count on it,
+    /// so this is the cheapest thing that answers the question honestly.
+    /// </remarks>
+    private async Task CountWaitingAsync()
+    {
+        // One call, and it is the service that decides how to answer it. This was
+        // two BuildRequestAsync calls, which read and serialised every rated title twice
+        // to render one number — four times a visit, because this page prerenders and
+        // initialises again when its circuit connects.
+        //
+        // The notes flag travels with it, which the old pair did not carry: a request
+        // built with personal notes is bigger than one without, so leaving it out
+        // under-reported the size for exactly the person who had opted in.
+        _estimate = await Recommender.MeasureAsync(
+            Profile.DefaultProfileId,
+            ScoringRequestOptions.From(
+                _historySize,
+                candidateLimit: null,
+                includePersonalNotes: ScoringOptions.CurrentValue.IncludePersonalNotes));
+
+        _waitingCount = _estimate.CandidatesAvailable;
+        _scoredCount = _estimate.HistoryAvailable;
+
+        _staleAfterRatings = ScoringOptions.CurrentValue.StaleAfterRatings;
+        _coverage = await Recommender.GetCoverageAsync(Profile.DefaultProfileId, _staleAfterRatings);
+    }
+
+    private async Task BuildAsync()
+    {
+        Reset();
+
+        var options = ScoringRequestOptions.From(
+            _historySize,
+            _candidateLimit,
+            _returnTop,
+            ScoringOptions.CurrentValue.IncludePersonalNotes);
+
+        _request = await _busy.RunAsync(
+            "Building the request",
+            _ => Recommender.BuildRequestAsync(Profile.DefaultProfileId, options));
+
+        _waiting = _request.CandidatesAvailable;
+
+        // Rendered once and held, so the file, the clipboard and the text on screen
+        // are three views of one string rather than three builds of it.
+        _payload = ScoringRequestWriter.Write(_request);
+
+        // Instructions first, then the request. A model reads the whole message either
+        // way, but the person pasting it reads the top — and what they need to see is
+        // that this is a set of instructions, not a wall of JSON that begins nowhere.
+        _document = ScoringPromptBuilder.Build(_request)
+            + Environment.NewLine
+            + Environment.NewLine
+            + _payload;
+    }
+
+    // A ranking arrives from the sweep with nobody present, or by hand through the
+    // paste route below. Nothing on this page opens an outbound scoring request that
+    // somebody is waiting on.
+
+    private async Task TestAsync()
+    {
+        Reset();
+
+        _testResult = await _busy.RunAsync(
+            "Testing the connection",
+            _ => Endpoint.TestAsync());
+
+        // A server that answers and cannot produce a ranking is a distinct outcome
+        // from one that does not answer, and it is the whole reason this sends a real
+        // request rather than a ping. The parser decides which happened.
+        if (_testResult.Succeeded && new ScoringResponseParser().Parse(_testResult.Reply!).HasErrors)
+        {
+            _testResult = _testResult with
+            {
+                Failure = ScoringEndpointFailure.Unreadable,
+                Message = "It answered, but not with a ranking AniQueue could read. "
+                    + "Try turning on \"Ask the server for JSON only\", or a larger model.",
+                Diagnostic = _testResult.Reply
+            };
+        }
+    }
+
+    private string TestHeadline(ScoringEndpointResult test) => test.Succeeded
+        ? $"Answered in {Elapsed(test.Duration)}"
+            + (test.ModelIdentifier is { } model ? $" using {model}." : ".")
+        : test.Message ?? "It did not answer.";
+
+    private async Task SaveConnectionAsync()
+    {
+        var saved = await Settings.SaveAsync(Settings.Read() with
+        {
+            ScoringEndpoint = string.IsNullOrWhiteSpace(_endpoint) ? null : _endpoint.Trim(),
+            ScoringModel = string.IsNullOrWhiteSpace(_model) ? null : _model.Trim(),
+            ScoringTimeoutSeconds = Math.Clamp(_timeoutSeconds, 5, 3600),
+            ScoringUseStructuredOutput = _structuredOutput
+        });
+
+        _error = saved.Saved ? null : $"Could not save to {saved.Path}: {saved.Error}";
+
+        // Cleared because it describes a connection that may no longer be the one
+        // configured: a green "answered in 1s" sitting under a hostname somebody has
+        // just changed is a claim about the wrong server.
+        _testResult = null;
+
+        if (saved.Saved)
+        {
+            await _toasts.ShowAsync("Connection saved");
+        }
+    }
+
+    private async Task SaveSizesAsync()
+    {
+        // Bounded by the library before the storage bounds them by its own ceiling. The
+        // max attributes above stop a spinner going past the real count, and a typed or
+        // pasted number walks straight past those — a control that gates only in the
+        // browser gates only the people who were not going to overshoot anyway.
+        //
+        // Asking for more than exists was never an error and never will be: the request
+        // simply carries what there is. What it was, was a number on screen that did not
+        // describe anything, on the one page where a number too large is how a request
+        // stops fitting in a model.
+        if (_historySize is { } history)
+        {
+            _historySize = Math.Clamp(history, 1, Math.Max(_scoredCount, 1));
+        }
+
+        if (_candidateLimit is { } candidates)
+        {
+            _candidateLimit = Math.Clamp(candidates, 1, Math.Max(_waitingCount, 1));
+        }
+
+        if (_returnTop is { } top)
+        {
+            _returnTop = Math.Clamp(top, 1, MaxReturnTop);
+        }
+
+        var options = ScoringRequestOptions.From(_historySize, _candidateLimit, _returnTop);
+
+        var saved = await Settings.SaveAsync(Settings.Read() with
+        {
+            ScoringHistorySize = options.MaxHistory,
+            ScoringCandidateLimit = options.MaxCandidates,
+            ScoringReturnTop = options.ReturnTop
+        });
+
+        // Clamped values back into the inputs, so a number the settings refused does
+        // not sit on screen looking like it was accepted.
+        _historySize = options.MaxHistory;
+        _candidateLimit = options.MaxCandidates;
+        _returnTop = options.ReturnTop;
+
+        _error = saved.Saved ? null : $"Could not save to {saved.Path}: {saved.Error}";
+
+        if (saved.Saved)
+        {
+            await _toasts.ShowAsync("Sizes saved");
+        }
+
+        // Re-measured, because the size on the Remote card is derived from the history
+        // that was current when it was taken. Without this the card answers "40 scored
+        // titles — roughly 27.1K tokens", which is the old cost beside the new count and
+        // is worse than showing nothing: the number exists to be acted on, and one that
+        // does not move when the setting does teaches that acting on it is pointless.
+        await CountWaitingAsync();
+    }
+
+    private async Task DownloadDocumentAsync()
+    {
+        // Plain text rather than .json, because it is no longer only JSON: a file named.
+        // json that opens with a paragraph of English is a file that lies about itself,
+        // and some upload boxes decide what they will accept from the extension.
+        var name = $"aniqueue-prompt-{DateTime.Now:yyyy-MM-dd}.txt";
+
+        if (!await InvokeModuleAsync<bool>("downloadText", name, _document!, "text/plain"))
+        {
+            _error = "The file could not be saved. The prompt is below and can be copied by hand.";
+        }
+    }
+
+    private Task CopyDocumentAsync() => CopyAsync(_document!, "Prompt");
+
+    private async Task CopyAsync(string text, string what)
+    {
+        _copied = null;
+        _error = null;
+
+        // The interop returns whether it reached the clipboard, because on plain
+        // http neither route is available and silence would look like success.
+        var copied = await InvokeModuleAsync<bool>("copyText", text);
+
+        if (copied)
+        {
+            _copied = $"{what} copied.";
+        }
+        else
+        {
+            _error = $"{what} could not be copied — your browser blocks it outside a "
+                + "secure connection. Open the panel below and copy it by hand.";
+        }
+    }
+
+    private async Task PreviewPastedAsync() => await PreviewAsync(_response!, _request);
+
+    /// <summary>
+    /// Reads a reply from a file, for a model whose output was saved rather than
+    /// pasted.
+    /// </summary>
+    /// <remarks>
+    /// Read into the textarea rather than previewed straight from the file, so the
+    /// two routes converge before anything is checked: what is previewed is always
+    /// what is on screen, and a reply that needs one character fixed can be fixed
+    /// where it is rather than re-saved and re-uploaded.
+    /// </remarks>
+    private async Task OnFileSelectedAsync(InputFileChangeEventArgs e)
+    {
+        Discard();
+
+        try
+        {
+            _response = await _busy.RunAsync($"Reading {e.File.Name}", async _ =>
+            {
+                // The parser enforces the same ceiling again on what it reads, so the
+                // limit holds whichever way in was used.
+                await using var stream = e.File.OpenReadStream(ScoringLimits.Default.MaxBytes);
+                using var reader = new StreamReader(stream);
+
+                return await reader.ReadToEndAsync();
+            });
+
+            await PreviewAsync(_response, _request);
+        }
+        catch (IOException ex)
+        {
+            Logger.LogWarning(ex, "Recommendation upload rejected");
+            _error = "That file is too large to read.";
+        }
+    }
+
+    private async Task PreviewAsync(string json, ScoringRequest? request = null)
+    {
+        _error = null;
+        _applied = null;
+
+        _preview = await _busy.RunAsync(
+            "Checking the reply",
+            // Pasted, for both ways in: the upload route reads the file into the textarea
+            // and comes through here, so what is checked is always a document a person
+            // carried, which is the route a reply has to name its database on.
+            _ => Recommender.PreviewAsync(Profile.DefaultProfileId, ScoringRoute.Pasted, json, request));
+
+        // A new ranking starts at its own beginning. Left alone, checking a second
+        // reply while on page four opens it four pages in, or on nothing at all when
+        // the new one is shorter.
+        _previewSkip = 0;
+    }
+
+    private async Task ApplyAsync()
+    {
+        // Whatever the user typed, or nothing. A run carried by hand has no server to
+        // ask what answered it — that was the remote route's advantage and it went
+        // with the route.
+        var model = string.IsNullOrWhiteSpace(_modelIdentifier) ? null : _modelIdentifier.Trim();
+
+        var result = await _busy.RunAsync(
+            "Applying the ranking",
+            progress => Recommender.ApplyAsync(
+                Profile.DefaultProfileId,
+                _preview!,
+                ProviderName,
+                model,
+                progress,
+
+                // Null, always: nothing here measures how long somebody else's chat
+                // window took. The sweep still records its own duration.
+                duration: null));
+
+        _applied = result.Skipped == 0
+            ? $"Scored {result.Applied} {Plural(result.Applied, "title", "titles")}."
+            : $"Scored {result.Applied} {Plural(result.Applied, "title", "titles")}, "
+                + $"and skipped {result.Skipped}.";
+
+        Discard();
+        await LoadRunsAsync();
+        await CountWaitingAsync();
+    }
+
+    /// <summary>
+    /// Clears the reply and its preview, leaving the request alone.
+    /// </summary>
+    /// <remarks>
+    /// Deliberately asymmetric. Discarding a ranking is a decision about that reply;
+    /// throwing away the request as well would mean rebuilding it to try a second
+    /// model, which is exactly what somebody discarding a bad reply is about to do.
+    /// </remarks>
+    private void Discard()
+    {
+        _preview = null;
+        _response = null;
+        _error = null;
+        _previewSkip = 0;
+    }
+
+    private void Reset()
+    {
+        Discard();
+        _applied = null;
+        _copied = null;
+    }
+
+    private async Task LoadRunsAsync() =>
+        _runs = await Recommender.GetRunsAsync(Profile.DefaultProfileId, RunsShown);
+
+    // The model name is never carried forward from the previous run. A pre-filled
+    // value looks exactly like a typed one, so a wrong answer in this field costs
+    // more than no answer.
+
+    /// <summary>
+    /// An example of what to type, rather than a note that typing is optional.
+    /// </summary>
+    private const string ModelPlaceholder = "e.g. GPT-5, or qwen2.5-14b";
+
+    /// <summary>
+    /// Calls the module, and treats an unavailable browser as a failure rather than
+    /// as an error.
+    /// </summary>
+    /// <remarks>
+    /// Nothing here is load-bearing: every route it offers has the payload on the
+    /// page behind it. So a JS failure reports and the page keeps working, in the
+    /// same spirit as Up Next's drag handle — letting the exception escape would
+    /// tear down the circuit and replace a missing convenience with an error page.
+    /// </remarks>
+    private async Task<T?> InvokeModuleAsync<T>(string name, params object?[] args)
+    {
+        try
+        {
+            _module ??= await JS.InvokeAsync<IJSObjectReference>(
+                "import", "./Components/Pages/Scoring.razor.js");
+
+            return await _module.InvokeAsync<T>(name, args);
+        }
+        catch (JSException ex)
+        {
+            Logger.LogWarning(ex, "Clipboard or download interop failed");
+            return default;
+        }
+        catch (JSDisconnectedException)
+        {
+            return default;
+        }
+    }
+
+    /// <summary>Which of the three notice colours the preview earns.</summary>
+    private string Status => _preview switch
+    {
+        { HasErrors: true } => "error",
+        { Problems.Count: > 0 } => "warning",
+        _ => "success"
+    };
+
+    /// <summary>The one sentence the colour is summarising.</summary>
+    private string Headline()
+    {
+        if (_preview!.HasErrors)
+        {
+            // States the consequence rather than the count, because with an error
+            // present the count is not what happens next — nothing is.
+            return "Nothing will be applied. A ranking that is wrong in part cannot be "
+                + "told apart from a whole one afterwards, so fix the reply or ask again.";
+        }
+
+        var scores = $"{_preview.ApplicableCount} {Plural(_preview.ApplicableCount, "score", "scores")}";
+
+        return _preview.Problems.Count > 0
+            ? $"{scores} will be applied. Worth reading first:"
+            : $"{scores} will be applied, and nothing about the reply needs your attention.";
+    }
+
+    private static string Score(double value) =>
+        value.ToString("0.#", CultureInfo.CurrentCulture);
+
+    /// <summary>
+    /// The score this row replaces, or null when it replaces nothing or replaces it
+    /// with the same number.
+    /// </summary>
+    /// <remarks>
+    /// Compared as displayed rather than as stored, so 8.64 and 8.6 do not count as a
+    /// change the table cannot show. A difference nobody can see is not one worth a
+    /// line of its own.
+    /// </remarks>
+    private static string? Changed(ScoringPreviewItem item)
+    {
+        if (item.PreviousScore is not { } previous)
+        {
+            return null;
+        }
+
+        var was = Score(previous);
+
+        return was == Score(item.Result.PredictedScore) ? null : was;
+    }
+
+    /// <summary>
+    /// Roughly how much text a request is, in the units a context window is discussed
+    /// in.
+    /// </summary>
+    /// <remarks>
+    /// Characters rather than tokens, and said as "about". Tokens are what a model
+    /// actually counts, but the ratio depends on its tokeniser and on how much of the
+    /// payload is Japanese — so a token figure would be a precise number that is
+    /// wrong, where an approximate size is honest and still tells someone whether
+    /// they are near their limit.
+    /// </remarks>
+    private static string Size(int characters) => characters < 2048
+        ? $"{characters} characters"
+        : $"{(characters / 1024.0).ToString("0.#", CultureInfo.CurrentCulture)} KB";
+
+    private static string Percent(double value) =>
+        ((int)Math.Round(value * 100)).ToString(CultureInfo.CurrentCulture) + "%";
+
+    private static string Plural(int count, string one, string many) => count == 1 ? one : many;
+
+    /// <summary>
+    /// A duration as somebody waiting on it would say it.
+    /// </summary>
+    /// <remarks>
+    /// Seconds while the number is small enough to read as progress, then minutes and
+    /// seconds. "0:47" is a clock rather than a wait, and "203 seconds" is arithmetic.
+    /// </remarks>
+    private static string Elapsed(TimeSpan elapsed) => elapsed.TotalMinutes < 1
+        ? $"{(int)elapsed.TotalSeconds}s"
+        : $"{(int)elapsed.TotalMinutes}m {elapsed.Seconds:00}s";
+
+    public async ValueTask DisposeAsync()
+    {
+        // Cancels a dismissal still counting down, so a toast shown just before the
+        // user navigated does not wake up to notify a page that has gone.
+        _toasts.Dispose();
+
+        if (_module is not null)
+        {
+            try
+            {
+                await _module.DisposeAsync();
+            }
+            catch (JSDisconnectedException)
+            {
+                // The circuit ended before the module could be released.
+            }
+        }
+    }
+}

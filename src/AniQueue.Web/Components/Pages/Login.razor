@@ -1,0 +1,132 @@
+@* Statically rendered, and it has to be. A cookie is set on an HTTP response, and
+   an interactive component has already sent its response by the time a click
+   reaches it — so this is a form post, not a button handler on a circuit. *@
+@page "/login"
+@layout SignedOutLayout
+
+@using System.ComponentModel.DataAnnotations
+@using AniQueue.Core.Security
+@using AniQueue.Infrastructure.Settings
+@using AniQueue.Web.Security
+@using Microsoft.AspNetCore.Authentication
+@using Microsoft.AspNetCore.Components.Endpoints
+@using Microsoft.AspNetCore.Authorization
+
+@attribute [AllowAnonymous]
+@attribute [ExcludeFromInteractiveRouting]
+
+@inject IAuthService Auth
+@inject NavigationManager Navigation
+@inject UserConfigStatus UserConfig
+
+<PageTitle>Sign in — AniQueue</PageTitle>
+
+<h1>Sign in</h1>
+
+@if (_wrong)
+{
+    <div class="notice error" role="alert">That is not the password.</div>
+}
+
+<EditForm Model="Input" OnValidSubmit="SubmitAsync" FormName="sign-in" method="post">
+    <DataAnnotationsValidator />
+
+    <label for="password">Password</label>
+    <InputText id="password" type="password" class="password" autocomplete="current-password"
+               autofocus @bind-Value="Input!.Password" />
+
+    <ValidationMessage For="() => Input!.Password" />
+
+    <button type="submit" class="primary">Sign in</button>
+</EditForm>
+
+@* The only page a locked-out person can reach, so it has to carry the whole way
+   back in — including where the file is. "Beside your database" is not an answer
+   to somebody who has never needed to know where that is. *@
+<p class="muted">
+    Forgotten it? Put this line in <code>@UserConfig.Path</code> and restart AniQueue:
+</p>
+
+<pre class="hint"><code>"Auth:Enabled": false</code></pre>
+
+<p class="muted">
+    That start forgets the password, so AniQueue is open to anybody who can reach it
+    until you set a new one.
+</p>
+
+@code {
+    [CascadingParameter]
+    private HttpContext HttpContext { get; set; } = default!;
+
+    [SupplyParameterFromForm]
+    private SignInInput? Input { get; set; }
+
+    /// <summary>Where the cookie handler wanted to go before it sent us here.</summary>
+    [SupplyParameterFromQuery(Name = "ReturnUrl")]
+    private string? ReturnUrl { get; set; }
+
+    private bool _wrong;
+
+    protected override async Task OnInitializedAsync()
+    {
+        // Assigned here rather than with an initializer: a form post supplies this
+        // property, and an initializer runs after that assignment and overwrites it.
+        Input ??= new SignInInput();
+
+        // Nothing to sign in to. Reachable by typing the address on an installation
+        // that is not asking, and a form that cannot succeed is worse than a
+        // redirect to the page they meant.
+        switch (await Auth.GetStateAsync(HttpContext.RequestAborted))
+        {
+            case AuthState.Open:
+                Navigation.NavigateTo("/");
+                break;
+
+            // Switched on with nothing to check. There is no password to type, so
+            // the useful page is the one that sets the first one.
+            case AuthState.NeedsPassword:
+                Navigation.NavigateTo(AniQueueAuth.PasswordPath);
+                break;
+        }
+    }
+
+    private async Task SubmitAsync()
+    {
+        var stamp = await Auth.SignInAsync(Input!.Password ?? string.Empty, HttpContext.RequestAborted);
+
+        // The pause a wrong password costs is inside SignInAsync, where it can be
+        // held against the account rather than paid once per connection. There is no
+        // lockout: on an application with one account a lockout locks out the only
+        // person who could lift it.
+        if (stamp is null)
+        {
+            _wrong = true;
+            return;
+        }
+
+        await HttpContext.SignInAsync(
+            AniQueueAuth.Scheme,
+            AniQueueAuth.PrincipalFor(stamp),
+
+            // Persistent, so closing the browser does not end it. Thirty days and
+            // renewed on use are set on the handler, which is where a lifetime that
+            // every sign-in shares belongs.
+            new AuthenticationProperties { IsPersistent = true });
+
+        Navigation.NavigateTo(SafeReturnUrl());
+    }
+
+    /// <summary>
+    /// The requested destination when it is somewhere in this application, and the
+    /// front page otherwise. A return address arrives in a query string, so it is
+    /// whatever the last person to send a link decided it was.
+    /// </summary>
+    private string SafeReturnUrl()
+        => ReturnUrl is { Length: > 1 } url && url[0] == '/' && url[1] != '/' ? url : "/";
+
+    private sealed class SignInInput
+    {
+        [Required(ErrorMessage = "Enter your password.")]
+        public string? Password { get; set; }
+    }
+}

@@ -1,0 +1,14 @@
+@* The diagonal arrow that conventionally means "this leaves the page".
+
+   Inline SVG rather than an icon font or an image: one shape, no request, and it
+   inherits currentColor so it tints with whatever badge it sits in.
+
+   aria-hidden because the link already has an accessible name that says where it
+   goes; announcing the decoration too would just be noise. *@
+
+<svg class="ext-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"
+     fill="none" stroke="currentColor" stroke-width="2.5"
+     stroke-linecap="round" stroke-linejoin="round">
+    <path d="M7 17 17 7" />
+    <path d="M9 7h8v8" />
+</svg>
