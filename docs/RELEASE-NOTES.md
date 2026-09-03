@@ -6,6 +6,29 @@ changelog of every commit — [`ROADMAP.md`](ROADMAP.md) holds the plan,
 here is the short list of things worth reading **before upgrading**, because a migration
 will apply them without asking.
 
+## v0.1.0 — the first release
+
+**The first tagged image, and the first `latest`.** Until now the only published image was
+`carlocgc/aniqueue:dev`, rebuilt from `development` on every merge and overwritten each time.
+`carlocgc/aniqueue:latest` is what the compose file pulls, and `carlocgc/aniqueue:v0.1.0` is
+the same image under a name that will not move. Nothing below this entry was ever in a
+release, so there is nothing to upgrade *from* and nothing here to read before doing it.
+
+**What it is.** Import a MyAnimeList export or sync a public AniList list, keep a hand-ordered
+*Up Next* that empties itself as you watch, see what each title comes with, and rank the
+backlog against your own past scores using a model you host. One container, one SQLite file
+under `/data`, no account anywhere.
+
+**What it is not.** It has had no external security audit — the pass that opened this gate was
+a self-review against §6, and it found and fixed two real holes rather than none. It serves
+plain HTTP. The optional password protects you from the other people on your own network and
+from nobody else. **Do not put it on the internet**, and read the warning at the top of the
+README before deciding what "on the internet" includes.
+
+**Zero-dot-one on purpose.** The phases are built and the suite is green, but nobody else has
+run this yet. Keep your own copy of `data/aniqueue.db`; it is the whole of the recovery path
+and it is deliberately outside anything AniQueue can do to it.
+
 ## Phase 18b — hidden entries come back
 
 **Anything you had hidden returns to the backlog and to the scoring candidate set.** The

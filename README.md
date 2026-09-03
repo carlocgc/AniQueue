@@ -12,10 +12,11 @@ those tools answer badly: *what do I actually watch next?*
 [![PR build](https://github.com/carlocgc/AniQueue/actions/workflows/pr-build.yml/badge.svg)](https://github.com/carlocgc/AniQueue/actions/workflows/pr-build.yml)
 [![Development image](https://github.com/carlocgc/AniQueue/actions/workflows/dev-image.yml/badge.svg)](https://github.com/carlocgc/AniQueue/actions/workflows/dev-image.yml)
 
-[![Docker image](https://img.shields.io/docker/image-size/carlocgc/aniqueue/dev?label=docker%20image)](https://hub.docker.com/r/carlocgc/aniqueue)
+[![Release](https://img.shields.io/docker/v/carlocgc/aniqueue?sort=semver&label=release)](https://hub.docker.com/r/carlocgc/aniqueue)
+[![Docker image](https://img.shields.io/docker/image-size/carlocgc/aniqueue/latest?label=docker%20image)](https://hub.docker.com/r/carlocgc/aniqueue)
 [![.NET 10](https://img.shields.io/badge/.NET-10-512BD4)](https://dotnet.microsoft.com/)
 [![Licence: AGPL-3.0](https://img.shields.io/badge/licence-AGPL--3.0-blue)](LICENSE)
-[![Status: pre-MVP](https://img.shields.io/badge/status-pre--MVP-orange)](docs/ROADMAP.md)
+[![Status: early release](https://img.shields.io/badge/status-early%20release-yellow)](docs/ROADMAP.md)
 
 </div>
 
@@ -35,9 +36,11 @@ Run it on a network you trust — a home LAN, or behind a VPN such as Tailscale 
 WireGuard. Do not put it on a public IP, and do not publish it through a reverse proxy
 or a tunnel unless that proxy terminates HTTPS in front of it.
 
-There is also no release yet. The only published image is `carlocgc/aniqueue:dev`,
-which is rebuilt from the `development` branch on every merge and overwritten each
-time. It is the author's own moving edge, not something to keep data in.
+The release to run is `carlocgc/aniqueue:latest`, which is what the compose file below
+pulls, and every release also keeps its own `vX.Y.Z` tag if you would rather pin one.
+There is a third image, `carlocgc/aniqueue:dev`, rebuilt from the `development` branch
+on every merge and overwritten each time. That one is the author's own moving edge, and
+not something to keep data in.
 
 ---
 
