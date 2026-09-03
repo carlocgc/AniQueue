@@ -4,56 +4,37 @@
 
 # AniQueue
 
-**Self-hosted anime watchlist and backlog decision layer.**
+**Self-hosted. Ranks your anime backlog with an LLM you choose, against your own past
+scores — not global popularity.**
 
-Your library already lives on MyAnimeList or AniList. AniQueue answers the question
-those tools answer badly: *what do I actually watch next?*
+Your library stays on MyAnimeList or AniList. AniQueue decides what you watch next.
 
 [![PR build](https://github.com/carlocgc/AniQueue/actions/workflows/pr-build.yml/badge.svg)](https://github.com/carlocgc/AniQueue/actions/workflows/pr-build.yml)
 [![Development image](https://github.com/carlocgc/AniQueue/actions/workflows/dev-image.yml/badge.svg)](https://github.com/carlocgc/AniQueue/actions/workflows/dev-image.yml)
 
-[![Docker image](https://img.shields.io/docker/image-size/carlocgc/aniqueue/dev?label=docker%20image)](https://hub.docker.com/r/carlocgc/aniqueue)
+[![Release](https://img.shields.io/docker/v/carlocgc/aniqueue?sort=semver&label=release)](https://hub.docker.com/r/carlocgc/aniqueue)
+[![Docker image](https://img.shields.io/docker/image-size/carlocgc/aniqueue/latest?label=docker%20image)](https://hub.docker.com/r/carlocgc/aniqueue)
 [![.NET 10](https://img.shields.io/badge/.NET-10-512BD4)](https://dotnet.microsoft.com/)
 [![Licence: AGPL-3.0](https://img.shields.io/badge/licence-AGPL--3.0-blue)](LICENSE)
-[![Status: pre-MVP](https://img.shields.io/badge/status-pre--MVP-orange)](docs/ROADMAP.md)
+[![Status: early release](https://img.shields.io/badge/status-early%20release-yellow)](docs/ROADMAP.md)
 
 </div>
 
----
-
-## ⚠️ Do not expose AniQueue to the internet
-
-**AniQueue has had no security audit.** It does have an optional password — set one on
-the settings page and every page asks for it — but that is a lock on the door, not a
-reason to move the door onto the street.
-
-**AniQueue serves plain HTTP.** On a network somebody else can listen to, the password
-you type and the cookie you get back both cross it in clear. The password protects you
-from the other people on your home network; it does not protect you from the internet.
-
-Run it on a network you trust — a home LAN, or behind a VPN such as Tailscale or
-WireGuard. Do not put it on a public IP, and do not publish it through a reverse proxy
-or a tunnel unless that proxy terminates HTTPS in front of it.
-
-There is also no release yet. The only published image is `carlocgc/aniqueue:dev`,
-which is rebuilt from the `development` branch on every merge and overwritten each
-time. It is the author's own moving edge, not something to keep data in.
-
----
+> **⚠️ Trusted networks only.** No security audit, and it serves plain HTTP. The optional
+> password protects you from other people on your LAN and from nothing else. Do not put it
+> on a public IP, or behind a proxy or tunnel that does not terminate HTTPS.
 
 ## What it does
 
-- **Import a MyAnimeList XML export**, or sync a public AniList list on a schedule.
-  Nothing is ever written back to either service.
-- **See what each title comes with** — prequels, sequels, side stories, spin-offs —
-  and queue a show and its sequels in one click.
-- **Keep a deliberate, hand-ordered *Up Next* queue.** Titles leave it on their own
-  once you have started or finished them, so it stays true without maintenance.
-- **Rank the backlog against your own historical scores** rather than global
-  popularity, using an external LLM of your choice. No account and no API key: paste
-  the request into any chat window, or point AniQueue at a model you host yourself.
-- **Run it on your own hardware.** One container, one SQLite file, no cloud
-  dependency.
+- **Ranks your backlog with an LLM**, against the scores you have already given. No account
+  and no API key: paste the request into any chat window, or point AniQueue at a model you
+  host yourself.
+- **A hand-ordered *Up Next*.** Titles leave it on their own once you start or finish them.
+- **Imports a MyAnimeList XML export**, or syncs a public AniList list on a schedule.
+  Nothing is written back to either.
+- **Shows what each title comes with** — prequels, sequels, side stories — and queues a show
+  and its sequels in one click.
+- **One container, one SQLite file.** No cloud dependency.
 
 <div align="center">
 
@@ -67,106 +48,76 @@ time. It is the author's own moving edge, not something to keep data in.
 docker compose up -d
 ```
 
-Then open `http://localhost:8377`. The first start creates the database, applies every
-migration and writes a `userconfig.json` beside it. The library starts empty, and the
-first screen offers an AniList sync or a MyAnimeList import.
+Open `http://localhost:8377`. The first start creates the database, applies every migration
+and writes `userconfig.json` beside it. The library starts empty and offers an AniList sync
+or a MyAnimeList import. Add `--build` to build from a checkout instead of pulling.
 
-To build the image from a checkout instead of pulling it, add `--build`.
+Images: `carlocgc/aniqueue:latest` is what compose pulls, `:vX.Y.Z` pins a release, and
+`:dev` is rebuilt from `development` on every merge — a moving edge, not somewhere to keep
+data.
 
 ### The volume
 
-Everything that must survive the container lives in one volume: `aniqueue.db`, the
-`userconfig.json` you edit when the pages cannot be reached, the cached cover art
-under `art/`, and the signing keys under `keys/` that keep open browser pages working
-across an upgrade. Recreating the container keeps all of it; deleting the volume
-deletes your library. Backup and restore are a copy of that volume with the container
-stopped.
+One volume holds everything that must outlive the container: `aniqueue.db`, the
+`userconfig.json` beside it, cached art under `art/`, and the signing keys under `keys/`
+that keep open browser pages working across an upgrade. Recreating the container keeps all
+of it. Deleting the volume deletes your library, so a backup is a copy of the volume taken
+with the container stopped.
 
-The compose file uses a **named volume**, and swapping it for a host path — the usual
-Unraid arrangement — needs nothing prepared. AniQueue's application process runs as
-UID **1654**; the container starts as root only long enough to hand `/data` to that
-user, then drops to it. A directory Docker created as root therefore works on first
-run instead of failing to open the database.
-
-If you would rather it not start as root at all, give it a user and a directory that
-already match:
+Swapping the named volume for a host path needs nothing prepared. AniQueue runs as UID
+**1654**, and the container starts as root only long enough to hand `/data` to that user
+before dropping to it. Pass an explicit `--user` and it is honoured as given, taking no
+ownership — the directory has to match already:
 
 ```bash
 chown -R 99:100 /mnt/user/appdata/aniqueue
 docker run --user 99:100 ...
 ```
 
-An explicit `--user` is honoured as given, and the container takes no ownership.
-
 ### Settings
 
-Every setting lives in `userconfig.json` in the volume. AniQueue writes it whenever
-you change something in the application, and you can edit it by hand — which is how
-you change its behaviour when its own pages cannot be reached. It holds every key it
-accepts with a line saying what each one does, and it is rewritten whole on every
+Every setting lives in `userconfig.json` in the volume. AniQueue writes it whenever you
+change something in the application, and you can edit it by hand when the pages cannot be
+reached. Each key carries a line saying what it does. The file is rewritten whole on every
 save, so anything else you put in it will not survive.
-
-The compose file holds the container's concerns only: the port, the volume and the
-log limits.
 
 ### The password
 
-AniQueue has no password until you set one, and setting one is the whole of turning
-the lock on: go to **Settings → Password**. Every page and every cover image then asks
-for it. Removing the password opens things up again. There is no username, because
-there is one account.
+Set one at **Settings → Password**; that is the whole of turning the lock on. There is no
+username, because there is one account. A sign-in lasts thirty days and renews as you use
+it. Changing or removing the password signs out every other device. `/health` is never
+behind it, so a container health check still works.
 
-A sign-in lasts thirty days and renews as you use it. Changing or removing the
-password signs out every other device, including the phone in your pocket.
-
-`/health` is never behind the password, so a container health check still works.
-
-**If you forget it**, put this in `userconfig.json` in your volume and restart:
+**If you forget it**, put this in `userconfig.json` and restart:
 
 ```json
 "Auth:Enabled": false
 ```
 
-That start forgets the password and says so in the log. AniQueue is then open to
-anybody who can reach it until you set a new one. The sign-in page tells you the
-file's full path, so you do not have to go looking.
-
-Setting a password writes `"Auth:Enabled": true` for you and removing one writes
-`false`, so you never have to touch that line yourself. Turning it on by hand before
-you have set a password is allowed and is not a lockout: every page then sends you to
-the form that sets one.
+That start forgets the password and says so in the log, leaving AniQueue open until you set
+a new one. The sign-in page names the file's full path. Turning the switch on by hand with
+no password set is not a lockout: every page sends you to the form that sets one.
 
 ### Logs
 
-Logs go to stdout and nowhere else, so `docker logs aniqueue` is the whole of it. The
-compose file caps them at three 10 MB files, because Docker's default driver does not
-rotate.
+Logs go to stdout and nowhere else, so `docker logs aniqueue` is all of it. The compose file
+caps them at three 10 MB files, because Docker's default driver does not rotate.
 
-Startup prints where the data is and what this installation is configured to do — the
-database and settings paths, whether sync is on and which AniList account it reads,
-whether scheduled scoring is on and where it points, and the background task cadence.
-Most "why is it not doing anything" questions are answered by those four lines.
-
-For more, turn on AniQueue's own debug logging. It says why each background task
-decided it had nothing to do, which filters a page ran, and why an image came back
-404:
+Startup prints where the data is and what this installation does: the database and settings
+paths, whether sync is on and which account it reads, whether scheduled scoring is on and
+where it points, and the task cadence. Most "why is it not doing anything" questions are
+answered there. For more:
 
 ```bash
 docker run -e Logging__LogLevel__AniQueue=Debug ...
 ```
 
-The container also reports a health check against `/health`, so `docker ps` says
-`healthy` rather than just `running`. It allows 40 seconds at startup, because a first
-run applies every migration before it serves anything.
-
 ### If you get a blank page
 
 Try it with browser extensions off. Anything that rewrites the page as it loads — a
-dark-mode extension, a translator, an accessibility overlay, Brave's Shields — can
-break the live connection this application renders through, and the symptom is an
-error banner or nothing at all. AniQueue ships Dark Reader's own opt-out tag and has a
-dark theme already, so that one is handled; the rest are not, and the application
-cannot detect them.
+dark-mode extension, a translator, an accessibility overlay, Brave's Shields — can break the
+live connection AniQueue renders through. Dark Reader is handled; the rest cannot be
+detected.
 
 ## Development
 
@@ -176,35 +127,26 @@ Requires the .NET 10 SDK, and Visual Studio 2026 or the `dotnet` CLI.
 dotnet tool restore
 dotnet build
 dotnet test
-```
-
-Run it with `F5` on `AniQueue.Web`, or:
-
-```bash
 dotnet run --project src/AniQueue.Web
 ```
 
-The development database is created at `src/AniQueue.Web/data/aniqueue.db` on first
-run and starts empty. For a surface that needs rows in it, use the sample profile
-instead — it has its own database and its own settings file under
+The development database is created at `src/AniQueue.Web/data/aniqueue.db` and starts empty.
+For a surface that needs rows, the sample profile has its own database and settings under
 `src/AniQueue.Web/data/sample/`, so it cannot touch a real library:
 
 ```bash
 dotnet run --project src/AniQueue.Web --launch-profile "http (sample data)"
 ```
 
-To reach the development server from a phone on the same network, use the *http (lan)*
-profile. Windows will want an inbound rule for the port. It is a plain-http server
-with no authentication, so it is for a network you trust and nothing else.
-
-There is a **Docker** profile in the Visual Studio run dropdown. It builds and runs
-this same Dockerfile — not one Container Tools writes — and attaches the debugger, so
-a breakpoint can be hit inside the container. It uses a volume of its own.
+The *http (lan)* profile reaches the development server from a phone on the same network;
+Windows will want an inbound rule for the port. The **Docker** profile in the Visual Studio
+dropdown builds and runs this same Dockerfile with the debugger attached, on a volume of its
+own.
 
 ## Technology
 
-.NET 10 · ASP.NET Core Blazor Web App (Interactive Server) · EF Core 10 · SQLite ·
-xUnit · Docker. No React, Angular, Vue, or separate frontend build system.
+.NET 10 · ASP.NET Core Blazor Web App (Interactive Server) · EF Core 10 · SQLite · xUnit ·
+Docker. No React, Angular, Vue, or separate frontend build system.
 
 ## Documentation
 
@@ -218,6 +160,4 @@ xUnit · Docker. No React, Angular, Vue, or separate frontend build system.
 
 ## Licence
 
-[GNU Affero General Public License v3.0](LICENSE). AniQueue is meant to be run as a
-service on hardware you control, and the AGPL is what keeps a modified version served
-to other people open as well.
+[GNU Affero General Public License v3.0](LICENSE).
