@@ -156,6 +156,7 @@ Docker. No React, Angular, Vue, or separate frontend build system.
 | [`docs/DECISIONS.md`](docs/DECISIONS.md) | The reasoning: every architectural decision and deviation, numbered |
 | [`docs/RELEASE-NOTES.md`](docs/RELEASE-NOTES.md) | Changes that alter data or behaviour, worth reading before upgrading |
 | [`docs/BUILD-PROMPT.md`](docs/BUILD-PROMPT.md) | The original project brief, preserved for reference |
+| [`docs/DOCKERHUB.md`](docs/DOCKERHUB.md) | The Docker Hub overview, pasted there by hand when it changes |
 | [`CLAUDE.md`](CLAUDE.md) | Working conventions: the development database, verification, testing, platform gotchas |
 
 ## Licence
