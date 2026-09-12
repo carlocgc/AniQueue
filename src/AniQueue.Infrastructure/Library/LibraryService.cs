@@ -453,7 +453,7 @@ public sealed class LibraryService(
     }
 
     /// <summary>
-    /// Applies the sort, always with a title tiebreak.
+    /// Applies the sort, always with a tiebreak that makes the order total.
     ///
     /// Without one, entries sharing a sort key come back in whatever order SQLite
     /// happens to produce, which can differ between pages of the same result set —
@@ -492,8 +492,11 @@ public sealed class LibraryService(
                       .ThenBy(e => e.Anime!.ReleaseYear)
                       .ThenBy(e => e.Anime!.Title),
 
+            // SQLite can neither order by nor compare a DateTimeOffset, so DateAdded
+            // cannot be the key. The row identifier stands in for it exactly: both are
+            // assigned when the entry is inserted and neither is written again.
             LibrarySort.DateAddedDescending =>
-                source.OrderByDescending(e => e.DateAdded).ThenBy(e => e.Anime!.Title),
+                source.OrderByDescending(e => e.Id),
 
             LibrarySort.UserScoreDescending =>
                 source.OrderBy(e => e.UserScore == null)

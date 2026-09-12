@@ -249,6 +249,25 @@ public class LibraryServiceTests
     }
 
     [Fact]
+    public async Task The_most_recently_added_title_comes_first()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+
+        await using (var context = fixture.Database.CreateContext())
+        {
+            await AddAsync(context, "Oldest");
+            await AddAsync(context, "Middle");
+            await AddAsync(context, "Newest");
+        }
+
+        var page = await fixture.Library.GetPageAsync(
+            Profile.DefaultProfileId,
+            new LibraryQuery { Sort = LibrarySort.DateAddedDescending });
+
+        Assert.Equal(["Newest", "Middle", "Oldest"], page.Items.Select(i => i.Title));
+    }
+
+    [Fact]
     public async Task Paging_is_stable_across_pages_when_sort_keys_tie()
     {
         // Every entry here shares a release year, so the sort key alone cannot
